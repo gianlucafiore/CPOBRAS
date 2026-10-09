@@ -15,6 +15,79 @@ use uuid::Uuid;
 
 type Db = Mutex<LocalStore>;
 
+#[derive(serde::Serialize)]
+struct LineSectionView {
+    line_id: String,
+    section_id: String,
+}
+
+#[tauri::command]
+fn list_line_sections(
+    db: tauri::State<'_, Db>,
+    estimate_id: String,
+) -> Result<Vec<LineSectionView>, String> {
+    let id = Uuid::parse_str(&estimate_id).map_err(|e| e.to_string())?;
+    let store = db.lock().map_err(|e| e.to_string())?;
+    store.list_line_sections(id)
+        .map_err(|e| e.to_string())
+        .map(|rows| rows.into_iter().map(|(line_id, section_id)| LineSectionView {
+            line_id: line_id.to_string(),
+            section_id: section_id.to_string(),
+        }).collect())
+}
+
+#[derive(serde::Serialize)]
+struct AnalysisComponentView {
+    resource_id: String,
+    description: String,
+    kind: String,
+    quantity: String,
+    unit_price: String,
+    total: String,
+}
+
+#[derive(serde::Serialize)]
+struct AnalysisDetailView {
+    code: String,
+    description: String,
+    unit: String,
+    unit_cost: String,
+    components: Vec<AnalysisComponentView>,
+}
+
+#[tauri::command]
+fn get_analysis_details(
+    db: tauri::State<'_, Db>,
+    analysis_id: String,
+) -> Result<AnalysisDetailView, String> {
+    let id = Uuid::parse_str(&analysis_id).map_err(|e| e.to_string())?;
+    let store = db.lock().map_err(|e| e.to_string())?;
+    let analysis = store.get_analysis(id)
+        .map_err(|e| e.to_string())?.ok_or("ACU inexistente")?;
+    let unit_cost = analysis.direct_unit_cost().map_err(|e| e.to_string())?;
+    let components = analysis.components.into_iter().map(|component| AnalysisComponentView {
+        resource_id: component.resource_id.to_string(),
+        description: component.description,
+        kind: match component.kind {
+            ResourceKind::Material => "material",
+            ResourceKind::Labor => "labor",
+            ResourceKind::Equipment => "equipment",
+            ResourceKind::Subcontract => "subcontract",
+        }.to_owned(),
+        total: (component.quantity_per_unit * component.unit_price).to_string(),
+        quantity: component.quantity_per_unit.to_string(),
+        unit_price: component.unit_price.to_string(),
+    }).collect();
+    Ok(AnalysisDetailView {
+        code: analysis.code,
+        description: analysis.description,
+        unit: analysis.unit,
+        unit_cost: unit_cost.to_string(),
+        components,
+    })
+}
+
+
 #[derive(serde::Deserialize)]
 struct ScenarioComponentInput {
     resource_id: String,
@@ -803,6 +876,7 @@ struct LineView {
     quantity: String,
     unit_cost: String,
     total: String,
+    analysis_id: Option<String>,
 }
 
 impl From<EstimateItem> for LineView {
@@ -814,6 +888,7 @@ impl From<EstimateItem> for LineView {
             unit: line.unit,
             quantity: line.quantity.to_string(),
             unit_cost: line.unit_cost_snapshot.to_string(),
+            analysis_id: line.analysis_id.map(|id| id.to_string()),
             total,
         }
     }
@@ -1125,6 +1200,8 @@ pub fn run() {
             reprice_analysis,
             save_budget_section,
             list_budget_sections,
+            list_line_sections,
+            get_analysis_details,
             assign_line_section,
             get_estimate_pricing,
             save_estimate_pricing,
