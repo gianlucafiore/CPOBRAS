@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import "./style.css";
 
 const root = document.querySelector("#app");
-const state = { clients: [], projects: [], view: "projects", editingProjectId: null, selectedProjectId: null, estimates: [] };
+const state = { clients: [], projects: [], view: "projects", editingProjectId: null, selectedProjectId: null, estimates: [], selectedEstimateId: null, estimateLines: [] };
 
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (char) =>
@@ -47,7 +47,8 @@ function render() {
             <div><span>Obras registradas</span><strong>${state.projects.length}</strong></div>
             <div><span>Clientes registrados</span><strong>${state.clients.length}</strong></div>
           </div>
-          ${projectsActive && opened ? `<section class="panel project-detail"><div class="panel-head"><h2>Presupuestos de ${escapeHtml(opened.name)}</h2><button type="button" id="close-project" class="edit-project">Cerrar ficha</button></div><div class="records">${state.estimates.length ? state.estimates.map((e) => `<div class="record"><div class="record-info"><strong>${escapeHtml(e.title)}</strong><small>${e.issued ? "Emitido" : "Borrador"} · ${escapeHtml(e.currency)}</small></div></div>`).join("") : '<p class="empty">Esta obra todavía no tiene presupuestos.</p>'}</div><form id="new-estimate" class="estimate-form"><label>Título del presupuesto<input name="title" required maxlength="140" placeholder="Ej.: Presupuesto inicial"></label><button class="primary" type="submit">+ Crear presupuesto</button></form><p class="feedback" role="status"></p></section>` : ""}
+          ${projectsActive && opened ? `<section class="panel project-detail"><div class="panel-head"><h2>Presupuestos de ${escapeHtml(opened.name)}</h2><button type="button" id="close-project" class="edit-project">Cerrar ficha</button></div><div class="records">${state.estimates.length ? state.estimates.map((e) => `<div class="record"><div class="record-info"><strong>${escapeHtml(e.title)}</strong><small>${e.issued ? "Emitido" : "Borrador"} · ${escapeHtml(e.currency)}</small></div><button class="edit-project" type="button" data-estimate="${e.id}">Partidas</button></div>`).join("") : '<p class="empty">Esta obra todavía no tiene presupuestos.</p>'}</div><form id="new-estimate" class="estimate-form"><label>Título del presupuesto<input name="title" required maxlength="140" placeholder="Ej.: Presupuesto inicial"></label><button class="primary" type="submit">+ Crear presupuesto</button></form><p class="feedback" role="status"></p></section>` : ""}
+          ${projectsActive && opened && state.selectedEstimateId ? `<section class="panel project-detail"><div class="panel-head"><h2>Partidas del presupuesto</h2><button type="button" id="close-estimate" class="edit-project">Volver a presupuestos</button></div><div class="records">${state.estimateLines.length ? state.estimateLines.map((line) => `<div class="record"><div class="record-info"><strong>${escapeHtml(line.description)}</strong><small>${escapeHtml(line.quantity)} ${escapeHtml(line.unit)} × ${escapeHtml(line.unit_cost)}</small></div><strong>${escapeHtml(line.total)}</strong></div>`).join("") : '<p class="empty">Todavía no hay partidas.</p>'}</div><div class="estimate-total">Total: ${state.estimateLines.reduce((sum, line) => sum + Number(line.total), 0).toLocaleString("es-AR", {minimumFractionDigits:2,maximumFractionDigits:2})} ${state.estimates.find((e) => e.id === state.selectedEstimateId)?.currency || ""}</div><form id="new-line" class="line-form"><label>Partida<input name="description" required maxlength="180" placeholder="Ej.: Hormigón H21"></label><label>Unidad<input name="unit" required maxlength="20" placeholder="m³"></label><label>Cantidad<input name="quantity" type="number" min="0" step="any" required></label><label>Precio unitario<input name="unitCost" type="number" min="0" step="any" required></label><button type="submit" class="primary">+ Agregar partida</button></form><p class="feedback" role="status"></p></section>` : ""}
           <div class="columns">
             <section class="panel">
               <div class="panel-head"><h2>${projectsActive ? "Listado de obras" : "Directorio de clientes"}</h2><span>${projectsActive ? state.projects.length : state.clients.length} registros</span></div>
@@ -91,9 +92,46 @@ function render() {
       render();
     });
   });
+  root.querySelectorAll("[data-estimate]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      try {
+        state.selectedEstimateId = button.dataset.estimate;
+        state.estimateLines = await invoke("list_estimate_lines", { estimateId: state.selectedEstimateId });
+        render();
+      } catch (error) { window.alert(String(error)); }
+    });
+  });
+  root.querySelector("#close-estimate")?.addEventListener("click", () => {
+    state.selectedEstimateId = null;
+    state.estimateLines = [];
+    render();
+  });
+  root.querySelector("#new-line")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const submit = form.querySelector('[type="submit"]');
+    submit.disabled = true;
+    const values = new FormData(form);
+    try {
+      await invoke("add_estimate_line", {
+        estimateId: state.selectedEstimateId,
+        description: values.get("description"),
+        unit: values.get("unit"),
+        quantity: values.get("quantity"),
+        unitCost: values.get("unitCost"),
+      });
+      state.estimateLines = await invoke("list_estimate_lines", { estimateId: state.selectedEstimateId });
+      render();
+    } catch (error) {
+      form.parentElement.querySelector(".feedback").textContent = "Error: " + String(error);
+      submit.disabled = false;
+    }
+  });
   root.querySelectorAll("[data-open]").forEach((button) => {
     button.addEventListener("click", async () => {
       state.selectedProjectId = button.dataset.open;
+      state.selectedEstimateId = null;
+      state.estimateLines = [];
       try {
         state.estimates = await invoke("list_project_estimates", { projectId: state.selectedProjectId });
         render();
@@ -104,6 +142,8 @@ function render() {
   });
   root.querySelector("#close-project")?.addEventListener("click", () => {
     state.selectedProjectId = null;
+    state.selectedEstimateId = null;
+    state.estimateLines = [];
     state.estimates = [];
     render();
   });
