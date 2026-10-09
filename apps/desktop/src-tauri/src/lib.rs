@@ -36,6 +36,38 @@ fn create_client(
 }
 
 #[tauri::command]
+fn update_project(
+    db: tauri::State<'_, Db>,
+    project_id: String,
+    project_name: String,
+    client_id: String,
+    currency: String,
+) -> Result<Project, String> {
+    if project_name.trim().is_empty() {
+        return Err("El nombre de la obra es obligatorio".into());
+    }
+    let id = Uuid::parse_str(&project_id).map_err(|e| e.to_string())?;
+    let client_id = Uuid::parse_str(&client_id).map_err(|e| e.to_string())?;
+    let currency = match currency.as_str() {
+        "ARS" => Currency::Ars,
+        "USD" => Currency::Usd,
+        _ => return Err("Moneda desconocida".into()),
+    };
+    let mut store = db.lock().map_err(|e| e.to_string())?;
+    if store.get_project(id).map_err(|e| e.to_string())?.is_none() {
+        return Err("La obra no existe".into());
+    }
+    let project = Project {
+        id,
+        client_id,
+        name: project_name.trim().to_owned(),
+        currency,
+    };
+    store.save_project(&project).map_err(|e| e.to_string())?;
+    Ok(project)
+}
+
+#[tauri::command]
 fn list_projects(db: tauri::State<'_, Db>) -> Result<Vec<Project>, String> {
     db.lock()
         .map_err(|e| e.to_string())?
@@ -85,7 +117,8 @@ pub fn run() {
             list_clients,
             create_client,
             list_projects,
-            create_project
+            create_project,
+            update_project
         ])
         .run(tauri::generate_context!())
         .expect("error al iniciar CPOBRAS");
