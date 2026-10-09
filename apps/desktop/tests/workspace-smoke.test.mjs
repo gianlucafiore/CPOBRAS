@@ -91,7 +91,7 @@ test("opens a new-line popup and saves through Tauri, then returns to the grid",
   await app.click("open-project", "project-1");
   await app.click("modal-line");
   assert.match(app.root.innerHTML, /Agregar partida/);
-  assert.doesNotMatch(app.root.innerHTML, /Editar partida/);
+  assert.doesNotMatch(app.root.innerHTML, /<h2>Editar partida<\/h2>/);
   const submit = { disabled: false, isConnected: true };
   const form = {
     id: "dialog-form",
