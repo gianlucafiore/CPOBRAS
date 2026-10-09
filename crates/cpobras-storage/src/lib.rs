@@ -4,8 +4,8 @@ use rusqlite::{params, Connection, OptionalExtension};
 use std::path::Path;
 use uuid::Uuid;
 
-pub mod resource_catalog;
 pub mod estimates;
+pub mod resource_catalog;
 
 const INITIAL_MIGRATION: &str = include_str!("../migrations/0001_initial.sql");
 const RESOURCES_MIGRATION: &str = include_str!("../migrations/0002_resources.sql");
