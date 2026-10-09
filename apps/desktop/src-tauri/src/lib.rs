@@ -124,7 +124,8 @@ fn reprice_analysis(
 ) -> Result<AnalysisView, String> {
     let id = Uuid::parse_str(&analysis_id).map_err(|e| e.to_string())?;
     let mut store = db.lock().map_err(|e| e.to_string())?;
-    let analysis = store.reprice_analysis_at(id, &effective_date)
+    let analysis = store
+        .reprice_analysis_at(id, &effective_date)
         .map_err(|e| e.to_string())?;
     analysis_view(analysis)
 }
