@@ -134,6 +134,80 @@ impl LocalStore {
         Ok(())
     }
 
+    /// Edits an existing draft line; issued estimate triggers enforce immutability.
+    pub fn update_estimate_item(&mut self, item: &EstimateItem) -> Result<()> {
+        if item.description.trim().is_empty()
+            || item.unit.trim().is_empty()
+            || item.quantity < Decimal::ZERO
+            || item.unit_cost_snapshot < Decimal::ZERO
+            || item.position < 0
+        {
+            return Err(StorageError::InvalidValue("invalid estimate line".into()));
+        }
+        let changed = self.conn.execute(
+            "UPDATE estimate_lines SET description=?1, unit=?2, quantity=?3, unit_cost_snapshot=?4
+             WHERE id=?5 AND estimate_id=?6",
+            params![
+                item.description,
+                item.unit,
+                item.quantity.to_string(),
+                item.unit_cost_snapshot.to_string(),
+                item.id.to_string(),
+                item.estimate_id.to_string(),
+            ],
+        )?;
+        if changed != 1 {
+            return Err(StorageError::InvalidValue("estimate line not found".into()));
+        }
+        Ok(())
+    }
+
+    pub fn delete_estimate_item(&mut self, estimate_id: Uuid, item_id: Uuid) -> Result<()> {
+        let changed = self.conn.execute(
+            "DELETE FROM estimate_lines WHERE id=?1 AND estimate_id=?2",
+            params![item_id.to_string(), estimate_id.to_string()],
+        )?;
+        if changed != 1 {
+            return Err(StorageError::InvalidValue("estimate line not found".into()));
+        }
+        Ok(())
+    }
+
+    pub fn duplicate_estimate(&mut self, source_id: Uuid, title: &str) -> Result<Estimate> {
+        if title.trim().is_empty() {
+            return Err(StorageError::InvalidValue("empty estimate title".into()));
+        }
+        let source = self.get_estimate(source_id)?
+            .ok_or_else(|| StorageError::InvalidValue("estimate not found".into()))?;
+        let entries = self.estimate_items(source_id)?;
+        let copy = Estimate {
+            id: Uuid::new_v4(),
+            project_id: source.project_id,
+            title: title.trim().to_owned(),
+            currency: source.currency,
+            issued: false,
+        };
+        let transaction = self.conn.transaction()?;
+        transaction.execute(
+            "INSERT INTO estimates(id, project_id, title, currency) VALUES (?1, ?2, ?3, ?4)",
+            params![copy.id.to_string(), copy.project_id.to_string(), copy.title, currency_code(copy.currency)],
+        )?;
+        for entry in entries {
+            transaction.execute(
+                "INSERT INTO estimate_lines(id, estimate_id, position, analysis_id,
+                 description, unit, quantity, unit_cost_snapshot)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    Uuid::new_v4().to_string(), copy.id.to_string(), entry.position,
+                    entry.analysis_id.map(|id| id.to_string()), entry.description, entry.unit,
+                    entry.quantity.to_string(), entry.unit_cost_snapshot.to_string(),
+                ],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(copy)
+    }
+
     pub fn estimate_items(&self, estimate_id: Uuid) -> Result<Vec<EstimateItem>> {
         let mut statement = self.conn.prepare(
             "SELECT id, position, analysis_id, description, unit, quantity, unit_cost_snapshot
