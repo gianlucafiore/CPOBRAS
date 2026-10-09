@@ -1,5 +1,8 @@
 use cpobras_core::{Client, Currency, Project};
-use cpobras_storage::{estimates::{Estimate, EstimateItem}, LocalStore};
+use cpobras_storage::{
+    estimates::{Estimate, EstimateItem},
+    LocalStore,
+};
 use rust_decimal::Decimal;
 use std::str::FromStr;
 use std::sync::Mutex;
@@ -61,7 +64,10 @@ impl From<EstimateItem> for LineView {
 }
 
 #[tauri::command]
-fn list_estimate_lines(db: tauri::State<'_, Db>, estimate_id: String) -> Result<Vec<LineView>, String> {
+fn list_estimate_lines(
+    db: tauri::State<'_, Db>,
+    estimate_id: String,
+) -> Result<Vec<LineView>, String> {
     let id = Uuid::parse_str(&estimate_id).map_err(|e| e.to_string())?;
     let store = db.lock().map_err(|e| e.to_string())?;
     if store.get_estimate(id).map_err(|e| e.to_string())?.is_none() {
@@ -82,14 +88,19 @@ fn add_estimate_line(
 ) -> Result<LineView, String> {
     let estimate_id = Uuid::parse_str(&estimate_id).map_err(|e| e.to_string())?;
     let quantity = Decimal::from_str(&quantity.replace(',', ".")).map_err(|e| e.to_string())?;
-    let unit_cost_snapshot = Decimal::from_str(&unit_cost.replace(',', ".")).map_err(|e| e.to_string())?;
+    let unit_cost_snapshot =
+        Decimal::from_str(&unit_cost.replace(',', ".")).map_err(|e| e.to_string())?;
     let mut store = db.lock().map_err(|e| e.to_string())?;
-    let estimate = store.get_estimate(estimate_id).map_err(|e| e.to_string())?
+    let estimate = store
+        .get_estimate(estimate_id)
+        .map_err(|e| e.to_string())?
         .ok_or("El presupuesto no existe")?;
     if estimate.issued {
         return Err("El presupuesto ya fue emitido".into());
     }
-    let lines = store.estimate_items(estimate_id).map_err(|e| e.to_string())?;
+    let lines = store
+        .estimate_items(estimate_id)
+        .map_err(|e| e.to_string())?;
     let position = lines.last().map_or(0, |line| line.position + 1);
     let line = EstimateItem {
         id: Uuid::new_v4(),
