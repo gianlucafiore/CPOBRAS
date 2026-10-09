@@ -43,21 +43,28 @@ fn compare_contracting(
     use cpobras_core::contracting::{
         compare_contracting_modes, quoted_subcontract, ContractingScenario,
     };
-    let parse = |value: String| Decimal::from_str(&value.replace(',', "."))
-        .map_err(|err| err.to_string());
+    let parse =
+        |value: String| Decimal::from_str(&value.replace(',', ".")).map_err(|err| err.to_string());
     let quantity = parse(quantity)?;
     let mut store = db.lock().map_err(|err| err.to_string())?;
     let mut components = Vec::new();
     for input in own_components {
         let resource_id = Uuid::parse_str(&input.resource_id).map_err(|err| err.to_string())?;
         let quantity_per_unit = parse(input.quantity)?;
-        let resource = store.get_resource(resource_id).map_err(|err| err.to_string())?
+        let resource = store
+            .get_resource(resource_id)
+            .map_err(|err| err.to_string())?
             .ok_or("Insumo inexistente")?;
-        let price = store.resource_price_as_of(resource_id, Currency::Ars, "9999-12-31")
-            .map_err(|err| err.to_string())?.ok_or("Falta precio ARS del insumo")?;
+        let price = store
+            .resource_price_as_of(resource_id, Currency::Ars, "9999-12-31")
+            .map_err(|err| err.to_string())?
+            .ok_or("Falta precio ARS del insumo")?;
         components.push(ResourcePriceSnapshot {
-            resource_id, description: resource.description,
-            kind: resource.kind, quantity_per_unit, unit_price: price.amount,
+            resource_id,
+            description: resource.description,
+            kind: resource.kind,
+            quantity_per_unit,
+            unit_price: price.amount,
         });
     }
     let own = ContractingScenario {
@@ -65,9 +72,13 @@ fn compare_contracting(
         components,
         additional_cost_per_unit: parse(own_extra_per_unit)?,
     };
-    let subcontract = quoted_subcontract("Subcontratación", Uuid::nil(), parse(subcontract_price_per_unit)?);
-    let result = compare_contracting_modes(&own, &subcontract, quantity)
-        .map_err(|err| err.to_string())?;
+    let subcontract = quoted_subcontract(
+        "Subcontratación",
+        Uuid::nil(),
+        parse(subcontract_price_per_unit)?,
+    );
+    let result =
+        compare_contracting_modes(&own, &subcontract, quantity).map_err(|err| err.to_string())?;
     Ok(ContractingComparisonView {
         own_cost_per_unit: result.own_cost_per_unit.to_string(),
         subcontract_cost_per_unit: result.subcontract_cost_per_unit.to_string(),
@@ -78,7 +89,6 @@ fn compare_contracting(
         difference_total: result.difference_total.to_string(),
     })
 }
-
 
 #[derive(serde::Serialize)]
 struct PricingView {
