@@ -289,11 +289,16 @@ impl LocalStore {
                             id,estimate_id,line_id,note,factor,length,width,height,sign,position
                          ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
                         params![
-                            Uuid::new_v4().to_string(), copy.id.to_string(),
-                            new_line_id.to_string(), row.note,
-                            row.factor.to_string(), row.length.to_string(),
-                            row.width.to_string(), row.height.to_string(),
-                            row.sign, row.position,
+                            Uuid::new_v4().to_string(),
+                            copy.id.to_string(),
+                            new_line_id.to_string(),
+                            row.note,
+                            row.factor.to_string(),
+                            row.length.to_string(),
+                            row.width.to_string(),
+                            row.height.to_string(),
+                            row.sign,
+                            row.position,
                         ],
                     )?;
                 }
