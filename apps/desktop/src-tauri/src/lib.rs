@@ -15,6 +15,71 @@ use uuid::Uuid;
 
 type Db = Mutex<LocalStore>;
 
+#[derive(serde::Deserialize)]
+struct ScenarioComponentInput {
+    resource_id: String,
+    quantity: String,
+}
+
+#[derive(serde::Serialize)]
+struct ContractingComparisonView {
+    own_cost_per_unit: String,
+    subcontract_cost_per_unit: String,
+    subcontract_premium_per_unit: String,
+    quantity: String,
+    own_total: String,
+    subcontract_total: String,
+    difference_total: String,
+}
+
+#[tauri::command]
+fn compare_contracting(
+    db: tauri::State<'_, Db>,
+    own_components: Vec<ScenarioComponentInput>,
+    own_extra_per_unit: String,
+    subcontract_price_per_unit: String,
+    quantity: String,
+) -> Result<ContractingComparisonView, String> {
+    use cpobras_core::contracting::{
+        compare_contracting_modes, quoted_subcontract, ContractingScenario,
+    };
+    let parse = |value: String| Decimal::from_str(&value.replace(',', "."))
+        .map_err(|err| err.to_string());
+    let quantity = parse(quantity)?;
+    let mut store = db.lock().map_err(|err| err.to_string())?;
+    let mut components = Vec::new();
+    for input in own_components {
+        let resource_id = Uuid::parse_str(&input.resource_id).map_err(|err| err.to_string())?;
+        let quantity_per_unit = parse(input.quantity)?;
+        let resource = store.get_resource(resource_id).map_err(|err| err.to_string())?
+            .ok_or("Insumo inexistente")?;
+        let price = store.resource_price_as_of(resource_id, Currency::Ars, "9999-12-31")
+            .map_err(|err| err.to_string())?.ok_or("Falta precio ARS del insumo")?;
+        components.push(ResourcePriceSnapshot {
+            resource_id, description: resource.description,
+            kind: resource.kind, quantity_per_unit, unit_price: price.amount,
+        });
+    }
+    let own = ContractingScenario {
+        name: "Ejecución propia".into(),
+        components,
+        additional_cost_per_unit: parse(own_extra_per_unit)?,
+    };
+    let subcontract = quoted_subcontract("Subcontratación", Uuid::nil(), parse(subcontract_price_per_unit)?);
+    let result = compare_contracting_modes(&own, &subcontract, quantity)
+        .map_err(|err| err.to_string())?;
+    Ok(ContractingComparisonView {
+        own_cost_per_unit: result.own_cost_per_unit.to_string(),
+        subcontract_cost_per_unit: result.subcontract_cost_per_unit.to_string(),
+        subcontract_premium_per_unit: result.subcontract_premium_per_unit.to_string(),
+        quantity: result.quantity.to_string(),
+        own_total: result.own_total.to_string(),
+        subcontract_total: result.subcontract_total.to_string(),
+        difference_total: result.difference_total.to_string(),
+    })
+}
+
+
 #[derive(serde::Serialize)]
 struct PricingView {
     direct: String,
@@ -885,7 +950,8 @@ pub fn run() {
             get_estimate_pricing,
             save_estimate_pricing,
             priced_estimate_total,
-            analysis_cost_breakdown
+            analysis_cost_breakdown,
+            compare_contracting
         ])
         .run(tauri::generate_context!())
         .expect("error al iniciar CPOBRAS");
