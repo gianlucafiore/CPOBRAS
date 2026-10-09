@@ -44,26 +44,32 @@ fn compare_estimates(
 ) -> Result<EstimateComparisonView, String> {
     let baseline_id = Uuid::parse_str(&baseline_id).map_err(|e| e.to_string())?;
     let revised_id = Uuid::parse_str(&revised_id).map_err(|e| e.to_string())?;
-    let delta = db.lock().map_err(|e| e.to_string())?
-        .compare_estimates(baseline_id, revised_id).map_err(|e| e.to_string())?;
+    let delta = db
+        .lock()
+        .map_err(|e| e.to_string())?
+        .compare_estimates(baseline_id, revised_id)
+        .map_err(|e| e.to_string())?;
     Ok(EstimateComparisonView {
         baseline_id: delta.baseline_id.to_string(),
         revised_id: delta.revised_id.to_string(),
         baseline_total: delta.baseline_total.to_string(),
         revised_total: delta.revised_total.to_string(),
         difference: delta.difference.to_string(),
-        lines: delta.lines.into_iter().map(|line| EstimateComparisonLineView {
-            description: line.description,
-            unit: line.unit,
-            baseline_quantity: line.baseline_quantity.to_string(),
-            revised_quantity: line.revised_quantity.to_string(),
-            baseline_cost: line.baseline_cost.to_string(),
-            revised_cost: line.revised_cost.to_string(),
-            difference: line.difference.to_string(),
-        }).collect(),
+        lines: delta
+            .lines
+            .into_iter()
+            .map(|line| EstimateComparisonLineView {
+                description: line.description,
+                unit: line.unit,
+                baseline_quantity: line.baseline_quantity.to_string(),
+                revised_quantity: line.revised_quantity.to_string(),
+                baseline_cost: line.baseline_cost.to_string(),
+                revised_cost: line.revised_cost.to_string(),
+                difference: line.difference.to_string(),
+            })
+            .collect(),
     })
 }
-
 
 #[derive(serde::Serialize)]
 struct PricingView {
