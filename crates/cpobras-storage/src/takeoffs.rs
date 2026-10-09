@@ -165,6 +165,13 @@ mod tests {
         }).unwrap();
         assert_eq!(db.apply_takeoff_to_line(estimate.id,line.id).unwrap(),Decimal::new(26,0));
         assert_eq!(db.estimate_total(estimate.id).unwrap(),Decimal::new(2600,0));
+        let copy = db.duplicate_estimate(estimate.id, "Revisión").unwrap();
+        let copied_line = db.estimate_items(copy.id).unwrap().remove(0);
+        let copied_rows = db.list_takeoff_rows(copy.id,copied_line.id).unwrap();
+        assert_eq!(copied_rows.len(),2);
+        assert_ne!(copied_rows[0].id,row.id);
+        assert_eq!(db.measured_line_quantity(copy.id,copied_line.id).unwrap(),Decimal::new(26,0));
+
         db.issue_estimate(estimate.id).unwrap();
         assert!(db.delete_takeoff_row(row.id).is_err());
         assert!(db.save_takeoff_row(&TakeoffRow { note:"Cambió".into(),..row }).is_err());
