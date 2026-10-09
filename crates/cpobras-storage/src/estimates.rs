@@ -276,6 +276,13 @@ impl LocalStore {
                 )?;
             }
         }
+        transaction.execute(
+            "INSERT INTO estimate_pricing (
+                estimate_id, general_expenses_percent, profit_percent, discount_percent, tax_percent)
+             SELECT ?1, general_expenses_percent, profit_percent, discount_percent, tax_percent
+             FROM estimate_pricing WHERE estimate_id=?2",
+            params![copy.id.to_string(), source_id.to_string()],
+        )?;
         transaction.commit()?;
         Ok(copy)
     }
