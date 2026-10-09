@@ -130,17 +130,22 @@ fn update_estimate_line(
     let estimate_id = Uuid::parse_str(&estimate_id).map_err(|e| e.to_string())?;
     let line_id = Uuid::parse_str(&line_id).map_err(|e| e.to_string())?;
     let quantity = Decimal::from_str(&quantity.replace(',', ".")).map_err(|e| e.to_string())?;
-    let unit_cost_snapshot = Decimal::from_str(&unit_cost.replace(',', "."))
-        .map_err(|e| e.to_string())?;
+    let unit_cost_snapshot =
+        Decimal::from_str(&unit_cost.replace(',', ".")).map_err(|e| e.to_string())?;
     let mut store = db.lock().map_err(|e| e.to_string())?;
-    let mut line = store.estimate_items(estimate_id).map_err(|e| e.to_string())?
-        .into_iter().find(|line| line.id == line_id)
+    let mut line = store
+        .estimate_items(estimate_id)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .find(|line| line.id == line_id)
         .ok_or("Partida inexistente")?;
     line.description = description.trim().to_owned();
     line.unit = unit.trim().to_owned();
     line.quantity = quantity;
     line.unit_cost_snapshot = unit_cost_snapshot;
-    store.update_estimate_item(&line).map_err(|e| e.to_string())?;
+    store
+        .update_estimate_item(&line)
+        .map_err(|e| e.to_string())?;
     Ok(LineView::from(line))
 }
 
@@ -152,21 +157,26 @@ fn delete_estimate_line(
 ) -> Result<(), String> {
     let estimate_id = Uuid::parse_str(&estimate_id).map_err(|e| e.to_string())?;
     let line_id = Uuid::parse_str(&line_id).map_err(|e| e.to_string())?;
-    db.lock().map_err(|e| e.to_string())?
-        .delete_estimate_item(estimate_id, line_id).map_err(|e| e.to_string())
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .delete_estimate_item(estimate_id, line_id)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn estimate_total(
-    db: tauri::State<'_, Db>,
-    estimate_id: String,
-) -> Result<String, String> {
+fn estimate_total(db: tauri::State<'_, Db>, estimate_id: String) -> Result<String, String> {
     let estimate_id = Uuid::parse_str(&estimate_id).map_err(|e| e.to_string())?;
     let store = db.lock().map_err(|e| e.to_string())?;
-    if store.get_estimate(estimate_id).map_err(|e| e.to_string())?.is_none() {
+    if store
+        .get_estimate(estimate_id)
+        .map_err(|e| e.to_string())?
+        .is_none()
+    {
         return Err("Presupuesto inexistente".into());
     }
-    store.estimate_total(estimate_id).map(|total| total.to_string())
+    store
+        .estimate_total(estimate_id)
+        .map(|total| total.to_string())
         .map_err(|e| e.to_string())
 }
 
@@ -177,19 +187,21 @@ fn duplicate_estimate(
     title: String,
 ) -> Result<EstimateView, String> {
     let estimate_id = Uuid::parse_str(&estimate_id).map_err(|e| e.to_string())?;
-    let result = db.lock().map_err(|e| e.to_string())?
-        .duplicate_estimate(estimate_id, &title).map_err(|e| e.to_string())?;
+    let result = db
+        .lock()
+        .map_err(|e| e.to_string())?
+        .duplicate_estimate(estimate_id, &title)
+        .map_err(|e| e.to_string())?;
     Ok(EstimateView::from(result))
 }
 
 #[tauri::command]
-fn issue_estimate(
-    db: tauri::State<'_, Db>,
-    estimate_id: String,
-) -> Result<(), String> {
+fn issue_estimate(db: tauri::State<'_, Db>, estimate_id: String) -> Result<(), String> {
     let id = Uuid::parse_str(&estimate_id).map_err(|e| e.to_string())?;
-    db.lock().map_err(|e| e.to_string())?
-        .issue_estimate(id).map_err(|e| e.to_string())
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .issue_estimate(id)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
