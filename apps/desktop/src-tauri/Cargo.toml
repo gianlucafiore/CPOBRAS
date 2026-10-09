@@ -13,6 +13,7 @@ tauri = "2"
 cpobras-core = { path = "../../../crates/cpobras-core" }
 cpobras-storage = { path = "../../../crates/cpobras-storage" }
 uuid = { version = "1", features = ["v4"] }
+serde = { version = "1", features = ["derive"] }
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
