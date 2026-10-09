@@ -4,12 +4,14 @@ use rusqlite::{params, Connection, OptionalExtension};
 use std::path::Path;
 use uuid::Uuid;
 
+pub mod budget_sections;
 pub mod estimates;
 pub mod resource_catalog;
 
 const INITIAL_MIGRATION: &str = include_str!("../migrations/0001_initial.sql");
 const RESOURCES_MIGRATION: &str = include_str!("../migrations/0002_resources.sql");
 const ESTIMATES_MIGRATION: &str = include_str!("../migrations/0003_estimates.sql");
+const SECTIONS_MIGRATION: &str = include_str!("../migrations/0004_budget_sections.sql");
 
 #[derive(Debug, thiserror::Error)]
 pub enum StorageError {
@@ -75,6 +77,23 @@ impl LocalStore {
             conn.execute_batch("BEGIN IMMEDIATE")?;
             let result = conn.execute_batch(ESTIMATES_MIGRATION).and_then(|_| {
                 conn.execute("INSERT INTO schema_migrations(version) VALUES (3)", [])?;
+                Ok(())
+            });
+            if let Err(err) = result {
+                let _ = conn.execute_batch("ROLLBACK");
+                return Err(err.into());
+            }
+            conn.execute_batch("COMMIT")?;
+        }
+        let applied: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=4)",
+            [],
+            |row| row.get(0),
+        )?;
+        if !applied {
+            conn.execute_batch("BEGIN IMMEDIATE")?;
+            let result = conn.execute_batch(SECTIONS_MIGRATION).and_then(|_| {
+                conn.execute("INSERT INTO schema_migrations(version) VALUES (4)", [])?;
                 Ok(())
             });
             if let Err(err) = result {
@@ -196,6 +215,17 @@ impl LocalStore {
 
     /// Stores an ACU together with its component price snapshots.
     pub fn save_analysis(&mut self, analysis: &UnitCostAnalysis) -> Result<()> {
+        if analysis.code.trim().is_empty()
+            || analysis.description.trim().is_empty()
+            || analysis.unit.trim().is_empty()
+        {
+            return Err(StorageError::InvalidValue(
+                "incomplete cost analysis".into(),
+            ));
+        }
+        analysis
+            .direct_unit_cost()
+            .map_err(|e| StorageError::InvalidValue(e.to_string()))?;
         let json = serde_json::to_string(analysis)?;
         self.conn.execute(
             "INSERT INTO analyses(id, code, description, unit, snapshot_json)
@@ -224,6 +254,25 @@ impl LocalStore {
             analyses.push(serde_json::from_str(&json?)?);
         }
         Ok(analyses)
+    }
+
+    /// Reprices an ACU from recorded ARS observations on or before the requested date.
+    /// Estimate line unit-cost snapshots are never rewritten.
+    pub fn reprice_analysis_at(&mut self, id: Uuid, as_of: &str) -> Result<UnitCostAnalysis> {
+        let mut analysis = self
+            .get_analysis(id)?
+            .ok_or_else(|| StorageError::InvalidValue("analysis not found".into()))?;
+        for component in &mut analysis.components {
+            let price = self
+                .resource_price_as_of(component.resource_id, Currency::Ars, as_of)?
+                .ok_or_else(|| StorageError::InvalidValue("price missing as of date".into()))?;
+            component.unit_price = price.amount;
+        }
+        analysis
+            .direct_unit_cost()
+            .map_err(|e| StorageError::InvalidValue(e.to_string()))?;
+        self.save_analysis(&analysis)?;
+        Ok(analysis)
     }
 
     pub fn get_analysis(&self, id: Uuid) -> Result<Option<UnitCostAnalysis>> {
@@ -285,6 +334,96 @@ mod tests {
             restored.direct_unit_cost().unwrap(),
             analysis.direct_unit_cost().unwrap()
         );
+    }
+
+    #[test]
+    fn repricing_acu_preserves_original_budget_price_snapshot() {
+        use crate::estimates::{Estimate, EstimateItem};
+        use crate::resource_catalog::{Resource, ResourcePrice};
+
+        let mut db = LocalStore::in_memory().unwrap();
+        let resource = Resource {
+            id: Uuid::new_v4(),
+            code: "MAT-01".into(),
+            description: "Acero".into(),
+            unit: "kg".into(),
+            kind: ResourceKind::Material,
+            active: true,
+        };
+        db.save_resource(&resource).unwrap();
+        for (date, amount) in [("2026-01-01", 10), ("2026-02-01", 15)] {
+            db.add_resource_price(&ResourcePrice {
+                id: Uuid::new_v4(),
+                resource_id: resource.id,
+                amount: Decimal::new(amount, 0),
+                currency: Currency::Ars,
+                effective_date: date.into(),
+                source: None,
+            })
+            .unwrap();
+        }
+        let analysis = UnitCostAnalysis {
+            id: Uuid::new_v4(),
+            code: "ACU-01".into(),
+            description: "Estructura".into(),
+            unit: "kg".into(),
+            components: vec![ResourcePriceSnapshot {
+                resource_id: resource.id,
+                description: resource.description.clone(),
+                kind: ResourceKind::Material,
+                quantity_per_unit: Decimal::new(2, 0),
+                unit_price: Decimal::new(10, 0),
+            }],
+        };
+        db.save_analysis(&analysis).unwrap();
+        let client = Client {
+            id: Uuid::new_v4(),
+            name: "Cliente".into(),
+            cuit: None,
+        };
+        db.save_client(&client).unwrap();
+        let project = Project {
+            id: Uuid::new_v4(),
+            client_id: client.id,
+            name: "Obra".into(),
+            currency: Currency::Ars,
+        };
+        db.save_project(&project).unwrap();
+        let estimate = Estimate {
+            id: Uuid::new_v4(),
+            project_id: project.id,
+            title: "Cotización".into(),
+            currency: Currency::Ars,
+            issued: false,
+        };
+        db.create_estimate(&estimate).unwrap();
+        db.add_estimate_item(&EstimateItem {
+            id: Uuid::new_v4(),
+            estimate_id: estimate.id,
+            position: 0,
+            analysis_id: Some(analysis.id),
+            description: "Estructura".into(),
+            unit: "kg".into(),
+            quantity: Decimal::new(3, 0),
+            unit_cost_snapshot: Decimal::new(20, 0),
+        })
+        .unwrap();
+        assert_eq!(
+            db.reprice_analysis_at(analysis.id, "2026-02-28")
+                .unwrap()
+                .direct_unit_cost()
+                .unwrap(),
+            Decimal::new(30, 0)
+        );
+        assert_eq!(db.estimate_total(estimate.id).unwrap(), Decimal::new(60, 0));
+        assert_eq!(
+            db.reprice_analysis_at(analysis.id, "2026-01-31")
+                .unwrap()
+                .direct_unit_cost()
+                .unwrap(),
+            Decimal::new(20, 0)
+        );
+        assert_eq!(db.estimate_total(estimate.id).unwrap(), Decimal::new(60, 0));
     }
 
     #[test]

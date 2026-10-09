@@ -3,6 +3,7 @@ use super::{LocalStore, Result, StorageError};
 use cpobras_core::{Currency, EstimateLine};
 use rusqlite::{params, OptionalExtension};
 use rust_decimal::Decimal;
+use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use uuid::Uuid;
 
@@ -181,6 +182,21 @@ impl LocalStore {
             .get_estimate(source_id)?
             .ok_or_else(|| StorageError::InvalidValue("estimate not found".into()))?;
         let entries = self.estimate_items(source_id)?;
+        let sections = self.list_budget_sections(source_id)?;
+        let mut assignments = HashMap::new();
+        for entry in &entries {
+            let section_id: Option<String> = self
+                .conn
+                .query_row(
+                    "SELECT section_id FROM estimate_line_sections WHERE line_id=?1",
+                    [entry.id.to_string()],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            if let Some(section_id) = section_id {
+                assignments.insert(entry.id, Uuid::parse_str(&section_id)?);
+            }
+        }
         let copy = Estimate {
             id: Uuid::new_v4(),
             project_id: source.project_id,
@@ -188,6 +204,10 @@ impl LocalStore {
             currency: source.currency,
             issued: false,
         };
+        let section_ids: HashMap<Uuid, Uuid> = sections
+            .iter()
+            .map(|section| (section.id, Uuid::new_v4()))
+            .collect();
         let transaction = self.conn.transaction()?;
         transaction.execute(
             "INSERT INTO estimates(id, project_id, title, currency) VALUES (?1, ?2, ?3, ?4)",
@@ -195,16 +215,51 @@ impl LocalStore {
                 copy.id.to_string(),
                 copy.project_id.to_string(),
                 copy.title,
-                currency_code(copy.currency)
+                currency_code(copy.currency),
             ],
         )?;
+        let mut pending = sections;
+        let mut inserted = HashSet::new();
+        while !pending.is_empty() {
+            let previous = pending.len();
+            let mut waiting = Vec::new();
+            for section in pending {
+                if section
+                    .parent_id
+                    .is_some_and(|parent| !inserted.contains(&parent))
+                {
+                    waiting.push(section);
+                    continue;
+                }
+                transaction.execute(
+                    "INSERT INTO budget_sections(id, estimate_id, parent_id, code, title, position)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    params![
+                        section_ids[&section.id].to_string(),
+                        copy.id.to_string(),
+                        section.parent_id.map(|id| section_ids[&id].to_string()),
+                        section.code,
+                        section.title,
+                        section.position,
+                    ],
+                )?;
+                inserted.insert(section.id);
+            }
+            if waiting.len() == previous {
+                return Err(StorageError::InvalidValue(
+                    "invalid section hierarchy".into(),
+                ));
+            }
+            pending = waiting;
+        }
         for entry in entries {
+            let new_line_id = Uuid::new_v4();
             transaction.execute(
                 "INSERT INTO estimate_lines(id, estimate_id, position, analysis_id,
                  description, unit, quantity, unit_cost_snapshot)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 params![
-                    Uuid::new_v4().to_string(),
+                    new_line_id.to_string(),
                     copy.id.to_string(),
                     entry.position,
                     entry.analysis_id.map(|id| id.to_string()),
@@ -214,6 +269,12 @@ impl LocalStore {
                     entry.unit_cost_snapshot.to_string(),
                 ],
             )?;
+            if let Some(section_id) = assignments.get(&entry.id) {
+                transaction.execute(
+                    "INSERT INTO estimate_line_sections(line_id, section_id) VALUES (?1, ?2)",
+                    params![new_line_id.to_string(), section_ids[section_id].to_string()],
+                )?;
+            }
         }
         transaction.commit()?;
         Ok(copy)
