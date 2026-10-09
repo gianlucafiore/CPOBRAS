@@ -1,0 +1,13 @@
+[package]
+name = "cpobras-storage"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+cpobras-core = { path = "../cpobras-core" }
+rusqlite.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+
+thiserror.workspace = true
+rust_decimal.workspace = true
