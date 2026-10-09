@@ -76,7 +76,8 @@ fn list_price_history(
     if store.get_resource(id).map_err(|e| e.to_string())?.is_none() {
         return Err("Insumo inexistente".into());
     }
-    store.resource_price_history(id)
+    store
+        .resource_price_history(id)
         .map_err(|e| e.to_string())
         .map(|prices| prices.into_iter().map(history_view).collect())
 }
@@ -109,7 +110,9 @@ fn register_resource_price(
         effective_date,
         source: source.filter(|value| !value.trim().is_empty()),
     };
-    store.add_resource_price(&price).map_err(|e| e.to_string())?;
+    store
+        .add_resource_price(&price)
+        .map_err(|e| e.to_string())?;
     Ok(history_view(price))
 }
 
@@ -165,12 +168,18 @@ fn save_budget_section(
             None => Uuid::new_v4(),
         },
         estimate_id: Uuid::parse_str(&estimate_id).map_err(|e| e.to_string())?,
-        parent_id: parent_id.map(|id| Uuid::parse_str(&id)).transpose()
+        parent_id: parent_id
+            .map(|id| Uuid::parse_str(&id))
+            .transpose()
             .map_err(|e| e.to_string())?,
-        code, title, position,
+        code,
+        title,
+        position,
     };
-    db.lock().map_err(|e| e.to_string())?
-        .save_budget_section(&section).map_err(|e| e.to_string())?;
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .save_budget_section(&section)
+        .map_err(|e| e.to_string())?;
     Ok(BudgetSectionView::from(section))
 }
 
@@ -180,8 +189,10 @@ fn list_budget_sections(
     estimate_id: String,
 ) -> Result<Vec<BudgetSectionView>, String> {
     let id = Uuid::parse_str(&estimate_id).map_err(|e| e.to_string())?;
-    db.lock().map_err(|e| e.to_string())?
-        .list_budget_sections(id).map_err(|e| e.to_string())
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .list_budget_sections(id)
+        .map_err(|e| e.to_string())
         .map(|sections| sections.into_iter().map(BudgetSectionView::from).collect())
 }
 
@@ -195,7 +206,8 @@ fn assign_line_section(
     let estimate_id = Uuid::parse_str(&estimate_id).map_err(|e| e.to_string())?;
     let line_id = Uuid::parse_str(&line_id).map_err(|e| e.to_string())?;
     let section_id = Uuid::parse_str(&section_id).map_err(|e| e.to_string())?;
-    db.lock().map_err(|e| e.to_string())?
+    db.lock()
+        .map_err(|e| e.to_string())?
         .assign_line_section(estimate_id, line_id, section_id)
         .map_err(|e| e.to_string())
 }
