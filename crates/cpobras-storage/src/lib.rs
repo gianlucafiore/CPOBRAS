@@ -4,6 +4,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use std::path::Path;
 use uuid::Uuid;
 
+pub mod budget_pricing;
 pub mod budget_sections;
 pub mod estimates;
 pub mod resource_catalog;
@@ -12,6 +13,7 @@ const INITIAL_MIGRATION: &str = include_str!("../migrations/0001_initial.sql");
 const RESOURCES_MIGRATION: &str = include_str!("../migrations/0002_resources.sql");
 const ESTIMATES_MIGRATION: &str = include_str!("../migrations/0003_estimates.sql");
 const SECTIONS_MIGRATION: &str = include_str!("../migrations/0004_budget_sections.sql");
+const PRICING_MIGRATION: &str = include_str!("../migrations/0005_pricing.sql");
 
 #[derive(Debug, thiserror::Error)]
 pub enum StorageError {
@@ -94,6 +96,23 @@ impl LocalStore {
             conn.execute_batch("BEGIN IMMEDIATE")?;
             let result = conn.execute_batch(SECTIONS_MIGRATION).and_then(|_| {
                 conn.execute("INSERT INTO schema_migrations(version) VALUES (4)", [])?;
+                Ok(())
+            });
+            if let Err(err) = result {
+                let _ = conn.execute_batch("ROLLBACK");
+                return Err(err.into());
+            }
+            conn.execute_batch("COMMIT")?;
+        }
+        let applied: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=5)",
+            [],
+            |row| row.get(0),
+        )?;
+        if !applied {
+            conn.execute_batch("BEGIN IMMEDIATE")?;
+            let result = conn.execute_batch(PRICING_MIGRATION).and_then(|_| {
+                conn.execute("INSERT INTO schema_migrations(version) VALUES (5)", [])?;
                 Ok(())
             });
             if let Err(err) = result {
