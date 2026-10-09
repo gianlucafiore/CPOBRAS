@@ -215,6 +215,13 @@ impl LocalStore {
 
     /// Stores an ACU together with its component price snapshots.
     pub fn save_analysis(&mut self, analysis: &UnitCostAnalysis) -> Result<()> {
+        if analysis.code.trim().is_empty()
+            || analysis.description.trim().is_empty()
+            || analysis.unit.trim().is_empty()
+        {
+            return Err(StorageError::InvalidValue("incomplete cost analysis".into()));
+        }
+        analysis.direct_unit_cost().map_err(|e| StorageError::InvalidValue(e.to_string()))?;
         let json = serde_json::to_string(analysis)?;
         self.conn.execute(
             "INSERT INTO analyses(id, code, description, unit, snapshot_json)
