@@ -67,16 +67,18 @@ fn save_estimate_pricing(
     tax_percent: String,
 ) -> Result<PricingRatesView, String> {
     let id = Uuid::parse_str(&estimate_id).map_err(|e| e.to_string())?;
-    let parse = |value: String| Decimal::from_str(&value.replace(',', "."))
-        .map_err(|e| e.to_string());
+    let parse =
+        |value: String| Decimal::from_str(&value.replace(',', ".")).map_err(|e| e.to_string());
     let rates = PricingRates {
         general_expenses_percent: parse(general_expenses_percent)?,
         profit_percent: parse(profit_percent)?,
         discount_percent: parse(discount_percent)?,
         tax_percent: parse(tax_percent)?,
     };
-    db.lock().map_err(|e| e.to_string())?
-        .save_estimate_pricing(id, rates).map_err(|e| e.to_string())?;
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .save_estimate_pricing(id, rates)
+        .map_err(|e| e.to_string())?;
     Ok(pricing_rates_view(rates))
 }
 
@@ -86,8 +88,11 @@ fn priced_estimate_total(
     estimate_id: String,
 ) -> Result<PricingView, String> {
     let id = Uuid::parse_str(&estimate_id).map_err(|e| e.to_string())?;
-    let priced = db.lock().map_err(|e| e.to_string())?
-        .priced_estimate_total(id).map_err(|e| e.to_string())?;
+    let priced = db
+        .lock()
+        .map_err(|e| e.to_string())?
+        .priced_estimate_total(id)
+        .map_err(|e| e.to_string())?;
     Ok(PricingView {
         direct: priced.direct.to_string(),
         general_expenses: priced.general_expenses.to_string(),
@@ -115,7 +120,9 @@ fn analysis_cost_breakdown(
 ) -> Result<AnalysisBreakdownView, String> {
     let id = Uuid::parse_str(&analysis_id).map_err(|e| e.to_string())?;
     let store = db.lock().map_err(|e| e.to_string())?;
-    let analysis = store.get_analysis(id).map_err(|e| e.to_string())?
+    let analysis = store
+        .get_analysis(id)
+        .map_err(|e| e.to_string())?
         .ok_or("ACU inexistente")?;
     let costs = analysis.cost_breakdown().map_err(|e| e.to_string())?;
     Ok(AnalysisBreakdownView {
@@ -126,7 +133,6 @@ fn analysis_cost_breakdown(
         total: costs.total.to_string(),
     })
 }
-
 
 #[tauri::command]
 fn list_clients(db: tauri::State<'_, Db>) -> Result<Vec<Client>, String> {
