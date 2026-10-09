@@ -52,13 +52,14 @@ struct LineView {
 
 impl From<EstimateItem> for LineView {
     fn from(line: EstimateItem) -> Self {
+        let total = line.total().to_string();
         Self {
             id: line.id.to_string(),
             description: line.description,
             unit: line.unit,
             quantity: line.quantity.to_string(),
             unit_cost: line.unit_cost_snapshot.to_string(),
-            total: line.total().to_string(),
+            total,
         }
     }
 }
