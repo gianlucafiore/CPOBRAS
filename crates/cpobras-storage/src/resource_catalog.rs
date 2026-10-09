@@ -179,6 +179,30 @@ impl LocalStore {
         Ok(())
     }
 
+    /// Historical prices, newest first; never rewrites an earlier observation.
+    pub fn resource_price_history(&self, resource_id: Uuid) -> Result<Vec<ResourcePrice>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, resource_id, amount, currency, effective_date, source
+             FROM resource_prices WHERE resource_id=?1
+             ORDER BY effective_date DESC, created_at DESC, id DESC",
+        )?;
+        let rows = stmt.query_map([resource_id.to_string()], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, Option<String>>(5)?,
+            ))
+        })?;
+        let mut prices = Vec::new();
+        for row in rows {
+            prices.push(parse_price(row?)?);
+        }
+        Ok(prices)
+    }
+
     /// Latest effective price in the requested currency as of the given ISO date.
     pub fn resource_price_as_of(
         &self,
