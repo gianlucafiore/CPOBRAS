@@ -214,6 +214,18 @@ impl LocalStore {
         Ok(())
     }
 
+    pub fn list_analyses(&self) -> Result<Vec<UnitCostAnalysis>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT snapshot_json FROM analyses ORDER BY code, id")?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        let mut analyses = Vec::new();
+        for json in rows {
+            analyses.push(serde_json::from_str(&json?)?);
+        }
+        Ok(analyses)
+    }
+
     pub fn get_analysis(&self, id: Uuid) -> Result<Option<UnitCostAnalysis>> {
         let json: Option<String> = self
             .conn

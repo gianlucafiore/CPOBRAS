@@ -1,4 +1,7 @@
-use cpobras_core::{Client, Currency, Project};
+use cpobras_core::{
+    Client, Currency, Project, ResourceKind, ResourcePriceSnapshot, UnitCostAnalysis,
+};
+use cpobras_storage::resource_catalog::{Resource, ResourcePrice};
 use cpobras_storage::{
     estimates::{Estimate, EstimateItem},
     LocalStore,
@@ -38,6 +41,225 @@ fn create_client(
         .save_client(&client)
         .map_err(|e| e.to_string())?;
     Ok(client)
+}
+
+#[derive(serde::Serialize)]
+struct ResourceView {
+    id: String,
+    code: String,
+    description: String,
+    unit: String,
+    kind: String,
+    price: Option<String>,
+}
+
+fn resource_kind(value: &str) -> Result<ResourceKind, String> {
+    match value {
+        "material" => Ok(ResourceKind::Material),
+        "labor" => Ok(ResourceKind::Labor),
+        "equipment" => Ok(ResourceKind::Equipment),
+        "subcontract" => Ok(ResourceKind::Subcontract),
+        _ => Err("Tipo de insumo inválido".into()),
+    }
+}
+
+fn resource_view(resource: Resource, price: Option<String>) -> ResourceView {
+    ResourceView {
+        id: resource.id.to_string(),
+        code: resource.code,
+        description: resource.description,
+        unit: resource.unit,
+        kind: match resource.kind {
+            ResourceKind::Material => "material",
+            ResourceKind::Labor => "labor",
+            ResourceKind::Equipment => "equipment",
+            ResourceKind::Subcontract => "subcontract",
+        }
+        .to_owned(),
+        price,
+    }
+}
+
+#[tauri::command]
+fn list_resources(db: tauri::State<'_, Db>) -> Result<Vec<ResourceView>, String> {
+    let store = db.lock().map_err(|e| e.to_string())?;
+    let resources = store.list_resources().map_err(|e| e.to_string())?;
+    let mut result = Vec::new();
+    for resource in resources {
+        let price = store
+            .resource_price_as_of(resource.id, Currency::Ars, "9999-12-31")
+            .map_err(|e| e.to_string())?
+            .map(|p| p.amount.to_string());
+        result.push(resource_view(resource, price));
+    }
+    Ok(result)
+}
+
+#[tauri::command]
+fn create_resource(
+    db: tauri::State<'_, Db>,
+    code: String,
+    description: String,
+    unit: String,
+    kind: String,
+    price: String,
+) -> Result<ResourceView, String> {
+    let kind = resource_kind(&kind)?;
+    let amount = Decimal::from_str(&price.replace(',', ".")).map_err(|e| e.to_string())?;
+    if amount < Decimal::ZERO {
+        return Err("El precio no puede ser negativo".into());
+    }
+    let resource = Resource {
+        id: Uuid::new_v4(),
+        code: code.trim().to_owned(),
+        description: description.trim().to_owned(),
+        unit: unit.trim().to_owned(),
+        kind,
+        active: true,
+    };
+    let mut store = db.lock().map_err(|e| e.to_string())?;
+    store.save_resource(&resource).map_err(|e| e.to_string())?;
+    let price_entry = ResourcePrice {
+        id: Uuid::new_v4(),
+        resource_id: resource.id,
+        amount,
+        currency: Currency::Ars,
+        effective_date: "2026-10-09".into(),
+        source: Some("Carga manual".into()),
+    };
+    store
+        .add_resource_price(&price_entry)
+        .map_err(|e| e.to_string())?;
+    Ok(resource_view(resource, Some(amount.to_string())))
+}
+
+#[derive(serde::Serialize)]
+struct AnalysisView {
+    id: String,
+    code: String,
+    description: String,
+    unit: String,
+    unit_cost: String,
+}
+
+fn analysis_view(analysis: UnitCostAnalysis) -> Result<AnalysisView, String> {
+    let cost = analysis.direct_unit_cost().map_err(|e| e.to_string())?;
+    Ok(AnalysisView {
+        id: analysis.id.to_string(),
+        code: analysis.code,
+        description: analysis.description,
+        unit: analysis.unit,
+        unit_cost: cost.to_string(),
+    })
+}
+
+#[tauri::command]
+fn list_analyses(db: tauri::State<'_, Db>) -> Result<Vec<AnalysisView>, String> {
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .list_analyses()
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(analysis_view)
+        .collect()
+}
+
+#[tauri::command]
+fn create_analysis(
+    db: tauri::State<'_, Db>,
+    code: String,
+    description: String,
+    unit: String,
+    components: Vec<AnalysisComponentInput>,
+) -> Result<AnalysisView, String> {
+    if code.trim().is_empty()
+        || description.trim().is_empty()
+        || unit.trim().is_empty()
+        || components.is_empty()
+    {
+        return Err("Completá los datos y al menos un componente".into());
+    }
+    let mut store = db.lock().map_err(|e| e.to_string())?;
+    let mut snapshots = Vec::new();
+    for component in components {
+        let id = Uuid::parse_str(&component.resource_id).map_err(|e| e.to_string())?;
+        let quantity =
+            Decimal::from_str(&component.quantity.replace(',', ".")).map_err(|e| e.to_string())?;
+        let resource = store
+            .get_resource(id)
+            .map_err(|e| e.to_string())?
+            .ok_or("Insumo inexistente")?;
+        let price = store
+            .resource_price_as_of(id, Currency::Ars, "9999-12-31")
+            .map_err(|e| e.to_string())?
+            .ok_or("Insumo sin precio en ARS")?;
+        snapshots.push(ResourcePriceSnapshot {
+            resource_id: id,
+            description: resource.description,
+            kind: resource.kind,
+            quantity_per_unit: quantity,
+            unit_price: price.amount,
+        });
+    }
+    let analysis = UnitCostAnalysis {
+        id: Uuid::new_v4(),
+        code: code.trim().to_owned(),
+        description: description.trim().to_owned(),
+        unit: unit.trim().to_owned(),
+        components: snapshots,
+    };
+    let view = analysis_view(analysis.clone())?;
+    store.save_analysis(&analysis).map_err(|e| e.to_string())?;
+    Ok(view)
+}
+
+#[derive(serde::Deserialize)]
+struct AnalysisComponentInput {
+    resource_id: String,
+    quantity: String,
+}
+
+#[tauri::command]
+fn add_line_from_analysis(
+    db: tauri::State<'_, Db>,
+    estimate_id: String,
+    analysis_id: String,
+    quantity: String,
+) -> Result<LineView, String> {
+    let estimate_id = Uuid::parse_str(&estimate_id).map_err(|e| e.to_string())?;
+    let analysis_id = Uuid::parse_str(&analysis_id).map_err(|e| e.to_string())?;
+    let quantity = Decimal::from_str(&quantity.replace(',', ".")).map_err(|e| e.to_string())?;
+    let mut store = db.lock().map_err(|e| e.to_string())?;
+    let estimate = store
+        .get_estimate(estimate_id)
+        .map_err(|e| e.to_string())?
+        .ok_or("Presupuesto inexistente")?;
+    if estimate.issued {
+        return Err("No se puede modificar un presupuesto emitido".into());
+    }
+    if estimate.currency != Currency::Ars {
+        return Err("Los ACU actuales usan ARS. No se aplican a presupuestos USD".into());
+    }
+    let analysis = store
+        .get_analysis(analysis_id)
+        .map_err(|e| e.to_string())?
+        .ok_or("ACU inexistente")?;
+    let unit_cost_snapshot = analysis.direct_unit_cost().map_err(|e| e.to_string())?;
+    let items = store
+        .estimate_items(estimate_id)
+        .map_err(|e| e.to_string())?;
+    let item = EstimateItem {
+        id: Uuid::new_v4(),
+        estimate_id,
+        position: items.last().map_or(0, |item| item.position + 1),
+        analysis_id: Some(analysis_id),
+        description: analysis.description,
+        unit: analysis.unit,
+        quantity,
+        unit_cost_snapshot,
+    };
+    store.add_estimate_item(&item).map_err(|e| e.to_string())?;
+    Ok(LineView::from(item))
 }
 
 #[derive(serde::Serialize)]
@@ -359,7 +581,12 @@ pub fn run() {
             delete_estimate_line,
             estimate_total,
             duplicate_estimate,
-            issue_estimate
+            issue_estimate,
+            list_resources,
+            create_resource,
+            list_analyses,
+            create_analysis,
+            add_line_from_analysis
         ])
         .run(tauri::generate_context!())
         .expect("error al iniciar CPOBRAS");

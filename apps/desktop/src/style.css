@@ -6,3 +6,5 @@
 .line-form{padding:20px 24px;display:grid;grid-template-columns:2fr .7fr 1fr 1fr;gap:12px;align-items:end}.line-form button{grid-column:1/-1}.estimate-total{text-align:right;padding:20px 24px;font-weight:800;border-top:1px solid #e4e9ed}@media(max-width:1050px){.line-form{grid-template-columns:1fr 1fr}}
 
 .issue-button{margin:0 24px 20px}.record .edit-project{flex-shrink:0}.line-form #cancel-line{grid-column:1/-1}
+
+.acu-composer{padding:18px 24px;border-top:1px solid #e3eaf0}.acu-composer h2{margin:4px 0 14px}.acu-composer .estimate-form{padding:14px 0}.acu-composer .record{padding:10px 0}.sidebar nav{display:grid;gap:5px}

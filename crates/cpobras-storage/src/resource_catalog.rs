@@ -105,6 +105,20 @@ impl LocalStore {
         Ok(())
     }
 
+    pub fn list_resources(&self) -> Result<Vec<Resource>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id FROM resources ORDER BY code, id")?;
+        let ids = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        let mut resources = Vec::new();
+        for id in ids {
+            if let Some(resource) = self.get_resource(Uuid::parse_str(&id?)?)? {
+                resources.push(resource);
+            }
+        }
+        Ok(resources)
+    }
+
     pub fn get_resource(&self, id: Uuid) -> Result<Option<Resource>> {
         let raw = self
             .conn
@@ -248,6 +262,48 @@ mod tests {
             None
         );
         assert!(db.add_resource_price(&first).is_err());
+    }
+
+    #[test]
+    fn catalog_lists_all_resources_and_keeps_latest_price() {
+        let mut db = LocalStore::in_memory().unwrap();
+        let material = Resource {
+            id: Uuid::new_v4(),
+            code: "MAT-001".into(),
+            description: "Acero".into(),
+            unit: "kg".into(),
+            kind: ResourceKind::Material,
+            active: true,
+        };
+        let labor = Resource {
+            id: Uuid::new_v4(),
+            code: "MO-001".into(),
+            description: "Oficial".into(),
+            unit: "h".into(),
+            kind: ResourceKind::Labor,
+            active: true,
+        };
+        db.save_resource(&material).unwrap();
+        db.save_resource(&labor).unwrap();
+        assert_eq!(db.list_resources().unwrap(), vec![material.clone(), labor]);
+        for (date, amount) in [("2026-01-01", 100), ("2026-02-01", 125)] {
+            db.add_resource_price(&ResourcePrice {
+                id: Uuid::new_v4(),
+                resource_id: material.id,
+                amount: Decimal::new(amount, 0),
+                currency: Currency::Ars,
+                effective_date: date.into(),
+                source: None,
+            })
+            .unwrap();
+        }
+        assert_eq!(
+            db.resource_price_as_of(material.id, Currency::Ars, "9999-12-31")
+                .unwrap()
+                .unwrap()
+                .amount,
+            Decimal::new(125, 0)
+        );
     }
 
     #[test]
