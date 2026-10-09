@@ -8,8 +8,10 @@ type Db = Mutex<LocalStore>;
 
 #[tauri::command]
 fn list_clients(db: tauri::State<'_, Db>) -> Result<Vec<Client>, String> {
-    db.lock().map_err(|e| e.to_string())?
-        .list_clients().map_err(|e| e.to_string())
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .list_clients()
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -26,15 +28,19 @@ fn create_client(
         name: client_name.trim().to_owned(),
         cuit: cuit.filter(|value| !value.trim().is_empty()),
     };
-    db.lock().map_err(|e| e.to_string())?
-        .save_client(&client).map_err(|e| e.to_string())?;
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .save_client(&client)
+        .map_err(|e| e.to_string())?;
     Ok(client)
 }
 
 #[tauri::command]
 fn list_projects(db: tauri::State<'_, Db>) -> Result<Vec<Project>, String> {
-    db.lock().map_err(|e| e.to_string())?
-        .list_projects().map_err(|e| e.to_string())
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .list_projects()
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -58,8 +64,10 @@ fn create_project(
         name: project_name.trim().to_owned(),
         currency,
     };
-    db.lock().map_err(|e| e.to_string())?
-        .save_project(&project).map_err(|e| e.to_string())?;
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .save_project(&project)
+        .map_err(|e| e.to_string())?;
     Ok(project)
 }
 
