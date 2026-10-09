@@ -42,7 +42,9 @@ fn kind_from_db(value: &str) -> Result<ResourceKind> {
         "labor" => Ok(ResourceKind::Labor),
         "equipment" => Ok(ResourceKind::Equipment),
         "subcontract" => Ok(ResourceKind::Subcontract),
-        _ => Err(StorageError::InvalidValue(format!("unknown resource kind: {value}"))),
+        _ => Err(StorageError::InvalidValue(format!(
+            "unknown resource kind: {value}"
+        ))),
     }
 }
 
@@ -61,7 +63,9 @@ fn currency_from_db(value: &str) -> Result<Currency> {
     }
 }
 
-fn parse_price(record: (String, String, String, String, String, Option<String>)) -> Result<ResourcePrice> {
+fn parse_price(
+    record: (String, String, String, String, String, Option<String>),
+) -> Result<ResourcePrice> {
     Ok(ResourcePrice {
         id: Uuid::parse_str(&record.0)?,
         resource_id: Uuid::parse_str(&record.1)?,
@@ -102,22 +106,33 @@ impl LocalStore {
     }
 
     pub fn get_resource(&self, id: Uuid) -> Result<Option<Resource>> {
-        let raw = self.conn.query_row(
-            "SELECT code, description, unit, kind, active FROM resources WHERE id=?1",
-            [id.to_string()],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, bool>(4)?,
-                ))
-            },
-        ).optional()?;
+        let raw = self
+            .conn
+            .query_row(
+                "SELECT code, description, unit, kind, active FROM resources WHERE id=?1",
+                [id.to_string()],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, bool>(4)?,
+                    ))
+                },
+            )
+            .optional()?;
         raw.map(|(code, description, unit, kind, active)| {
-            Ok(Resource { id, code, description, unit, kind: kind_from_db(&kind)?, active })
-        }).transpose()
+            Ok(Resource {
+                id,
+                code,
+                description,
+                unit,
+                kind: kind_from_db(&kind)?,
+                active,
+            })
+        })
+        .transpose()
     }
 
     /// Appends a new historical price. An existing price ID is never updated.
@@ -126,7 +141,10 @@ impl LocalStore {
         let valid_date = date.len() == 10
             && date.as_bytes()[4] == b'-'
             && date.as_bytes()[7] == b'-'
-            && date.chars().enumerate().all(|(i, c)| i == 4 || i == 7 || c.is_ascii_digit());
+            && date
+                .chars()
+                .enumerate()
+                .all(|(i, c)| i == 4 || i == 7 || c.is_ascii_digit());
         if price.amount < Decimal::ZERO || !valid_date {
             return Err(StorageError::InvalidValue(
                 "price must be nonnegative and date must be YYYY-MM-DD".into(),
@@ -154,23 +172,26 @@ impl LocalStore {
         currency: Currency,
         as_of: &str,
     ) -> Result<Option<ResourcePrice>> {
-        let raw = self.conn.query_row(
-            "SELECT id, resource_id, amount, currency, effective_date, source
+        let raw = self
+            .conn
+            .query_row(
+                "SELECT id, resource_id, amount, currency, effective_date, source
              FROM resource_prices
              WHERE resource_id=?1 AND currency=?2 AND effective_date<=?3
              ORDER BY effective_date DESC, created_at DESC, id DESC LIMIT 1",
-            params![resource_id.to_string(), currency_to_db(currency), as_of],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, String>(4)?,
-                    row.get::<_, Option<String>>(5)?,
-                ))
-            },
-        ).optional()?;
+                params![resource_id.to_string(), currency_to_db(currency), as_of],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, Option<String>>(5)?,
+                    ))
+                },
+            )
+            .optional()?;
         raw.map(parse_price).transpose()
     }
 }
@@ -191,7 +212,10 @@ mod tests {
             active: true,
         };
         db.save_resource(&resource).unwrap();
-        assert_eq!(db.get_resource(resource.id).unwrap(), Some(resource.clone()));
+        assert_eq!(
+            db.get_resource(resource.id).unwrap(),
+            Some(resource.clone())
+        );
         let first = ResourcePrice {
             id: Uuid::new_v4(),
             resource_id: resource.id,
@@ -210,15 +234,18 @@ mod tests {
         db.add_resource_price(&second).unwrap();
         assert_eq!(
             db.resource_price_as_of(resource.id, Currency::Ars, "2026-01-31")
-                .unwrap(), Some(first.clone())
+                .unwrap(),
+            Some(first.clone())
         );
         assert_eq!(
             db.resource_price_as_of(resource.id, Currency::Ars, "2026-02-28")
-                .unwrap(), Some(second)
+                .unwrap(),
+            Some(second)
         );
         assert_eq!(
             db.resource_price_as_of(resource.id, Currency::Usd, "2026-02-28")
-                .unwrap(), None
+                .unwrap(),
+            None
         );
         assert!(db.add_resource_price(&first).is_err());
     }
@@ -227,13 +254,19 @@ mod tests {
     fn rejects_invalid_prices_and_missing_resources() {
         let mut db = LocalStore::in_memory().unwrap();
         let price = ResourcePrice {
-            id: Uuid::new_v4(), resource_id: Uuid::new_v4(),
-            amount: Decimal::new(1, 0), currency: Currency::Ars,
-            effective_date: "2026-01-01".into(), source: None,
+            id: Uuid::new_v4(),
+            resource_id: Uuid::new_v4(),
+            amount: Decimal::new(1, 0),
+            currency: Currency::Ars,
+            effective_date: "2026-01-01".into(),
+            source: None,
         };
         assert!(db.add_resource_price(&price).is_err());
-        assert!(db.add_resource_price(&ResourcePrice {
-            amount: Decimal::NEGATIVE_ONE, ..price
-        }).is_err());
+        assert!(db
+            .add_resource_price(&ResourcePrice {
+                amount: Decimal::NEGATIVE_ONE,
+                ..price
+            })
+            .is_err());
     }
 }
