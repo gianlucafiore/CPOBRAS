@@ -177,7 +177,8 @@ impl LocalStore {
         if title.trim().is_empty() {
             return Err(StorageError::InvalidValue("empty estimate title".into()));
         }
-        let source = self.get_estimate(source_id)?
+        let source = self
+            .get_estimate(source_id)?
             .ok_or_else(|| StorageError::InvalidValue("estimate not found".into()))?;
         let entries = self.estimate_items(source_id)?;
         let copy = Estimate {
@@ -190,7 +191,12 @@ impl LocalStore {
         let transaction = self.conn.transaction()?;
         transaction.execute(
             "INSERT INTO estimates(id, project_id, title, currency) VALUES (?1, ?2, ?3, ?4)",
-            params![copy.id.to_string(), copy.project_id.to_string(), copy.title, currency_code(copy.currency)],
+            params![
+                copy.id.to_string(),
+                copy.project_id.to_string(),
+                copy.title,
+                currency_code(copy.currency)
+            ],
         )?;
         for entry in entries {
             transaction.execute(
@@ -198,9 +204,14 @@ impl LocalStore {
                  description, unit, quantity, unit_cost_snapshot)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 params![
-                    Uuid::new_v4().to_string(), copy.id.to_string(), entry.position,
-                    entry.analysis_id.map(|id| id.to_string()), entry.description, entry.unit,
-                    entry.quantity.to_string(), entry.unit_cost_snapshot.to_string(),
+                    Uuid::new_v4().to_string(),
+                    copy.id.to_string(),
+                    entry.position,
+                    entry.analysis_id.map(|id| id.to_string()),
+                    entry.description,
+                    entry.unit,
+                    entry.quantity.to_string(),
+                    entry.unit_cost_snapshot.to_string(),
                 ],
             )?;
         }
@@ -372,7 +383,10 @@ mod tests {
         db.add_estimate_item(&line).unwrap();
         line.quantity = Decimal::new(3, 0);
         db.update_estimate_item(&line).unwrap();
-        assert_eq!(db.estimate_total(estimate.id).unwrap(), Decimal::new(37650, 2));
+        assert_eq!(
+            db.estimate_total(estimate.id).unwrap(),
+            Decimal::new(37650, 2)
+        );
 
         let copy = db.duplicate_estimate(estimate.id, "Revisión").unwrap();
         assert!(!copy.issued);
@@ -390,5 +404,4 @@ mod tests {
         assert!(db.delete_estimate_item(copy.id, issued_line.id).is_err());
         assert_eq!(db.estimate_total(copy.id).unwrap(), Decimal::new(37650, 2));
     }
-
 }
