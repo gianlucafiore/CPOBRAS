@@ -28,14 +28,12 @@ pub struct EstimateLineDelta {
 impl LocalStore {
     /// Compare estimates from one project with identical currencies. Similar
     /// descriptions and units are grouped, without requiring shared line IDs.
-    pub fn compare_estimates(
-        &self,
-        baseline_id: Uuid,
-        revised_id: Uuid,
-    ) -> Result<EstimateDelta> {
-        let baseline = self.get_estimate(baseline_id)?
+    pub fn compare_estimates(&self, baseline_id: Uuid, revised_id: Uuid) -> Result<EstimateDelta> {
+        let baseline = self
+            .get_estimate(baseline_id)?
             .ok_or_else(|| StorageError::InvalidValue("baseline not found".into()))?;
-        let revised = self.get_estimate(revised_id)?
+        let revised = self
+            .get_estimate(revised_id)?
             .ok_or_else(|| StorageError::InvalidValue("revised estimate not found".into()))?;
         if baseline.project_id != revised.project_id || baseline.currency != revised.currency {
             return Err(StorageError::InvalidValue(
@@ -46,30 +44,54 @@ impl LocalStore {
             BTreeMap::new();
         for line in self.estimate_items(baseline_id)? {
             let line_total = line.total();
-            let entry = grouped.entry((line.description, line.unit))
-                .or_insert((Decimal::ZERO, Decimal::ZERO, Decimal::ZERO, Decimal::ZERO));
+            let entry = grouped.entry((line.description, line.unit)).or_insert((
+                Decimal::ZERO,
+                Decimal::ZERO,
+                Decimal::ZERO,
+                Decimal::ZERO,
+            ));
             entry.0 += line.quantity;
             entry.2 += line_total;
         }
         for line in self.estimate_items(revised_id)? {
             let line_total = line.total();
-            let entry = grouped.entry((line.description, line.unit))
-                .or_insert((Decimal::ZERO, Decimal::ZERO, Decimal::ZERO, Decimal::ZERO));
+            let entry = grouped.entry((line.description, line.unit)).or_insert((
+                Decimal::ZERO,
+                Decimal::ZERO,
+                Decimal::ZERO,
+                Decimal::ZERO,
+            ));
             entry.1 += line.quantity;
             entry.3 += line_total;
         }
-        let lines = grouped.into_iter().map(|((description, unit), (baseline_quantity, revised_quantity, baseline_cost, revised_cost))| {
-            EstimateLineDelta {
-                description, unit, baseline_quantity, revised_quantity,
-                baseline_cost, revised_cost,
-                difference: revised_cost - baseline_cost,
-            }
-        }).collect();
+        let lines = grouped
+            .into_iter()
+            .map(
+                |(
+                    (description, unit),
+                    (baseline_quantity, revised_quantity, baseline_cost, revised_cost),
+                )| {
+                    EstimateLineDelta {
+                        description,
+                        unit,
+                        baseline_quantity,
+                        revised_quantity,
+                        baseline_cost,
+                        revised_cost,
+                        difference: revised_cost - baseline_cost,
+                    }
+                },
+            )
+            .collect();
         let baseline_total = self.estimate_total(baseline_id)?;
         let revised_total = self.estimate_total(revised_id)?;
         Ok(EstimateDelta {
-            baseline_id, revised_id, baseline_total, revised_total,
-            difference: revised_total - baseline_total, lines,
+            baseline_id,
+            revised_id,
+            baseline_total,
+            revised_total,
+            difference: revised_total - baseline_total,
+            lines,
         })
     }
 }
@@ -83,16 +105,36 @@ mod tests {
     #[test]
     fn comparison_tracks_added_removed_and_repriced_lines() {
         let mut db = LocalStore::in_memory().unwrap();
-        let client = Client { id: Uuid::new_v4(), name: "Comitente".into(), cuit: None };
+        let client = Client {
+            id: Uuid::new_v4(),
+            name: "Comitente".into(),
+            cuit: None,
+        };
         db.save_client(&client).unwrap();
-        let project = Project { id: Uuid::new_v4(), client_id: client.id, name: "Obra".into(), currency: Currency::Ars };
+        let project = Project {
+            id: Uuid::new_v4(),
+            client_id: client.id,
+            name: "Obra".into(),
+            currency: Currency::Ars,
+        };
         db.save_project(&project).unwrap();
-        let original = Estimate { id: Uuid::new_v4(), project_id: project.id, title: "Base".into(), currency: Currency::Ars, issued: false };
+        let original = Estimate {
+            id: Uuid::new_v4(),
+            project_id: project.id,
+            title: "Base".into(),
+            currency: Currency::Ars,
+            issued: false,
+        };
         db.create_estimate(&original).unwrap();
         let first = EstimateItem {
-            id: Uuid::new_v4(), estimate_id: original.id, position: 0, analysis_id: None,
-            description: "Acero".into(), unit: "kg".into(),
-            quantity: Decimal::new(10, 0), unit_cost_snapshot: Decimal::new(20, 0),
+            id: Uuid::new_v4(),
+            estimate_id: original.id,
+            position: 0,
+            analysis_id: None,
+            description: "Acero".into(),
+            unit: "kg".into(),
+            quantity: Decimal::new(10, 0),
+            unit_cost_snapshot: Decimal::new(20, 0),
         };
         db.add_estimate_item(&first).unwrap();
         let revised = db.duplicate_estimate(original.id, "Revisión").unwrap();
@@ -100,33 +142,51 @@ mod tests {
         updated.quantity = Decimal::new(15, 0);
         db.update_estimate_item(&updated).unwrap();
         db.add_estimate_item(&EstimateItem {
-            id: Uuid::new_v4(), estimate_id: revised.id, position: 1,
-            analysis_id: None, description: "Soldadura".into(), unit: "h".into(),
-            quantity: Decimal::new(2, 0), unit_cost_snapshot: Decimal::new(5, 0),
-        }).unwrap();
+            id: Uuid::new_v4(),
+            estimate_id: revised.id,
+            position: 1,
+            analysis_id: None,
+            description: "Soldadura".into(),
+            unit: "h".into(),
+            quantity: Decimal::new(2, 0),
+            unit_cost_snapshot: Decimal::new(5, 0),
+        })
+        .unwrap();
         let diff = db.compare_estimates(original.id, revised.id).unwrap();
         assert_eq!(diff.baseline_total, Decimal::new(200, 0));
         assert_eq!(diff.revised_total, Decimal::new(310, 0));
         assert_eq!(diff.difference, Decimal::new(110, 0));
         assert_eq!(diff.lines.len(), 2);
-        assert_eq!(db.estimate_total(original.id).unwrap(), Decimal::new(200, 0));
+        assert_eq!(
+            db.estimate_total(original.id).unwrap(),
+            Decimal::new(200, 0)
+        );
     }
 
     #[test]
     fn comparisons_cannot_mix_projects() {
         let mut db = LocalStore::in_memory().unwrap();
-        let client = Client { id: Uuid::new_v4(), name: "Cliente".into(), cuit: None };
+        let client = Client {
+            id: Uuid::new_v4(),
+            name: "Cliente".into(),
+            cuit: None,
+        };
         db.save_client(&client).unwrap();
         let mut ids = Vec::new();
         for n in 0..2 {
             let project = Project {
-                id: Uuid::new_v4(), client_id: client.id, name: format!("Obra {n}"),
+                id: Uuid::new_v4(),
+                client_id: client.id,
+                name: format!("Obra {n}"),
                 currency: Currency::Ars,
             };
             db.save_project(&project).unwrap();
             let estimate = Estimate {
-                id: Uuid::new_v4(), project_id: project.id, title: "Estimación".into(),
-                currency: Currency::Ars, issued: false,
+                id: Uuid::new_v4(),
+                project_id: project.id,
+                title: "Estimación".into(),
+                currency: Currency::Ars,
+                issued: false,
             };
             db.create_estimate(&estimate).unwrap();
             ids.push(estimate.id);
