@@ -60,18 +60,21 @@ impl LocalStore {
     }
 
     pub fn get_estimate(&self, id: Uuid) -> Result<Option<Estimate>> {
-        let result = self.conn.query_row(
-            "SELECT project_id, title, currency, status FROM estimates WHERE id=?1",
-            [id.to_string()],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
-                ))
-            },
-        ).optional()?;
+        let result = self
+            .conn
+            .query_row(
+                "SELECT project_id, title, currency, status FROM estimates WHERE id=?1",
+                [id.to_string()],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                    ))
+                },
+            )
+            .optional()?;
         match result {
             None => Ok(None),
             Some((project_id, title, currency, status)) => Ok(Some(Estimate {
@@ -143,7 +146,9 @@ impl LocalStore {
                 id: Uuid::parse_str(&id)?,
                 estimate_id,
                 position,
-                analysis_id: analysis_id.map(|value| Uuid::parse_str(&value)).transpose()?,
+                analysis_id: analysis_id
+                    .map(|value| Uuid::parse_str(&value))
+                    .transpose()?,
                 description,
                 unit,
                 quantity: parse_amount(quantity)?,
@@ -154,7 +159,8 @@ impl LocalStore {
     }
 
     pub fn estimate_total(&self, id: Uuid) -> Result<Decimal> {
-        let lines: Vec<EstimateLine> = self.estimate_items(id)?
+        let lines: Vec<EstimateLine> = self
+            .estimate_items(id)?
             .into_iter()
             .map(|item| EstimateLine {
                 analysis_id: item.analysis_id.unwrap_or(Uuid::nil()),
@@ -190,7 +196,11 @@ mod tests {
     #[test]
     fn issued_estimate_keeps_prices_and_rejects_later_changes() {
         let mut db = LocalStore::in_memory().unwrap();
-        let client = Client { id: Uuid::new_v4(), name: "Comitente".into(), cuit: None };
+        let client = Client {
+            id: Uuid::new_v4(),
+            name: "Comitente".into(),
+            cuit: None,
+        };
         db.save_client(&client).unwrap();
         let project = Project {
             id: Uuid::new_v4(),
@@ -200,24 +210,40 @@ mod tests {
         };
         db.save_project(&project).unwrap();
         let estimate = Estimate {
-            id: Uuid::new_v4(), project_id: project.id,
-            title: "Presupuesto inicial".into(), currency: Currency::Ars,
+            id: Uuid::new_v4(),
+            project_id: project.id,
+            title: "Presupuesto inicial".into(),
+            currency: Currency::Ars,
             issued: false,
         };
         db.create_estimate(&estimate).unwrap();
         let line = EstimateItem {
-            id: Uuid::new_v4(), estimate_id: estimate.id, position: 0,
-            analysis_id: None, description: "Mampostería".into(), unit: "m2".into(),
+            id: Uuid::new_v4(),
+            estimate_id: estimate.id,
+            position: 0,
+            analysis_id: None,
+            description: "Mampostería".into(),
+            unit: "m2".into(),
             quantity: Decimal::new(10, 0),
             unit_cost_snapshot: Decimal::new(12550, 2),
         };
         db.add_estimate_item(&line).unwrap();
-        assert_eq!(db.estimate_total(estimate.id).unwrap(), Decimal::new(125500, 2));
+        assert_eq!(
+            db.estimate_total(estimate.id).unwrap(),
+            Decimal::new(125500, 2)
+        );
         db.issue_estimate(estimate.id).unwrap();
         assert!(db.get_estimate(estimate.id).unwrap().unwrap().issued);
-        assert!(db.add_estimate_item(&EstimateItem {
-            id: Uuid::new_v4(), position: 1, ..line
-        }).is_err());
-        assert_eq!(db.estimate_total(estimate.id).unwrap(), Decimal::new(125500, 2));
+        assert!(db
+            .add_estimate_item(&EstimateItem {
+                id: Uuid::new_v4(),
+                position: 1,
+                ..line
+            })
+            .is_err());
+        assert_eq!(
+            db.estimate_total(estimate.id).unwrap(),
+            Decimal::new(125500, 2)
+        );
     }
 }
