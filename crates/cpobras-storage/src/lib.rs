@@ -259,14 +259,17 @@ impl LocalStore {
     /// Reprices an ACU from recorded ARS observations on or before the requested date.
     /// Estimate line unit-cost snapshots are never rewritten.
     pub fn reprice_analysis_at(&mut self, id: Uuid, as_of: &str) -> Result<UnitCostAnalysis> {
-        let mut analysis = self.get_analysis(id)?
+        let mut analysis = self
+            .get_analysis(id)?
             .ok_or_else(|| StorageError::InvalidValue("analysis not found".into()))?;
         for component in &mut analysis.components {
-            let price = self.resource_price_as_of(component.resource_id, Currency::Ars, as_of)?
+            let price = self
+                .resource_price_as_of(component.resource_id, Currency::Ars, as_of)?
                 .ok_or_else(|| StorageError::InvalidValue("price missing as of date".into()))?;
             component.unit_price = price.amount;
         }
-        analysis.direct_unit_cost()
+        analysis
+            .direct_unit_cost()
             .map_err(|e| StorageError::InvalidValue(e.to_string()))?;
         self.save_analysis(&analysis)?;
         Ok(analysis)
@@ -340,42 +343,86 @@ mod tests {
 
         let mut db = LocalStore::in_memory().unwrap();
         let resource = Resource {
-            id: Uuid::new_v4(), code: "MAT-01".into(),
-            description: "Acero".into(), unit: "kg".into(),
-            kind: ResourceKind::Material, active: true,
+            id: Uuid::new_v4(),
+            code: "MAT-01".into(),
+            description: "Acero".into(),
+            unit: "kg".into(),
+            kind: ResourceKind::Material,
+            active: true,
         };
         db.save_resource(&resource).unwrap();
         for (date, amount) in [("2026-01-01", 10), ("2026-02-01", 15)] {
             db.add_resource_price(&ResourcePrice {
-                id: Uuid::new_v4(), resource_id: resource.id,
-                amount: Decimal::new(amount, 0), currency: Currency::Ars,
-                effective_date: date.into(), source: None,
-            }).unwrap();
+                id: Uuid::new_v4(),
+                resource_id: resource.id,
+                amount: Decimal::new(amount, 0),
+                currency: Currency::Ars,
+                effective_date: date.into(),
+                source: None,
+            })
+            .unwrap();
         }
         let analysis = UnitCostAnalysis {
-            id: Uuid::new_v4(), code: "ACU-01".into(),
-            description: "Estructura".into(), unit: "kg".into(),
+            id: Uuid::new_v4(),
+            code: "ACU-01".into(),
+            description: "Estructura".into(),
+            unit: "kg".into(),
             components: vec![ResourcePriceSnapshot {
-                resource_id: resource.id, description: resource.description.clone(),
+                resource_id: resource.id,
+                description: resource.description.clone(),
                 kind: ResourceKind::Material,
-                quantity_per_unit: Decimal::new(2, 0), unit_price: Decimal::new(10, 0),
+                quantity_per_unit: Decimal::new(2, 0),
+                unit_price: Decimal::new(10, 0),
             }],
         };
         db.save_analysis(&analysis).unwrap();
-        let client = Client { id: Uuid::new_v4(), name: "Cliente".into(), cuit: None };
+        let client = Client {
+            id: Uuid::new_v4(),
+            name: "Cliente".into(),
+            cuit: None,
+        };
         db.save_client(&client).unwrap();
-        let project = Project { id: Uuid::new_v4(), client_id: client.id, name: "Obra".into(), currency: Currency::Ars };
+        let project = Project {
+            id: Uuid::new_v4(),
+            client_id: client.id,
+            name: "Obra".into(),
+            currency: Currency::Ars,
+        };
         db.save_project(&project).unwrap();
-        let estimate = Estimate { id: Uuid::new_v4(), project_id: project.id, title: "Cotización".into(), currency: Currency::Ars, issued: false };
+        let estimate = Estimate {
+            id: Uuid::new_v4(),
+            project_id: project.id,
+            title: "Cotización".into(),
+            currency: Currency::Ars,
+            issued: false,
+        };
         db.create_estimate(&estimate).unwrap();
         db.add_estimate_item(&EstimateItem {
-            id: Uuid::new_v4(), estimate_id: estimate.id, position: 0,
-            analysis_id: Some(analysis.id), description: "Estructura".into(), unit: "kg".into(),
-            quantity: Decimal::new(3, 0), unit_cost_snapshot: Decimal::new(20, 0),
-        }).unwrap();
-        assert_eq!(db.reprice_analysis_at(analysis.id, "2026-02-28").unwrap().direct_unit_cost().unwrap(), Decimal::new(30, 0));
+            id: Uuid::new_v4(),
+            estimate_id: estimate.id,
+            position: 0,
+            analysis_id: Some(analysis.id),
+            description: "Estructura".into(),
+            unit: "kg".into(),
+            quantity: Decimal::new(3, 0),
+            unit_cost_snapshot: Decimal::new(20, 0),
+        })
+        .unwrap();
+        assert_eq!(
+            db.reprice_analysis_at(analysis.id, "2026-02-28")
+                .unwrap()
+                .direct_unit_cost()
+                .unwrap(),
+            Decimal::new(30, 0)
+        );
         assert_eq!(db.estimate_total(estimate.id).unwrap(), Decimal::new(60, 0));
-        assert_eq!(db.reprice_analysis_at(analysis.id, "2026-01-31").unwrap().direct_unit_cost().unwrap(), Decimal::new(20, 0));
+        assert_eq!(
+            db.reprice_analysis_at(analysis.id, "2026-01-31")
+                .unwrap()
+                .direct_unit_cost()
+                .unwrap(),
+            Decimal::new(20, 0)
+        );
         assert_eq!(db.estimate_total(estimate.id).unwrap(), Decimal::new(60, 0));
     }
 
