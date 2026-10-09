@@ -112,7 +112,10 @@ pub struct CostBreakdown {
 /// Percentages are applied in order: general expenses on direct cost;
 /// profit on direct + general; discount on that subtotal;
 /// tax on the discounted amount. All calculations use Decimal.
-pub fn price_estimate(direct: Decimal, rates: PricingRates) -> Result<PricingBreakdown, DomainError> {
+pub fn price_estimate(
+    direct: Decimal,
+    rates: PricingRates,
+) -> Result<PricingBreakdown, DomainError> {
     let values = [
         direct,
         rates.general_expenses_percent,
@@ -205,12 +208,39 @@ mod tests {
     #[test]
     fn breakdown_separates_categories_without_double_counting() {
         let analysis = UnitCostAnalysis {
-            id: Uuid::new_v4(), code: "01".into(), description: "Metal".into(), unit: "kg".into(),
+            id: Uuid::new_v4(),
+            code: "01".into(),
+            description: "Metal".into(),
+            unit: "kg".into(),
             components: vec![
-                ResourcePriceSnapshot { resource_id: Uuid::new_v4(), description: "Acero".into(), kind: ResourceKind::Material, quantity_per_unit: Decimal::new(2, 0), unit_price: Decimal::new(10, 0) },
-                ResourcePriceSnapshot { resource_id: Uuid::new_v4(), description: "Soldador".into(), kind: ResourceKind::Labor, quantity_per_unit: Decimal::new(1, 0), unit_price: Decimal::new(15, 0) },
-                ResourcePriceSnapshot { resource_id: Uuid::new_v4(), description: "Grúa".into(), kind: ResourceKind::Equipment, quantity_per_unit: Decimal::new(1, 0), unit_price: Decimal::new(5, 0) },
-                ResourcePriceSnapshot { resource_id: Uuid::new_v4(), description: "Montaje".into(), kind: ResourceKind::Subcontract, quantity_per_unit: Decimal::new(1, 0), unit_price: Decimal::new(8, 0) },
+                ResourcePriceSnapshot {
+                    resource_id: Uuid::new_v4(),
+                    description: "Acero".into(),
+                    kind: ResourceKind::Material,
+                    quantity_per_unit: Decimal::new(2, 0),
+                    unit_price: Decimal::new(10, 0),
+                },
+                ResourcePriceSnapshot {
+                    resource_id: Uuid::new_v4(),
+                    description: "Soldador".into(),
+                    kind: ResourceKind::Labor,
+                    quantity_per_unit: Decimal::new(1, 0),
+                    unit_price: Decimal::new(15, 0),
+                },
+                ResourcePriceSnapshot {
+                    resource_id: Uuid::new_v4(),
+                    description: "Grúa".into(),
+                    kind: ResourceKind::Equipment,
+                    quantity_per_unit: Decimal::new(1, 0),
+                    unit_price: Decimal::new(5, 0),
+                },
+                ResourcePriceSnapshot {
+                    resource_id: Uuid::new_v4(),
+                    description: "Montaje".into(),
+                    kind: ResourceKind::Subcontract,
+                    quantity_per_unit: Decimal::new(1, 0),
+                    unit_price: Decimal::new(8, 0),
+                },
             ],
         };
         let breakdown = analysis.cost_breakdown().unwrap();
@@ -237,9 +267,14 @@ mod tests {
         assert_eq!(result.taxable_subtotal, Decimal::from_str("125.4").unwrap());
         assert_eq!(result.taxes, Decimal::from_str("26.334").unwrap());
         assert_eq!(result.total, Decimal::from_str("151.734").unwrap());
-        assert!(price_estimate(Decimal::ONE, PricingRates {
-            discount_percent: Decimal::new(101, 0), ..rates
-        }).is_err());
+        assert!(price_estimate(
+            Decimal::ONE,
+            PricingRates {
+                discount_percent: Decimal::new(101, 0),
+                ..rates
+            }
+        )
+        .is_err());
     }
 
     #[test]
