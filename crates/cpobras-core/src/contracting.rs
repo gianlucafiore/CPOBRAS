@@ -3,7 +3,7 @@ use crate::{DomainError, ResourceKind, ResourcePriceSnapshot, UnitCostAnalysis};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContractingScenario {
     pub name: String,
     /// Cost breakdown expressed as quantities per unit of the work item.
