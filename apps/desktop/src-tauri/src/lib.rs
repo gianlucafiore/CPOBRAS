@@ -1,5 +1,10 @@
 use cpobras_core::{Client, Currency, Project};
-use cpobras_storage::{estimates::Estimate, LocalStore};
+use cpobras_storage::{
+    estimates::{Estimate, EstimateItem},
+    LocalStore,
+};
+use rust_decimal::Decimal;
+use std::str::FromStr;
 use std::sync::Mutex;
 use tauri::Manager;
 use uuid::Uuid;
@@ -33,6 +38,83 @@ fn create_client(
         .save_client(&client)
         .map_err(|e| e.to_string())?;
     Ok(client)
+}
+
+#[derive(serde::Serialize)]
+struct LineView {
+    id: String,
+    description: String,
+    unit: String,
+    quantity: String,
+    unit_cost: String,
+    total: String,
+}
+
+impl From<EstimateItem> for LineView {
+    fn from(line: EstimateItem) -> Self {
+        let total = line.total().to_string();
+        Self {
+            id: line.id.to_string(),
+            description: line.description,
+            unit: line.unit,
+            quantity: line.quantity.to_string(),
+            unit_cost: line.unit_cost_snapshot.to_string(),
+            total,
+        }
+    }
+}
+
+#[tauri::command]
+fn list_estimate_lines(
+    db: tauri::State<'_, Db>,
+    estimate_id: String,
+) -> Result<Vec<LineView>, String> {
+    let id = Uuid::parse_str(&estimate_id).map_err(|e| e.to_string())?;
+    let store = db.lock().map_err(|e| e.to_string())?;
+    if store.get_estimate(id).map_err(|e| e.to_string())?.is_none() {
+        return Err("El presupuesto no existe".into());
+    }
+    let lines = store.estimate_items(id).map_err(|e| e.to_string())?;
+    Ok(lines.into_iter().map(LineView::from).collect())
+}
+
+#[tauri::command]
+fn add_estimate_line(
+    db: tauri::State<'_, Db>,
+    estimate_id: String,
+    description: String,
+    unit: String,
+    quantity: String,
+    unit_cost: String,
+) -> Result<LineView, String> {
+    let estimate_id = Uuid::parse_str(&estimate_id).map_err(|e| e.to_string())?;
+    let quantity = Decimal::from_str(&quantity.replace(',', ".")).map_err(|e| e.to_string())?;
+    let unit_cost_snapshot =
+        Decimal::from_str(&unit_cost.replace(',', ".")).map_err(|e| e.to_string())?;
+    let mut store = db.lock().map_err(|e| e.to_string())?;
+    let estimate = store
+        .get_estimate(estimate_id)
+        .map_err(|e| e.to_string())?
+        .ok_or("El presupuesto no existe")?;
+    if estimate.issued {
+        return Err("El presupuesto ya fue emitido".into());
+    }
+    let lines = store
+        .estimate_items(estimate_id)
+        .map_err(|e| e.to_string())?;
+    let position = lines.last().map_or(0, |line| line.position + 1);
+    let line = EstimateItem {
+        id: Uuid::new_v4(),
+        estimate_id,
+        position,
+        analysis_id: None,
+        description: description.trim().to_owned(),
+        unit: unit.trim().to_owned(),
+        quantity,
+        unit_cost_snapshot,
+    };
+    store.add_estimate_item(&line).map_err(|e| e.to_string())?;
+    Ok(LineView::from(line))
 }
 
 #[tauri::command]
@@ -183,7 +265,9 @@ pub fn run() {
             create_project,
             update_project,
             list_project_estimates,
-            create_estimate
+            create_estimate,
+            list_estimate_lines,
+            add_estimate_line
         ])
         .run(tauri::generate_context!())
         .expect("error al iniciar CPOBRAS");
