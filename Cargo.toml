@@ -1,6 +1,7 @@
 [workspace]
 members = ["crates/cpobras-core", "crates/cpobras-storage"]
 resolver = "2"
+exclude = ["apps/desktop/src-tauri"]
 
 [workspace.package]
 version = "0.1.0"

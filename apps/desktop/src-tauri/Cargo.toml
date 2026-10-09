@@ -1,0 +1,18 @@
+[package]
+name = "cpobras-desktop"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+
+[lib]
+name = "cpobras_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[dependencies]
+tauri = "2"
+cpobras-core = { path = "../../../crates/cpobras-core" }
+cpobras-storage = { path = "../../../crates/cpobras-storage" }
+uuid = { version = "1", features = ["v4"] }
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
