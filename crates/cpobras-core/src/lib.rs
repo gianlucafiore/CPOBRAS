@@ -70,12 +70,14 @@ impl UnitCostAnalysis {
         if self.components.is_empty() {
             return Err(DomainError::EmptyAnalysis);
         }
-        self.components.iter().try_fold(Decimal::ZERO, |total, item| {
-            if item.quantity_per_unit < Decimal::ZERO || item.unit_price < Decimal::ZERO {
-                return Err(DomainError::NegativeValue);
-            }
-            Ok(total + item.quantity_per_unit * item.unit_price)
-        })
+        self.components
+            .iter()
+            .try_fold(Decimal::ZERO, |total, item| {
+                if item.quantity_per_unit < Decimal::ZERO || item.unit_price < Decimal::ZERO {
+                    return Err(DomainError::NegativeValue);
+                }
+                Ok(total + item.quantity_per_unit * item.unit_price)
+            })
     }
 }
 
@@ -109,7 +111,10 @@ mod tests {
                 unit_price: Decimal::from_str("10.20").unwrap(),
             }],
         };
-        assert_eq!(item.direct_unit_cost().unwrap(), Decimal::from_str("25.50").unwrap());
+        assert_eq!(
+            item.direct_unit_cost().unwrap(),
+            Decimal::from_str("25.50").unwrap()
+        );
     }
 
     #[test]
