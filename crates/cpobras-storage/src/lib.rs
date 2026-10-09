@@ -86,9 +86,10 @@ impl LocalStore {
         Ok(Self { conn })
     }
 
-
     pub fn list_clients(&self) -> Result<Vec<Client>> {
-        let mut stmt = self.conn.prepare("SELECT id, name, cuit FROM clients ORDER BY name, id")?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, name, cuit FROM clients ORDER BY name, id")?;
         let rows = stmt.query_map([], |row| {
             Ok((
                 row.get::<_, String>(0)?,
@@ -99,15 +100,19 @@ impl LocalStore {
         let mut clients = Vec::new();
         for row in rows {
             let (id, name, cuit) = row?;
-            clients.push(Client { id: Uuid::parse_str(&id)?, name, cuit });
+            clients.push(Client {
+                id: Uuid::parse_str(&id)?,
+                name,
+                cuit,
+            });
         }
         Ok(clients)
     }
 
     pub fn list_projects(&self) -> Result<Vec<Project>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id FROM projects ORDER BY name, id",
-        )?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id FROM projects ORDER BY name, id")?;
         let ids = stmt.query_map([], |row| row.get::<_, String>(0))?;
         let mut projects = Vec::new();
         for id in ids {
