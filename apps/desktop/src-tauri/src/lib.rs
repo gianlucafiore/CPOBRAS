@@ -16,6 +16,62 @@ use uuid::Uuid;
 type Db = Mutex<LocalStore>;
 
 #[derive(serde::Serialize)]
+struct EstimateComparisonLineView {
+    description: String,
+    unit: String,
+    baseline_quantity: String,
+    revised_quantity: String,
+    baseline_cost: String,
+    revised_cost: String,
+    difference: String,
+}
+
+#[derive(serde::Serialize)]
+struct EstimateComparisonView {
+    baseline_id: String,
+    revised_id: String,
+    baseline_total: String,
+    revised_total: String,
+    difference: String,
+    lines: Vec<EstimateComparisonLineView>,
+}
+
+#[tauri::command]
+fn compare_estimates(
+    db: tauri::State<'_, Db>,
+    baseline_id: String,
+    revised_id: String,
+) -> Result<EstimateComparisonView, String> {
+    let baseline_id = Uuid::parse_str(&baseline_id).map_err(|e| e.to_string())?;
+    let revised_id = Uuid::parse_str(&revised_id).map_err(|e| e.to_string())?;
+    let delta = db
+        .lock()
+        .map_err(|e| e.to_string())?
+        .compare_estimates(baseline_id, revised_id)
+        .map_err(|e| e.to_string())?;
+    Ok(EstimateComparisonView {
+        baseline_id: delta.baseline_id.to_string(),
+        revised_id: delta.revised_id.to_string(),
+        baseline_total: delta.baseline_total.to_string(),
+        revised_total: delta.revised_total.to_string(),
+        difference: delta.difference.to_string(),
+        lines: delta
+            .lines
+            .into_iter()
+            .map(|line| EstimateComparisonLineView {
+                description: line.description,
+                unit: line.unit,
+                baseline_quantity: line.baseline_quantity.to_string(),
+                revised_quantity: line.revised_quantity.to_string(),
+                baseline_cost: line.baseline_cost.to_string(),
+                revised_cost: line.revised_cost.to_string(),
+                difference: line.difference.to_string(),
+            })
+            .collect(),
+    })
+}
+
+#[derive(serde::Serialize)]
 struct PricingView {
     direct: String,
     general_expenses: String,
@@ -885,7 +941,8 @@ pub fn run() {
             get_estimate_pricing,
             save_estimate_pricing,
             priced_estimate_total,
-            analysis_cost_breakdown
+            analysis_cost_breakdown,
+            compare_estimates
         ])
         .run(tauri::generate_context!())
         .expect("error al iniciar CPOBRAS");

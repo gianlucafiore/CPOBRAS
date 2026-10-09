@@ -6,6 +6,7 @@ use uuid::Uuid;
 
 pub mod budget_pricing;
 pub mod budget_sections;
+pub mod estimate_comparison;
 pub mod estimates;
 pub mod resource_catalog;
 
