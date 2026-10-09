@@ -17,3 +17,5 @@ serde = { version = "1", features = ["derive"] }
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+
+rust_decimal = { version = "1", features = ["serde"] }
