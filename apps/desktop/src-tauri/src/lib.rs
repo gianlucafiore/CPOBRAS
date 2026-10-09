@@ -1,6 +1,7 @@
 use cpobras_core::{
     Client, Currency, Project, ResourceKind, ResourcePriceSnapshot, UnitCostAnalysis,
 };
+use cpobras_storage::budget_sections::BudgetSection;
 use cpobras_storage::resource_catalog::{Resource, ResourcePrice};
 use cpobras_storage::{
     estimates::{Estimate, EstimateItem},
@@ -41,6 +42,170 @@ fn create_client(
         .save_client(&client)
         .map_err(|e| e.to_string())?;
     Ok(client)
+}
+
+#[derive(serde::Serialize)]
+struct PriceHistoryView {
+    id: String,
+    amount: String,
+    currency: String,
+    effective_date: String,
+    source: Option<String>,
+}
+
+fn history_view(price: ResourcePrice) -> PriceHistoryView {
+    PriceHistoryView {
+        id: price.id.to_string(),
+        amount: price.amount.to_string(),
+        currency: match price.currency {
+            Currency::Ars => "ARS".into(),
+            Currency::Usd => "USD".into(),
+        },
+        effective_date: price.effective_date,
+        source: price.source,
+    }
+}
+
+#[tauri::command]
+fn list_price_history(
+    db: tauri::State<'_, Db>,
+    resource_id: String,
+) -> Result<Vec<PriceHistoryView>, String> {
+    let id = Uuid::parse_str(&resource_id).map_err(|e| e.to_string())?;
+    let store = db.lock().map_err(|e| e.to_string())?;
+    if store.get_resource(id).map_err(|e| e.to_string())?.is_none() {
+        return Err("Insumo inexistente".into());
+    }
+    store.resource_price_history(id)
+        .map_err(|e| e.to_string())
+        .map(|prices| prices.into_iter().map(history_view).collect())
+}
+
+#[tauri::command]
+fn register_resource_price(
+    db: tauri::State<'_, Db>,
+    resource_id: String,
+    amount: String,
+    currency: String,
+    effective_date: String,
+    source: Option<String>,
+) -> Result<PriceHistoryView, String> {
+    let id = Uuid::parse_str(&resource_id).map_err(|e| e.to_string())?;
+    let amount = Decimal::from_str(&amount.replace(',', ".")).map_err(|e| e.to_string())?;
+    let currency = match currency.as_str() {
+        "ARS" => Currency::Ars,
+        "USD" => Currency::Usd,
+        _ => return Err("Moneda inválida".into()),
+    };
+    let mut store = db.lock().map_err(|e| e.to_string())?;
+    if store.get_resource(id).map_err(|e| e.to_string())?.is_none() {
+        return Err("Insumo inexistente".into());
+    }
+    let price = ResourcePrice {
+        id: Uuid::new_v4(),
+        resource_id: id,
+        amount,
+        currency,
+        effective_date,
+        source: source.filter(|value| !value.trim().is_empty()),
+    };
+    store.add_resource_price(&price).map_err(|e| e.to_string())?;
+    Ok(history_view(price))
+}
+
+#[tauri::command]
+fn reprice_analysis(
+    db: tauri::State<'_, Db>,
+    analysis_id: String,
+    effective_date: String,
+) -> Result<AnalysisView, String> {
+    let id = Uuid::parse_str(&analysis_id).map_err(|e| e.to_string())?;
+    let mut store = db.lock().map_err(|e| e.to_string())?;
+    let mut analysis = store.get_analysis(id).map_err(|e| e.to_string())?
+        .ok_or("ACU inexistente")?;
+    for component in &mut analysis.components {
+        let price = store.resource_price_as_of(
+            component.resource_id, Currency::Ars, &effective_date,
+        ).map_err(|e| e.to_string())?.ok_or("Falta precio ARS de un insumo para la fecha")?;
+        component.unit_price = price.amount;
+    }
+    let view = analysis_view(analysis.clone())?;
+    store.save_analysis(&analysis).map_err(|e| e.to_string())?;
+    Ok(view)
+}
+
+#[derive(serde::Serialize)]
+struct BudgetSectionView {
+    id: String,
+    estimate_id: String,
+    parent_id: Option<String>,
+    code: String,
+    title: String,
+    position: i64,
+}
+
+impl From<BudgetSection> for BudgetSectionView {
+    fn from(section: BudgetSection) -> Self {
+        Self {
+            id: section.id.to_string(),
+            estimate_id: section.estimate_id.to_string(),
+            parent_id: section.parent_id.map(|id| id.to_string()),
+            code: section.code,
+            title: section.title,
+            position: section.position,
+        }
+    }
+}
+
+#[tauri::command]
+fn save_budget_section(
+    db: tauri::State<'_, Db>,
+    id: Option<String>,
+    estimate_id: String,
+    parent_id: Option<String>,
+    code: String,
+    title: String,
+    position: i64,
+) -> Result<BudgetSectionView, String> {
+    let section = BudgetSection {
+        id: match id {
+            Some(id) => Uuid::parse_str(&id).map_err(|e| e.to_string())?,
+            None => Uuid::new_v4(),
+        },
+        estimate_id: Uuid::parse_str(&estimate_id).map_err(|e| e.to_string())?,
+        parent_id: parent_id.map(|id| Uuid::parse_str(&id)).transpose()
+            .map_err(|e| e.to_string())?,
+        code, title, position,
+    };
+    db.lock().map_err(|e| e.to_string())?
+        .save_budget_section(&section).map_err(|e| e.to_string())?;
+    Ok(BudgetSectionView::from(section))
+}
+
+#[tauri::command]
+fn list_budget_sections(
+    db: tauri::State<'_, Db>,
+    estimate_id: String,
+) -> Result<Vec<BudgetSectionView>, String> {
+    let id = Uuid::parse_str(&estimate_id).map_err(|e| e.to_string())?;
+    db.lock().map_err(|e| e.to_string())?
+        .list_budget_sections(id).map_err(|e| e.to_string())
+        .map(|sections| sections.into_iter().map(BudgetSectionView::from).collect())
+}
+
+#[tauri::command]
+fn assign_line_section(
+    db: tauri::State<'_, Db>,
+    estimate_id: String,
+    line_id: String,
+    section_id: String,
+) -> Result<(), String> {
+    let estimate_id = Uuid::parse_str(&estimate_id).map_err(|e| e.to_string())?;
+    let line_id = Uuid::parse_str(&line_id).map_err(|e| e.to_string())?;
+    let section_id = Uuid::parse_str(&section_id).map_err(|e| e.to_string())?;
+    db.lock().map_err(|e| e.to_string())?
+        .assign_line_section(estimate_id, line_id, section_id)
+        .map_err(|e| e.to_string())
 }
 
 #[derive(serde::Serialize)]
@@ -586,7 +751,13 @@ pub fn run() {
             create_resource,
             list_analyses,
             create_analysis,
-            add_line_from_analysis
+            add_line_from_analysis,
+            list_price_history,
+            register_resource_price,
+            reprice_analysis,
+            save_budget_section,
+            list_budget_sections,
+            assign_line_section
         ])
         .run(tauri::generate_context!())
         .expect("error al iniciar CPOBRAS");
