@@ -52,7 +52,6 @@ struct EstimateView {
     title: String,
     currency: String,
     issued: bool,
-    total: String,
 }
 
 impl From<Estimate> for EstimateView {
@@ -65,7 +64,6 @@ impl From<Estimate> for EstimateView {
                 Currency::Usd => "USD".into(),
             },
             issued: value.issued,
-            total: String::new(),
         }
     }
 }
