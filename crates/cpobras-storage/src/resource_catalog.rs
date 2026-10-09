@@ -270,6 +270,10 @@ mod tests {
         };
         db.add_resource_price(&first).unwrap();
         db.add_resource_price(&second).unwrap();
+        let history = db.resource_price_history(resource.id).unwrap();
+        assert_eq!(history.len(), 2);
+        assert_eq!(history[0].amount, second.amount);
+        assert_eq!(history[1].amount, first.amount);
         assert_eq!(
             db.resource_price_as_of(resource.id, Currency::Ars, "2026-01-31")
                 .unwrap(),
