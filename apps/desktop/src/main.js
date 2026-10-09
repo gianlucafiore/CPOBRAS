@@ -286,7 +286,7 @@ function render() {
     render();
   });
 
-  const form = root.querySelector("form");
+  const form = root.querySelector("#new-project, #new-client");
   form?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const submit = form.querySelector("[type=submit]");
