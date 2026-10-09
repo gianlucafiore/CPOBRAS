@@ -49,7 +49,8 @@ impl LocalStore {
         )?;
         let applied: bool = conn.query_row(
             "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=2)",
-            [], |row| row.get(0),
+            [],
+            |row| row.get(0),
         )?;
         if !applied {
             conn.execute_batch("BEGIN IMMEDIATE")?;
