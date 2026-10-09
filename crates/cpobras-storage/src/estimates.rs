@@ -335,4 +335,60 @@ mod tests {
             Decimal::new(125500, 2)
         );
     }
+    #[test]
+    fn draft_edit_delete_duplicate_and_issued_are_protected() {
+        let mut db = LocalStore::in_memory().unwrap();
+        let client = Client {
+            id: Uuid::new_v4(),
+            name: "Cliente prueba".into(),
+            cuit: None,
+        };
+        db.save_client(&client).unwrap();
+        let project = Project {
+            id: Uuid::new_v4(),
+            client_id: client.id,
+            name: "Obra prueba".into(),
+            currency: Currency::Ars,
+        };
+        db.save_project(&project).unwrap();
+        let estimate = Estimate {
+            id: Uuid::new_v4(),
+            project_id: project.id,
+            title: "Base".into(),
+            currency: Currency::Ars,
+            issued: false,
+        };
+        db.create_estimate(&estimate).unwrap();
+        let mut line = EstimateItem {
+            id: Uuid::new_v4(),
+            estimate_id: estimate.id,
+            position: 0,
+            analysis_id: None,
+            description: "Hormigón".into(),
+            unit: "m3".into(),
+            quantity: Decimal::new(2, 0),
+            unit_cost_snapshot: Decimal::new(12550, 2),
+        };
+        db.add_estimate_item(&line).unwrap();
+        line.quantity = Decimal::new(3, 0);
+        db.update_estimate_item(&line).unwrap();
+        assert_eq!(db.estimate_total(estimate.id).unwrap(), Decimal::new(37650, 2));
+
+        let copy = db.duplicate_estimate(estimate.id, "Revisión").unwrap();
+        assert!(!copy.issued);
+        assert_eq!(db.estimate_total(copy.id).unwrap(), Decimal::new(37650, 2));
+        assert_ne!(db.estimate_items(copy.id).unwrap()[0].id, line.id);
+
+        db.delete_estimate_item(estimate.id, line.id).unwrap();
+        assert_eq!(db.estimate_total(estimate.id).unwrap(), Decimal::ZERO);
+        assert_eq!(db.estimate_total(copy.id).unwrap(), Decimal::new(37650, 2));
+
+        db.issue_estimate(copy.id).unwrap();
+        let mut issued_line = db.estimate_items(copy.id).unwrap().remove(0);
+        issued_line.quantity = Decimal::new(100, 0);
+        assert!(db.update_estimate_item(&issued_line).is_err());
+        assert!(db.delete_estimate_item(copy.id, issued_line.id).is_err());
+        assert_eq!(db.estimate_total(copy.id).unwrap(), Decimal::new(37650, 2));
+    }
+
 }
