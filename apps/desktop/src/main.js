@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import "./style.css";
 
 const root = document.querySelector("#app");
-const state = { clients: [], projects: [], view: "projects", editingProjectId: null, selectedProjectId: null, estimates: [], selectedEstimateId: null, estimateLines: [] };
+const state = { clients: [], projects: [], view: "projects", editingProjectId: null, selectedProjectId: null, estimates: [], selectedEstimateId: null, estimateLines: [], estimateTotal: '0', editingLineId: null };
 
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (char) =>
@@ -25,6 +25,8 @@ function render() {
   const projectsActive = state.view === "projects";
   const selected = state.projects.find((p) => p.id === state.editingProjectId);
   const opened = state.projects.find((p) => p.id === state.selectedProjectId);
+  const activeEstimate = state.estimates.find((e) => e.id === state.selectedEstimateId);
+  const editingLine = state.estimateLines.find((line) => line.id === state.editingLineId);
   root.innerHTML = `
     <div class="shell">
       <aside class="sidebar">
@@ -47,8 +49,8 @@ function render() {
             <div><span>Obras registradas</span><strong>${state.projects.length}</strong></div>
             <div><span>Clientes registrados</span><strong>${state.clients.length}</strong></div>
           </div>
-          ${projectsActive && opened ? `<section class="panel project-detail"><div class="panel-head"><h2>Presupuestos de ${escapeHtml(opened.name)}</h2><button type="button" id="close-project" class="edit-project">Cerrar ficha</button></div><div class="records">${state.estimates.length ? state.estimates.map((e) => `<div class="record"><div class="record-info"><strong>${escapeHtml(e.title)}</strong><small>${e.issued ? "Emitido" : "Borrador"} · ${escapeHtml(e.currency)}</small></div><button class="edit-project" type="button" data-estimate="${e.id}">Partidas</button></div>`).join("") : '<p class="empty">Esta obra todavía no tiene presupuestos.</p>'}</div><form id="new-estimate" class="estimate-form"><label>Título del presupuesto<input name="title" required maxlength="140" placeholder="Ej.: Presupuesto inicial"></label><button class="primary" type="submit">+ Crear presupuesto</button></form><p class="feedback" role="status"></p></section>` : ""}
-          ${projectsActive && opened && state.selectedEstimateId ? `<section class="panel project-detail"><div class="panel-head"><h2>Partidas del presupuesto</h2><button type="button" id="close-estimate" class="edit-project">Volver a presupuestos</button></div><div class="records">${state.estimateLines.length ? state.estimateLines.map((line) => `<div class="record"><div class="record-info"><strong>${escapeHtml(line.description)}</strong><small>${escapeHtml(line.quantity)} ${escapeHtml(line.unit)} × ${escapeHtml(line.unit_cost)}</small></div><strong>${escapeHtml(line.total)}</strong></div>`).join("") : '<p class="empty">Todavía no hay partidas.</p>'}</div><div class="estimate-total">Total: ${state.estimateLines.reduce((sum, line) => sum + Number(line.total), 0).toLocaleString("es-AR", {minimumFractionDigits:2,maximumFractionDigits:2})} ${state.estimates.find((e) => e.id === state.selectedEstimateId)?.currency || ""}</div><form id="new-line" class="line-form"><label>Partida<input name="description" required maxlength="180" placeholder="Ej.: Hormigón H21"></label><label>Unidad<input name="unit" required maxlength="20" placeholder="m³"></label><label>Cantidad<input name="quantity" type="number" min="0" step="any" required></label><label>Precio unitario<input name="unitCost" type="number" min="0" step="any" required></label><button type="submit" class="primary">+ Agregar partida</button></form><p class="feedback" role="status"></p></section>` : ""}
+          ${projectsActive && opened ? `<section class="panel project-detail"><div class="panel-head"><h2>Presupuestos de ${escapeHtml(opened.name)}</h2><button type="button" id="close-project" class="edit-project">Cerrar ficha</button></div><div class="records">${state.estimates.length ? state.estimates.map((e) => `<div class="record"><div class="record-info"><strong>${escapeHtml(e.title)}</strong><small>${e.issued ? "Emitido" : "Borrador"} · ${escapeHtml(e.currency)}</small></div><button class="edit-project" type="button" data-estimate="${e.id}">Partidas</button><button class="edit-project" type="button" data-duplicate="${e.id}">Duplicar</button></div>`).join("") : '<p class="empty">Esta obra todavía no tiene presupuestos.</p>'}</div><form id="new-estimate" class="estimate-form"><label>Título del presupuesto<input name="title" required maxlength="140" placeholder="Ej.: Presupuesto inicial"></label><button class="primary" type="submit">+ Crear presupuesto</button></form><p class="feedback" role="status"></p></section>` : ""}
+          ${projectsActive && opened && state.selectedEstimateId ? `<section class="panel project-detail"><div class="panel-head"><h2>Partidas del presupuesto</h2><button type="button" id="close-estimate" class="edit-project">Volver a presupuestos</button></div><div class="records">${state.estimateLines.length ? state.estimateLines.map((line) => `<div class="record"><div class="record-info"><strong>${escapeHtml(line.description)}</strong><small>${escapeHtml(line.quantity)} ${escapeHtml(line.unit)} × ${escapeHtml(line.unit_cost)}</small></div><strong>${escapeHtml(line.total)}</strong>${!activeEstimate?.issued ? `<button class="edit-project" type="button" data-edit-line="${line.id}">Editar</button><button class="edit-project" type="button" data-delete-line="${line.id}">Eliminar</button>` : ""}</div>`).join("") : '<p class="empty">Todavía no hay partidas.</p>'}</div><div class="estimate-total">Total: ${escapeHtml(state.estimateTotal)} ${state.estimates.find((e) => e.id === state.selectedEstimateId)?.currency || ""}</div>${activeEstimate?.issued ? '<p class="empty">Presupuesto emitido. No admite modificaciones.</p>' : `<form id="new-line" class="line-form"><label>Partida<input name="description" required maxlength="180" placeholder="Ej.: Hormigón H21" value="${escapeHtml(editingLine?.description || "")}"></label><label>Unidad<input name="unit" required maxlength="20" placeholder="m³" value="${escapeHtml(editingLine?.unit || "")}"></label><label>Cantidad<input name="quantity" type="number" min="0" step="any" required value="${escapeHtml(editingLine?.quantity || "")}"></label><label>Precio unitario<input name="unitCost" type="number" min="0" step="any" required value="${escapeHtml(editingLine?.unit_cost || "")}"></label><button type="submit" class="primary">${editingLine ? "Guardar cambios" : "+ Agregar partida"}</button>${editingLine ? '<button type="button" id="cancel-line" class="edit-project">Cancelar</button>' : ""}</form>`}<p class="feedback" role="status"></p>${!activeEstimate?.issued && state.estimateLines.length ? '<button id="issue-estimate" type="button" class="primary issue-button">Emitir presupuesto y bloquear cambios</button>' : ""}</section>` : ""}
           <div class="columns">
             <section class="panel">
               <div class="panel-head"><h2>${projectsActive ? "Listado de obras" : "Directorio de clientes"}</h2><span>${projectsActive ? state.projects.length : state.clients.length} registros</span></div>
@@ -92,11 +94,57 @@ function render() {
       render();
     });
   });
+  const reloadLines = async () => {
+    state.estimateLines = await invoke("list_estimate_lines", { estimateId: state.selectedEstimateId });
+    state.estimateTotal = await invoke("estimate_total", { estimateId: state.selectedEstimateId });
+  };
+  root.querySelectorAll("[data-duplicate]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const original = state.estimates.find((e) => e.id === button.dataset.duplicate);
+      const title = window.prompt("Título de la copia", (original?.title || "Presupuesto") + " - copia");
+      if (!title?.trim()) return;
+      try {
+        await invoke("duplicate_estimate", { estimateId: button.dataset.duplicate, title });
+        state.estimates = await invoke("list_project_estimates", { projectId: state.selectedProjectId });
+        render();
+      } catch (error) { window.alert(String(error)); }
+    });
+  });
+  root.querySelectorAll("[data-edit-line]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.editingLineId = button.dataset.editLine;
+      render();
+    });
+  });
+  root.querySelector("#cancel-line")?.addEventListener("click", () => {
+    state.editingLineId = null;
+    render();
+  });
+  root.querySelectorAll("[data-delete-line]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      if (!window.confirm("¿Eliminar esta partida del borrador?")) return;
+      try {
+        await invoke("delete_estimate_line", { estimateId: state.selectedEstimateId, lineId: button.dataset.deleteLine });
+        state.editingLineId = null;
+        await reloadLines();
+        render();
+      } catch (error) { window.alert(String(error)); }
+    });
+  });
+  root.querySelector("#issue-estimate")?.addEventListener("click", async () => {
+    if (!window.confirm("Emitir este presupuesto impedirá modificar sus partidas. ¿Continuar?")) return;
+    try {
+      await invoke("issue_estimate", { estimateId: state.selectedEstimateId });
+      state.estimates = await invoke("list_project_estimates", { projectId: state.selectedProjectId });
+      render();
+    } catch (error) { window.alert(String(error)); }
+  });
   root.querySelectorAll("[data-estimate]").forEach((button) => {
     button.addEventListener("click", async () => {
       try {
         state.selectedEstimateId = button.dataset.estimate;
-        state.estimateLines = await invoke("list_estimate_lines", { estimateId: state.selectedEstimateId });
+        state.editingLineId = null;
+        await reloadLines();
         render();
       } catch (error) { window.alert(String(error)); }
     });
@@ -104,6 +152,7 @@ function render() {
   root.querySelector("#close-estimate")?.addEventListener("click", () => {
     state.selectedEstimateId = null;
     state.estimateLines = [];
+    state.editingLineId = null;
     render();
   });
   root.querySelector("#new-line")?.addEventListener("submit", async (event) => {
@@ -113,14 +162,16 @@ function render() {
     submit.disabled = true;
     const values = new FormData(form);
     try {
-      await invoke("add_estimate_line", {
+      await invoke(state.editingLineId ? "update_estimate_line" : "add_estimate_line", {
         estimateId: state.selectedEstimateId,
+        ...(state.editingLineId ? { lineId: state.editingLineId } : {}),
         description: values.get("description"),
         unit: values.get("unit"),
         quantity: values.get("quantity"),
         unitCost: values.get("unitCost"),
       });
-      state.estimateLines = await invoke("list_estimate_lines", { estimateId: state.selectedEstimateId });
+      state.editingLineId = null;
+      await reloadLines();
       render();
     } catch (error) {
       form.parentElement.querySelector(".feedback").textContent = "Error: " + String(error);
