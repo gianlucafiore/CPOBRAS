@@ -1,5 +1,5 @@
 use cpobras_core::{
-    Client, Currency, Project, ResourceKind, ResourcePriceSnapshot, UnitCostAnalysis,
+    Client, Currency, PricingRates, Project, ResourceKind, ResourcePriceSnapshot, UnitCostAnalysis,
 };
 use cpobras_storage::budget_sections::BudgetSection;
 use cpobras_storage::resource_catalog::{Resource, ResourcePrice};
@@ -14,6 +14,119 @@ use tauri::Manager;
 use uuid::Uuid;
 
 type Db = Mutex<LocalStore>;
+
+#[derive(serde::Serialize)]
+struct PricingView {
+    direct: String,
+    general_expenses: String,
+    profit: String,
+    discount: String,
+    taxable_subtotal: String,
+    taxes: String,
+    total: String,
+}
+
+#[derive(serde::Serialize)]
+struct PricingRatesView {
+    general_expenses_percent: String,
+    profit_percent: String,
+    discount_percent: String,
+    tax_percent: String,
+}
+
+fn pricing_rates_view(rates: PricingRates) -> PricingRatesView {
+    PricingRatesView {
+        general_expenses_percent: rates.general_expenses_percent.to_string(),
+        profit_percent: rates.profit_percent.to_string(),
+        discount_percent: rates.discount_percent.to_string(),
+        tax_percent: rates.tax_percent.to_string(),
+    }
+}
+
+#[tauri::command]
+fn get_estimate_pricing(
+    db: tauri::State<'_, Db>,
+    estimate_id: String,
+) -> Result<PricingRatesView, String> {
+    let id = Uuid::parse_str(&estimate_id).map_err(|e| e.to_string())?;
+    let store = db.lock().map_err(|e| e.to_string())?;
+    if store.get_estimate(id).map_err(|e| e.to_string())?.is_none() {
+        return Err("Presupuesto inexistente".into());
+    }
+    let rates = store.get_estimate_pricing(id).map_err(|e| e.to_string())?;
+    Ok(pricing_rates_view(rates))
+}
+
+#[tauri::command]
+fn save_estimate_pricing(
+    db: tauri::State<'_, Db>,
+    estimate_id: String,
+    general_expenses_percent: String,
+    profit_percent: String,
+    discount_percent: String,
+    tax_percent: String,
+) -> Result<PricingRatesView, String> {
+    let id = Uuid::parse_str(&estimate_id).map_err(|e| e.to_string())?;
+    let parse = |value: String| Decimal::from_str(&value.replace(',', "."))
+        .map_err(|e| e.to_string());
+    let rates = PricingRates {
+        general_expenses_percent: parse(general_expenses_percent)?,
+        profit_percent: parse(profit_percent)?,
+        discount_percent: parse(discount_percent)?,
+        tax_percent: parse(tax_percent)?,
+    };
+    db.lock().map_err(|e| e.to_string())?
+        .save_estimate_pricing(id, rates).map_err(|e| e.to_string())?;
+    Ok(pricing_rates_view(rates))
+}
+
+#[tauri::command]
+fn priced_estimate_total(
+    db: tauri::State<'_, Db>,
+    estimate_id: String,
+) -> Result<PricingView, String> {
+    let id = Uuid::parse_str(&estimate_id).map_err(|e| e.to_string())?;
+    let priced = db.lock().map_err(|e| e.to_string())?
+        .priced_estimate_total(id).map_err(|e| e.to_string())?;
+    Ok(PricingView {
+        direct: priced.direct.to_string(),
+        general_expenses: priced.general_expenses.to_string(),
+        profit: priced.profit.to_string(),
+        discount: priced.discount.to_string(),
+        taxable_subtotal: priced.taxable_subtotal.to_string(),
+        taxes: priced.taxes.to_string(),
+        total: priced.total.to_string(),
+    })
+}
+
+#[derive(serde::Serialize)]
+struct AnalysisBreakdownView {
+    materials: String,
+    labor: String,
+    equipment: String,
+    subcontract: String,
+    total: String,
+}
+
+#[tauri::command]
+fn analysis_cost_breakdown(
+    db: tauri::State<'_, Db>,
+    analysis_id: String,
+) -> Result<AnalysisBreakdownView, String> {
+    let id = Uuid::parse_str(&analysis_id).map_err(|e| e.to_string())?;
+    let store = db.lock().map_err(|e| e.to_string())?;
+    let analysis = store.get_analysis(id).map_err(|e| e.to_string())?
+        .ok_or("ACU inexistente")?;
+    let costs = analysis.cost_breakdown().map_err(|e| e.to_string())?;
+    Ok(AnalysisBreakdownView {
+        materials: costs.materials.to_string(),
+        labor: costs.labor.to_string(),
+        equipment: costs.equipment.to_string(),
+        subcontract: costs.subcontract.to_string(),
+        total: costs.total.to_string(),
+    })
+}
+
 
 #[tauri::command]
 fn list_clients(db: tauri::State<'_, Db>) -> Result<Vec<Client>, String> {
@@ -762,7 +875,11 @@ pub fn run() {
             reprice_analysis,
             save_budget_section,
             list_budget_sections,
-            assign_line_section
+            assign_line_section,
+            get_estimate_pricing,
+            save_estimate_pricing,
+            priced_estimate_total,
+            analysis_cost_breakdown
         ])
         .run(tauri::generate_context!())
         .expect("error al iniciar CPOBRAS");
