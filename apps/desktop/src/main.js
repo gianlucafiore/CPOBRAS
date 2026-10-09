@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import "./style.css";
 
 const root = document.querySelector("#app");
-const state = { clients: [], projects: [], view: "projects" };
+const state = { clients: [], projects: [], view: "projects", editingProjectId: null };
 
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (char) =>
@@ -23,6 +23,7 @@ async function refresh() {
 function render() {
   const clients = new Map(state.clients.map((c) => [c.id, c.name]));
   const projectsActive = state.view === "projects";
+  const selected = state.projects.find((p) => p.id === state.editingProjectId);
   root.innerHTML = `
     <div class="shell">
       <aside class="sidebar">
@@ -51,7 +52,7 @@ function render() {
               <div class="records">
               ${projectsActive
                 ? state.projects.length
-                  ? state.projects.map((p) => `<div class="record"><div class="initial">${escapeHtml(p.name[0]?.toUpperCase() || "O")}</div><div class="record-info"><strong>${escapeHtml(p.name)}</strong><small>${escapeHtml(clients.get(p.client_id) || "Sin comitente")}</small></div><span class="chip">${p.currency === "Ars" ? "ARS" : "USD"}</span></div>`).join("")
+                  ? state.projects.map((p) => `<div class="record"><div class="initial">${escapeHtml(p.name[0]?.toUpperCase() || "O")}</div><div class="record-info"><strong>${escapeHtml(p.name)}</strong><small>${escapeHtml(clients.get(p.client_id) || "Sin comitente")}</small></div><span class="chip">${p.currency === "Ars" ? "ARS" : "USD"}</span><button class="edit-project" data-edit="${p.id}" type="button">Editar</button></div>`).join("")
                   : '<p class="empty">Todavía no cargaste obras. Creá la primera con el formulario.</p>'
                 : state.clients.length
                   ? state.clients.map((c) => `<div class="record"><div class="initial">${escapeHtml(c.name[0]?.toUpperCase() || "C")}</div><div class="record-info"><strong>${escapeHtml(c.name)}</strong><small>${escapeHtml(c.cuit || "Sin CUIT informado")}</small></div></div>`).join("")
@@ -59,14 +60,14 @@ function render() {
               </div>
             </section>
             <section class="panel form-panel">
-              <div class="panel-head"><h2>${projectsActive ? "Nueva obra" : "Nuevo cliente"}</h2></div>
+              <div class="panel-head"><h2>${projectsActive ? (selected ? "Editar obra" : "Nueva obra") : "Nuevo cliente"}</h2></div>
               ${projectsActive
                 ? `<form id="new-project">
-                    <label>Nombre de la obra<input name="name" placeholder="Ej.: Vivienda unifamiliar" required maxlength="140"></label>
+                    <label>Nombre de la obra<input name="name" placeholder="Ej.: Vivienda unifamiliar" required maxlength="140" value="${escapeHtml(selected?.name || "")}"></label>
                     <label>Comitente<select name="client" required><option value="">Seleccionar cliente</option>
-                      ${state.clients.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("")}</select></label>
-                    <label>Moneda del presupuesto<select name="currency"><option value="ARS">Pesos argentinos (ARS)</option><option value="USD">Dólares (USD)</option></select></label>
-                    <button type="submit" class="primary" ${!state.clients.length ? "disabled" : ""}>+ Crear obra</button>
+                      ${state.clients.map((c) => `<option value="${c.id}" ${selected?.client_id === c.id ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("")}</select></label>
+                    <label>Moneda del presupuesto<select name="currency"><option value="ARS" ${selected?.currency !== "Usd" ? "selected" : ""}>Pesos argentinos (ARS)</option><option value="USD" ${selected?.currency === "Usd" ? "selected" : ""}>Dólares (USD)</option></select></label>
+                    <button type="submit" class="primary" ${!state.clients.length ? "disabled" : ""}>${selected ? "Guardar cambios" : "+ Crear obra"}</button>${selected ? '<button type="button" id="cancel-edit">Cancelar edición</button>' : ""}
                     ${!state.clients.length ? '<p class="hint">Primero registrá un cliente desde la sección Clientes.</p>' : ""}
                   </form>`
                 : `<form id="new-client">
@@ -84,8 +85,20 @@ function render() {
   root.querySelectorAll("[data-view]").forEach((button) => {
     button.addEventListener("click", () => {
       state.view = button.dataset.view;
+      state.editingProjectId = null;
       render();
     });
+  });
+  root.querySelectorAll("[data-edit]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.editingProjectId = button.dataset.edit;
+      state.view = "projects";
+      render();
+    });
+  });
+  root.querySelector("#cancel-edit")?.addEventListener("click", () => {
+    state.editingProjectId = null;
+    render();
   });
 
   const form = root.querySelector("form");
@@ -96,7 +109,8 @@ function render() {
     const values = new FormData(form);
     try {
       if (projectsActive) {
-        await invoke("create_project", {
+        await invoke(selected ? "update_project" : "create_project", {
+          ...(selected ? { projectId: selected.id } : {}),
           projectName: values.get("name"),
           clientId: values.get("client"),
           currency: values.get("currency"),
@@ -107,6 +121,7 @@ function render() {
           cuit: values.get("cuit") || null,
         });
       }
+      state.editingProjectId = null;
       await refresh();
       root.querySelector(".feedback").textContent = "Datos guardados correctamente.";
     } catch (error) {
