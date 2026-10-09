@@ -42,7 +42,9 @@ fn list_project_estimates(
 ) -> Result<Vec<EstimateView>, String> {
     let id = Uuid::parse_str(&project_id).map_err(|e| e.to_string())?;
     let store = db.lock().map_err(|e| e.to_string())?;
-    let entries = store.list_project_estimates(id).map_err(|e| e.to_string())?;
+    let entries = store
+        .list_project_estimates(id)
+        .map_err(|e| e.to_string())?;
     Ok(entries.into_iter().map(EstimateView::from).collect())
 }
 
@@ -79,7 +81,9 @@ fn create_estimate(
     }
     let project_id = Uuid::parse_str(&project_id).map_err(|e| e.to_string())?;
     let mut store = db.lock().map_err(|e| e.to_string())?;
-    let project = store.get_project(project_id).map_err(|e| e.to_string())?
+    let project = store
+        .get_project(project_id)
+        .map_err(|e| e.to_string())?
         .ok_or("La obra no existe")?;
     let estimate = Estimate {
         id: Uuid::new_v4(),
@@ -88,7 +92,9 @@ fn create_estimate(
         currency: project.currency,
         issued: false,
     };
-    store.create_estimate(&estimate).map_err(|e| e.to_string())?;
+    store
+        .create_estimate(&estimate)
+        .map_err(|e| e.to_string())?;
     Ok(EstimateView::from(estimate))
 }
 
