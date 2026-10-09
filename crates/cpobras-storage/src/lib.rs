@@ -334,6 +334,52 @@ mod tests {
     }
 
     #[test]
+    fn repricing_acu_preserves_original_budget_price_snapshot() {
+        use crate::estimates::{Estimate, EstimateItem};
+        use crate::resource_catalog::{Resource, ResourcePrice};
+
+        let mut db = LocalStore::in_memory().unwrap();
+        let resource = Resource {
+            id: Uuid::new_v4(), code: "MAT-01".into(),
+            description: "Acero".into(), unit: "kg".into(),
+            kind: ResourceKind::Material, active: true,
+        };
+        db.save_resource(&resource).unwrap();
+        for (date, amount) in [("2026-01-01", 10), ("2026-02-01", 15)] {
+            db.add_resource_price(&ResourcePrice {
+                id: Uuid::new_v4(), resource_id: resource.id,
+                amount: Decimal::new(amount, 0), currency: Currency::Ars,
+                effective_date: date.into(), source: None,
+            }).unwrap();
+        }
+        let analysis = UnitCostAnalysis {
+            id: Uuid::new_v4(), code: "ACU-01".into(),
+            description: "Estructura".into(), unit: "kg".into(),
+            components: vec![ResourcePriceSnapshot {
+                resource_id: resource.id, description: resource.description.clone(),
+                kind: ResourceKind::Material,
+                quantity_per_unit: Decimal::new(2, 0), unit_price: Decimal::new(10, 0),
+            }],
+        };
+        db.save_analysis(&analysis).unwrap();
+        let client = Client { id: Uuid::new_v4(), name: "Cliente".into(), cuit: None };
+        db.save_client(&client).unwrap();
+        let project = Project { id: Uuid::new_v4(), client_id: client.id, name: "Obra".into(), currency: Currency::Ars };
+        db.save_project(&project).unwrap();
+        let estimate = Estimate { id: Uuid::new_v4(), project_id: project.id, title: "Cotización".into(), currency: Currency::Ars, issued: false };
+        db.create_estimate(&estimate).unwrap();
+        db.add_estimate_item(&EstimateItem {
+            id: Uuid::new_v4(), estimate_id: estimate.id, position: 0,
+            analysis_id: Some(analysis.id), description: "Estructura".into(), unit: "kg".into(),
+            quantity: Decimal::new(3, 0), unit_cost_snapshot: Decimal::new(20, 0),
+        }).unwrap();
+        assert_eq!(db.reprice_analysis_at(analysis.id, "2026-02-28").unwrap().direct_unit_cost().unwrap(), Decimal::new(30, 0));
+        assert_eq!(db.estimate_total(estimate.id).unwrap(), Decimal::new(60, 0));
+        assert_eq!(db.reprice_analysis_at(analysis.id, "2026-01-31").unwrap().direct_unit_cost().unwrap(), Decimal::new(20, 0));
+        assert_eq!(db.estimate_total(estimate.id).unwrap(), Decimal::new(60, 0));
+    }
+
+    #[test]
     fn project_requires_existing_client() {
         let mut db = LocalStore::in_memory().unwrap();
         let project = Project {
