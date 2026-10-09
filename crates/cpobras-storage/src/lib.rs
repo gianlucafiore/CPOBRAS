@@ -256,6 +256,22 @@ impl LocalStore {
         Ok(analyses)
     }
 
+    /// Reprices an ACU from recorded ARS observations on or before the requested date.
+    /// Estimate line unit-cost snapshots are never rewritten.
+    pub fn reprice_analysis_at(&mut self, id: Uuid, as_of: &str) -> Result<UnitCostAnalysis> {
+        let mut analysis = self.get_analysis(id)?
+            .ok_or_else(|| StorageError::InvalidValue("analysis not found".into()))?;
+        for component in &mut analysis.components {
+            let price = self.resource_price_as_of(component.resource_id, Currency::Ars, as_of)?
+                .ok_or_else(|| StorageError::InvalidValue("price missing as of date".into()))?;
+            component.unit_price = price.amount;
+        }
+        analysis.direct_unit_cost()
+            .map_err(|e| StorageError::InvalidValue(e.to_string()))?;
+        self.save_analysis(&analysis)?;
+        Ok(analysis)
+    }
+
     pub fn get_analysis(&self, id: Uuid) -> Result<Option<UnitCostAnalysis>> {
         let json: Option<String> = self
             .conn
