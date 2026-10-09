@@ -55,11 +55,14 @@ impl LocalStore {
     }
 
     pub fn get_client(&self, id: Uuid) -> Result<Option<Client>> {
-        let row = self.conn.query_row(
-            "SELECT name, cuit FROM clients WHERE id=?1",
-            [id.to_string()],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
-        ).optional()?;
+        let row = self
+            .conn
+            .query_row(
+                "SELECT name, cuit FROM clients WHERE id=?1",
+                [id.to_string()],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+            )
+            .optional()?;
         Ok(row.map(|(name, cuit)| Client { id, name, cuit }))
     }
 
@@ -72,21 +75,31 @@ impl LocalStore {
             "INSERT INTO projects(id, client_id, name, currency) VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT(id) DO UPDATE SET client_id=excluded.client_id,
                name=excluded.name, currency=excluded.currency",
-            params![project.id.to_string(), project.client_id.to_string(), project.name, currency],
+            params![
+                project.id.to_string(),
+                project.client_id.to_string(),
+                project.name,
+                currency
+            ],
         )?;
         Ok(())
     }
 
     pub fn get_project(&self, id: Uuid) -> Result<Option<Project>> {
-        let row = self.conn.query_row(
-            "SELECT client_id, name, currency FROM projects WHERE id=?1",
-            [id.to_string()],
-            |row| Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-            )),
-        ).optional()?;
+        let row = self
+            .conn
+            .query_row(
+                "SELECT client_id, name, currency FROM projects WHERE id=?1",
+                [id.to_string()],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                },
+            )
+            .optional()?;
         match row {
             None => Ok(None),
             Some((client_id, name, currency)) => Ok(Some(Project {
@@ -111,18 +124,28 @@ impl LocalStore {
              ON CONFLICT(id) DO UPDATE SET code=excluded.code,
              description=excluded.description, unit=excluded.unit,
              snapshot_json=excluded.snapshot_json, updated_at=CURRENT_TIMESTAMP",
-            params![analysis.id.to_string(), analysis.code, analysis.description, analysis.unit, json],
+            params![
+                analysis.id.to_string(),
+                analysis.code,
+                analysis.description,
+                analysis.unit,
+                json
+            ],
         )?;
         Ok(())
     }
 
     pub fn get_analysis(&self, id: Uuid) -> Result<Option<UnitCostAnalysis>> {
-        let json: Option<String> = self.conn.query_row(
-            "SELECT snapshot_json FROM analyses WHERE id=?1",
-            [id.to_string()],
-            |row| row.get(0),
-        ).optional()?;
-        json.map(|value| serde_json::from_str(&value).map_err(StorageError::from)).transpose()
+        let json: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT snapshot_json FROM analyses WHERE id=?1",
+                [id.to_string()],
+                |row| row.get(0),
+            )
+            .optional()?;
+        json.map(|value| serde_json::from_str(&value).map_err(StorageError::from))
+            .transpose()
     }
 }
 
@@ -135,22 +158,31 @@ mod tests {
     #[test]
     fn roundtrip_client_project_and_analysis() {
         let mut db = LocalStore::in_memory().unwrap();
-        let client = Client { id: Uuid::new_v4(), name: "Cliente de prueba".into(), cuit: None };
+        let client = Client {
+            id: Uuid::new_v4(),
+            name: "Cliente de prueba".into(),
+            cuit: None,
+        };
         db.save_client(&client).unwrap();
         assert_eq!(db.get_client(client.id).unwrap(), Some(client.clone()));
 
         let project = Project {
-            id: Uuid::new_v4(), client_id: client.id,
-            name: "Vivienda".into(), currency: Currency::Ars
+            id: Uuid::new_v4(),
+            client_id: client.id,
+            name: "Vivienda".into(),
+            currency: Currency::Ars,
         };
         db.save_project(&project).unwrap();
         assert_eq!(db.get_project(project.id).unwrap(), Some(project));
 
         let analysis = UnitCostAnalysis {
-            id: Uuid::new_v4(), code: "01".into(),
-            description: "Hormigón".into(), unit: "m3".into(),
+            id: Uuid::new_v4(),
+            code: "01".into(),
+            description: "Hormigón".into(),
+            unit: "m3".into(),
             components: vec![ResourcePriceSnapshot {
-                resource_id: Uuid::new_v4(), description: "Cemento".into(),
+                resource_id: Uuid::new_v4(),
+                description: "Cemento".into(),
                 kind: ResourceKind::Material,
                 quantity_per_unit: Decimal::new(2, 0),
                 unit_price: Decimal::new(12550, 2),
@@ -158,15 +190,20 @@ mod tests {
         };
         db.save_analysis(&analysis).unwrap();
         let restored = db.get_analysis(analysis.id).unwrap().unwrap();
-        assert_eq!(restored.direct_unit_cost().unwrap(), analysis.direct_unit_cost().unwrap());
+        assert_eq!(
+            restored.direct_unit_cost().unwrap(),
+            analysis.direct_unit_cost().unwrap()
+        );
     }
 
     #[test]
     fn project_requires_existing_client() {
         let mut db = LocalStore::in_memory().unwrap();
         let project = Project {
-            id: Uuid::new_v4(), client_id: Uuid::new_v4(),
-            name: "Sin cliente".into(), currency: Currency::Ars,
+            id: Uuid::new_v4(),
+            client_id: Uuid::new_v4(),
+            name: "Sin cliente".into(),
+            currency: Currency::Ars,
         };
         assert!(db.save_project(&project).is_err());
     }
