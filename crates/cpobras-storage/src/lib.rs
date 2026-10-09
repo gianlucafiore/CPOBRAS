@@ -215,7 +215,9 @@ impl LocalStore {
     }
 
     pub fn list_analyses(&self) -> Result<Vec<UnitCostAnalysis>> {
-        let mut stmt = self.conn.prepare("SELECT snapshot_json FROM analyses ORDER BY code, id")?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT snapshot_json FROM analyses ORDER BY code, id")?;
         let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
         let mut analyses = Vec::new();
         for json in rows {
