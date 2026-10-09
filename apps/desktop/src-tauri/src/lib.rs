@@ -121,17 +121,9 @@ fn reprice_analysis(
 ) -> Result<AnalysisView, String> {
     let id = Uuid::parse_str(&analysis_id).map_err(|e| e.to_string())?;
     let mut store = db.lock().map_err(|e| e.to_string())?;
-    let mut analysis = store.get_analysis(id).map_err(|e| e.to_string())?
-        .ok_or("ACU inexistente")?;
-    for component in &mut analysis.components {
-        let price = store.resource_price_as_of(
-            component.resource_id, Currency::Ars, &effective_date,
-        ).map_err(|e| e.to_string())?.ok_or("Falta precio ARS de un insumo para la fecha")?;
-        component.unit_price = price.amount;
-    }
-    let view = analysis_view(analysis.clone())?;
-    store.save_analysis(&analysis).map_err(|e| e.to_string())?;
-    Ok(view)
+    let analysis = store.reprice_analysis_at(id, &effective_date)
+        .map_err(|e| e.to_string())?;
+    analysis_view(analysis)
 }
 
 #[derive(serde::Serialize)]
