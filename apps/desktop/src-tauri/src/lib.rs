@@ -1,5 +1,5 @@
 use cpobras_core::{Client, Currency, Project};
-use cpobras_storage::LocalStore;
+use cpobras_storage::{estimates::Estimate, LocalStore};
 use std::sync::Mutex;
 use tauri::Manager;
 use uuid::Uuid;
@@ -33,6 +33,65 @@ fn create_client(
         .save_client(&client)
         .map_err(|e| e.to_string())?;
     Ok(client)
+}
+
+#[tauri::command]
+fn list_project_estimates(
+    db: tauri::State<'_, Db>,
+    project_id: String,
+) -> Result<Vec<EstimateView>, String> {
+    let id = Uuid::parse_str(&project_id).map_err(|e| e.to_string())?;
+    let store = db.lock().map_err(|e| e.to_string())?;
+    let entries = store.list_project_estimates(id).map_err(|e| e.to_string())?;
+    Ok(entries.into_iter().map(EstimateView::from).collect())
+}
+
+#[derive(serde::Serialize)]
+struct EstimateView {
+    id: String,
+    title: String,
+    currency: String,
+    issued: bool,
+    total: String,
+}
+
+impl From<Estimate> for EstimateView {
+    fn from(value: Estimate) -> Self {
+        Self {
+            id: value.id.to_string(),
+            title: value.title,
+            currency: match value.currency {
+                Currency::Ars => "ARS".into(),
+                Currency::Usd => "USD".into(),
+            },
+            issued: value.issued,
+            total: String::new(),
+        }
+    }
+}
+
+#[tauri::command]
+fn create_estimate(
+    db: tauri::State<'_, Db>,
+    project_id: String,
+    title: String,
+) -> Result<EstimateView, String> {
+    if title.trim().is_empty() {
+        return Err("El título del presupuesto es obligatorio".into());
+    }
+    let project_id = Uuid::parse_str(&project_id).map_err(|e| e.to_string())?;
+    let mut store = db.lock().map_err(|e| e.to_string())?;
+    let project = store.get_project(project_id).map_err(|e| e.to_string())?
+        .ok_or("La obra no existe")?;
+    let estimate = Estimate {
+        id: Uuid::new_v4(),
+        project_id,
+        title: title.trim().to_owned(),
+        currency: project.currency,
+        issued: false,
+    };
+    store.create_estimate(&estimate).map_err(|e| e.to_string())?;
+    Ok(EstimateView::from(estimate))
 }
 
 #[tauri::command]
@@ -118,7 +177,9 @@ pub fn run() {
             create_client,
             list_projects,
             create_project,
-            update_project
+            update_project,
+            list_project_estimates,
+            create_estimate
         ])
         .run(tauri::generate_context!())
         .expect("error al iniciar CPOBRAS");
