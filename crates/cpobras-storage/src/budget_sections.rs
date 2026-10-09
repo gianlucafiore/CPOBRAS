@@ -106,7 +106,8 @@ impl LocalStore {
 mod tests {
     use super::*;
     use cpobras_core::{Client, Currency, Project};
-    use crate::estimates::Estimate;
+    use crate::estimates::{Estimate, EstimateItem};
+    use rust_decimal::Decimal;
 
     #[test]
     fn sections_validate_hierarchy_and_freeze_on_issue() {
@@ -126,5 +127,30 @@ mod tests {
         assert!(store.save_budget_section(&cycle).is_err());
         let foreign = BudgetSection { parent_id: Some(Uuid::new_v4()), ..root.clone() };
         assert!(store.save_budget_section(&foreign).is_err());
+
+        let line = EstimateItem {
+            id: Uuid::new_v4(), estimate_id: estimate.id, position: 0,
+            analysis_id: None, description: "Viga W".into(), unit: "kg".into(),
+            quantity: Decimal::new(100, 0), unit_cost_snapshot: Decimal::new(12, 0),
+        };
+        store.add_estimate_item(&line).unwrap();
+        store.assign_line_section(estimate.id, line.id, child.id).unwrap();
+        let copy = store.duplicate_estimate(estimate.id, "Copia").unwrap();
+        let copy_sections = store.list_budget_sections(copy.id).unwrap();
+        assert_eq!(copy_sections.len(), 2);
+        let copy_child = copy_sections.iter().find(|section| section.code == "01.01").unwrap();
+        let copy_root = copy_sections.iter().find(|section| section.code == "01").unwrap();
+        assert_eq!(copy_child.parent_id, Some(copy_root.id));
+        let copy_line = store.estimate_items(copy.id).unwrap().remove(0);
+        let copied_section: String = store.conn.query_row(
+            "SELECT section_id FROM estimate_line_sections WHERE line_id=?1",
+            [copy_line.id.to_string()], |row| row.get(0),
+        ).unwrap();
+        assert_eq!(copied_section, copy_child.id.to_string());
+
+        store.issue_estimate(estimate.id).unwrap();
+        let renamed = BudgetSection { title: "Modificado".into(), ..root };
+        assert!(store.save_budget_section(&renamed).is_err());
+        assert!(store.assign_line_section(estimate.id, line.id, child.id).is_err());
     }
 }
