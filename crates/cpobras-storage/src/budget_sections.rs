@@ -19,6 +19,14 @@ impl LocalStore {
         {
             return Err(StorageError::InvalidValue("invalid section".into()));
         }
+        let existing_estimate: Option<String> = self.conn.query_row(
+            "SELECT estimate_id FROM budget_sections WHERE id=?1",
+            [section.id.to_string()],
+            |row| row.get(0),
+        ).optional()?;
+        if existing_estimate.is_some_and(|id| id != section.estimate_id.to_string()) {
+            return Err(StorageError::InvalidValue("cannot move section to another estimate".into()));
+        }
         if section.parent_id == Some(section.id) {
             return Err(StorageError::InvalidValue(
                 "section cannot be its own parent".into(),
@@ -33,7 +41,8 @@ impl LocalStore {
                     |row| row.get(0),
                 )
                 .optional()?;
-            if parent_estimate.as_deref() != Some(section.estimate_id.to_string().as_str()) {
+            let expected_estimate = section.estimate_id.to_string();
+            if parent_estimate.as_deref() != Some(expected_estimate.as_str()) {
                 return Err(StorageError::InvalidValue(
                     "parent belongs to another estimate".into(),
                 ));
