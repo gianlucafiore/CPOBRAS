@@ -41,6 +41,21 @@ fn currency_code(currency: Currency) -> &'static str {
 }
 
 impl LocalStore {
+    pub fn list_project_estimates(&self, project_id: Uuid) -> Result<Vec<Estimate>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id FROM estimates WHERE project_id=?1 ORDER BY created_at DESC, id DESC",
+        )?;
+        let ids = stmt.query_map([project_id.to_string()], |row| row.get::<_, String>(0))?;
+        let mut estimates = Vec::new();
+        for id in ids {
+            let id = Uuid::parse_str(&id?)?;
+            if let Some(estimate) = self.get_estimate(id)? {
+                estimates.push(estimate);
+            }
+        }
+        Ok(estimates)
+    }
+
     pub fn create_estimate(&mut self, estimate: &Estimate) -> Result<()> {
         if estimate.title.trim().is_empty() || estimate.issued {
             return Err(StorageError::InvalidValue(
