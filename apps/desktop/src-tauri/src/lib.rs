@@ -28,12 +28,17 @@ fn list_line_sections(
 ) -> Result<Vec<LineSectionView>, String> {
     let id = Uuid::parse_str(&estimate_id).map_err(|e| e.to_string())?;
     let store = db.lock().map_err(|e| e.to_string())?;
-    store.list_line_sections(id)
+    store
+        .list_line_sections(id)
         .map_err(|e| e.to_string())
-        .map(|rows| rows.into_iter().map(|(line_id, section_id)| LineSectionView {
-            line_id: line_id.to_string(),
-            section_id: section_id.to_string(),
-        }).collect())
+        .map(|rows| {
+            rows.into_iter()
+                .map(|(line_id, section_id)| LineSectionView {
+                    line_id: line_id.to_string(),
+                    section_id: section_id.to_string(),
+                })
+                .collect()
+        })
 }
 
 #[derive(serde::Serialize)]
@@ -62,22 +67,29 @@ fn get_analysis_details(
 ) -> Result<AnalysisDetailView, String> {
     let id = Uuid::parse_str(&analysis_id).map_err(|e| e.to_string())?;
     let store = db.lock().map_err(|e| e.to_string())?;
-    let analysis = store.get_analysis(id)
-        .map_err(|e| e.to_string())?.ok_or("ACU inexistente")?;
+    let analysis = store
+        .get_analysis(id)
+        .map_err(|e| e.to_string())?
+        .ok_or("ACU inexistente")?;
     let unit_cost = analysis.direct_unit_cost().map_err(|e| e.to_string())?;
-    let components = analysis.components.into_iter().map(|component| AnalysisComponentView {
-        resource_id: component.resource_id.to_string(),
-        description: component.description,
-        kind: match component.kind {
-            ResourceKind::Material => "material",
-            ResourceKind::Labor => "labor",
-            ResourceKind::Equipment => "equipment",
-            ResourceKind::Subcontract => "subcontract",
-        }.to_owned(),
-        total: (component.quantity_per_unit * component.unit_price).to_string(),
-        quantity: component.quantity_per_unit.to_string(),
-        unit_price: component.unit_price.to_string(),
-    }).collect();
+    let components = analysis
+        .components
+        .into_iter()
+        .map(|component| AnalysisComponentView {
+            resource_id: component.resource_id.to_string(),
+            description: component.description,
+            kind: match component.kind {
+                ResourceKind::Material => "material",
+                ResourceKind::Labor => "labor",
+                ResourceKind::Equipment => "equipment",
+                ResourceKind::Subcontract => "subcontract",
+            }
+            .to_owned(),
+            total: (component.quantity_per_unit * component.unit_price).to_string(),
+            quantity: component.quantity_per_unit.to_string(),
+            unit_price: component.unit_price.to_string(),
+        })
+        .collect();
     Ok(AnalysisDetailView {
         code: analysis.code,
         description: analysis.description,
@@ -86,7 +98,6 @@ fn get_analysis_details(
         components,
     })
 }
-
 
 #[derive(serde::Deserialize)]
 struct ScenarioComponentInput {
