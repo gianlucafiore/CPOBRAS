@@ -9,12 +9,14 @@ pub mod budget_sections;
 pub mod estimate_comparison;
 pub mod estimates;
 pub mod resource_catalog;
+pub mod takeoffs;
 
 const INITIAL_MIGRATION: &str = include_str!("../migrations/0001_initial.sql");
 const RESOURCES_MIGRATION: &str = include_str!("../migrations/0002_resources.sql");
 const ESTIMATES_MIGRATION: &str = include_str!("../migrations/0003_estimates.sql");
 const SECTIONS_MIGRATION: &str = include_str!("../migrations/0004_budget_sections.sql");
 const PRICING_MIGRATION: &str = include_str!("../migrations/0005_pricing.sql");
+const TAKEOFFS_MIGRATION: &str = include_str!("../migrations/0006_takeoffs.sql");
 
 #[derive(Debug, thiserror::Error)]
 pub enum StorageError {
@@ -114,6 +116,23 @@ impl LocalStore {
             conn.execute_batch("BEGIN IMMEDIATE")?;
             let result = conn.execute_batch(PRICING_MIGRATION).and_then(|_| {
                 conn.execute("INSERT INTO schema_migrations(version) VALUES (5)", [])?;
+                Ok(())
+            });
+            if let Err(err) = result {
+                let _ = conn.execute_batch("ROLLBACK");
+                return Err(err.into());
+            }
+            conn.execute_batch("COMMIT")?;
+        }
+        let applied: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=6)",
+            [],
+            |row| row.get(0),
+        )?;
+        if !applied {
+            conn.execute_batch("BEGIN IMMEDIATE")?;
+            let result = conn.execute_batch(TAKEOFFS_MIGRATION).and_then(|_| {
+                conn.execute("INSERT INTO schema_migrations(version) VALUES (6)", [])?;
                 Ok(())
             });
             if let Err(err) = result {

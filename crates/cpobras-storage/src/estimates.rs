@@ -197,6 +197,13 @@ impl LocalStore {
                 assignments.insert(entry.id, Uuid::parse_str(&section_id)?);
             }
         }
+        let mut takeoffs = HashMap::new();
+        for entry in &entries {
+            let rows = self.list_takeoff_rows(source_id, entry.id)?;
+            if !rows.is_empty() {
+                takeoffs.insert(entry.id, rows);
+            }
+        }
         let copy = Estimate {
             id: Uuid::new_v4(),
             project_id: source.project_id,
@@ -274,6 +281,27 @@ impl LocalStore {
                     "INSERT INTO estimate_line_sections(line_id, section_id) VALUES (?1, ?2)",
                     params![new_line_id.to_string(), section_ids[section_id].to_string()],
                 )?;
+            }
+            if let Some(rows) = takeoffs.get(&entry.id) {
+                for row in rows {
+                    transaction.execute(
+                        "INSERT INTO takeoff_rows(
+                            id,estimate_id,line_id,note,factor,length,width,height,sign,position
+                         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+                        params![
+                            Uuid::new_v4().to_string(),
+                            copy.id.to_string(),
+                            new_line_id.to_string(),
+                            row.note,
+                            row.factor.to_string(),
+                            row.length.to_string(),
+                            row.width.to_string(),
+                            row.height.to_string(),
+                            row.sign,
+                            row.position,
+                        ],
+                    )?;
+                }
             }
         }
         transaction.execute(
