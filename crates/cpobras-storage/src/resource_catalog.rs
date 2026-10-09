@@ -106,7 +106,9 @@ impl LocalStore {
     }
 
     pub fn list_resources(&self) -> Result<Vec<Resource>> {
-        let mut stmt = self.conn.prepare("SELECT id FROM resources ORDER BY code, id")?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id FROM resources ORDER BY code, id")?;
         let ids = stmt.query_map([], |row| row.get::<_, String>(0))?;
         let mut resources = Vec::new();
         for id in ids {
