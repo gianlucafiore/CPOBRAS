@@ -134,6 +134,91 @@ impl LocalStore {
         Ok(())
     }
 
+    /// Edits an existing draft line; issued estimate triggers enforce immutability.
+    pub fn update_estimate_item(&mut self, item: &EstimateItem) -> Result<()> {
+        if item.description.trim().is_empty()
+            || item.unit.trim().is_empty()
+            || item.quantity < Decimal::ZERO
+            || item.unit_cost_snapshot < Decimal::ZERO
+            || item.position < 0
+        {
+            return Err(StorageError::InvalidValue("invalid estimate line".into()));
+        }
+        let changed = self.conn.execute(
+            "UPDATE estimate_lines SET description=?1, unit=?2, quantity=?3, unit_cost_snapshot=?4
+             WHERE id=?5 AND estimate_id=?6",
+            params![
+                item.description,
+                item.unit,
+                item.quantity.to_string(),
+                item.unit_cost_snapshot.to_string(),
+                item.id.to_string(),
+                item.estimate_id.to_string(),
+            ],
+        )?;
+        if changed != 1 {
+            return Err(StorageError::InvalidValue("estimate line not found".into()));
+        }
+        Ok(())
+    }
+
+    pub fn delete_estimate_item(&mut self, estimate_id: Uuid, item_id: Uuid) -> Result<()> {
+        let changed = self.conn.execute(
+            "DELETE FROM estimate_lines WHERE id=?1 AND estimate_id=?2",
+            params![item_id.to_string(), estimate_id.to_string()],
+        )?;
+        if changed != 1 {
+            return Err(StorageError::InvalidValue("estimate line not found".into()));
+        }
+        Ok(())
+    }
+
+    pub fn duplicate_estimate(&mut self, source_id: Uuid, title: &str) -> Result<Estimate> {
+        if title.trim().is_empty() {
+            return Err(StorageError::InvalidValue("empty estimate title".into()));
+        }
+        let source = self
+            .get_estimate(source_id)?
+            .ok_or_else(|| StorageError::InvalidValue("estimate not found".into()))?;
+        let entries = self.estimate_items(source_id)?;
+        let copy = Estimate {
+            id: Uuid::new_v4(),
+            project_id: source.project_id,
+            title: title.trim().to_owned(),
+            currency: source.currency,
+            issued: false,
+        };
+        let transaction = self.conn.transaction()?;
+        transaction.execute(
+            "INSERT INTO estimates(id, project_id, title, currency) VALUES (?1, ?2, ?3, ?4)",
+            params![
+                copy.id.to_string(),
+                copy.project_id.to_string(),
+                copy.title,
+                currency_code(copy.currency)
+            ],
+        )?;
+        for entry in entries {
+            transaction.execute(
+                "INSERT INTO estimate_lines(id, estimate_id, position, analysis_id,
+                 description, unit, quantity, unit_cost_snapshot)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    Uuid::new_v4().to_string(),
+                    copy.id.to_string(),
+                    entry.position,
+                    entry.analysis_id.map(|id| id.to_string()),
+                    entry.description,
+                    entry.unit,
+                    entry.quantity.to_string(),
+                    entry.unit_cost_snapshot.to_string(),
+                ],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(copy)
+    }
+
     pub fn estimate_items(&self, estimate_id: Uuid) -> Result<Vec<EstimateItem>> {
         let mut statement = self.conn.prepare(
             "SELECT id, position, analysis_id, description, unit, quantity, unit_cost_snapshot
@@ -260,5 +345,63 @@ mod tests {
             db.estimate_total(estimate.id).unwrap(),
             Decimal::new(125500, 2)
         );
+    }
+    #[test]
+    fn draft_edit_delete_duplicate_and_issued_are_protected() {
+        let mut db = LocalStore::in_memory().unwrap();
+        let client = Client {
+            id: Uuid::new_v4(),
+            name: "Cliente prueba".into(),
+            cuit: None,
+        };
+        db.save_client(&client).unwrap();
+        let project = Project {
+            id: Uuid::new_v4(),
+            client_id: client.id,
+            name: "Obra prueba".into(),
+            currency: Currency::Ars,
+        };
+        db.save_project(&project).unwrap();
+        let estimate = Estimate {
+            id: Uuid::new_v4(),
+            project_id: project.id,
+            title: "Base".into(),
+            currency: Currency::Ars,
+            issued: false,
+        };
+        db.create_estimate(&estimate).unwrap();
+        let mut line = EstimateItem {
+            id: Uuid::new_v4(),
+            estimate_id: estimate.id,
+            position: 0,
+            analysis_id: None,
+            description: "Hormigón".into(),
+            unit: "m3".into(),
+            quantity: Decimal::new(2, 0),
+            unit_cost_snapshot: Decimal::new(12550, 2),
+        };
+        db.add_estimate_item(&line).unwrap();
+        line.quantity = Decimal::new(3, 0);
+        db.update_estimate_item(&line).unwrap();
+        assert_eq!(
+            db.estimate_total(estimate.id).unwrap(),
+            Decimal::new(37650, 2)
+        );
+
+        let copy = db.duplicate_estimate(estimate.id, "Revisión").unwrap();
+        assert!(!copy.issued);
+        assert_eq!(db.estimate_total(copy.id).unwrap(), Decimal::new(37650, 2));
+        assert_ne!(db.estimate_items(copy.id).unwrap()[0].id, line.id);
+
+        db.delete_estimate_item(estimate.id, line.id).unwrap();
+        assert_eq!(db.estimate_total(estimate.id).unwrap(), Decimal::ZERO);
+        assert_eq!(db.estimate_total(copy.id).unwrap(), Decimal::new(37650, 2));
+
+        db.issue_estimate(copy.id).unwrap();
+        let mut issued_line = db.estimate_items(copy.id).unwrap().remove(0);
+        issued_line.quantity = Decimal::new(100, 0);
+        assert!(db.update_estimate_item(&issued_line).is_err());
+        assert!(db.delete_estimate_item(copy.id, issued_line.id).is_err());
+        assert_eq!(db.estimate_total(copy.id).unwrap(), Decimal::new(37650, 2));
     }
 }
