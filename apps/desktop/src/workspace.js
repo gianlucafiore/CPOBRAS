@@ -137,8 +137,8 @@ function gridSections() {
     if (!byParent.has(parent)) byParent.set(parent, []);
     byParent.get(parent).push(section);
   }
-  const lineRow = line => `<tr class="line-row ${line.id === state.selectedLineId ? "selected" : ""}" data-action="select-line" data-id="${e(line.id)}" data-searchable="${e((line.description + " " + line.unit).toLowerCase())}" tabindex="0">
-    <td class="col-code muted">·</td><td class="col-desc">${e(line.description)} ${line.analysis_id ? '<span class="acu-tag">ACU</span>' : ""}</td>
+  const lineRow = (line, code = "") => `<tr class="line-row ${line.id === state.selectedLineId ? "selected" : ""}" data-action="select-line" data-id="${e(line.id)}" data-searchable="${e((line.description + " " + line.unit).toLowerCase())}" tabindex="0">
+    <td class="col-code muted">${e(code)}</td><td class="col-desc">${e(line.description)} ${line.analysis_id ? '<span class="acu-tag">ACU</span>' : ""}</td>
     <td class="col-unit">${e(line.unit)}</td><td class="number">${numeric(line.quantity)}</td>
     <td class="number">${money(line.unit_cost)}</td><td class="number partial">${money(line.total)}</td></tr>`;
   const sectionSum = id => {
@@ -153,14 +153,14 @@ function gridSections() {
   };
   const sectionRow = (section, depth = 0) => {
     const children = [...(byParent.get(section.id) || [])].sort((a, b) => a.position - b.position);
-    const own = (groups.get(section.id) || []).map(lineRow).join("");
+    const own = (groups.get(section.id) || []).map((line, i) => lineRow(line, section.code + "." + String(i + 1).padStart(2, "0"))).join("");
     return `<tr class="section-row" data-action="edit-section" data-id="${e(section.id)}" data-searchable="${e((section.code + " " + section.title).toLowerCase())}">
       <td class="col-code">${e(section.code)}</td><td class="col-desc" style="padding-left:${12 + depth * 15}px">▾ &nbsp; ${e(section.title)}</td>
       <td></td><td></td><td></td><td class="number partial">${money(sectionSum(section.id))}</td>
     </tr>${own}${children.map(s => sectionRow(s, depth + 1)).join("")}`;
   };
   const roots = [...(byParent.get("root") || [])].sort((a, b) => a.position - b.position);
-  const others = (groups.get("unassigned") || []).map(lineRow).join("");
+  const others = (groups.get("unassigned") || []).map((line, i) => lineRow(line, String(i + 1).padStart(2, "0"))).join("");
   return roots.map(s => sectionRow(s)).join("") +
     (others ? `<tr class="section-row unassigned"><td>—</td><td>PARTIDAS SIN RUBRO</td><td></td><td></td><td></td><td></td></tr>${others}` : "");
 }
