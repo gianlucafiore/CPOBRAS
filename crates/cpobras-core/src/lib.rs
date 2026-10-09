@@ -1,4 +1,6 @@
 //! CPOBRAS domain logic: deterministic quantities and money (never f32/f64).
+pub mod contracting;
+
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
