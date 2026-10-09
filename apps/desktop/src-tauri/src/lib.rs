@@ -90,7 +90,6 @@ fn compare_contracting(
     })
 }
 
-
 #[derive(serde::Serialize)]
 struct TakeoffView {
     id: String,
