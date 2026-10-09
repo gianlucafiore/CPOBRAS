@@ -219,9 +219,13 @@ impl LocalStore {
             || analysis.description.trim().is_empty()
             || analysis.unit.trim().is_empty()
         {
-            return Err(StorageError::InvalidValue("incomplete cost analysis".into()));
+            return Err(StorageError::InvalidValue(
+                "incomplete cost analysis".into(),
+            ));
         }
-        analysis.direct_unit_cost().map_err(|e| StorageError::InvalidValue(e.to_string()))?;
+        analysis
+            .direct_unit_cost()
+            .map_err(|e| StorageError::InvalidValue(e.to_string()))?;
         let json = serde_json::to_string(analysis)?;
         self.conn.execute(
             "INSERT INTO analyses(id, code, description, unit, snapshot_json)
