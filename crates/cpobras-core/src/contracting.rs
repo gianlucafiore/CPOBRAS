@@ -93,13 +93,15 @@ mod tests {
             name: "Montaje propio".into(),
             components: vec![
                 ResourcePriceSnapshot {
-                    resource_id: Uuid::new_v4(), description: "Oficial".into(),
+                    resource_id: Uuid::new_v4(),
+                    description: "Oficial".into(),
                     kind: ResourceKind::Labor,
                     quantity_per_unit: Decimal::new(2, 0),
                     unit_price: Decimal::new(1000, 0),
                 },
                 ResourcePriceSnapshot {
-                    resource_id: Uuid::new_v4(), description: "Hidroelevador".into(),
+                    resource_id: Uuid::new_v4(),
+                    description: "Hidroelevador".into(),
                     kind: ResourceKind::Equipment,
                     quantity_per_unit: Decimal::ONE,
                     unit_price: Decimal::new(500, 0),
@@ -107,7 +109,8 @@ mod tests {
             ],
             additional_cost_per_unit: Decimal::new(100, 0),
         };
-        let subcontract = quoted_subcontract("Montaje contratado", Uuid::new_v4(), Decimal::new(3000, 0));
+        let subcontract =
+            quoted_subcontract("Montaje contratado", Uuid::new_v4(), Decimal::new(3000, 0));
         let result = compare_contracting_modes(&own, &subcontract, Decimal::new(10, 0)).unwrap();
         assert_eq!(result.own_cost_per_unit, Decimal::new(2600, 0));
         assert_eq!(result.subcontract_cost_per_unit, Decimal::new(3000, 0));
@@ -119,11 +122,17 @@ mod tests {
     #[test]
     fn negative_values_and_empty_scenarios_are_rejected() {
         let subcontract = quoted_subcontract("Subcontrato", Uuid::new_v4(), Decimal::ONE);
-        assert!(compare_contracting_modes(&subcontract, &subcontract, Decimal::NEGATIVE_ONE).is_err());
+        assert!(
+            compare_contracting_modes(&subcontract, &subcontract, Decimal::NEGATIVE_ONE).is_err()
+        );
         let empty = ContractingScenario {
-            name: "Vacío".into(), components: Vec::new(),
+            name: "Vacío".into(),
+            components: Vec::new(),
             additional_cost_per_unit: Decimal::ZERO,
         };
-        assert_eq!(empty.direct_cost_per_unit(), Err(DomainError::EmptyAnalysis));
+        assert_eq!(
+            empty.direct_cost_per_unit(),
+            Err(DomainError::EmptyAnalysis)
+        );
     }
 }
