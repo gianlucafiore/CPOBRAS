@@ -61,11 +61,15 @@ fn save_takeoff(
     sign: i64,
     position: i64,
 ) -> Result<TakeoffView, String> {
-    let parse = |number: String| Decimal::from_str(&number.replace(',', "."))
-        .map_err(|error| error.to_string());
+    let parse = |number: String| {
+        Decimal::from_str(&number.replace(',', ".")).map_err(|error| error.to_string())
+    };
     let row = cpobras_storage::takeoffs::TakeoffRow {
-        id: id.map(|value| Uuid::parse_str(&value)).transpose()
-            .map_err(|e| e.to_string())?.unwrap_or_else(Uuid::new_v4),
+        id: id
+            .map(|value| Uuid::parse_str(&value))
+            .transpose()
+            .map_err(|e| e.to_string())?
+            .unwrap_or_else(Uuid::new_v4),
         estimate_id: Uuid::parse_str(&estimate_id).map_err(|e| e.to_string())?,
         line_id: Uuid::parse_str(&line_id).map_err(|e| e.to_string())?,
         note,
@@ -77,8 +81,10 @@ fn save_takeoff(
         position,
     };
     let result = takeoff_view(row.clone())?;
-    db.lock().map_err(|e| e.to_string())?
-        .save_takeoff_row(&row).map_err(|e| e.to_string())?;
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .save_takeoff_row(&row)
+        .map_err(|e| e.to_string())?;
     Ok(result)
 }
 
@@ -90,8 +96,11 @@ fn list_takeoffs(
 ) -> Result<Vec<TakeoffView>, String> {
     let estimate_id = Uuid::parse_str(&estimate_id).map_err(|e| e.to_string())?;
     let line_id = Uuid::parse_str(&line_id).map_err(|e| e.to_string())?;
-    let rows = db.lock().map_err(|e| e.to_string())?
-        .list_takeoff_rows(estimate_id, line_id).map_err(|e| e.to_string())?;
+    let rows = db
+        .lock()
+        .map_err(|e| e.to_string())?
+        .list_takeoff_rows(estimate_id, line_id)
+        .map_err(|e| e.to_string())?;
     rows.into_iter().map(takeoff_view).collect()
 }
 
@@ -103,21 +112,21 @@ fn apply_takeoff(
 ) -> Result<String, String> {
     let estimate_id = Uuid::parse_str(&estimate_id).map_err(|e| e.to_string())?;
     let line_id = Uuid::parse_str(&line_id).map_err(|e| e.to_string())?;
-    db.lock().map_err(|e| e.to_string())?
+    db.lock()
+        .map_err(|e| e.to_string())?
         .apply_takeoff_to_line(estimate_id, line_id)
-        .map(|value| value.to_string()).map_err(|e| e.to_string())
+        .map(|value| value.to_string())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn delete_takeoff(
-    db: tauri::State<'_, Db>,
-    id: String,
-) -> Result<(), String> {
+fn delete_takeoff(db: tauri::State<'_, Db>, id: String) -> Result<(), String> {
     let id = Uuid::parse_str(&id).map_err(|e| e.to_string())?;
-    db.lock().map_err(|e| e.to_string())?
-        .delete_takeoff_row(id).map_err(|e| e.to_string())
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .delete_takeoff_row(id)
+        .map_err(|e| e.to_string())
 }
-
 
 #[derive(serde::Serialize)]
 struct EstimateComparisonLineView {
