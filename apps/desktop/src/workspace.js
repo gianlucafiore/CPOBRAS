@@ -82,6 +82,7 @@ async function openProject(id) {
   state.projectId = id; state.view = "workspace"; state.panel = "acu"; state.selectedLineId = null;
   await loadEstimates();
   state.estimateId = state.estimates[0]?.id || null;
+  state.search = "";
   await loadEstimate();
 }
 async function openEstimate(id) {
@@ -185,7 +186,7 @@ function workspace() {
           <span class="pane-title">PRESUPUESTO <em>${state.lines.length} partidas · ${state.sections.length} rubros</em></span>
           <span class="grow"></span>
           <input class="search-compact" placeholder="⌕ Buscar partida..." data-search value="${e(state.search)}" aria-label="Buscar partida">
-          <button class="icon-btn" data-action="modal-line" title="Editar partida seleccionada" ${locked()}>✎</button>
+          <button class="icon-btn" data-action="edit-line" title="Editar partida seleccionada" ${locked()}>✎</button>
           <button class="icon-btn" data-action="delete-line" title="Eliminar partida" ${locked()}>🗑</button>
         </div>
         <div class="table-scroll">
@@ -266,7 +267,7 @@ function listViews() {
   if (state.view === "projects") {
     title = "Obras"; subtitle = "Accedé a tus presupuestos y sus análisis."; action = btn("＋ Nueva obra", "modal-project", "primary");
     headers = ["OBRA", "CLIENTE", "MONEDA", ""];
-    rows = state.projects.map(p => `<tr data-searchable="${e((p.name + " " + clientName(p.client_id)).toLowerCase())}"><td><strong>${e(p.name)}</strong></td><td>${e(clientName(p.client_id))}</td><td>${e(p.currency)}</td><td class="actions-cell"><button class="btn tiny" data-action="edit-project" data-id="${e(p.id)}">Editar</button><button class="btn tiny primary" data-action="open-project" data-id="${e(p.id)}">Abrir ›</button></td></tr>`).join("");
+    rows = state.projects.map(p => `<tr data-searchable="${e((p.name + " " + clientName(p.client_id)).toLowerCase())}"><td><strong>${e(p.name)}</strong></td><td>${e(clientName(p.client_id))}</td><td>${e(p.currency === "Usd" ? "USD" : "ARS")}</td><td class="actions-cell"><button class="btn tiny" data-action="edit-project" data-id="${e(p.id)}">Editar</button><button class="btn tiny primary" data-action="open-project" data-id="${e(p.id)}">Abrir ›</button></td></tr>`).join("");
   } else if (state.view === "clients") {
     title = "Clientes"; subtitle = "Comitentes registrados en la base local."; action = btn("＋ Nuevo cliente", "modal-client", "primary");
     headers = ["CLIENTE", "CUIT", ""];
@@ -335,7 +336,7 @@ function modalMarkup() {
     title = item.id ? "Editar obra" : "Nueva obra";
     body = field("Nombre de la obra", "projectName", item.name, "required") +
       select("Cliente / comitente", "clientId", projectOptions, item.client_id) +
-      select("Moneda base", "currency", [["ARS", "Pesos argentinos (ARS)"], ["USD", "Dólares (USD)"]], item.currency || "ARS");
+      select("Moneda base", "currency", [["ARS", "Pesos argentinos (ARS)"], ["USD", "Dólares (USD)"]], item.currency === "Usd" || item.currency === "USD" ? "USD" : "ARS");
   } else if (kind === "estimate") {
     title = "Nuevo presupuesto"; body = field("Nombre o versión", "title", "Presupuesto inicial", "required");
   } else if (kind === "section") {
@@ -355,7 +356,7 @@ function modalMarkup() {
       field("Cantidad", "quantity", 1, 'type="number" min="0" step="any" required') +
       select("Rubro", "sectionId", sectionOptions);
   } else if (kind === "resource") {
-    title = "Agregar insumo"; body = field("Código", "code", "", "required") + field("Descripción", "description", "", "required") +
+    title = "Agregar insumo"; body = field("Código", "code", "", "required") + field("Descripción", "description", item.description || "", "required") +
       `<div class="form-grid">${field("Unidad", "unit", "kg", "required")}${select("Tipo", "kind", [["material", "Material"], ["labor", "Mano de obra"], ["equipment", "Equipo"], ["subcontract", "Subcontrato"]])}</div>` +
       field("Precio inicial (ARS)", "price", 0, 'type="number" min="0" step="any" required');
   } else if (kind === "price") {
@@ -366,7 +367,7 @@ function modalMarkup() {
       field("Fuente / proveedor", "source", "Cotización manual");
   } else if (kind === "analysis") {
     title = "Crear análisis de costo unitario"; wide = true;
-    body = `<div class="form-grid three">${field("Código ACU", "code", "", "required")}${field("Descripción", "description", "", "required")}${field("Unidad", "unit", "m²", "required")}</div>
+    body = `<div class="form-grid three">${field("Código ACU", "code", item.code || "", "required")}${field("Descripción", "description", "", "required")}${field("Unidad", "unit", item.unit || "m²", "required")}</div>
     <div class="form-subhead">COMPOSICIÓN <button class="btn tiny" type="button" data-action="add-component">＋ Insumo</button></div>
     <div class="component-editor" id="component-editor">${state.acuComponents.map((row, index) => `<div class="form-grid component-row">
       ${select("Insumo", "resource", resourceOptions, row.resourceId)}
@@ -488,7 +489,6 @@ async function act(button) {
   const action = button.dataset.action;
   if (state.busy && action !== "close-modal") return;
   if (action === "close-modal") {
-    if (button.classList.contains("modal-overlay") && button !== event?.target) return;
     closeModal(); return;
   }
   if (action === "dismiss-toast") { state.message = ""; render(); return; }
@@ -522,7 +522,8 @@ async function act(button) {
   }
   if (action === "modal-section") return editable() && openModal("section");
   if (action === "edit-section") return editable() && openModal("section", state.sections.find(s => s.id === button.dataset.id));
-  if (action === "modal-line") return editable() && openModal("line", currentLine() || null);
+  if (action === "modal-line") return editable() && openModal("line");
+  if (action === "edit-line") return editable() && currentLine() && openModal("line", currentLine());
   if (action === "modal-from-acu") return editable() && openModal("from-acu");
   if (action === "modal-resource") return openModal("resource");
   if (action === "modal-price") return openModal("price", state.resources.find(r => r.id === button.dataset.id));
@@ -535,6 +536,13 @@ async function act(button) {
   if (action === "modal-contracting") return openModal("contracting");
   if (action === "add-component" || action === "remove-component") {
     const form = document.querySelector("#dialog-form");
+    if (form && state.modal?.kind === "analysis") {
+      state.modal.record = {
+        code: form.querySelector('[name="code"]')?.value || "",
+        description: form.querySelector('[name="description"]')?.value || "",
+        unit: form.querySelector('[name="unit"]')?.value || "m²"
+      };
+    }
     if (form) state.acuComponents = [...form.querySelectorAll(".component-row")].map(row => ({
       resourceId: row.querySelector('select[name="resource"]')?.value,
       quantity: row.querySelector('input[name="quantity"]')?.value
