@@ -117,6 +117,23 @@ impl LocalStore {
         Ok(sections)
     }
 
+    /// Section assignment for each line in one estimate.
+    pub fn list_line_sections(&self, estimate_id: Uuid) -> Result<Vec<(Uuid, Uuid)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT a.line_id, a.section_id FROM estimate_line_sections a
+             JOIN estimate_lines l ON l.id=a.line_id WHERE l.estimate_id=?1",
+        )?;
+        let rows = stmt.query_map([estimate_id.to_string()], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        let mut result = Vec::new();
+        for row in rows {
+            let (line_id, section_id) = row?;
+            result.push((Uuid::parse_str(&line_id)?, Uuid::parse_str(&section_id)?));
+        }
+        Ok(result)
+    }
+
     pub fn assign_line_section(
         &mut self,
         estimate_id: Uuid,
