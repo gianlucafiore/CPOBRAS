@@ -4,10 +4,12 @@ use rusqlite::{params, Connection, OptionalExtension};
 use std::path::Path;
 use uuid::Uuid;
 
+pub mod estimates;
 pub mod resource_catalog;
 
 const INITIAL_MIGRATION: &str = include_str!("../migrations/0001_initial.sql");
 const RESOURCES_MIGRATION: &str = include_str!("../migrations/0002_resources.sql");
+const ESTIMATES_MIGRATION: &str = include_str!("../migrations/0003_estimates.sql");
 
 #[derive(Debug, thiserror::Error)]
 pub enum StorageError {
@@ -56,6 +58,23 @@ impl LocalStore {
             conn.execute_batch("BEGIN IMMEDIATE")?;
             let result = conn.execute_batch(RESOURCES_MIGRATION).and_then(|_| {
                 conn.execute("INSERT INTO schema_migrations(version) VALUES (2)", [])?;
+                Ok(())
+            });
+            if let Err(err) = result {
+                let _ = conn.execute_batch("ROLLBACK");
+                return Err(err.into());
+            }
+            conn.execute_batch("COMMIT")?;
+        }
+        let applied: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=3)",
+            [],
+            |row| row.get(0),
+        )?;
+        if !applied {
+            conn.execute_batch("BEGIN IMMEDIATE")?;
+            let result = conn.execute_batch(ESTIMATES_MIGRATION).and_then(|_| {
+                conn.execute("INSERT INTO schema_migrations(version) VALUES (3)", [])?;
                 Ok(())
             });
             if let Err(err) = result {
