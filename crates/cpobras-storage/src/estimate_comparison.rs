@@ -45,16 +45,18 @@ impl LocalStore {
         let mut grouped: BTreeMap<(String, String), (Decimal, Decimal, Decimal, Decimal)> =
             BTreeMap::new();
         for line in self.estimate_items(baseline_id)? {
+            let line_total = line.total();
             let entry = grouped.entry((line.description, line.unit))
                 .or_insert((Decimal::ZERO, Decimal::ZERO, Decimal::ZERO, Decimal::ZERO));
             entry.0 += line.quantity;
-            entry.2 += line.total();
+            entry.2 += line_total;
         }
         for line in self.estimate_items(revised_id)? {
+            let line_total = line.total();
             let entry = grouped.entry((line.description, line.unit))
                 .or_insert((Decimal::ZERO, Decimal::ZERO, Decimal::ZERO, Decimal::ZERO));
             entry.1 += line.quantity;
-            entry.3 += line.total();
+            entry.3 += line_total;
         }
         let lines = grouped.into_iter().map(|((description, unit), (baseline_quantity, revised_quantity, baseline_cost, revised_cost))| {
             EstimateLineDelta {
