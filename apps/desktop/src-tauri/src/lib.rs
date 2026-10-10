@@ -739,7 +739,6 @@ fn create_resource(
         active: true,
     };
     let mut store = db.lock().map_err(|e| e.to_string())?;
-    store.save_resource(&resource).map_err(|e| e.to_string())?;
     let price_entry = ResourcePrice {
         id: Uuid::new_v4(),
         resource_id: resource.id,
@@ -749,7 +748,7 @@ fn create_resource(
         source,
     };
     store
-        .add_resource_price(&price_entry)
+        .create_resource_with_initial_price(&resource, &price_entry)
         .map_err(|e| e.to_string())?;
     Ok(resource_view(resource, Some(amount.to_string())))
 }
