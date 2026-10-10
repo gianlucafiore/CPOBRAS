@@ -813,9 +813,11 @@ fn create_analysis(
         let unit_price = if let Some(value) = component.unit_price {
             Decimal::from_str(&value.replace(',', ".")).map_err(|e| e.to_string())?
         } else {
-            store.resource_price_as_of(id, Currency::Ars, "9999-12-31")
+            store
+                .resource_price_as_of(id, Currency::Ars, "9999-12-31")
                 .map_err(|e| e.to_string())?
-                .ok_or("Insumo sin precio en ARS")?.amount
+                .ok_or("Insumo sin precio en ARS")?
+                .amount
         };
         snapshots.push(ResourcePriceSnapshot {
             resource_id: id,
@@ -854,8 +856,11 @@ fn update_analysis(
     components: Vec<EditedAnalysisComponent>,
 ) -> Result<AnalysisView, String> {
     let id = Uuid::parse_str(&analysis_id).map_err(|e| e.to_string())?;
-    if components.is_empty() || code.trim().is_empty()
-        || description.trim().is_empty() || unit.trim().is_empty() {
+    if components.is_empty()
+        || code.trim().is_empty()
+        || description.trim().is_empty()
+        || unit.trim().is_empty()
+    {
         return Err("El ACU requiere datos completos y al menos un insumo".into());
     }
     let mut store = db.lock().map_err(|e| e.to_string())?;
@@ -864,13 +869,14 @@ fn update_analysis(
     }
     let mut snapshots = Vec::new();
     for component in components {
-        let resource_id = Uuid::parse_str(&component.resource_id)
-            .map_err(|e| e.to_string())?;
-        let quantity = Decimal::from_str(&component.quantity.replace(',', "."))
-            .map_err(|e| e.to_string())?;
+        let resource_id = Uuid::parse_str(&component.resource_id).map_err(|e| e.to_string())?;
+        let quantity =
+            Decimal::from_str(&component.quantity.replace(',', ".")).map_err(|e| e.to_string())?;
         let price = Decimal::from_str(&component.unit_price.replace(',', "."))
             .map_err(|e| e.to_string())?;
-        let resource = store.get_resource(resource_id).map_err(|e| e.to_string())?
+        let resource = store
+            .get_resource(resource_id)
+            .map_err(|e| e.to_string())?
             .ok_or("Insumo inexistente")?;
         if quantity < Decimal::ZERO || price < Decimal::ZERO {
             return Err("Los rendimientos y precios deben ser positivos o cero".into());
@@ -884,8 +890,11 @@ fn update_analysis(
         });
     }
     let analysis = UnitCostAnalysis {
-        id, code: code.trim().into(), description: description.trim().into(),
-        unit: unit.trim().into(), components: snapshots,
+        id,
+        code: code.trim().into(),
+        description: description.trim().into(),
+        unit: unit.trim().into(),
+        components: snapshots,
     };
     let result = analysis_view(analysis.clone())?;
     store.save_analysis(&analysis).map_err(|e| e.to_string())?;
@@ -905,8 +914,11 @@ fn refresh_draft_analysis_costs(
     estimate_id: String,
 ) -> Result<RefreshDraftView, String> {
     let id = Uuid::parse_str(&estimate_id).map_err(|e| e.to_string())?;
-    let result = db.lock().map_err(|e| e.to_string())?
-        .refresh_draft_analysis_costs(id).map_err(|e| e.to_string())?;
+    let result = db
+        .lock()
+        .map_err(|e| e.to_string())?
+        .refresh_draft_analysis_costs(id)
+        .map_err(|e| e.to_string())?;
     Ok(RefreshDraftView {
         updated_lines: result.updated_lines,
         old_direct_total: result.old_direct_total.to_string(),
@@ -926,7 +938,9 @@ fn update_resource(
 ) -> Result<ResourceView, String> {
     let id = Uuid::parse_str(&resource_id).map_err(|e| e.to_string())?;
     let mut store = db.lock().map_err(|e| e.to_string())?;
-    let mut resource = store.get_resource(id).map_err(|e| e.to_string())?
+    let mut resource = store
+        .get_resource(id)
+        .map_err(|e| e.to_string())?
         .ok_or("Insumo inexistente")?;
     resource.code = code.trim().into();
     resource.description = description.trim().into();
@@ -934,8 +948,10 @@ fn update_resource(
     resource.kind = resource_kind(&kind)?;
     resource.active = active;
     store.save_resource(&resource).map_err(|e| e.to_string())?;
-    let price = store.resource_price_as_of(id, Currency::Ars, "9999-12-31")
-        .map_err(|e| e.to_string())?.map(|price| price.amount.to_string());
+    let price = store
+        .resource_price_as_of(id, Currency::Ars, "9999-12-31")
+        .map_err(|e| e.to_string())?
+        .map(|price| price.amount.to_string());
     Ok(resource_view(resource, price))
 }
 
