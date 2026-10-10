@@ -116,7 +116,8 @@ impl LocalStore {
                 "initial price references a different resource".into(),
             ));
         }
-        self.conn.execute_batch("SAVEPOINT create_resource_initial_price")?;
+        self.conn
+            .execute_batch("SAVEPOINT create_resource_initial_price")?;
         let result = (|| {
             self.save_resource(resource)?;
             self.add_resource_price(price)?;
@@ -129,7 +130,8 @@ impl LocalStore {
             )?;
             return Err(error);
         }
-        self.conn.execute_batch("RELEASE create_resource_initial_price")?;
+        self.conn
+            .execute_batch("RELEASE create_resource_initial_price")?;
         Ok(())
     }
 
@@ -386,21 +388,28 @@ mod tests {
         let mut db = LocalStore::in_memory().unwrap();
         let resource = Resource {
             id: Uuid::new_v4(),
-            code: "MAT-02".into(), description: "Perfiles".into(),
-            unit: "kg".into(), kind: ResourceKind::Material, active: true,
+            code: "MAT-02".into(),
+            description: "Perfiles".into(),
+            unit: "kg".into(),
+            kind: ResourceKind::Material,
+            active: true,
         };
         let mut price = ResourcePrice {
-            id: Uuid::new_v4(), resource_id: resource.id,
-            amount: Decimal::new(1500, 0), currency: Currency::Ars,
-            effective_date: "fecha inválida".into(), source: None,
+            id: Uuid::new_v4(),
+            resource_id: resource.id,
+            amount: Decimal::new(1500, 0),
+            currency: Currency::Ars,
+            effective_date: "fecha inválida".into(),
+            source: None,
         };
-        assert!(db.create_resource_with_initial_price(&resource, &price).is_err());
+        assert!(db
+            .create_resource_with_initial_price(&resource, &price)
+            .is_err());
         assert!(db.get_resource(resource.id).unwrap().is_none());
         price.effective_date = "2026-10-09".into();
-        db.create_resource_with_initial_price(&resource, &price).unwrap();
+        db.create_resource_with_initial_price(&resource, &price)
+            .unwrap();
         assert!(db.get_resource(resource.id).unwrap().is_some());
         assert_eq!(db.resource_price_history(resource.id).unwrap().len(), 1);
     }
-
-
 }
