@@ -722,6 +722,8 @@ fn create_resource(
     unit: String,
     kind: String,
     price: String,
+    effective_date: String,
+    source: Option<String>,
 ) -> Result<ResourceView, String> {
     let kind = resource_kind(&kind)?;
     let amount = Decimal::from_str(&price.replace(',', ".")).map_err(|e| e.to_string())?;
@@ -743,8 +745,8 @@ fn create_resource(
         resource_id: resource.id,
         amount,
         currency: Currency::Ars,
-        effective_date: "2026-10-09".into(),
-        source: Some("Carga manual".into()),
+        effective_date,
+        source,
     };
     store
         .add_resource_price(&price_entry)
