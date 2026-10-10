@@ -808,16 +808,19 @@ fn create_analysis(
             .get_resource(id)
             .map_err(|e| e.to_string())?
             .ok_or("Insumo inexistente")?;
-        let price = store
-            .resource_price_as_of(id, Currency::Ars, "9999-12-31")
-            .map_err(|e| e.to_string())?
-            .ok_or("Insumo sin precio en ARS")?;
+        let unit_price = if let Some(value) = component.unit_price {
+            Decimal::from_str(&value.replace(',', ".")).map_err(|e| e.to_string())?
+        } else {
+            store.resource_price_as_of(id, Currency::Ars, "9999-12-31")
+                .map_err(|e| e.to_string())?
+                .ok_or("Insumo sin precio en ARS")?.amount
+        };
         snapshots.push(ResourcePriceSnapshot {
             resource_id: id,
             description: resource.description,
             kind: resource.kind,
             quantity_per_unit: quantity,
-            unit_price: price.amount,
+            unit_price,
         });
     }
     let analysis = UnitCostAnalysis {
@@ -938,6 +941,7 @@ fn update_resource(
 struct AnalysisComponentInput {
     resource_id: String,
     quantity: String,
+    unit_price: Option<String>,
 }
 
 #[tauri::command]
