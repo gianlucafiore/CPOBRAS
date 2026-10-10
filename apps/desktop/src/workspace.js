@@ -175,7 +175,7 @@ function workspace() {
       <span class="vline"></span>
       ${select("Presupuesto", "estimate-picker", [["", "Seleccionar presupuesto"], ...state.estimates.map(s => [s.id, s.title])], state.estimateId)}
       <button class="btn" data-action="modal-estimate">＋ Presupuesto</button>
-      <button class="btn ghost" data-action="duplicate-estimate" ${est ? "" : "disabled"}>Duplicar</button>
+      <button class="btn ghost" data-action="duplicate-estimate" ${est ? "" : "disabled"}>Duplicar</button><button class="btn ghost" data-action="refresh-draft-costs" ${locked()}>↻ Actualizar precios ACU</button>
       <button class="btn ghost" data-action="modal-comparison" ${state.estimates.length < 2 ? "disabled" : ""}>Comparar</button>
       <span class="grow"></span>
       <button class="btn dark" data-action="issue" ${locked()}>Emitir</button>
@@ -229,7 +229,7 @@ function acuPane(line) {
       ${group.map(row => `<tr><td><span class="kind kind-${type}">${kindBadge(type)}</span></td><td>${e(row.description)}</td><td class="number">${numeric(row.quantity)}</td><td class="number">${money(row.unit_price)}</td><td class="number">${money(row.total)}</td></tr>`).join("")}`;
   }).join("");
   return `<div class="detail-heading"><div><strong>${e(line.description)}</strong>${subtitle}</div>
-    <div class="heading-actions"><button class="btn tiny" data-action="modal-from-acu" ${locked()}>Asignar ACU</button><button class="btn tiny" data-action="modal-contracting" ${!line.analysis_id ? "disabled" : ""}>Comparar costos</button></div>
+    <div class="heading-actions"><button class="btn tiny" data-action="modal-from-acu" ${locked()}>＋ Partida ACU</button><button class="btn tiny" data-action="edit-analysis" data-id="${e(line.analysis_id)}" ${!line.analysis_id ? "disabled" : ""}>Editar ACU</button><button class="btn tiny" data-action="modal-contracting" ${!line.analysis_id ? "disabled" : ""}>Comparar costos</button></div>
   </div>
   ${d ? `<div class="mini-scroll"><table class="mini-table"><thead><tr><th>TIPO</th><th>DESCRIPCIÓN</th><th class="number">CANT.</th><th class="number">PRECIO</th><th class="number">PARCIAL</th></tr></thead><tbody>${byKinds}</tbody></table></div>` :
     `<div class="blank-state"><span>▤</span><strong>Partida con precio manual</strong><p>Para ver el desglose, agregá una partida desde la biblioteca de ACU.</p></div>`}
@@ -275,20 +275,20 @@ function listViews() {
   } else if (state.view === "resources") {
     title = "Biblioteca de insumos"; subtitle = "Materiales, mano de obra, equipos y subcontratos."; action = btn("＋ Nuevo insumo", "modal-resource", "primary");
     headers = ["CÓDIGO", "DESCRIPCIÓN", "TIPO", "UND.", "PRECIO ARS", ""];
-    rows = state.resources.map(r => `<tr class="${state.selectedResourceId === r.id ? "selected" : ""}" data-action="select-resource" data-id="${e(r.id)}" data-searchable="${e((r.code + " " + r.description + " " + r.kind).toLowerCase())}"><td>${e(r.code)}</td><td><strong>${e(r.description)}</strong></td><td><span class="kind kind-${e(r.kind)}">${kindBadge(r.kind)}</span></td><td>${e(r.unit)}</td><td class="number">${r.price == null ? "—" : money(r.price)}</td><td><button class="btn tiny" data-action="modal-price" data-id="${e(r.id)}">＋ Precio</button></td></tr>`).join("");
+    rows = state.resources.map(r => `<tr class="${state.selectedResourceId === r.id ? "selected" : ""}" data-action="select-resource" data-id="${e(r.id)}" data-searchable="${e((r.code + " " + r.description + " " + r.kind).toLowerCase())}"><td>${e(r.code)}</td><td><strong>${e(r.description)}</strong></td><td><span class="kind kind-${e(r.kind)}">${kindBadge(r.kind)}</span></td><td>${e(r.unit)}</td><td class="number">${r.price == null ? "—" : money(r.price)}</td><td class="actions-cell"><button class="btn tiny" data-action="edit-resource" data-id="${e(r.id)}">Editar</button><button class="btn tiny" data-action="modal-price" data-id="${e(r.id)}">＋ Precio</button></td></tr>`).join("");
     const selected = state.resources.find(r => r.id === state.selectedResourceId);
     inspector = `<aside class="list-inspector"><h3>HISTORIAL DE PRECIOS</h3>${selected ?
       `<strong>${e(selected.description)}</strong><p class="small-muted">${e(selected.code)} · ${e(selected.unit)}</p>
-      <button class="btn primary tiny" data-action="modal-price" data-id="${e(selected.id)}">＋ Registrar precio</button>
+      <button class="btn tiny" data-action="edit-resource" data-id="${e(selected.id)}">Editar insumo</button> <button class="btn primary tiny" data-action="modal-price" data-id="${e(selected.id)}">＋ Registrar precio</button>
       <div class="price-history">${state.history.map(h => `<div><span>${e(h.effective_date)}<small>${e(h.source || "Manual")}</small></span><strong>${e(h.currency)} ${money(h.amount)}</strong></div>`).join("") || '<p class="small-muted">Sin registros.</p>'}</div>` :
       '<p class="small-muted">Seleccioná un insumo para consultar sus precios.</p>'}</aside>`;
   } else {
     title = "Análisis de costos unitarios"; subtitle = "Costos compuestos a partir de insumos y rendimientos."; action = btn("＋ Nuevo ACU", "modal-analysis", "primary");
     headers = ["CÓDIGO", "DESCRIPCIÓN", "UND.", "PRECIO UNITARIO", ""];
-    rows = state.analyses.map(a => `<tr class="${state.selectedAnalysisId === a.id ? "selected" : ""}" data-action="select-analysis" data-id="${e(a.id)}" data-searchable="${e((a.code + " " + a.description).toLowerCase())}"><td>${e(a.code)}</td><td><strong>${e(a.description)}</strong></td><td>${e(a.unit)}</td><td class="number">${money(a.unit_cost)}</td><td><button class="btn tiny" data-action="modal-reprice" data-id="${e(a.id)}">Actualizar precios</button></td></tr>`).join("");
+    rows = state.analyses.map(a => `<tr class="${state.selectedAnalysisId === a.id ? "selected" : ""}" data-action="select-analysis" data-id="${e(a.id)}" data-searchable="${e((a.code + " " + a.description).toLowerCase())}"><td>${e(a.code)}</td><td><strong>${e(a.description)}</strong></td><td>${e(a.unit)}</td><td class="number">${money(a.unit_cost)}</td><td><button class="btn tiny" data-action="edit-analysis" data-id="${e(a.id)}">Editar ACU</button> <button class="btn tiny" data-action="modal-reprice" data-id="${e(a.id)}">Actualizar precios</button></td></tr>`).join("");
     inspector = `<aside class="list-inspector"><h3>COMPOSICIÓN DEL ACU</h3>${state.detail && state.selectedAnalysisId ?
       `<strong>${e(state.detail.description)}</strong><p class="small-muted">Costo unitario ARS ${money(state.detail.unit_cost)}</p>
-      <button class="btn tiny" data-action="modal-reprice" data-id="${e(state.selectedAnalysisId)}">Recalcular por fecha</button>
+      <button class="btn primary tiny" data-action="edit-analysis" data-id="${e(state.selectedAnalysisId)}">✎ Editar ACU</button> <button class="btn tiny" data-action="modal-reprice" data-id="${e(state.selectedAnalysisId)}">Recalcular por fecha</button>
       <div class="component-list">${state.detail.components.map(row => `<div><span><span class="kind kind-${e(row.kind)}">${kindBadge(row.kind)}</span> ${e(row.description)}<small>${numeric(row.quantity)} × ${money(row.unit_price)}</small></span><b>${money(row.total)}</b></div>`).join("")}</div>` :
       '<p class="small-muted">Seleccioná un ACU para ver sus insumos.</p>'}</aside>`;
   }
