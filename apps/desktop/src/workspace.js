@@ -316,7 +316,8 @@ function filterRows(text) {
 }
 function openModal(kind, record = null) {
   state.modal = { kind, record };
-  state.acuComponents = [];
+  state.acuComponents = kind === "analysis" && record?.components ?
+    record.components.map(row => ({ resourceId: row.resource_id, quantity: row.quantity, unitPrice: row.unit_price })) : [];
   state.comparison = null; state.costComparison = null;
   render();
 }
@@ -460,17 +461,29 @@ async function handleSubmit(form) {
     if (v("sectionId")) await invoke("assign_line_section", { estimateId, lineId: line.id, sectionId: v("sectionId") });
     state.selectedLineId = line.id; state.panel = "acu";
   } else if (kind === "resource") {
-    await invoke("create_resource", { code: v("code"), description: v("description"), unit: v("unit"), kind: v("kind"), price: v("price") });
+    if (item.id) {
+      await invoke("update_resource", { resourceId: item.id, code: v("code"),
+        description: v("description"), unit: v("unit"), kind: v("kind"), active: v("active") === "true" });
+      state.selectedResourceId = item.id;
+    } else {
+      await invoke("create_resource", { code: v("code"), description: v("description"),
+        unit: v("unit"), kind: v("kind"), price: v("price"),
+        effectiveDate: v("effectiveDate"), source: v("source") || null });
+    }
   } else if (kind === "price") {
     await invoke("register_resource_price", { resourceId: item.id, amount: v("amount"), currency: v("currency"), effectiveDate: v("effectiveDate"), source: v("source") || null });
     state.selectedResourceId = item.id;
   } else if (kind === "analysis") {
     const components = [...form.querySelectorAll(".component-row")].map(row => ({
       resourceId: row.querySelector('select[name="resource"]')?.value,
-      quantity: row.querySelector('input[name="quantity"]')?.value
+      quantity: row.querySelector('input[name="quantity"]')?.value,
+      unitPrice: row.querySelector('input[name="unitPrice"]')?.value
     }));
     if (!components.length) throw new Error("Agregá al menos un insumo al ACU.");
-    await invoke("create_analysis", { code: v("code"), description: v("description"), unit: v("unit"), components });
+    const args = { code: v("code"), description: v("description"), unit: v("unit"), components };
+    const saved = await invoke(item.id ? "update_analysis" : "create_analysis",
+      item.id ? { ...args, analysisId: item.id } : args);
+    state.selectedAnalysisId = saved.id;
   } else if (kind === "reprice") {
     await invoke("reprice_analysis", { analysisId: item.id, effectiveDate: v("effectiveDate") });
     state.selectedAnalysisId = item.id;
@@ -548,6 +561,30 @@ async function act(button) {
   if (action === "modal-resource") return openModal("resource");
   if (action === "modal-price") return openModal("price", state.resources.find(r => r.id === button.dataset.id));
   if (action === "modal-analysis") return openModal("analysis");
+  if (action === "edit-analysis") {
+    const id = button.dataset.id || state.selectedAnalysisId;
+    if (!id) return;
+    const info = await invoke("get_analysis_details", { analysisId: id });
+    const entry = state.analyses.find(a => a.id === id);
+    if (!entry) throw new Error("El ACU seleccionado ya no existe.");
+    return openModal("analysis", { ...entry, components: info.components });
+  }
+  if (action === "edit-resource") {
+    const resource = state.resources.find(r => r.id === button.dataset.id);
+    if (resource) return openModal("resource", resource);
+    return;
+  }
+  if (action === "refresh-draft-costs") {
+    if (!editable()) return;
+    if (!window.confirm("¿Actualizar los precios unitarios de todas las partidas vinculadas a ACU de este borrador? Las cantidades no cambian. Podés duplicar el presupuesto antes para conservar la versión anterior.")) return;
+    const result = await invoke("refresh_draft_analysis_costs", { estimateId: state.estimateId });
+    await loadEstimate();
+    state.message = result.updated_lines +
+      " partidas actualizadas. Antes: ARS " + money(result.old_direct_total) +
+      " · Ahora: ARS " + money(result.new_direct_total);
+    render();
+    return;
+  }
   if (action === "modal-reprice") return openModal("reprice", state.analyses.find(a => a.id === button.dataset.id));
   if (action === "modal-rates") return editable() && openModal("rates");
   if (action === "modal-takeoff") return editable() && openModal("takeoff");
@@ -558,6 +595,7 @@ async function act(button) {
     const form = document.querySelector("#dialog-form");
     if (form && state.modal?.kind === "analysis") {
       state.modal.record = {
+        ...(state.modal.record || {}),
         code: form.querySelector('[name="code"]')?.value || "",
         description: form.querySelector('[name="description"]')?.value || "",
         unit: form.querySelector('[name="unit"]')?.value || "m²"
@@ -565,9 +603,10 @@ async function act(button) {
     }
     if (form) state.acuComponents = [...form.querySelectorAll(".component-row")].map(row => ({
       resourceId: row.querySelector('select[name="resource"]')?.value,
-      quantity: row.querySelector('input[name="quantity"]')?.value
+      quantity: row.querySelector('input[name="quantity"]')?.value,
+      unitPrice: row.querySelector('input[name="unitPrice"]')?.value
     }));
-    if (action === "add-component") state.acuComponents.push({ resourceId: state.resources[0]?.id, quantity: 1 });
+    if (action === "add-component") state.acuComponents.push({ resourceId: state.resources[0]?.id, quantity: 1, unitPrice: state.resources[0]?.price ?? 0 });
     else state.acuComponents.splice(Number(button.dataset.index), 1);
     render(); return;
   }
@@ -625,6 +664,12 @@ document.addEventListener("submit", async evt => {
   } finally { state.busy = false; if (submit?.isConnected) submit.disabled = false; }
 });
 document.addEventListener("change", async evt => {
+  if (evt.target.name === "resource" && evt.target.closest(".component-row")) {
+    const row = evt.target.closest(".component-row");
+    const price = row.querySelector('input[name="unitPrice"]');
+    const selected = state.resources.find(r => r.id === evt.target.value);
+    if (price && selected?.price != null) price.value = selected.price;
+  }
   if (evt.target.name === "estimate-picker") {
     try { await openEstimate(evt.target.value); }
     catch (error) { state.message = String(error); render(); }
