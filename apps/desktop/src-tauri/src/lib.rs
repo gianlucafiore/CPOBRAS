@@ -668,6 +668,7 @@ struct ResourceView {
     unit: String,
     kind: String,
     price: Option<String>,
+    active: bool,
 }
 
 fn resource_kind(value: &str) -> Result<ResourceKind, String> {
@@ -694,6 +695,7 @@ fn resource_view(resource: Resource, price: Option<String>) -> ResourceView {
         }
         .to_owned(),
         price,
+        active: resource.active,
     }
 }
 
@@ -720,6 +722,8 @@ fn create_resource(
     unit: String,
     kind: String,
     price: String,
+    effective_date: String,
+    source: Option<String>,
 ) -> Result<ResourceView, String> {
     let kind = resource_kind(&kind)?;
     let amount = Decimal::from_str(&price.replace(',', ".")).map_err(|e| e.to_string())?;
@@ -735,17 +739,16 @@ fn create_resource(
         active: true,
     };
     let mut store = db.lock().map_err(|e| e.to_string())?;
-    store.save_resource(&resource).map_err(|e| e.to_string())?;
     let price_entry = ResourcePrice {
         id: Uuid::new_v4(),
         resource_id: resource.id,
         amount,
         currency: Currency::Ars,
-        effective_date: "2026-10-09".into(),
-        source: Some("Carga manual".into()),
+        effective_date,
+        source,
     };
     store
-        .add_resource_price(&price_entry)
+        .create_resource_with_initial_price(&resource, &price_entry)
         .map_err(|e| e.to_string())?;
     Ok(resource_view(resource, Some(amount.to_string())))
 }
@@ -806,16 +809,21 @@ fn create_analysis(
             .get_resource(id)
             .map_err(|e| e.to_string())?
             .ok_or("Insumo inexistente")?;
-        let price = store
-            .resource_price_as_of(id, Currency::Ars, "9999-12-31")
-            .map_err(|e| e.to_string())?
-            .ok_or("Insumo sin precio en ARS")?;
+        let unit_price = if let Some(value) = component.unit_price {
+            Decimal::from_str(&value.replace(',', ".")).map_err(|e| e.to_string())?
+        } else {
+            store
+                .resource_price_as_of(id, Currency::Ars, "9999-12-31")
+                .map_err(|e| e.to_string())?
+                .ok_or("Insumo sin precio en ARS")?
+                .amount
+        };
         snapshots.push(ResourcePriceSnapshot {
             resource_id: id,
             description: resource.description,
             kind: resource.kind,
             quantity_per_unit: quantity,
-            unit_price: price.amount,
+            unit_price,
         });
     }
     let analysis = UnitCostAnalysis {
@@ -831,9 +839,126 @@ fn create_analysis(
 }
 
 #[derive(serde::Deserialize)]
+struct EditedAnalysisComponent {
+    resource_id: String,
+    quantity: String,
+    unit_price: String,
+}
+
+#[tauri::command]
+fn update_analysis(
+    db: tauri::State<'_, Db>,
+    analysis_id: String,
+    code: String,
+    description: String,
+    unit: String,
+    components: Vec<EditedAnalysisComponent>,
+) -> Result<AnalysisView, String> {
+    let id = Uuid::parse_str(&analysis_id).map_err(|e| e.to_string())?;
+    if components.is_empty()
+        || code.trim().is_empty()
+        || description.trim().is_empty()
+        || unit.trim().is_empty()
+    {
+        return Err("El ACU requiere datos completos y al menos un insumo".into());
+    }
+    let mut store = db.lock().map_err(|e| e.to_string())?;
+    if store.get_analysis(id).map_err(|e| e.to_string())?.is_none() {
+        return Err("ACU inexistente".into());
+    }
+    let mut snapshots = Vec::new();
+    for component in components {
+        let resource_id = Uuid::parse_str(&component.resource_id).map_err(|e| e.to_string())?;
+        let quantity =
+            Decimal::from_str(&component.quantity.replace(',', ".")).map_err(|e| e.to_string())?;
+        let price = Decimal::from_str(&component.unit_price.replace(',', "."))
+            .map_err(|e| e.to_string())?;
+        let resource = store
+            .get_resource(resource_id)
+            .map_err(|e| e.to_string())?
+            .ok_or("Insumo inexistente")?;
+        if quantity < Decimal::ZERO || price < Decimal::ZERO {
+            return Err("Los rendimientos y precios deben ser positivos o cero".into());
+        }
+        snapshots.push(ResourcePriceSnapshot {
+            resource_id,
+            description: resource.description,
+            kind: resource.kind,
+            quantity_per_unit: quantity,
+            unit_price: price,
+        });
+    }
+    let analysis = UnitCostAnalysis {
+        id,
+        code: code.trim().into(),
+        description: description.trim().into(),
+        unit: unit.trim().into(),
+        components: snapshots,
+    };
+    let result = analysis_view(analysis.clone())?;
+    store.save_analysis(&analysis).map_err(|e| e.to_string())?;
+    Ok(result)
+}
+
+#[derive(serde::Serialize)]
+struct RefreshDraftView {
+    updated_lines: usize,
+    old_direct_total: String,
+    new_direct_total: String,
+}
+
+#[tauri::command]
+fn refresh_draft_analysis_costs(
+    db: tauri::State<'_, Db>,
+    estimate_id: String,
+) -> Result<RefreshDraftView, String> {
+    let id = Uuid::parse_str(&estimate_id).map_err(|e| e.to_string())?;
+    let result = db
+        .lock()
+        .map_err(|e| e.to_string())?
+        .refresh_draft_analysis_costs(id)
+        .map_err(|e| e.to_string())?;
+    Ok(RefreshDraftView {
+        updated_lines: result.updated_lines,
+        old_direct_total: result.old_direct_total.to_string(),
+        new_direct_total: result.new_direct_total.to_string(),
+    })
+}
+
+#[tauri::command]
+fn update_resource(
+    db: tauri::State<'_, Db>,
+    resource_id: String,
+    code: String,
+    description: String,
+    unit: String,
+    kind: String,
+    active: bool,
+) -> Result<ResourceView, String> {
+    let id = Uuid::parse_str(&resource_id).map_err(|e| e.to_string())?;
+    let mut store = db.lock().map_err(|e| e.to_string())?;
+    let mut resource = store
+        .get_resource(id)
+        .map_err(|e| e.to_string())?
+        .ok_or("Insumo inexistente")?;
+    resource.code = code.trim().into();
+    resource.description = description.trim().into();
+    resource.unit = unit.trim().into();
+    resource.kind = resource_kind(&kind)?;
+    resource.active = active;
+    store.save_resource(&resource).map_err(|e| e.to_string())?;
+    let price = store
+        .resource_price_as_of(id, Currency::Ars, "9999-12-31")
+        .map_err(|e| e.to_string())?
+        .map(|price| price.amount.to_string());
+    Ok(resource_view(resource, price))
+}
+
+#[derive(serde::Deserialize)]
 struct AnalysisComponentInput {
     resource_id: String,
     quantity: String,
+    unit_price: Option<String>,
 }
 
 #[tauri::command]
@@ -1205,6 +1330,9 @@ pub fn run() {
             create_resource,
             list_analyses,
             create_analysis,
+            update_analysis,
+            update_resource,
+            refresh_draft_analysis_costs,
             add_line_from_analysis,
             list_price_history,
             register_resource_price,

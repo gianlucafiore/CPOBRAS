@@ -133,7 +133,7 @@ button:focus-visible,input:focus-visible,select:focus-visible,tr[tabindex]:focus
 .form-grid.three{grid-template-columns:repeat(3,minmax(0,1fr))}
 .form-subhead{display:flex;align-items:center;justify-content:space-between;padding:9px 0;margin:7px 0 10px;border-top:1px solid #dce4eb;font-weight:800;font-size:10px;letter-spacing:.5px;color:#3b5267}
 .component-editor{max-height:240px;overflow:auto}
-.component-row{align-items:center;border-bottom:1px solid #eaf0f4;padding:7px 0;grid-template-columns:2fr 1fr auto}
+.component-row{align-items:center;border-bottom:1px solid #eaf0f4;padding:7px 0;grid-template-columns:minmax(180px,2fr) minmax(95px,1fr) minmax(115px,1fr) auto}
 .component-row .tiny-danger{align-self:center;margin:10px 0}
 .modal-help{margin:2px 0 16px;background:#f3f6fa;color:#6a8097;font-size:11px;line-height:1.55;padding:9px 10px;border-left:3px solid #e9a35c}
 .modal-error{color:#c13633;font-size:11px;min-height:0;line-height:1.4;white-space:pre-line}
@@ -146,3 +146,5 @@ button:focus-visible,input:focus-visible,select:focus-visible,tr[tabindex]:focus
 .startup-error{padding:60px;color:#2f4357}.startup-error button{padding:8px 16px;border:1px solid #b4c0ce}
 @media(max-width:1120px){.brand{min-width:128px}.brand small{display:none}.workspace-columns{grid-template-columns:minmax(360px,55%) minmax(320px,45%)}.work-toolbar{overflow-x:auto}.work-toolbar .grow{flex:0}.work-toolbar .btn{flex-shrink:0}.search-compact{width:135px}.detail-tabs .tab{padding:0 11px}}
 @media(max-width:750px){.app-header{height:43px;padding:0 9px;gap:9px}.context-title{font-size:10px}.header-right .total-head small{display:none}.header-right .total-head strong{font-size:12px}.status-pill{display:none}.workspace-columns{grid-template-columns:minmax(0,1fr);grid-template-rows:55% 45%;overflow:hidden}.grid-pane{border-right:0;border-bottom:4px solid #b1beca}.detail-pane{min-height:200px}.kbd-hint{display:none}.list-inspector{width:230px}.form-grid.three{grid-template-columns:1fr 1fr}}
+
+@media(max-width:610px){.component-row{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.component-row .field:first-child{grid-column:1/-1}.component-row .tiny-danger{justify-self:end}}

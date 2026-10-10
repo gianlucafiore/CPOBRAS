@@ -175,7 +175,7 @@ function workspace() {
       <span class="vline"></span>
       ${select("Presupuesto", "estimate-picker", [["", "Seleccionar presupuesto"], ...state.estimates.map(s => [s.id, s.title])], state.estimateId)}
       <button class="btn" data-action="modal-estimate">＋ Presupuesto</button>
-      <button class="btn ghost" data-action="duplicate-estimate" ${est ? "" : "disabled"}>Duplicar</button>
+      <button class="btn ghost" data-action="duplicate-estimate" ${est ? "" : "disabled"}>Duplicar</button><button class="btn ghost" data-action="refresh-draft-costs" ${locked()}>↻ Actualizar precios ACU</button>
       <button class="btn ghost" data-action="modal-comparison" ${state.estimates.length < 2 ? "disabled" : ""}>Comparar</button>
       <span class="grow"></span>
       <button class="btn dark" data-action="issue" ${locked()}>Emitir</button>
@@ -229,7 +229,7 @@ function acuPane(line) {
       ${group.map(row => `<tr><td><span class="kind kind-${type}">${kindBadge(type)}</span></td><td>${e(row.description)}</td><td class="number">${numeric(row.quantity)}</td><td class="number">${money(row.unit_price)}</td><td class="number">${money(row.total)}</td></tr>`).join("")}`;
   }).join("");
   return `<div class="detail-heading"><div><strong>${e(line.description)}</strong>${subtitle}</div>
-    <div class="heading-actions"><button class="btn tiny" data-action="modal-from-acu" ${locked()}>Asignar ACU</button><button class="btn tiny" data-action="modal-contracting" ${!line.analysis_id ? "disabled" : ""}>Comparar costos</button></div>
+    <div class="heading-actions"><button class="btn tiny" data-action="modal-from-acu" ${locked()}>＋ Partida ACU</button><button class="btn tiny" data-action="edit-analysis" data-id="${e(line.analysis_id)}" ${!line.analysis_id ? "disabled" : ""}>Editar ACU</button><button class="btn tiny" data-action="modal-contracting" ${!line.analysis_id ? "disabled" : ""}>Comparar costos</button></div>
   </div>
   ${d ? `<div class="mini-scroll"><table class="mini-table"><thead><tr><th>TIPO</th><th>DESCRIPCIÓN</th><th class="number">CANT.</th><th class="number">PRECIO</th><th class="number">PARCIAL</th></tr></thead><tbody>${byKinds}</tbody></table></div>` :
     `<div class="blank-state"><span>▤</span><strong>Partida con precio manual</strong><p>Para ver el desglose, agregá una partida desde la biblioteca de ACU.</p></div>`}
@@ -275,20 +275,20 @@ function listViews() {
   } else if (state.view === "resources") {
     title = "Biblioteca de insumos"; subtitle = "Materiales, mano de obra, equipos y subcontratos."; action = btn("＋ Nuevo insumo", "modal-resource", "primary");
     headers = ["CÓDIGO", "DESCRIPCIÓN", "TIPO", "UND.", "PRECIO ARS", ""];
-    rows = state.resources.map(r => `<tr class="${state.selectedResourceId === r.id ? "selected" : ""}" data-action="select-resource" data-id="${e(r.id)}" data-searchable="${e((r.code + " " + r.description + " " + r.kind).toLowerCase())}"><td>${e(r.code)}</td><td><strong>${e(r.description)}</strong></td><td><span class="kind kind-${e(r.kind)}">${kindBadge(r.kind)}</span></td><td>${e(r.unit)}</td><td class="number">${r.price == null ? "—" : money(r.price)}</td><td><button class="btn tiny" data-action="modal-price" data-id="${e(r.id)}">＋ Precio</button></td></tr>`).join("");
+    rows = state.resources.map(r => `<tr class="${state.selectedResourceId === r.id ? "selected" : ""}" data-action="select-resource" data-id="${e(r.id)}" data-searchable="${e((r.code + " " + r.description + " " + r.kind).toLowerCase())}"><td>${e(r.code)}</td><td><strong>${e(r.description)}</strong></td><td><span class="kind kind-${e(r.kind)}">${kindBadge(r.kind)}</span></td><td>${e(r.unit)}</td><td class="number">${r.price == null ? "—" : money(r.price)}</td><td class="actions-cell"><button class="btn tiny" data-action="edit-resource" data-id="${e(r.id)}">Editar</button><button class="btn tiny" data-action="modal-price" data-id="${e(r.id)}">＋ Precio</button></td></tr>`).join("");
     const selected = state.resources.find(r => r.id === state.selectedResourceId);
     inspector = `<aside class="list-inspector"><h3>HISTORIAL DE PRECIOS</h3>${selected ?
       `<strong>${e(selected.description)}</strong><p class="small-muted">${e(selected.code)} · ${e(selected.unit)}</p>
-      <button class="btn primary tiny" data-action="modal-price" data-id="${e(selected.id)}">＋ Registrar precio</button>
+      <button class="btn tiny" data-action="edit-resource" data-id="${e(selected.id)}">Editar insumo</button> <button class="btn primary tiny" data-action="modal-price" data-id="${e(selected.id)}">＋ Registrar precio</button>
       <div class="price-history">${state.history.map(h => `<div><span>${e(h.effective_date)}<small>${e(h.source || "Manual")}</small></span><strong>${e(h.currency)} ${money(h.amount)}</strong></div>`).join("") || '<p class="small-muted">Sin registros.</p>'}</div>` :
       '<p class="small-muted">Seleccioná un insumo para consultar sus precios.</p>'}</aside>`;
   } else {
     title = "Análisis de costos unitarios"; subtitle = "Costos compuestos a partir de insumos y rendimientos."; action = btn("＋ Nuevo ACU", "modal-analysis", "primary");
     headers = ["CÓDIGO", "DESCRIPCIÓN", "UND.", "PRECIO UNITARIO", ""];
-    rows = state.analyses.map(a => `<tr class="${state.selectedAnalysisId === a.id ? "selected" : ""}" data-action="select-analysis" data-id="${e(a.id)}" data-searchable="${e((a.code + " " + a.description).toLowerCase())}"><td>${e(a.code)}</td><td><strong>${e(a.description)}</strong></td><td>${e(a.unit)}</td><td class="number">${money(a.unit_cost)}</td><td><button class="btn tiny" data-action="modal-reprice" data-id="${e(a.id)}">Actualizar precios</button></td></tr>`).join("");
+    rows = state.analyses.map(a => `<tr class="${state.selectedAnalysisId === a.id ? "selected" : ""}" data-action="select-analysis" data-id="${e(a.id)}" data-searchable="${e((a.code + " " + a.description).toLowerCase())}"><td>${e(a.code)}</td><td><strong>${e(a.description)}</strong></td><td>${e(a.unit)}</td><td class="number">${money(a.unit_cost)}</td><td><button class="btn tiny" data-action="edit-analysis" data-id="${e(a.id)}">Editar ACU</button> <button class="btn tiny" data-action="modal-reprice" data-id="${e(a.id)}">Actualizar precios</button></td></tr>`).join("");
     inspector = `<aside class="list-inspector"><h3>COMPOSICIÓN DEL ACU</h3>${state.detail && state.selectedAnalysisId ?
       `<strong>${e(state.detail.description)}</strong><p class="small-muted">Costo unitario ARS ${money(state.detail.unit_cost)}</p>
-      <button class="btn tiny" data-action="modal-reprice" data-id="${e(state.selectedAnalysisId)}">Recalcular por fecha</button>
+      <button class="btn primary tiny" data-action="edit-analysis" data-id="${e(state.selectedAnalysisId)}">✎ Editar ACU</button> <button class="btn tiny" data-action="modal-reprice" data-id="${e(state.selectedAnalysisId)}">Recalcular por fecha</button>
       <div class="component-list">${state.detail.components.map(row => `<div><span><span class="kind kind-${e(row.kind)}">${kindBadge(row.kind)}</span> ${e(row.description)}<small>${numeric(row.quantity)} × ${money(row.unit_price)}</small></span><b>${money(row.total)}</b></div>`).join("")}</div>` :
       '<p class="small-muted">Seleccioná un ACU para ver sus insumos.</p>'}</aside>`;
   }
@@ -316,7 +316,8 @@ function filterRows(text) {
 }
 function openModal(kind, record = null) {
   state.modal = { kind, record };
-  state.acuComponents = [];
+  state.acuComponents = kind === "analysis" && record?.components ?
+    record.components.map(row => ({ resourceId: row.resource_id, quantity: row.quantity, unitPrice: row.unit_price })) : [];
   state.comparison = null; state.costComparison = null;
   render();
 }
@@ -356,9 +357,17 @@ function modalMarkup() {
       field("Cantidad", "quantity", 1, 'type="number" min="0" step="any" required') +
       select("Rubro", "sectionId", sectionOptions);
   } else if (kind === "resource") {
-    title = "Agregar insumo"; body = field("Código", "code", "", "required") + field("Descripción", "description", item.description || "", "required") +
-      `<div class="form-grid">${field("Unidad", "unit", "kg", "required")}${select("Tipo", "kind", [["material", "Material"], ["labor", "Mano de obra"], ["equipment", "Equipo"], ["subcontract", "Subcontrato"]])}</div>` +
-      field("Precio inicial (ARS)", "price", 0, 'type="number" min="0" step="any" required');
+    const editing = Boolean(item.id);
+    title = editing ? "Editar insumo" : "Agregar insumo";
+    body = field("Código", "code", item.code || "", "required") +
+      field("Descripción", "description", item.description || "", "required") +
+      `<div class="form-grid">${field("Unidad", "unit", item.unit || "kg", "required")}
+      ${select("Tipo", "kind", [["material", "Material"], ["labor", "Mano de obra"], ["equipment", "Equipo"], ["subcontract", "Subcontrato"]], item.kind)}</div>` +
+      (editing ? select("Estado", "active", [["true", "Activo"], ["false", "Inactivo"]], String(item.active !== false)) +
+        `<p class="modal-help">Cambiar los datos del insumo no modifica los precios históricos ni los análisis ya guardados.</p>` :
+        field("Precio inicial (ARS)", "price", 0, 'type="number" min="0" step="any" required') +
+        field("Fecha del precio", "effectiveDate", dateToday(), 'type="date" required') +
+        field("Fuente / proveedor", "source", "Carga manual"));
   } else if (kind === "price") {
     title = "Registrar precio"; body = `<p class="modal-help">${e(state.resources.find(r => r.id === item.id)?.description)}</p>` +
       field("Precio", "amount", "", 'type="number" min="0" step="any" required') +
@@ -366,14 +375,26 @@ function modalMarkup() {
       field("Fecha de vigencia", "effectiveDate", dateToday(), 'type="date" required') +
       field("Fuente / proveedor", "source", "Cotización manual");
   } else if (kind === "analysis") {
-    title = "Crear análisis de costo unitario"; wide = true;
-    body = `<div class="form-grid three">${field("Código ACU", "code", item.code || "", "required")}${field("Descripción", "description", "", "required")}${field("Unidad", "unit", item.unit || "m²", "required")}</div>
-    <div class="form-subhead">COMPOSICIÓN <button class="btn tiny" type="button" data-action="add-component">＋ Insumo</button></div>
-    <div class="component-editor" id="component-editor">${state.acuComponents.map((row, index) => `<div class="form-grid component-row">
-      ${select("Insumo", "resource", resourceOptions, row.resourceId)}
-      ${field("Cantidad por unidad", "quantity", row.quantity, 'type="number" min="0" step="any" required')}
-      <button type="button" class="tiny-danger" data-action="remove-component" data-index="${index}">×</button></div>`).join("")}</div>
-    <p class="modal-help">Cada componente utiliza el último precio ARS registrado. El ACU guarda una copia del costo.</p>`;
+    const editing = Boolean(item.id);
+    title = editing ? "Editar análisis de costo unitario" : "Crear análisis de costo unitario";
+    wide = true;
+    body = `<div class="form-grid three">
+      ${field("Código ACU", "code", item.code || "", "required")}
+      ${field("Descripción", "description", item.description || "", "required")}
+      ${field("Unidad de la partida", "unit", item.unit || "m²", "required")}
+    </div>
+    <div class="form-subhead">COMPOSICIÓN DEL ACU
+      <button class="btn tiny" type="button" data-action="add-component">＋ Agregar insumo</button>
+    </div>
+    <div class="component-editor" id="component-editor">
+      ${state.acuComponents.map((row, index) => `<div class="form-grid component-row">
+        ${select("Insumo", "resource", resourceOptions, row.resourceId)}
+        ${field("Rendimiento / unidad", "quantity", row.quantity ?? 1, 'type="number" min="0" step="any" required')}
+        ${field("Precio unitario ARS", "unitPrice", row.unitPrice ?? state.resources.find(r => r.id === row.resourceId)?.price ?? 0, 'type="number" min="0" step="any" required')}
+        <button type="button" class="tiny-danger" data-action="remove-component" data-index="${index}" aria-label="Quitar componente">×</button>
+      </div>`).join("")}
+    </div>
+    <p class="modal-help">Podés modificar rendimientos, insumos y precios de este ACU. La edición no cambia los presupuestos anteriores. Para trasladar los nuevos costos a un borrador, utilizá «Actualizar precios ACU».</p>`;
   } else if (kind === "reprice") {
     title = "Actualizar precios del ACU"; body = `<p class="modal-help">Se recalculará ${e(state.analyses.find(a => a.id === item.id)?.description)} con las cotizaciones vigentes a la fecha indicada. Los presupuestos anteriores NO cambian.</p>` +
       field("Precios vigentes al", "effectiveDate", dateToday(), 'type="date" required');
@@ -440,17 +461,29 @@ async function handleSubmit(form) {
     if (v("sectionId")) await invoke("assign_line_section", { estimateId, lineId: line.id, sectionId: v("sectionId") });
     state.selectedLineId = line.id; state.panel = "acu";
   } else if (kind === "resource") {
-    await invoke("create_resource", { code: v("code"), description: v("description"), unit: v("unit"), kind: v("kind"), price: v("price") });
+    if (item.id) {
+      await invoke("update_resource", { resourceId: item.id, code: v("code"),
+        description: v("description"), unit: v("unit"), kind: v("kind"), active: v("active") === "true" });
+      state.selectedResourceId = item.id;
+    } else {
+      await invoke("create_resource", { code: v("code"), description: v("description"),
+        unit: v("unit"), kind: v("kind"), price: v("price"),
+        effectiveDate: v("effectiveDate"), source: v("source") || null });
+    }
   } else if (kind === "price") {
     await invoke("register_resource_price", { resourceId: item.id, amount: v("amount"), currency: v("currency"), effectiveDate: v("effectiveDate"), source: v("source") || null });
     state.selectedResourceId = item.id;
   } else if (kind === "analysis") {
     const components = [...form.querySelectorAll(".component-row")].map(row => ({
       resourceId: row.querySelector('select[name="resource"]')?.value,
-      quantity: row.querySelector('input[name="quantity"]')?.value
+      quantity: row.querySelector('input[name="quantity"]')?.value,
+      unitPrice: row.querySelector('input[name="unitPrice"]')?.value
     }));
     if (!components.length) throw new Error("Agregá al menos un insumo al ACU.");
-    await invoke("create_analysis", { code: v("code"), description: v("description"), unit: v("unit"), components });
+    const args = { code: v("code"), description: v("description"), unit: v("unit"), components };
+    const saved = await invoke(item.id ? "update_analysis" : "create_analysis",
+      item.id ? { ...args, analysisId: item.id } : args);
+    state.selectedAnalysisId = saved.id;
   } else if (kind === "reprice") {
     await invoke("reprice_analysis", { analysisId: item.id, effectiveDate: v("effectiveDate") });
     state.selectedAnalysisId = item.id;
@@ -528,6 +561,30 @@ async function act(button) {
   if (action === "modal-resource") return openModal("resource");
   if (action === "modal-price") return openModal("price", state.resources.find(r => r.id === button.dataset.id));
   if (action === "modal-analysis") return openModal("analysis");
+  if (action === "edit-analysis") {
+    const id = button.dataset.id || state.selectedAnalysisId;
+    if (!id) return;
+    const info = await invoke("get_analysis_details", { analysisId: id });
+    const entry = state.analyses.find(a => a.id === id);
+    if (!entry) throw new Error("El ACU seleccionado ya no existe.");
+    return openModal("analysis", { ...entry, components: info.components });
+  }
+  if (action === "edit-resource") {
+    const resource = state.resources.find(r => r.id === button.dataset.id);
+    if (resource) return openModal("resource", resource);
+    return;
+  }
+  if (action === "refresh-draft-costs") {
+    if (!editable()) return;
+    if (!window.confirm("¿Actualizar los precios unitarios de todas las partidas vinculadas a ACU de este borrador? Las cantidades no cambian. Podés duplicar el presupuesto antes para conservar la versión anterior.")) return;
+    const result = await invoke("refresh_draft_analysis_costs", { estimateId: state.estimateId });
+    await loadEstimate();
+    state.message = result.updated_lines +
+      " partidas actualizadas. Antes: ARS " + money(result.old_direct_total) +
+      " · Ahora: ARS " + money(result.new_direct_total);
+    render();
+    return;
+  }
   if (action === "modal-reprice") return openModal("reprice", state.analyses.find(a => a.id === button.dataset.id));
   if (action === "modal-rates") return editable() && openModal("rates");
   if (action === "modal-takeoff") return editable() && openModal("takeoff");
@@ -538,6 +595,7 @@ async function act(button) {
     const form = document.querySelector("#dialog-form");
     if (form && state.modal?.kind === "analysis") {
       state.modal.record = {
+        ...(state.modal.record || {}),
         code: form.querySelector('[name="code"]')?.value || "",
         description: form.querySelector('[name="description"]')?.value || "",
         unit: form.querySelector('[name="unit"]')?.value || "m²"
@@ -545,9 +603,10 @@ async function act(button) {
     }
     if (form) state.acuComponents = [...form.querySelectorAll(".component-row")].map(row => ({
       resourceId: row.querySelector('select[name="resource"]')?.value,
-      quantity: row.querySelector('input[name="quantity"]')?.value
+      quantity: row.querySelector('input[name="quantity"]')?.value,
+      unitPrice: row.querySelector('input[name="unitPrice"]')?.value
     }));
-    if (action === "add-component") state.acuComponents.push({ resourceId: state.resources[0]?.id, quantity: 1 });
+    if (action === "add-component") state.acuComponents.push({ resourceId: state.resources[0]?.id, quantity: 1, unitPrice: state.resources[0]?.price ?? 0 });
     else state.acuComponents.splice(Number(button.dataset.index), 1);
     render(); return;
   }
@@ -605,6 +664,12 @@ document.addEventListener("submit", async evt => {
   } finally { state.busy = false; if (submit?.isConnected) submit.disabled = false; }
 });
 document.addEventListener("change", async evt => {
+  if (evt.target.name === "resource" && evt.target.closest(".component-row")) {
+    const row = evt.target.closest(".component-row");
+    const price = row.querySelector('input[name="unitPrice"]');
+    const selected = state.resources.find(r => r.id === evt.target.value);
+    if (price && selected?.price != null) price.value = selected.price;
+  }
   if (evt.target.name === "estimate-picker") {
     try { await openEstimate(evt.target.value); }
     catch (error) { state.message = String(error); render(); }

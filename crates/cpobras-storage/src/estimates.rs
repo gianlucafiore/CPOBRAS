@@ -28,6 +28,13 @@ pub struct EstimateItem {
     pub unit_cost_snapshot: Decimal,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DraftRepriceResult {
+    pub updated_lines: usize,
+    pub old_direct_total: Decimal,
+    pub new_direct_total: Decimal,
+}
+
 impl EstimateItem {
     pub fn total(&self) -> Decimal {
         self.quantity * self.unit_cost_snapshot
@@ -368,6 +375,66 @@ impl LocalStore {
             .map_err(|err| StorageError::InvalidValue(err.to_string()))
     }
 
+    /// Explicitly refreshes *draft* line price snapshots from saved ACU costs.
+    /// All new values are validated before the transaction is committed.
+    pub fn refresh_draft_analysis_costs(
+        &mut self,
+        estimate_id: Uuid,
+    ) -> Result<DraftRepriceResult> {
+        let estimate = self
+            .get_estimate(estimate_id)?
+            .ok_or_else(|| StorageError::InvalidValue("estimate not found".into()))?;
+        if estimate.issued {
+            return Err(StorageError::InvalidValue(
+                "issued estimate is immutable".into(),
+            ));
+        }
+        if estimate.currency != Currency::Ars {
+            return Err(StorageError::InvalidValue(
+                "ACU updates require an ARS estimate; currency conversion is not supported".into(),
+            ));
+        }
+        let old_direct_total = self.estimate_total(estimate_id)?;
+        let mut updated = Vec::new();
+        for line in self.estimate_items(estimate_id)? {
+            let Some(analysis_id) = line.analysis_id else {
+                continue;
+            };
+            let analysis = self
+                .get_analysis(analysis_id)?
+                .ok_or_else(|| StorageError::InvalidValue("referenced ACU not found".into()))?;
+            if analysis.unit != line.unit {
+                return Err(StorageError::InvalidValue(
+                    "ACU unit no longer matches the budget item".into(),
+                ));
+            }
+            let price = analysis
+                .direct_unit_cost()
+                .map_err(|e| StorageError::InvalidValue(e.to_string()))?;
+            if price != line.unit_cost_snapshot {
+                updated.push((line.id, price));
+            }
+        }
+        let transaction = self.conn.transaction()?;
+        for (line_id, price) in &updated {
+            transaction.execute(
+                "UPDATE estimate_lines SET unit_cost_snapshot=?1
+                 WHERE id=?2 AND estimate_id=?3",
+                params![
+                    price.to_string(),
+                    line_id.to_string(),
+                    estimate_id.to_string()
+                ],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(DraftRepriceResult {
+            updated_lines: updated.len(),
+            old_direct_total,
+            new_direct_total: self.estimate_total(estimate_id)?,
+        })
+    }
+
     pub fn issue_estimate(&mut self, id: Uuid) -> Result<()> {
         let changed = self.conn.execute(
             "UPDATE estimates SET status='issued', issued_at=CURRENT_TIMESTAMP
@@ -499,5 +566,82 @@ mod tests {
         assert!(db.update_estimate_item(&issued_line).is_err());
         assert!(db.delete_estimate_item(copy.id, issued_line.id).is_err());
         assert_eq!(db.estimate_total(copy.id).unwrap(), Decimal::new(37650, 2));
+    }
+    #[test]
+    fn explicit_reprice_updates_only_drafts_and_keeps_issued_snapshots() {
+        use cpobras_core::{ResourceKind, ResourcePriceSnapshot, UnitCostAnalysis};
+
+        let mut db = LocalStore::in_memory().unwrap();
+        let client = Client {
+            id: Uuid::new_v4(),
+            name: "Comitente".into(),
+            cuit: None,
+        };
+        db.save_client(&client).unwrap();
+        let project = Project {
+            id: Uuid::new_v4(),
+            client_id: client.id,
+            name: "Obra".into(),
+            currency: Currency::Ars,
+        };
+        db.save_project(&project).unwrap();
+        let analysis = UnitCostAnalysis {
+            id: Uuid::new_v4(),
+            code: "01".into(),
+            description: "Acero montado".into(),
+            unit: "kg".into(),
+            components: vec![ResourcePriceSnapshot {
+                resource_id: Uuid::new_v4(),
+                description: "Acero".into(),
+                kind: ResourceKind::Material,
+                quantity_per_unit: Decimal::ONE,
+                unit_price: Decimal::new(1200, 0),
+            }],
+        };
+        db.save_analysis(&analysis).unwrap();
+        let issued = Estimate {
+            id: Uuid::new_v4(),
+            project_id: project.id,
+            title: "Emitido".into(),
+            currency: Currency::Ars,
+            issued: false,
+        };
+        db.create_estimate(&issued).unwrap();
+        let line = EstimateItem {
+            id: Uuid::new_v4(),
+            estimate_id: issued.id,
+            position: 0,
+            analysis_id: Some(analysis.id),
+            description: analysis.description.clone(),
+            unit: "kg".into(),
+            quantity: Decimal::new(10, 0),
+            unit_cost_snapshot: Decimal::new(1200, 0),
+        };
+        db.add_estimate_item(&line).unwrap();
+        let draft = db.duplicate_estimate(issued.id, "Borrador nuevo").unwrap();
+        db.issue_estimate(issued.id).unwrap();
+        let mut revised = analysis.clone();
+        revised.components[0].unit_price = Decimal::new(1500, 0);
+        db.save_analysis(&revised).unwrap();
+        let result = db.refresh_draft_analysis_costs(draft.id).unwrap();
+        assert_eq!(result.updated_lines, 1);
+        assert_eq!(result.old_direct_total, Decimal::new(12000, 0));
+        assert_eq!(result.new_direct_total, Decimal::new(15000, 0));
+        assert_eq!(
+            db.refresh_draft_analysis_costs(draft.id)
+                .unwrap()
+                .updated_lines,
+            0
+        );
+        assert!(db.refresh_draft_analysis_costs(issued.id).is_err());
+        assert_eq!(
+            db.estimate_total(issued.id).unwrap(),
+            Decimal::new(12000, 0)
+        );
+        assert_eq!(db.estimate_total(draft.id).unwrap(), Decimal::new(15000, 0));
+        revised.unit = "m2".into();
+        db.save_analysis(&revised).unwrap();
+        assert!(db.refresh_draft_analysis_costs(draft.id).is_err());
+        assert_eq!(db.estimate_total(draft.id).unwrap(), Decimal::new(15000, 0));
     }
 }
