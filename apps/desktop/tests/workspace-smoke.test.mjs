@@ -31,6 +31,21 @@ function setup() {
     ] }),
     list_takeoffs: () => [{ id: "takeoff-1", estimate_id: "estimate-1", line_id: "line-1", note: "Viga", factor: "2", length: "5", width: "1", height: "1", sign: 1, position: 0, quantity: "10" }],
     list_price_history: () => [{ id: "price-1", effective_date: "2026-10-01", currency: "ARS", amount: "1800", source: "Proveedor" }],
+    update_analysis: ({ analysisId, code, description, unit, components }) => {
+      assert.equal(analysisId, "acu-1");
+      assert.equal(components[0].unitPrice, "2800");
+      return { id: analysisId, code, description, unit, unit_cost: "2800" };
+    },
+    update_resource: ({ resourceId, code, description, unit, kind, active }) => {
+      assert.equal(resourceId, "resource-1");
+      assert.equal(active, true);
+      return { id: resourceId, code, description, unit, kind, active, price: "1800" };
+    },
+    refresh_draft_analysis_costs: () => ({
+      updated_lines: 1,
+      old_direct_total: "240000",
+      new_direct_total: "336000",
+    }),
     add_estimate_line: ({ description, unit, quantity, unitCost }) => {
       const added = { id: "line-2", description, unit, quantity, unit_cost: unitCost,
         total: String(Number(quantity) * Number(unitCost)), analysis_id: null };
@@ -117,3 +132,54 @@ test("catalog and ACU library open in their compact table views", async () => {
   assert.match(app.root.innerHTML, /COMPOSICIÓN DEL ACU/);
   assert.match(app.root.innerHTML, /Acero/);
 });
+
+test("ACU edits expose component prices without mutating the issued estimate", async () => {
+  const app = setup();
+  await new Promise(resolve => setImmediate(resolve));
+  await app.click("navigate", undefined, { view: "analyses" });
+  await app.click("edit-analysis", "acu-1");
+  assert.match(app.root.innerHTML, /Editar análisis de costo unitario/);
+  assert.match(app.root.innerHTML, /Precio unitario ARS/);
+  const values = {
+    code: "ACU-01", description: "Montaje actualizado", unit: "kg"
+  };
+  const component = {
+    querySelector(selector) {
+      if (selector.includes('name="resource"')) return { value: "resource-1" };
+      if (selector.includes('name="quantity"')) return { value: "1" };
+      if (selector.includes('name="unitPrice"')) return { value: "2800" };
+      return null;
+    }
+  };
+  const submit = { disabled: false, isConnected: true };
+  const form = {
+    id: "dialog-form", dataset: { kind: "analysis" }, values,
+    querySelector(selector) { return selector === '[type="submit"]' ? submit : null; },
+    querySelectorAll(selector) { return selector === ".component-row" ? [component] : []; }
+  };
+  await app.listeners.submit({ target: form, preventDefault() {} });
+  assert.ok(app.calls.some(([name]) => name === "update_analysis"));
+  assert.doesNotMatch(app.root.innerHTML, /class="modal-overlay"/);
+  await app.click("open-project", "project-1");
+  await app.click("refresh-draft-costs");
+  assert.ok(app.calls.some(([name]) => name === "refresh_draft_analysis_costs"));
+  assert.match(app.root.innerHTML, /partidas actualizadas/);
+});
+
+test("resource metadata editing is separated from price history", async () => {
+  const app = setup();
+  await new Promise(resolve => setImmediate(resolve));
+  await app.click("navigate", undefined, { view: "resources" });
+  await app.click("edit-resource", "resource-1");
+  assert.match(app.root.innerHTML, /Editar insumo/);
+  assert.match(app.root.innerHTML, /precios históricos/);
+  const submit = { disabled: false, isConnected: true };
+  const form = {
+    id: "dialog-form", dataset: { kind: "resource" },
+    values: { code: "MAT-01", description: "Acero laminado", unit: "kg", kind: "material", active: "true" },
+    querySelector(selector) { return selector === '[type="submit"]' ? submit : null; }
+  };
+  await app.listeners.submit({ target: form, preventDefault() {} });
+  assert.ok(app.calls.some(([name]) => name === "update_resource"));
+});
+
