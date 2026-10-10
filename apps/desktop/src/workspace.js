@@ -356,9 +356,17 @@ function modalMarkup() {
       field("Cantidad", "quantity", 1, 'type="number" min="0" step="any" required') +
       select("Rubro", "sectionId", sectionOptions);
   } else if (kind === "resource") {
-    title = "Agregar insumo"; body = field("Código", "code", "", "required") + field("Descripción", "description", item.description || "", "required") +
-      `<div class="form-grid">${field("Unidad", "unit", "kg", "required")}${select("Tipo", "kind", [["material", "Material"], ["labor", "Mano de obra"], ["equipment", "Equipo"], ["subcontract", "Subcontrato"]])}</div>` +
-      field("Precio inicial (ARS)", "price", 0, 'type="number" min="0" step="any" required');
+    const editing = Boolean(item.id);
+    title = editing ? "Editar insumo" : "Agregar insumo";
+    body = field("Código", "code", item.code || "", "required") +
+      field("Descripción", "description", item.description || "", "required") +
+      `<div class="form-grid">${field("Unidad", "unit", item.unit || "kg", "required")}
+      ${select("Tipo", "kind", [["material", "Material"], ["labor", "Mano de obra"], ["equipment", "Equipo"], ["subcontract", "Subcontrato"]], item.kind)}</div>` +
+      (editing ? select("Estado", "active", [["true", "Activo"], ["false", "Inactivo"]], String(item.active !== false)) +
+        `<p class="modal-help">Cambiar los datos del insumo no modifica los precios históricos ni los análisis ya guardados.</p>` :
+        field("Precio inicial (ARS)", "price", 0, 'type="number" min="0" step="any" required') +
+        field("Fecha del precio", "effectiveDate", dateToday(), 'type="date" required') +
+        field("Fuente / proveedor", "source", "Carga manual"));
   } else if (kind === "price") {
     title = "Registrar precio"; body = `<p class="modal-help">${e(state.resources.find(r => r.id === item.id)?.description)}</p>` +
       field("Precio", "amount", "", 'type="number" min="0" step="any" required') +
@@ -366,14 +374,26 @@ function modalMarkup() {
       field("Fecha de vigencia", "effectiveDate", dateToday(), 'type="date" required') +
       field("Fuente / proveedor", "source", "Cotización manual");
   } else if (kind === "analysis") {
-    title = "Crear análisis de costo unitario"; wide = true;
-    body = `<div class="form-grid three">${field("Código ACU", "code", item.code || "", "required")}${field("Descripción", "description", "", "required")}${field("Unidad", "unit", item.unit || "m²", "required")}</div>
-    <div class="form-subhead">COMPOSICIÓN <button class="btn tiny" type="button" data-action="add-component">＋ Insumo</button></div>
-    <div class="component-editor" id="component-editor">${state.acuComponents.map((row, index) => `<div class="form-grid component-row">
-      ${select("Insumo", "resource", resourceOptions, row.resourceId)}
-      ${field("Cantidad por unidad", "quantity", row.quantity, 'type="number" min="0" step="any" required')}
-      <button type="button" class="tiny-danger" data-action="remove-component" data-index="${index}">×</button></div>`).join("")}</div>
-    <p class="modal-help">Cada componente utiliza el último precio ARS registrado. El ACU guarda una copia del costo.</p>`;
+    const editing = Boolean(item.id);
+    title = editing ? "Editar análisis de costo unitario" : "Crear análisis de costo unitario";
+    wide = true;
+    body = `<div class="form-grid three">
+      ${field("Código ACU", "code", item.code || "", "required")}
+      ${field("Descripción", "description", item.description || "", "required")}
+      ${field("Unidad de la partida", "unit", item.unit || "m²", "required")}
+    </div>
+    <div class="form-subhead">COMPOSICIÓN DEL ACU
+      <button class="btn tiny" type="button" data-action="add-component">＋ Agregar insumo</button>
+    </div>
+    <div class="component-editor" id="component-editor">
+      ${state.acuComponents.map((row, index) => `<div class="form-grid component-row">
+        ${select("Insumo", "resource", resourceOptions, row.resourceId)}
+        ${field("Rendimiento / unidad", "quantity", row.quantity ?? 1, 'type="number" min="0" step="any" required')}
+        ${field("Precio unitario ARS", "unitPrice", row.unitPrice ?? state.resources.find(r => r.id === row.resourceId)?.price ?? 0, 'type="number" min="0" step="any" required')}
+        <button type="button" class="tiny-danger" data-action="remove-component" data-index="${index}" aria-label="Quitar componente">×</button>
+      </div>`).join("")}
+    </div>
+    <p class="modal-help">Podés modificar rendimientos, insumos y precios de este ACU. La edición no cambia los presupuestos anteriores. Para trasladar los nuevos costos a un borrador, utilizá «Actualizar precios ACU».</p>`;
   } else if (kind === "reprice") {
     title = "Actualizar precios del ACU"; body = `<p class="modal-help">Se recalculará ${e(state.analyses.find(a => a.id === item.id)?.description)} con las cotizaciones vigentes a la fecha indicada. Los presupuestos anteriores NO cambian.</p>` +
       field("Precios vigentes al", "effectiveDate", dateToday(), 'type="date" required');
