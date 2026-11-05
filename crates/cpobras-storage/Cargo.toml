@@ -11,3 +11,5 @@ uuid.workspace = true
 
 thiserror.workspace = true
 rust_decimal.workspace = true
+serde.workspace = true
+chrono = { version = "=0.4.42", default-features = false, features = ["std"] }

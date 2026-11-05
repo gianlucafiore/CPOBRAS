@@ -1,10 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { runInNewContext } from "node:vm";
-
-const source = readFileSync(new URL("../src/workspace.js", import.meta.url), "utf8")
-  .replace(/^import .+;\s*$/gm, "");
+import { createWorkspaceApp } from "../src/app.js";
 
 function setup() {
   const root = { innerHTML: "" };
@@ -16,6 +12,7 @@ function setup() {
   const lines = [line];
   const calls = [];
   const responses = {
+    list_management_records: () => [],
     list_clients: () => [{ id: "client-1", name: "Cliente demo", cuit: null }],
     list_projects: () => [{ id: "project-1", name: "Nave industrial", client_id: "client-1", currency: "Ars" }],
     list_resources: () => [{ id: "resource-1", code: "MAT-01", description: "Acero", kind: "material", unit: "kg", price: "1800" }],
@@ -68,7 +65,7 @@ function setup() {
     constructor(form) { this.values = form.values; }
     get(name) { return this.values[name] ?? null; }
   }
-  runInNewContext(source, { invoke, document, window, FormData: FakeFormData, Date });
+  createWorkspaceApp({ invoke, document, window, FormData: FakeFormData });
   const click = async (action, id, extra = {}) => {
     const button = { dataset: { action, id, ...extra }, disabled: false,
       classList: { contains: () => false } };

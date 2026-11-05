@@ -3,7 +3,7 @@ use super::{LocalStore, Result, StorageError};
 use rusqlite::{params, OptionalExtension};
 use uuid::Uuid;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct BudgetSection {
     pub id: Uuid,
     pub estimate_id: Uuid,

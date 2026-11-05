@@ -1,7 +1,11 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Main CPOBRAS window",
-  "windows": ["main"],
-  "permissions": ["core:default"]
+  "description": "Only the local main window may invoke workspace commands. No remote origins.",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "workspace"
+  ]
 }

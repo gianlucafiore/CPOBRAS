@@ -7,7 +7,7 @@ use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Estimate {
     pub id: Uuid,
     pub project_id: Uuid,
@@ -16,7 +16,7 @@ pub struct Estimate {
     pub issued: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct EstimateItem {
     pub id: Uuid,
     pub estimate_id: Uuid,
@@ -48,6 +48,33 @@ fn currency_code(currency: Currency) -> &'static str {
     }
 }
 
+pub(crate) fn checked_budget_total(conn: &rusqlite::Connection, id: Uuid) -> Result<Decimal> {
+    let rows: Vec<(String, String)> = conn
+        .prepare("SELECT quantity,unit_cost_snapshot FROM estimate_lines WHERE estimate_id=?1")?
+        .query_map([id.to_string()], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<std::result::Result<_, _>>()?;
+    rows.into_iter()
+        .try_fold(Decimal::ZERO, |total, (quantity, cost)| {
+            let quantity = quantity
+                .parse::<Decimal>()
+                .map_err(|_| StorageError::InvalidValue("Cantidad inválida".into()))?;
+            let cost = cost
+                .parse::<Decimal>()
+                .map_err(|_| StorageError::InvalidValue("Precio inválido".into()))?;
+            if quantity < Decimal::ZERO || cost < Decimal::ZERO {
+                return Err(StorageError::InvalidValue(
+                    "Valores negativos en presupuesto".into(),
+                ));
+            }
+            quantity
+                .checked_mul(cost)
+                .and_then(|value| total.checked_add(value))
+                .ok_or_else(|| {
+                    StorageError::InvalidValue("El total excede el rango decimal".into())
+                })
+        })
+}
+
 impl LocalStore {
     pub fn list_project_estimates(&self, project_id: Uuid) -> Result<Vec<Estimate>> {
         let mut stmt = self.conn.prepare(
@@ -70,15 +97,53 @@ impl LocalStore {
                 "new estimate must have a title and start as draft".into(),
             ));
         }
-        self.conn.execute(
-            "INSERT INTO estimates(id, project_id, title, currency) VALUES (?1, ?2, ?3, ?4)",
+        let project = self
+            .get_project(estimate.project_id)?
+            .ok_or_else(|| StorageError::InvalidValue("Obra inexistente".into()))?;
+        if project.currency != estimate.currency {
+            return Err(StorageError::InvalidValue(
+                "La moneda debe coincidir con la obra".into(),
+            ));
+        }
+        let profile = self
+            .management_records("project_profile", Some(project.id))?
+            .into_iter()
+            .next();
+        let rate = |key: &str| -> Result<Decimal> {
+            profile
+                .as_ref()
+                .and_then(|p| p.attributes.get(key))
+                .filter(|v| !v.is_empty())
+                .map(|v| {
+                    v.parse().map_err(|_| {
+                        StorageError::InvalidValue("Parámetro económico inválido".into())
+                    })
+                })
+                .unwrap_or(Ok(Decimal::ZERO))
+        };
+        let rates = cpobras_core::PricingRates {
+            general_expenses_percent: rate("general_expenses_percent")?,
+            financial_expenses_percent: rate("financial_expenses_percent")?,
+            profit_percent: rate("profit_percent")?,
+            discount_percent: rate("discount_percent")?,
+            tax_percent: rate("tax_percent")?,
+        };
+        cpobras_core::price_estimate(Decimal::ZERO, rates)
+            .map_err(|e| StorageError::InvalidValue(e.to_string()))?;
+        let tx = self
+            .conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        tx.execute(
+            "INSERT INTO estimates(id,project_id,title,currency) VALUES (?1,?2,?3,?4)",
             params![
                 estimate.id.to_string(),
                 estimate.project_id.to_string(),
                 estimate.title,
-                currency_code(estimate.currency),
+                currency_code(estimate.currency)
             ],
         )?;
+        tx.execute("INSERT INTO estimate_pricing(estimate_id,general_expenses_percent,financial_expenses_percent,profit_percent,discount_percent,tax_percent) VALUES (?1,?2,?3,?4,?5,?6)",params![estimate.id.to_string(),rates.general_expenses_percent.to_string(),rates.financial_expenses_percent.to_string(),rates.profit_percent.to_string(),rates.discount_percent.to_string(),rates.tax_percent.to_string()])?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -121,10 +186,14 @@ impl LocalStore {
             || item.quantity < Decimal::ZERO
             || item.unit_cost_snapshot < Decimal::ZERO
             || item.position < 0
+            || item.quantity.checked_mul(item.unit_cost_snapshot).is_none()
         {
             return Err(StorageError::InvalidValue("invalid estimate line".into()));
         }
-        self.conn.execute(
+        let transaction = self
+            .conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        transaction.execute(
             "INSERT INTO estimate_lines(id, estimate_id, position, analysis_id,
              description, unit, quantity, unit_cost_snapshot)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
@@ -139,6 +208,8 @@ impl LocalStore {
                 item.unit_cost_snapshot.to_string(),
             ],
         )?;
+        checked_budget_total(&transaction, item.estimate_id)?;
+        transaction.commit()?;
         Ok(())
     }
 
@@ -149,10 +220,14 @@ impl LocalStore {
             || item.quantity < Decimal::ZERO
             || item.unit_cost_snapshot < Decimal::ZERO
             || item.position < 0
+            || item.quantity.checked_mul(item.unit_cost_snapshot).is_none()
         {
             return Err(StorageError::InvalidValue("invalid estimate line".into()));
         }
-        let changed = self.conn.execute(
+        let transaction = self
+            .conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let changed = transaction.execute(
             "UPDATE estimate_lines SET description=?1, unit=?2, quantity=?3, unit_cost_snapshot=?4
              WHERE id=?5 AND estimate_id=?6",
             params![
@@ -167,6 +242,8 @@ impl LocalStore {
         if changed != 1 {
             return Err(StorageError::InvalidValue("estimate line not found".into()));
         }
+        checked_budget_total(&transaction, item.estimate_id)?;
+        transaction.commit()?;
         Ok(())
     }
 
@@ -283,6 +360,8 @@ impl LocalStore {
                     entry.unit_cost_snapshot.to_string(),
                 ],
             )?;
+            transaction.execute("UPDATE line_origins SET origin_id=(SELECT origin_id FROM line_origins WHERE line_id=?1) WHERE line_id=?2",params![entry.id.to_string(),new_line_id.to_string()])?;
+            transaction.execute("INSERT INTO line_formulas(line_id,expression,variables_json) SELECT ?1,expression,variables_json FROM line_formulas WHERE line_id=?2",params![new_line_id.to_string(),entry.id.to_string()])?;
             if let Some(section_id) = assignments.get(&entry.id) {
                 transaction.execute(
                     "INSERT INTO estimate_line_sections(line_id, section_id) VALUES (?1, ?2)",
@@ -313,8 +392,8 @@ impl LocalStore {
         }
         transaction.execute(
             "INSERT INTO estimate_pricing (
-                estimate_id, general_expenses_percent, profit_percent, discount_percent, tax_percent)
-             SELECT ?1, general_expenses_percent, profit_percent, discount_percent, tax_percent
+                estimate_id, general_expenses_percent, profit_percent, discount_percent, tax_percent, financial_expenses_percent)
+             SELECT ?1, general_expenses_percent, profit_percent, discount_percent, tax_percent, financial_expenses_percent
              FROM estimate_pricing WHERE estimate_id=?2",
             params![copy.id.to_string(), source_id.to_string()],
         )?;
@@ -427,11 +506,12 @@ impl LocalStore {
                 ],
             )?;
         }
+        let new_direct_total = checked_budget_total(&transaction, estimate_id)?;
         transaction.commit()?;
         Ok(DraftRepriceResult {
             updated_lines: updated.len(),
             old_direct_total,
-            new_direct_total: self.estimate_total(estimate_id)?,
+            new_direct_total,
         })
     }
 

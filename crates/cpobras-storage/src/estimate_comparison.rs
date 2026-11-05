@@ -26,8 +26,8 @@ pub struct EstimateLineDelta {
 }
 
 impl LocalStore {
-    /// Compare estimates from one project with identical currencies. Similar
-    /// descriptions and units are grouped, without requiring shared line IDs.
+    /// Related versions compare by stable line origin, surviving description edits.
+    /// Independently created estimates fall back to description and unit grouping.
     pub fn compare_estimates(&self, baseline_id: Uuid, revised_id: Uuid) -> Result<EstimateDelta> {
         let baseline = self
             .get_estimate(baseline_id)?
@@ -40,48 +40,61 @@ impl LocalStore {
                 "estimates must belong to the same project and currency".into(),
             ));
         }
-        let mut grouped: BTreeMap<(String, String), (Decimal, Decimal, Decimal, Decimal)> =
-            BTreeMap::new();
-        for line in self.estimate_items(baseline_id)? {
-            let line_total = line.total();
-            let entry = grouped.entry((line.description, line.unit)).or_insert((
-                Decimal::ZERO,
-                Decimal::ZERO,
-                Decimal::ZERO,
-                Decimal::ZERO,
-            ));
-            entry.0 += line.quantity;
-            entry.2 += line_total;
-        }
-        for line in self.estimate_items(revised_id)? {
-            let line_total = line.total();
-            let entry = grouped.entry((line.description, line.unit)).or_insert((
-                Decimal::ZERO,
-                Decimal::ZERO,
-                Decimal::ZERO,
-                Decimal::ZERO,
-            ));
-            entry.1 += line.quantity;
-            entry.3 += line_total;
+        let baseline_lines = self.estimate_items(baseline_id)?;
+        let revised_lines = self.estimate_items(revised_id)?;
+        let origins: BTreeMap<String, String> = self
+            .conn
+            .prepare("SELECT line_id, origin_id FROM line_origins")?
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<std::result::Result<_, _>>()?;
+        let baseline_origins: std::collections::BTreeSet<_> = baseline_lines
+            .iter()
+            .filter_map(|line| origins.get(&line.id.to_string()))
+            .collect();
+        let related = revised_lines
+            .iter()
+            .filter_map(|line| origins.get(&line.id.to_string()))
+            .any(|origin| baseline_origins.contains(origin));
+        let mut grouped: BTreeMap<String, EstimateLineDelta> = BTreeMap::new();
+        for (revised, entries) in [(false, baseline_lines), (true, revised_lines)] {
+            for line in entries {
+                let key = if related {
+                    format!(
+                        "id:{}",
+                        origins
+                            .get(&line.id.to_string())
+                            .unwrap_or(&line.id.to_string())
+                    )
+                } else {
+                    format!("text:{}\0{}", line.description, line.unit)
+                };
+                let total = line.total();
+                let entry = grouped.entry(key).or_insert_with(|| EstimateLineDelta {
+                    description: line.description.clone(),
+                    unit: line.unit.clone(),
+                    baseline_quantity: Decimal::ZERO,
+                    revised_quantity: Decimal::ZERO,
+                    baseline_cost: Decimal::ZERO,
+                    revised_cost: Decimal::ZERO,
+                    difference: Decimal::ZERO,
+                });
+                if revised {
+                    entry.description = line.description;
+                    entry.unit = line.unit;
+                    entry.revised_quantity += line.quantity;
+                    entry.revised_cost += total;
+                } else {
+                    entry.baseline_quantity += line.quantity;
+                    entry.baseline_cost += total;
+                }
+            }
         }
         let lines = grouped
-            .into_iter()
-            .map(
-                |(
-                    (description, unit),
-                    (baseline_quantity, revised_quantity, baseline_cost, revised_cost),
-                )| {
-                    EstimateLineDelta {
-                        description,
-                        unit,
-                        baseline_quantity,
-                        revised_quantity,
-                        baseline_cost,
-                        revised_cost,
-                        difference: revised_cost - baseline_cost,
-                    }
-                },
-            )
+            .into_values()
+            .map(|mut line| {
+                line.difference = line.revised_cost - line.baseline_cost;
+                line
+            })
             .collect();
         let baseline_total = self.estimate_total(baseline_id)?;
         let revised_total = self.estimate_total(revised_id)?;

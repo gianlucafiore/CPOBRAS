@@ -1,11 +1,11 @@
 //! Dimension-based takeoffs. Decimal arithmetic and immutable issued budgets.
 use super::{LocalStore, Result, StorageError};
-use rusqlite::{params, OptionalExtension};
+use rusqlite::params;
 use rust_decimal::Decimal;
 use std::str::FromStr;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TakeoffRow {
     pub id: Uuid,
     pub estimate_id: Uuid,

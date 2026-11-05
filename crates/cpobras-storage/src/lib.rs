@@ -4,10 +4,15 @@ use rusqlite::{params, Connection, OptionalExtension};
 use std::path::Path;
 use uuid::Uuid;
 
+pub mod advanced_costing;
 pub mod budget_pricing;
 pub mod budget_sections;
+pub mod budget_tools;
 pub mod estimate_comparison;
 pub mod estimates;
+pub mod maintenance;
+pub mod management;
+pub mod planning;
 pub mod resource_catalog;
 pub mod takeoffs;
 
@@ -20,6 +25,8 @@ const TAKEOFFS_MIGRATION: &str = include_str!("../migrations/0006_takeoffs.sql")
 
 #[derive(Debug, thiserror::Error)]
 pub enum StorageError {
+    #[error("filesystem: {0}")]
+    Io(#[from] std::io::Error),
     #[error("sqlite: {0}")]
     Sql(#[from] rusqlite::Error),
     #[error("json: {0}")]
@@ -48,100 +55,55 @@ impl LocalStore {
         Self::initialize(Connection::open_in_memory()?)
     }
 
-    fn initialize(conn: Connection) -> Result<Self> {
+    fn initialize(mut conn: Connection) -> Result<Self> {
         conn.pragma_update(None, "foreign_keys", "ON")?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
-        conn.execute_batch(INITIAL_MIGRATION)?;
-        conn.execute(
-            "INSERT OR IGNORE INTO schema_migrations(version) VALUES (1)",
+        conn.execute_batch("CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")?;
+        let migrations = [
+            INITIAL_MIGRATION,
+            RESOURCES_MIGRATION,
+            ESTIMATES_MIGRATION,
+            SECTIONS_MIGRATION,
+            PRICING_MIGRATION,
+            TAKEOFFS_MIGRATION,
+            include_str!("../migrations/0007_management.sql"),
+            include_str!("../migrations/0008_planning.sql"),
+            include_str!("../migrations/0009_budget_tools.sql"),
+            include_str!("../migrations/0010_advanced_costing.sql"),
+            include_str!("../migrations/0011_financing.sql"),
+            include_str!("../migrations/0012_formula_consistency.sql"),
+            include_str!("../migrations/0013_plan_references.sql"),
+        ];
+        let latest: i64 = conn.query_row(
+            "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
             [],
+            |r| r.get(0),
         )?;
-        let applied: bool = conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=2)",
-            [],
-            |row| row.get(0),
-        )?;
-        if !applied {
-            conn.execute_batch("BEGIN IMMEDIATE")?;
-            let result = conn.execute_batch(RESOURCES_MIGRATION).and_then(|_| {
-                conn.execute("INSERT INTO schema_migrations(version) VALUES (2)", [])?;
-                Ok(())
-            });
-            if let Err(err) = result {
-                let _ = conn.execute_batch("ROLLBACK");
-                return Err(err.into());
-            }
-            conn.execute_batch("COMMIT")?;
+        if latest > migrations.len() as i64 {
+            return Err(StorageError::InvalidValue(
+                "La base pertenece a una versión más nueva de CPOBRAS".into(),
+            ));
         }
-        let applied: bool = conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=3)",
-            [],
-            |row| row.get(0),
-        )?;
-        if !applied {
-            conn.execute_batch("BEGIN IMMEDIATE")?;
-            let result = conn.execute_batch(ESTIMATES_MIGRATION).and_then(|_| {
-                conn.execute("INSERT INTO schema_migrations(version) VALUES (3)", [])?;
-                Ok(())
-            });
-            if let Err(err) = result {
-                let _ = conn.execute_batch("ROLLBACK");
-                return Err(err.into());
+        for (index, sql) in migrations.iter().enumerate() {
+            let version = index as i64 + 1;
+            let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+            let applied: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=?1)",
+                [version],
+                |r| r.get(0),
+            )?;
+            if !applied {
+                tx.execute_batch(sql)?;
+                tx.execute(
+                    "INSERT INTO schema_migrations(version) VALUES (?1)",
+                    [version],
+                )?;
             }
-            conn.execute_batch("COMMIT")?;
+            tx.commit()?;
         }
-        let applied: bool = conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=4)",
-            [],
-            |row| row.get(0),
-        )?;
-        if !applied {
-            conn.execute_batch("BEGIN IMMEDIATE")?;
-            let result = conn.execute_batch(SECTIONS_MIGRATION).and_then(|_| {
-                conn.execute("INSERT INTO schema_migrations(version) VALUES (4)", [])?;
-                Ok(())
-            });
-            if let Err(err) = result {
-                let _ = conn.execute_batch("ROLLBACK");
-                return Err(err.into());
-            }
-            conn.execute_batch("COMMIT")?;
-        }
-        let applied: bool = conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=5)",
-            [],
-            |row| row.get(0),
-        )?;
-        if !applied {
-            conn.execute_batch("BEGIN IMMEDIATE")?;
-            let result = conn.execute_batch(PRICING_MIGRATION).and_then(|_| {
-                conn.execute("INSERT INTO schema_migrations(version) VALUES (5)", [])?;
-                Ok(())
-            });
-            if let Err(err) = result {
-                let _ = conn.execute_batch("ROLLBACK");
-                return Err(err.into());
-            }
-            conn.execute_batch("COMMIT")?;
-        }
-        let applied: bool = conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=6)",
-            [],
-            |row| row.get(0),
-        )?;
-        if !applied {
-            conn.execute_batch("BEGIN IMMEDIATE")?;
-            let result = conn.execute_batch(TAKEOFFS_MIGRATION).and_then(|_| {
-                conn.execute("INSERT INTO schema_migrations(version) VALUES (6)", [])?;
-                Ok(())
-            });
-            if let Err(err) = result {
-                let _ = conn.execute_batch("ROLLBACK");
-                return Err(err.into());
-            }
-            conn.execute_batch("COMMIT")?;
-        }
-        Ok(Self { conn })
+        let store = Self { conn };
+        store.install_audit_triggers()?;
+        Ok(store)
     }
 
     pub fn list_clients(&self) -> Result<Vec<Client>> {
@@ -183,6 +145,14 @@ impl LocalStore {
     }
 
     pub fn save_client(&mut self, client: &Client) -> Result<()> {
+        if client.name.trim().is_empty()
+            || client.name.len() > 500
+            || client.cuit.as_ref().is_some_and(|v| v.len() > 50)
+        {
+            return Err(StorageError::InvalidValue(
+                "Datos de cliente inválidos".into(),
+            ));
+        }
         self.conn.execute(
             "INSERT INTO clients(id, name, cuit) VALUES (?1, ?2, ?3)
              ON CONFLICT(id) DO UPDATE SET name=excluded.name, cuit=excluded.cuit",
@@ -204,6 +174,18 @@ impl LocalStore {
     }
 
     pub fn save_project(&mut self, project: &Project) -> Result<()> {
+        if project.name.trim().is_empty() || project.name.len() > 500 {
+            return Err(StorageError::InvalidValue("Nombre de obra inválido".into()));
+        }
+        if let Some(old) = self.get_project(project.id)? {
+            if old.currency != project.currency
+                && !self.list_project_estimates(project.id)?.is_empty()
+            {
+                return Err(StorageError::InvalidValue(
+                    "La moneda base no se cambia cuando la obra ya tiene presupuestos".into(),
+                ));
+            }
+        }
         let currency = match project.currency {
             Currency::Ars => "ARS",
             Currency::Usd => "USD",
@@ -477,3 +459,6 @@ mod tests {
         assert!(db.save_project(&project).is_err());
     }
 }
+
+#[cfg(test)]
+mod workflow_tests;

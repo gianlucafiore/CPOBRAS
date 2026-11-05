@@ -8,6 +8,9 @@ build = "build.rs"
 name = "cpobras_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+
 [dependencies]
 tauri = "2"
 cpobras-core = { path = "../../../crates/cpobras-core" }
@@ -19,3 +22,16 @@ rust_decimal = { version = "1", features = ["serde"] }
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+
+[dev-dependencies]
+tauri = { version = "2", features = ["test"] }
+serde_json = "1"
+
+glib = "=0.18.5"
+
+[patch.crates-io]
+glib = { path = "../../../vendor/glib-0.18.5" }
+
+# Exercise the upstream UB fix with optimizer-enabled GLib, including in debug IPC tests.
+[profile.dev.package.glib]
+opt-level = 3

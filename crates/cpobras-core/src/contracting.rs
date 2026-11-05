@@ -36,7 +36,10 @@ impl ContractingScenario {
             unit: String::new(),
             components: self.components.clone(),
         };
-        Ok(analysis.direct_unit_cost()? + self.additional_cost_per_unit)
+        analysis
+            .direct_unit_cost()?
+            .checked_add(self.additional_cost_per_unit)
+            .ok_or(DomainError::Overflow)
     }
 }
 
@@ -50,8 +53,12 @@ pub fn compare_contracting_modes(
     }
     let own_cost_per_unit = own.direct_cost_per_unit()?;
     let subcontract_cost_per_unit = subcontract.direct_cost_per_unit()?;
-    let own_total = own_cost_per_unit * quantity;
-    let subcontract_total = subcontract_cost_per_unit * quantity;
+    let own_total = own_cost_per_unit
+        .checked_mul(quantity)
+        .ok_or(DomainError::Overflow)?;
+    let subcontract_total = subcontract_cost_per_unit
+        .checked_mul(quantity)
+        .ok_or(DomainError::Overflow)?;
     Ok(ContractingComparison {
         own_cost_per_unit,
         subcontract_cost_per_unit,

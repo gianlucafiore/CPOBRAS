@@ -1,5 +1,7 @@
 //! CPOBRAS domain logic: deterministic quantities and money (never f32/f64).
 pub mod contracting;
+pub mod costing;
+pub mod planning;
 
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -61,6 +63,8 @@ pub struct EstimateLine {
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum DomainError {
+    #[error("decimal arithmetic overflow")]
+    Overflow,
     #[error("quantity or price cannot be negative")]
     NegativeValue,
     #[error("cost analysis has no components")]
@@ -78,13 +82,18 @@ impl UnitCostAnalysis {
                 if item.quantity_per_unit < Decimal::ZERO || item.unit_price < Decimal::ZERO {
                     return Err(DomainError::NegativeValue);
                 }
-                Ok(total + item.quantity_per_unit * item.unit_price)
+                item.quantity_per_unit
+                    .checked_mul(item.unit_price)
+                    .and_then(|value| total.checked_add(value))
+                    .ok_or(DomainError::Overflow)
             })
     }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct PricingRates {
+    #[serde(default)]
+    pub financial_expenses_percent: Decimal,
     pub general_expenses_percent: Decimal,
     pub profit_percent: Decimal,
     pub discount_percent: Decimal,
@@ -93,6 +102,7 @@ pub struct PricingRates {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PricingBreakdown {
+    pub financial_expenses: Decimal,
     pub direct: Decimal,
     pub general_expenses: Decimal,
     pub profit: Decimal,
@@ -121,6 +131,7 @@ pub fn price_estimate(
     let values = [
         direct,
         rates.general_expenses_percent,
+        rates.financial_expenses_percent,
         rates.profit_percent,
         rates.discount_percent,
         rates.tax_percent,
@@ -131,20 +142,35 @@ pub fn price_estimate(
         return Err(DomainError::NegativeValue);
     }
     let hundred = Decimal::new(100, 0);
-    let general_expenses = direct * rates.general_expenses_percent / hundred;
-    let profit = (direct + general_expenses) * rates.profit_percent / hundred;
-    let subtotal = direct + general_expenses + profit;
-    let discount = subtotal * rates.discount_percent / hundred;
-    let taxable_subtotal = subtotal - discount;
-    let taxes = taxable_subtotal * rates.tax_percent / hundred;
+    let percent = |amount: Decimal, rate: Decimal| {
+        amount
+            .checked_mul(rate)
+            .and_then(|value| value.checked_div(hundred))
+            .ok_or(DomainError::Overflow)
+    };
+    let add = |a: Decimal, b: Decimal| a.checked_add(b).ok_or(DomainError::Overflow);
+    let general_expenses = percent(direct, rates.general_expenses_percent)?;
+    let financial_expenses = percent(
+        add(direct, general_expenses)?,
+        rates.financial_expenses_percent,
+    )?;
+    let base = add(add(direct, general_expenses)?, financial_expenses)?;
+    let profit = percent(base, rates.profit_percent)?;
+    let subtotal = add(base, profit)?;
+    let discount = percent(subtotal, rates.discount_percent)?;
+    let taxable_subtotal = subtotal
+        .checked_sub(discount)
+        .ok_or(DomainError::Overflow)?;
+    let taxes = percent(taxable_subtotal, rates.tax_percent)?;
     Ok(PricingBreakdown {
+        financial_expenses,
         direct,
         general_expenses,
         profit,
         discount,
         taxable_subtotal,
         taxes,
-        total: taxable_subtotal + taxes,
+        total: add(taxable_subtotal, taxes)?,
     })
 }
 
@@ -158,14 +184,40 @@ impl UnitCostAnalysis {
             if item.quantity_per_unit < Decimal::ZERO || item.unit_price < Decimal::ZERO {
                 return Err(DomainError::NegativeValue);
             }
-            let amount = item.quantity_per_unit * item.unit_price;
+            let amount = item
+                .quantity_per_unit
+                .checked_mul(item.unit_price)
+                .ok_or(DomainError::Overflow)?;
             match item.kind {
-                ResourceKind::Material => breakdown.materials += amount,
-                ResourceKind::Labor => breakdown.labor += amount,
-                ResourceKind::Equipment => breakdown.equipment += amount,
-                ResourceKind::Subcontract => breakdown.subcontract += amount,
+                ResourceKind::Material => {
+                    breakdown.materials = breakdown
+                        .materials
+                        .checked_add(amount)
+                        .ok_or(DomainError::Overflow)?
+                }
+                ResourceKind::Labor => {
+                    breakdown.labor = breakdown
+                        .labor
+                        .checked_add(amount)
+                        .ok_or(DomainError::Overflow)?
+                }
+                ResourceKind::Equipment => {
+                    breakdown.equipment = breakdown
+                        .equipment
+                        .checked_add(amount)
+                        .ok_or(DomainError::Overflow)?
+                }
+                ResourceKind::Subcontract => {
+                    breakdown.subcontract = breakdown
+                        .subcontract
+                        .checked_add(amount)
+                        .ok_or(DomainError::Overflow)?
+                }
             }
-            breakdown.total += amount;
+            breakdown.total = breakdown
+                .total
+                .checked_add(amount)
+                .ok_or(DomainError::Overflow)?;
         }
         Ok(breakdown)
     }
@@ -176,7 +228,10 @@ pub fn estimate_total(lines: &[EstimateLine]) -> Result<Decimal, DomainError> {
         if line.quantity < Decimal::ZERO || line.unit_cost_snapshot < Decimal::ZERO {
             return Err(DomainError::NegativeValue);
         }
-        Ok(total + line.quantity * line.unit_cost_snapshot)
+        line.quantity
+            .checked_mul(line.unit_cost_snapshot)
+            .and_then(|value| total.checked_add(value))
+            .ok_or(DomainError::Overflow)
     })
 }
 
@@ -258,6 +313,7 @@ mod tests {
     fn indirect_costs_profit_discount_and_tax_use_exact_decimal_math() {
         let rates = PricingRates {
             general_expenses_percent: Decimal::new(10, 0),
+            financial_expenses_percent: Decimal::ZERO,
             profit_percent: Decimal::new(20, 0),
             discount_percent: Decimal::new(5, 0),
             tax_percent: Decimal::new(21, 0),
@@ -295,5 +351,50 @@ mod tests {
             }],
         };
         assert_eq!(item.direct_unit_cost(), Err(DomainError::NegativeValue));
+    }
+}
+
+#[cfg(test)]
+mod arithmetic_regressions {
+    use super::*;
+    #[test]
+    fn extreme_financial_values_return_errors_instead_of_panicking() {
+        let rates = PricingRates {
+            general_expenses_percent: Decimal::from(10),
+            financial_expenses_percent: Decimal::from(5),
+            profit_percent: Decimal::from(20),
+            discount_percent: Decimal::from(10),
+            tax_percent: Decimal::from(21),
+        };
+        assert_eq!(
+            price_estimate(Decimal::from(100), rates).unwrap().total,
+            Decimal::new(1509354, 4)
+        );
+
+        assert_eq!(
+            price_estimate(
+                Decimal::MAX,
+                PricingRates {
+                    general_expenses_percent: Decimal::from(100),
+                    ..PricingRates::default()
+                }
+            ),
+            Err(DomainError::Overflow)
+        );
+        let analysis = UnitCostAnalysis {
+            id: Uuid::new_v4(),
+            code: "X".into(),
+            description: "Extremo".into(),
+            unit: "u".into(),
+            components: vec![ResourcePriceSnapshot {
+                resource_id: Uuid::new_v4(),
+                description: "Insumo".into(),
+                kind: ResourceKind::Material,
+                quantity_per_unit: Decimal::MAX,
+                unit_price: Decimal::from(2),
+            }],
+        };
+        assert_eq!(analysis.direct_unit_cost(), Err(DomainError::Overflow));
+        assert!(analysis.cost_breakdown().is_err());
     }
 }
