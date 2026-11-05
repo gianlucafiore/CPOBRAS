@@ -1,8 +1,8 @@
 export function createState() {
 return {
   view: "projects", projectId: null, estimateId: null, selectedLineId: null,
-  selectedResourceId: null, selectedAnalysisId: null, panel: "acu",
-  units: [], trades: [], backups: [], modal: null, busy: false, message: "", clients: [], projects: [],
+  selectedSectionId: null, contextMenu: null, selectedResourceId: null, selectedAnalysisId: null, panel: "acu",
+  units: [], trades: [], backups: [], modal: null, modalDirty: false, busy: false, message: "", clients: [], projects: [],
   estimates: [], lines: [], sections: [], assignments: {}, resources: [], analyses: [],
   rates: null, totals: null, detail: null, history: [], takeoffs: [], comparison: null,
   costComparison: null, search: "", acuComponents: []

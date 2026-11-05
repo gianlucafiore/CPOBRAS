@@ -10,6 +10,7 @@ pub mod budget_sections;
 pub mod budget_tools;
 pub mod estimate_comparison;
 pub mod estimates;
+pub mod line_workflows;
 pub mod maintenance;
 pub mod management;
 pub mod planning;
@@ -73,6 +74,7 @@ impl LocalStore {
             include_str!("../migrations/0011_financing.sql"),
             include_str!("../migrations/0012_formula_consistency.sql"),
             include_str!("../migrations/0013_plan_references.sql"),
+            include_str!("../migrations/0014_line_resource_snapshots.sql"),
         ];
         let latest: i64 = conn.query_row(
             "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
@@ -268,7 +270,7 @@ impl LocalStore {
     pub fn list_analyses(&self) -> Result<Vec<UnitCostAnalysis>> {
         let mut stmt = self
             .conn
-            .prepare("SELECT snapshot_json FROM analyses ORDER BY code, id")?;
+            .prepare("SELECT snapshot_json FROM analyses WHERE NOT EXISTS(SELECT 1 FROM line_analysis_snapshots s WHERE s.analysis_id=analyses.id) ORDER BY code, id")?;
         let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
         let mut analyses = Vec::new();
         for json in rows {

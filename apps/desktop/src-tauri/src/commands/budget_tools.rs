@@ -103,3 +103,40 @@ pub(crate) fn set_line_formula(
         .map(|value| value.to_string())
         .map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub(crate) fn move_budget_line(
+    db: tauri::State<'_, Db>,
+    estimate_id: String,
+    line_id: String,
+    before_id: Option<String>,
+    section_id: Option<String>,
+) -> Result<(), String> {
+    let parse = |id: String| Uuid::parse_str(&id).map_err(|e| e.to_string());
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .move_budget_line(
+            parse(estimate_id)?,
+            parse(line_id)?,
+            before_id.map(parse).transpose()?,
+            section_id.map(parse).transpose()?,
+        )
+        .map_err(|e| e.to_string())
+}
+#[tauri::command]
+pub(crate) fn save_line_resources(
+    db: tauri::State<'_, Db>,
+    estimate_id: String,
+    line_id: String,
+    components: Vec<cpobras_storage::line_workflows::LineResourceInput>,
+) -> Result<String, String> {
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .save_line_resources(
+            Uuid::parse_str(&estimate_id).map_err(|e| e.to_string())?,
+            Uuid::parse_str(&line_id).map_err(|e| e.to_string())?,
+            &components,
+        )
+        .map(|id| id.to_string())
+        .map_err(|e| e.to_string())
+}

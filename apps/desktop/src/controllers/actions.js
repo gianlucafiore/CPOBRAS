@@ -1,5 +1,5 @@
 import { e, dateToday, kindName, kindBadge, field, select, btn } from "../components/helpers.js";
-export function createActions({ invoke, state, currentProject, currentEstimate, currentLine, editable, projectName, clientName, loadCollections, loadEstimates, loadEstimate, loadPanel, openProject, openEstimate, reloadCatalog, refreshResource, refreshAnalysis, render, openModal, closeModal, document, window, FormData }) {
+export function createActions({ invoke, state, currentProject, currentEstimate, currentLine, editable, projectName, clientName, loadCollections, loadEstimates, loadEstimate, loadPanel, openProject, openEstimate, reloadCatalog, refreshResource, refreshAnalysis, render, renderSelection = render, openModal, closeModal, document, window, FormData }) {
 async function handleSubmit(form) {
   const kind = form.dataset.kind;
   const data = new FormData(form), v = key => String(data.get(key) ?? "").trim();
@@ -13,11 +13,14 @@ async function handleSubmit(form) {
     const created = await invoke("create_estimate", { projectId: state.projectId, title: v("title") });
     state.estimateId = created.id;
   } else if (kind === "section") {
-    await invoke("save_budget_section", { id: item.id || null, estimateId, code: v("code"), title: v("title"), parentId: v("parentId") || null, position: Number(v("position")) });
+    const savedSection = await invoke("save_budget_section", { id: item.id || null, estimateId, code: v("code"), title: v("title"), parentId: v("parentId") || null, position: Number(v("position")) });
+    state.selectedSectionId = savedSection?.id || item.id || null;
   } else if (kind === "line") {
     const args = { estimateId, description: v("description"), unit: v("unit"), quantity: v("quantity"), unitCost: v("unitCost") };
     const line = await invoke(item.id ? "update_estimate_line" : "add_estimate_line", item.id ? { ...args, lineId: item.id } : args);
     if (v("sectionId")) await invoke("assign_line_section", { estimateId, lineId: line.id, sectionId: v("sectionId") });
+    else if (item.id && state.assignments[item.id]) { const index=state.lines.findIndex(row=>row.id===item.id);await invoke("move_budget_line",{estimateId,lineId:line.id,beforeId:state.lines[index+1]?.id||null,sectionId:null}); }
+    state.selectedSectionId=v("sectionId")||null;
     state.selectedLineId = line.id;
   } else if (kind === "from-acu") {
     const line = await invoke("add_line_from_analysis", { estimateId, analysisId: v("analysisId"), quantity: v("quantity") });
@@ -36,6 +39,12 @@ async function handleSubmit(form) {
   } else if (kind === "price") {
     await invoke("register_resource_price", { resourceId: item.id, amount: v("amount"), currency: v("currency"), effectiveDate: v("effectiveDate"), source: v("source") || null });
     state.selectedResourceId = item.id;
+  } else if (kind === "line-resources") {
+    if(!editable())throw new Error("El presupuesto emitido no se modifica");
+    const components=[...form.querySelectorAll(".component-row")].map(row=>({resourceId:row.querySelector('select[name="resource"]')?.value,quantity:row.querySelector('input[name="quantity"]')?.value,unitPrice:row.querySelector('input[name="unitPrice"]')?.value}));
+    if(!components.length)throw new Error("Agregá al menos un insumo");
+    if(components.some(row=>!row.resourceId))throw new Error("Seleccioná un insumo del catálogo en cada fila");
+    await invoke("save_line_resources",{estimateId,lineId:item.id,components});state.panel="acu";
   } else if (kind === "analysis") {
     const components = [...form.querySelectorAll(".component-row")].map(row => ({
       resourceId: row.querySelector('select[name="resource"]')?.value,
@@ -60,18 +69,18 @@ async function handleSubmit(form) {
       discountPercent: v("discountPercent"), taxPercent: v("taxPercent") });
   } else if (kind === "comparison") {
     state.comparison = await invoke("compare_estimates", { baselineId: v("baselineId"), revisedId: estimateId });
-    state.modal = { kind: "comparison-result" }; render(); return;
+    state.modalDirty=false;state.modal = { kind: "comparison-result" }; render(); return;
   } else if (kind === "contracting") {
     const detail = await invoke("get_analysis_details", { analysisId: v("analysisId") });
     state.costComparison = await invoke("compare_contracting", {
       ownComponents: detail.components.map(row => ({ resourceId: row.resource_id, quantity: row.quantity })),
       ownExtraPerUnit: v("ownExtraPerUnit"), subcontractPricePerUnit: v("subcontractPricePerUnit"), quantity: v("quantity")
     });
-    state.modal = { kind: "contracting-result" }; render(); return;
+    state.modalDirty=false;state.modal = { kind: "contracting-result" }; render(); return;
   }
   state.modal = null;
   await loadCollections();
-  if (state.projectId) {
+  if (["workspace","budget-tools"].includes(state.view) && state.projectId) {
     await loadEstimates();
     await loadEstimate();
   } else if (state.view === "resources") { await refreshResource(); render(); }
@@ -106,8 +115,9 @@ async function act(button) {
   if (action === "open-project") { await openProject(button.dataset.id); return; }
   if (action === "open-estimate") { await openEstimate(button.dataset.id); return; }
   if (action === "select-line") {
-    state.selectedLineId = button.dataset.id; await loadPanel(); render(); return;
+    state.selectedLineId = button.dataset.id; state.selectedSectionId=state.assignments[state.selectedLineId]||null; await loadPanel(); renderSelection(); return;
   }
+  if (action === "select-section") {state.selectedSectionId=button.dataset.id;state.selectedLineId=null;await loadPanel();renderSelection();return;}
   if (action === "panel") {
     state.panel = button.dataset.panel; await loadPanel(); render(); return;
   }
@@ -117,6 +127,17 @@ async function act(button) {
   if (action === "select-analysis") {
     state.selectedAnalysisId = button.dataset.id; await refreshAnalysis(); render(); return;
   }
+  if (action === "edit-line-resources" || action === "assign-resource") {
+    const line=currentLine();if(!editable()||!line)return;
+    const detail=line.analysis_id ? await invoke("get_analysis_details",{analysisId:line.analysis_id}):null;
+    openModal("line-resources",{...line,components:detail?.components||[]});
+    if(action==="assign-resource"){
+      const resource=state.resources.find(row=>row.id===button.dataset.id);
+      if(resource&&!state.acuComponents.some(row=>row.resourceId===resource.id)){state.modalDirty=true;state.acuComponents.push({resourceId:resource.id,quantity:"1",unitPrice:currentEstimate()?.currency==="USD"?"":resource.price??""});}
+      render();
+    }return;
+  }
+  if (action === "duplicate-line") {if(!editable()||!currentLine())return;state.selectedLineId=await invoke("duplicate_budget_line",{estimateId:state.estimateId,lineId:state.selectedLineId});await loadEstimate();return;}
   if (action === "modal-client") return openModal("client");
   if (action === "modal-project") return openModal("project");
   if (action === "edit-project") return openModal("project", state.projects.find(p => p.id === button.dataset.id));
@@ -163,6 +184,7 @@ async function act(button) {
   if (action === "modal-comparison") return openModal("comparison");
   if (action === "modal-contracting") return openModal("contracting");
   if (action === "add-component" || action === "remove-component") {
+    state.modalDirty=true;
     const form = document.querySelector("#dialog-form");
     if (form && state.modal?.kind === "analysis") {
       state.modal.record = {
@@ -177,7 +199,7 @@ async function act(button) {
       quantity: row.querySelector('input[name="quantity"]')?.value,
       unitPrice: row.querySelector('input[name="unitPrice"]')?.value
     }));
-    if (action === "add-component") state.acuComponents.push({ resourceId: state.resources[0]?.id, quantity: 1, unitPrice: state.resources[0]?.price ?? 0 });
+    if (action === "add-component") state.acuComponents.push({ resourceId: state.resources[0]?.id, quantity: 1, unitPrice: state.modal?.kind==="line-resources" && currentEstimate()?.currency==="USD"?"":state.resources[0]?.price ?? "" });
     else state.acuComponents.splice(Number(button.dataset.index), 1);
     render(); return;
   }

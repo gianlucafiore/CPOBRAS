@@ -384,3 +384,110 @@ fn project_economic_defaults_apply_only_to_new_estimates() {
         Decimal::ZERO
     );
 }
+
+#[test]
+fn drag_move_preserves_identity_and_reassigns_sections_atomically() {
+    use crate::budget_sections::BudgetSection;
+    let (mut store, _, estimate, line) = fixture();
+    let second = store.duplicate_budget_line(estimate.id, line.id).unwrap();
+    let section = BudgetSection {
+        id: Uuid::new_v4(),
+        estimate_id: estimate.id,
+        parent_id: None,
+        code: "01".into(),
+        title: "Preliminares".into(),
+        position: 0,
+    };
+    store.save_budget_section(&section).unwrap();
+    store
+        .move_budget_line(estimate.id, second, Some(line.id), Some(section.id))
+        .unwrap();
+    assert_eq!(store.estimate_items(estimate.id).unwrap()[0].id, second);
+    assert_eq!(
+        store.list_line_sections(estimate.id).unwrap(),
+        vec![(second, section.id)]
+    );
+    let before = store.export_budget(estimate.id).unwrap();
+    assert!(store
+        .move_budget_line(estimate.id, line.id, None, Some(Uuid::new_v4()))
+        .is_err());
+    assert_eq!(
+        store.export_budget(estimate.id).unwrap().lines,
+        before.lines
+    );
+    store
+        .move_budget_line(estimate.id, second, None, None)
+        .unwrap();
+    assert!(store.list_line_sections(estimate.id).unwrap().is_empty());
+    store.issue_estimate(estimate.id).unwrap();
+    assert!(store
+        .move_budget_line(estimate.id, second, Some(line.id), None)
+        .is_err());
+    store.verify_integrity().unwrap();
+}
+
+#[test]
+fn direct_line_resources_are_private_snapshots_and_survive_versions_and_exchange() {
+    use crate::line_workflows::LineResourceInput;
+    use crate::resource_catalog::Resource;
+    let (mut store, project, estimate, line) = fixture();
+    let resource = Resource {
+        id: Uuid::new_v4(),
+        code: "MO".into(),
+        description: "Operario".into(),
+        unit: "h".into(),
+        kind: cpobras_core::ResourceKind::Labor,
+        active: true,
+    };
+    store.save_resource(&resource).unwrap();
+    let inputs = vec![LineResourceInput {
+        resource_id: resource.id,
+        quantity: Decimal::new(25, 1),
+        unit_price: Decimal::from(100),
+    }];
+    let id = store
+        .save_line_resources(estimate.id, line.id, &inputs)
+        .unwrap();
+    assert!(store.is_line_analysis(id).unwrap());
+    assert!(store.list_analyses().unwrap().is_empty());
+    assert_eq!(
+        store.estimate_total(estimate.id).unwrap(),
+        Decimal::from(500)
+    );
+    let copy = store.duplicate_estimate(estimate.id, "Copia").unwrap();
+    store
+        .save_line_resources(
+            estimate.id,
+            line.id,
+            &[LineResourceInput {
+                resource_id: resource.id,
+                quantity: Decimal::from(3),
+                unit_price: Decimal::from(100),
+            }],
+        )
+        .unwrap();
+    assert_eq!(store.estimate_total(copy.id).unwrap(), Decimal::from(500));
+    let document = store.export_budget(estimate.id).unwrap();
+    assert_eq!(document.line_analyses.len(), 1);
+    let imported = store.import_budget(project.id, &document).unwrap();
+    let imported_line = store.estimate_items(imported.id).unwrap().remove(0);
+    assert!(store
+        .is_line_analysis(imported_line.analysis_id.unwrap())
+        .unwrap());
+    assert_eq!(
+        store.estimate_total(imported.id).unwrap(),
+        Decimal::from(600)
+    );
+    let mut manual = store.estimate_items(estimate.id).unwrap().remove(0);
+    manual.unit_cost_snapshot = Decimal::from(50);
+    store.update_estimate_item(&manual).unwrap();
+    assert!(store.estimate_items(estimate.id).unwrap()[0]
+        .analysis_id
+        .is_none());
+    store.issue_estimate(copy.id).unwrap();
+    let copy_line = store.estimate_items(copy.id).unwrap()[0].id;
+    assert!(store
+        .save_line_resources(copy.id, copy_line, &inputs)
+        .is_err());
+    store.verify_integrity().unwrap();
+}

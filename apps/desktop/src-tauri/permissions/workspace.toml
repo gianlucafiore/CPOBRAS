@@ -7,6 +7,8 @@ commands.allow = [
   "save_budget_template",
   "list_budget_templates",
   "edit_budget_lines",
+  "move_budget_line",
+  "save_line_resources",
   "duplicate_budget_line",
   "set_line_formula",
   "list_price_lists",

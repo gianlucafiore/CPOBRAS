@@ -5,10 +5,10 @@ con Node 24.22.1 y Rust 1.99.1. `tools/check.sh` reúne los checks reproducibles
 
 | Comprobación | Evidencia |
 | --- | --- |
-| Rust, núcleo y almacenamiento | 45 tests: 17 de dominio y 28 de persistencia/regresión |
+| Rust, núcleo y almacenamiento | 47 tests: 17 de dominio y 30 de persistencia/regresión |
 | Escritorio Tauri | 2 tests nativos: recorrido IPC y regresión GLib optimizada |
 | JavaScript | 17 tests, con aislamiento de procesos desactivado explícitamente en el runner |
-| Chromium | 4 recorridos de interfaz sobre DOM real y un puente IPC de prueba |
+| Chromium | 10 recorridos de interfaz sobre DOM real y un puente IPC de prueba |
 | Formato Rust | Workspace y aplicación Tauri |
 | Frontend de producción | Vite build, incluyendo los módulos de Excel y PDF |
 | Ejecutable Linux | Compilación con `custom-protocol` y arranque WebKitGTK en Xvfb |
@@ -29,6 +29,7 @@ exportación y rechazo de ventanas/orígenes sin permisos.
 - Ediciones masivas e importaciones inválidas revierten sus cambios y eventos.
 - Las versiones duplicadas conservan identidad de partida, tasas financieras,
   rubros y fórmulas; los cambios manuales de cantidad invalidan una fórmula vieja.
+- Arrastre entre rubros, doble clic, menú contextual propio y asignación directa de insumos con composiciones privadas; ver [UX_REVIEW.md](UX_REVIEW.md).
 - Los presupuestos emitidos, las líneas base y el historial no se alteran.
 - Las partidas usadas por el plan actual tienen referencias SQL que impiden
   borrarlas accidentalmente; las asignaciones conservan referencias a recursos.

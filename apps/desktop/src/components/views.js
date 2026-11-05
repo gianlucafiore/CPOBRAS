@@ -1,9 +1,11 @@
+import { helpBox } from "./help.js";
 import { money, numeric, sumDecimals, absoluteDecimal } from "../decimal.js";
 import { e, dateToday, kindName, kindBadge, field, select, btn } from "./helpers.js";
 
 export function createViews({ state, currentProject, currentEstimate, currentLine, editable, projectName, clientName, locked, modalMarkup }) {
 function chrome(content) {
   const work = state.view === "workspace";
+  const active = state.modal?.kind==="backups" ? "backups" : ["workspace","budget-tools"].includes(state.view)?"projects":state.view;
   return `<div class="app">
     <header class="app-header">
       <div class="brand"><span class="brand-mark">▦</span><b>CPOBRAS</b><small>estudio de costos</small></div>
@@ -13,17 +15,20 @@ function chrome(content) {
     </header>
     <nav class="menu-bar" aria-label="Navegación principal">
       ${[["projects", "Obras"], ["clients", "Clientes"], ["resources", "Insumos"], ["analyses", "ACU"]].map(([view, label]) =>
-        `<button class="menu-item ${state.view === view ? "active" : ""}" data-action="navigate" data-view="${view}">${label}</button>`).join("")}
+        `<button class="menu-item ${active === view ? "active" : ""}" aria-current="${active===view ? "page" : "false"}" data-action="navigate" data-view="${view}">${label}</button>`).join("")}
       ${work ? `<span class="divider"></span><span class="menu-location">${e(currentProject()?.name)}</span>` : ""}
-      <button class="menu-item" data-action="open-costing">Costos y precios</button><button class="menu-item" data-action="open-planning">Planificación</button><button class="menu-item" data-action="open-management">Organización</button><button class="menu-item" data-action="backups">Copias de seguridad</button><span class="grow"></span><span class="kbd-hint">ESC cierra ventanas</span>
+      <button class="menu-item ${active==="costing"?"active":""}" aria-current="${active==="costing"?"page":"false"}" data-action="open-costing">Costos y precios</button><button class="menu-item ${active==="planning"?"active":""}" aria-current="${active==="planning"?"page":"false"}" data-action="open-planning">Planificación</button><button class="menu-item ${active==="management"?"active":""}" aria-current="${active==="management"?"page":"false"}" data-action="open-management">Organización</button><button class="menu-item ${active==="backups"?"active":""}" aria-current="${active==="backups"?"page":"false"}" data-action="backups">Copias de seguridad</button><span class="grow"></span><span class="kbd-hint">ESC cierra ventanas</span>
     </nav>
     <datalist id="unit-library">${state.units.map(unit=>`<option value="${e(unit.attributes.symbol || unit.code || unit.name)}">${e(unit.name)}</option>`).join("")}</datalist>
+    ${helpBox(state.modal?.kind==="backups"?"backups":state.view)}
     ${content}
     ${state.message ? `<div class="toast" role="status">${e(state.message)} <button data-action="dismiss-toast" aria-label="Cerrar">×</button></div>` : ""}
     ${state.modal ? modalMarkup() : ""}
+    ${contextMenu()}
   </div>`;
 }
 
+function contextMenu(){const menu=state.contextMenu;if(!menu)return "";return `<div class="app-context-menu" role="menu" aria-label="Acciones de CPOBRAS" style="left:${menu.x}px;top:${menu.y}px">${menu.items.map(item=>`<button role="menuitem" data-action="${e(item.action)}" ${item.id?`data-id="${e(item.id)}"`:""} ${item.view?`data-view="${e(item.view)}"`:""} ${item.disabled?"disabled":""}>${e(item.label)}</button>`).join("")}</div>`;}
 function gridSections() {
   const groups = new Map();
   for (const line of state.lines) {
@@ -38,8 +43,8 @@ function gridSections() {
     if (!byParent.has(parent)) byParent.set(parent, []);
     byParent.get(parent).push(section);
   }
-  const lineRow = (line, code = "") => `<tr class="line-row ${line.id === state.selectedLineId ? "selected" : ""}" data-action="select-line" data-id="${e(line.id)}" data-searchable="${e((line.description + " " + line.unit).toLowerCase())}" tabindex="0">
-    <td class="col-code muted">${e(code)}</td><td class="col-desc">${e(line.description)} ${line.analysis_id ? '<span class="acu-tag">ACU</span>' : ""}</td>
+  const lineRow = (line, code = "") => `<tr class="line-row ${line.id === state.selectedLineId ? "selected" : ""}" data-drop-line="true" data-action="select-line" data-id="${e(line.id)}" data-searchable="${e((line.description + " " + line.unit).toLowerCase())}" tabindex="0">
+    <td class="col-code muted"><button type="button" class="line-drag-handle" draggable="${editable()}" aria-label="Arrastrar partida ${e(line.description)}" title="Arrastrar para mover" ${locked()}>⋮⋮</button>${e(code)}</td><td class="col-desc">${e(line.description)} ${line.analysis_id ? '<span class="acu-tag">ACU</span>' : ""}</td>
     <td class="col-unit">${e(line.unit)}</td><td class="number">${numeric(line.quantity)}</td>
     <td class="number">${money(line.unit_cost)}</td><td class="number partial">${money(line.total)}</td></tr>`;
   const sectionSum = id => {
@@ -55,7 +60,7 @@ function gridSections() {
   const sectionRow = (section, depth = 0) => {
     const children = [...(byParent.get(section.id) || [])].sort((a, b) => a.position - b.position);
     const own = (groups.get(section.id) || []).map((line, i) => lineRow(line, section.code + "." + String(i + 1).padStart(2, "0"))).join("");
-    return `<tr class="section-row" data-action="edit-section" data-id="${e(section.id)}" data-searchable="${e((section.code + " " + section.title).toLowerCase())}">
+    return `<tr class="section-row ${state.selectedSectionId===section.id?"selected":""}" data-drop-section="true" data-action="select-section" data-id="${e(section.id)}" data-searchable="${e((section.code + " " + section.title).toLowerCase())}">
       <td class="col-code">${e(section.code)}</td><td class="col-desc" style="padding-left:${12 + depth * 15}px">▾ &nbsp; ${e(section.title)}</td>
       <td></td><td></td><td></td><td class="number partial">${money(sectionSum(section.id))}</td>
     </tr>${own}${children.map(s => sectionRow(s, depth + 1)).join("")}`;
@@ -63,7 +68,7 @@ function gridSections() {
   const roots = [...(byParent.get("root") || [])].sort((a, b) => a.position - b.position);
   const others = (groups.get("unassigned") || []).map((line, i) => lineRow(line, String(i + 1).padStart(2, "0"))).join("");
   return roots.map(s => sectionRow(s)).join("") +
-    (others ? `<tr class="section-row unassigned"><td>—</td><td>PARTIDAS SIN RUBRO</td><td></td><td></td><td></td><td></td></tr>${others}` : "");
+    `<tr class="section-row unassigned" data-drop-unassigned="true"><td>—</td><td>PARTIDAS SIN RUBRO · soltá aquí para desagrupar</td><td></td><td></td><td></td><td></td></tr>${others}`;
 }
 
 function workspace() {
@@ -99,10 +104,10 @@ function workspace() {
         <div class="grid-bottom"><span>${e(est?.title || "Sin presupuesto")}</span><span>DIRECTO <strong>${e(est?.currency || "")} ${money(state.totals?.direct)}</strong></span></div>
       </section>
       <section class="detail-pane">
-        <div class="detail-tabs">
-          ${[["acu", "ACU"], ["takeoffs", "Metrados"], ["resources", "Insumos"], ["summary", "Resumen"]].map(([key, title]) => `<button data-action="panel" data-panel="${key}" class="tab ${state.panel === key ? "active" : ""}">${title}</button>`).join("")}
+        <div class="detail-tabs" role="tablist" aria-label="Detalle de la partida">
+          ${[["acu", "ACU"], ["takeoffs", "Metrados"], ["resources", "Insumos"], ["summary", "Resumen"]].map(([key, title]) => `<button role="tab" aria-selected="${state.panel===key}" data-action="panel" data-panel="${key}" class="tab ${state.panel === key ? "active" : ""}">${title}</button>`).join("")}
         </div>
-        <div class="detail-content">${rightPanel()}</div>
+        <div class="detail-content">${helpBox(state.panel,true)}${rightPanel()}</div>
       </section>
     </div>
   </section>`);
@@ -111,9 +116,9 @@ function workspace() {
 function rightPanel() {
   const line = currentLine();
   if (state.panel === "summary") return summaryPane();
-  if (state.panel === "resources") return `<div class="detail-heading"><b>INSUMOS</b><span>Biblioteca general</span></div>
-    <div class="mini-scroll"><table class="mini-table"><thead><tr><th>TIPO</th><th>DESCRIPCIÓN</th><th>UND.</th><th class="number">PRECIO ARS</th></tr></thead><tbody>
-    ${state.resources.map(r => `<tr><td><span class="kind kind-${e(r.kind)}">${kindBadge(r.kind)}</span></td><td>${e(r.description)}</td><td>${e(r.unit)}</td><td class="number">${r.price === null ? "—" : money(r.price)}</td></tr>`).join("")}
+  if (state.panel === "resources") return `<div class="detail-heading"><b>INSUMOS</b><span>${line?e(line.description):"Seleccioná una partida para asignar"}</span><button class="btn tiny primary" data-action="edit-line-resources" ${locked()} ${!line?"disabled":""}>Editar insumos</button></div>
+    <div class="mini-scroll"><table class="mini-table"><thead><tr><th>TIPO</th><th>DESCRIPCIÓN</th><th>UND.</th><th class="number">PRECIO ARS</th><th>ASIGNAR</th></tr></thead><tbody>
+    ${state.resources.map(r => `<tr><td><span class="kind kind-${e(r.kind)}">${kindBadge(r.kind)}</span></td><td>${e(r.description)}</td><td>${e(r.unit)}</td><td class="number">${r.price === null ? "—" : money(r.price)}</td><td><button class="btn tiny" data-action="assign-resource" data-id="${e(r.id)}" ${locked()} ${!line||r.active===false?"disabled":""}>Asignar</button></td></tr>`).join("")}
     </tbody></table></div><div class="detail-footer">${btn("Abrir catálogo", "goto-resources", "primary")}</div>`;
   if (!line) return `<div class="blank-state"><span>▧</span><strong>Seleccioná una partida</strong><p>Su análisis de costos y mediciones aparecerán acá.</p></div>`;
   if (state.panel === "takeoffs") return takeoffPane(line);
@@ -121,7 +126,7 @@ function rightPanel() {
 }
 function acuPane(line) {
   const d = state.detail;
-  const subtitle = d ? `<span class="label-muted">${e(d.code)} · ${e(d.unit)}</span>` : "";
+  const subtitle = d ? `<span class="label-muted">${e(d.is_line_owned?"Insumos de esta partida":d.code)} · ${e(d.unit)}</span>` : "";
   const rows = d?.components || [];
   const byKinds = ["material", "labor", "equipment", "subcontract"].map(type => {
     const group = rows.filter(row => row.kind === type);
@@ -130,11 +135,11 @@ function acuPane(line) {
       ${group.map(row => `<tr><td><span class="kind kind-${type}">${kindBadge(type)}</span></td><td>${e(row.description)}</td><td class="number">${numeric(row.quantity)}</td><td class="number">${money(row.unit_price)}</td><td class="number">${money(row.total)}</td></tr>`).join("")}`;
   }).join("");
   return `<div class="detail-heading"><div><strong>${e(line.description)}</strong>${subtitle}</div>
-    <div class="heading-actions"><button class="btn tiny" data-action="modal-from-acu" ${locked()}>＋ Partida ACU</button><button class="btn tiny" data-action="edit-analysis" data-id="${e(line.analysis_id)}" ${!line.analysis_id ? "disabled" : ""}>Editar ACU</button><button class="btn tiny" data-action="modal-contracting" ${!line.analysis_id ? "disabled" : ""}>Comparar costos</button></div>
+    <div class="heading-actions"><button class="btn tiny" data-action="modal-from-acu" ${locked()}>＋ Partida ACU</button><button class="btn tiny primary" data-action="edit-line-resources" ${locked()}>Editar insumos</button><button class="btn tiny" data-action="edit-analysis" data-id="${e(line.analysis_id)}" ${!line.analysis_id||d?.is_line_owned ? "disabled" : ""}>Editar ACU</button><button class="btn tiny" data-action="modal-contracting" ${!line.analysis_id ? "disabled" : ""}>Comparar costos</button></div>
   </div>
   ${d ? `<div class="mini-scroll"><table class="mini-table"><thead><tr><th>TIPO</th><th>DESCRIPCIÓN</th><th class="number">CANT.</th><th class="number">PRECIO</th><th class="number">PARCIAL</th></tr></thead><tbody>${byKinds}</tbody></table></div>` :
-    `<div class="blank-state"><span>▤</span><strong>Partida con precio manual</strong><p>Para ver el desglose, agregá una partida desde la biblioteca de ACU.</p></div>`}
-  <div class="context-summary"><div><small>Precio unitario guardado</small><b>${money(line.unit_cost)}</b></div><div><small>Precio actual del ACU</small><b>${d ? money(d.unit_cost) : "—"}</b></div></div>
+    `<div class="blank-state"><span>▤</span><strong>Partida con precio manual</strong><p>Abrí Insumos para asignar recursos a esta partida, o usá Editar insumos para construir su precio.</p></div>`}
+  <div class="context-summary"><div><small>Precio unitario guardado</small><b>${money(line.unit_cost)}</b></div><div><small>${d?.is_line_owned?"Precio calculado por insumos":"Precio actual del ACU"}</small><b>${d ? money(d.unit_cost) : "—"}</b></div></div>
   <div class="detail-footer muted-note">El presupuesto conserva el precio unitario original aunque se actualicen los insumos.</div>`;
 }
 function takeoffPane(line) {
@@ -201,5 +206,5 @@ function listViews() {
   </main>`);
 }
 
-return { workspace, listViews, chrome };
+return { workspace, listViews, chrome, rightPanel };
 }

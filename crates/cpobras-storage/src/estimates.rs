@@ -227,8 +227,17 @@ impl LocalStore {
         let transaction = self
             .conn
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let previous: (String, String) = transaction.query_row(
+            "SELECT unit,unit_cost_snapshot FROM estimate_lines WHERE id=?1 AND estimate_id=?2",
+            params![item.id.to_string(), item.estimate_id.to_string()],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        let manual_override = previous.0 != item.unit
+            || Decimal::from_str(&previous.1)
+                .map_err(|e| StorageError::InvalidValue(e.to_string()))?
+                != item.unit_cost_snapshot;
         let changed = transaction.execute(
-            "UPDATE estimate_lines SET description=?1, unit=?2, quantity=?3, unit_cost_snapshot=?4
+            "UPDATE estimate_lines SET description=?1, unit=?2, quantity=?3, unit_cost_snapshot=?4, analysis_id=CASE WHEN ?7 THEN NULL ELSE analysis_id END
              WHERE id=?5 AND estimate_id=?6",
             params![
                 item.description,
@@ -237,6 +246,7 @@ impl LocalStore {
                 item.unit_cost_snapshot.to_string(),
                 item.id.to_string(),
                 item.estimate_id.to_string(),
+                manual_override,
             ],
         )?;
         if changed != 1 {

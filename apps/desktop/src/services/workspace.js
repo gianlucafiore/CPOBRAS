@@ -30,26 +30,27 @@ async function loadEstimate() {
   render();
 }
 async function loadPanel() {
-  const line = currentLine();
+  const line = currentLine(),panel=state.panel,estimateId=state.estimateId;
+  const current=()=>state.selectedLineId===line?.id&&state.panel===panel&&state.estimateId===estimateId;
   state.detail = null;
   state.takeoffs = [];
-  if (state.panel === "acu" && line?.analysis_id) {
-    try { state.detail = await invoke("get_analysis_details", { analysisId: line.analysis_id }); }
-    catch { state.detail = null; }
+  if (["acu","resources"].includes(state.panel) && line?.analysis_id) {
+    try { const detail = await invoke("get_analysis_details", { analysisId: line.analysis_id }); if(current())state.detail=detail; }
+    catch { if(current())state.detail = null; }
   }
   if (state.panel === "takeoffs" && line) {
-    state.takeoffs = await invoke("list_takeoffs", { estimateId: state.estimateId, lineId: line.id });
+    const rows=await invoke("list_takeoffs", { estimateId, lineId: line.id }); if(current())state.takeoffs=rows;
   }
 }
 async function openProject(id) {
-  state.projectId = id; state.view = "workspace"; state.panel = "acu"; state.selectedLineId = null;
+  state.selectedSectionId=null;state.projectId = id; state.view = "workspace"; state.panel = "acu"; state.selectedLineId = null;
   await loadEstimates();
   state.estimateId = state.estimates[0]?.id || null;
   state.search = "";
   await loadEstimate();
 }
 async function openEstimate(id) {
-  state.estimateId = id || null; state.selectedLineId = null; state.panel = "acu";
+  state.selectedSectionId=null;state.estimateId = id || null; state.selectedLineId = null; state.panel = "acu";
   await loadEstimate();
 }
 async function reloadCatalog() {

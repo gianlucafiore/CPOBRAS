@@ -139,6 +139,12 @@ presenta una ventana en el escritorio del usuario.
    económicos predeterminados para los presupuestos nuevos.
 3. En **Insumos** y **ACU**, cargá recursos y análisis. Abrí una obra, creá un
    presupuesto y agregá rubros, subrubros, partidas y metrados.
+   En la grilla, arrastrá el asa **⋮⋮** para reordenar partidas o moverlas a un
+   rubro. **Doble clic**, **Enter** o **clic derecho → Editar partida** permiten
+   editar. Para construir un precio, seleccioná la partida, abrí su pestaña
+   **Insumos** y pulsá **Asignar**; no hace falta crear antes un ACU.
+   Los popups conservan los datos al pulsar fuera. Para cerrar con cambios sin
+   guardar, confirmá el descarte mediante **Cerrar**, la cruz o **Escape**.
 4. En **Herramientas / exportar**, probá edición masiva, ordenamiento,
    duplicación de partidas, fórmulas, plantillas, Excel, CSV, JSON y PDF.
    Las importaciones crean un presupuesto nuevo. Los archivos generados quedan

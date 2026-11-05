@@ -352,6 +352,8 @@ impl LocalStore {
                     "line_id"
                 } else if fields.iter().any(|field| field == "project_id") {
                     "project_id"
+                } else if fields.iter().any(|field| field == "analysis_id") {
+                    "analysis_id"
                 } else {
                     "estimate_id"
                 };

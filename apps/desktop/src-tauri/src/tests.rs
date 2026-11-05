@@ -96,6 +96,21 @@ fn ipc_creates_budget_and_preserves_issued_snapshot() {
     )
     .unwrap();
     assert_ne!(imported["id"], estimate["id"]);
+    let imported_lines = call("list_estimate_lines", json!({"estimateId":imported["id"]})).unwrap();
+    let private=call("save_line_resources",json!({"estimateId":imported["id"],"lineId":imported_lines[0]["id"],"components":[{"resourceId":resource["id"],"quantity":"2.5","unitPrice":"1.005"}]})).unwrap();
+    let detail = call("get_analysis_details", json!({"analysisId":private})).unwrap();
+    assert_eq!(detail["is_line_owned"], true);
+    assert_eq!(
+        call("list_analyses", json!({}))
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    call("move_budget_line",json!({"estimateId":imported["id"],"lineId":imported_lines[0]["id"],"beforeId":null,"sectionId":null})).unwrap();
+    assert!(call("save_line_resources",json!({"estimateId":estimate["id"],"lineId":document["lines"][0]["id"],"components":[{"resourceId":resource["id"],"quantity":"1","unitPrice":"1"}]})).is_err());
+
     let task_id = uuid::Uuid::new_v4();
     let saved=call("save_project_plan",json!({"projectId":project["id"],"revision":0,"asOf":"2026-11-05","plan":{"calendar":{"start_date":"2026-11-05","nonworking_weekdays":[5,6],"holidays":[]},"tasks":[{"id":task_id,"parent_id":null,"estimate_line_id":document["lines"][0]["id"],"name":"Tarea IPC","duration_days":3,"predecessors":[],"not_before":null,"finish_by":null,"assignments":[],"budget":"0","actual_progress":"25"}]}})).unwrap();
     assert_eq!(saved["revision"], 1);

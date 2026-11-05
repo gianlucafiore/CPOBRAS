@@ -1,3 +1,5 @@
+import { helpBox } from "./components/help.js";
+import { createBudgetInteractions } from "./controllers/budget-interactions.js";
 import { createBudgetTools } from "./components/budget-tools.js";
 import { createCostingWorkspace } from "./components/costing.js";
 import { createPlanningWorkspace } from "./components/planning.js";
@@ -14,15 +16,23 @@ const root = document.querySelector("#app");
 const state = createState();
 const selectors = createSelectors(state);
 const service = createWorkspaceService({ invoke, state, currentLine: selectors.currentLine, render });
-const context = { invoke, state, ...selectors, ...service, render, openModal, closeModal, document, window, FormData };
+const context = { invoke, state, ...selectors, ...service, render, renderSelection, openModal, closeModal, document, window, FormData };
 const modalMarkup = createModalRenderer(context);
 const management = createManagementWorkspace(context);
 const planning = createPlanningWorkspace(context);
 const costing = createCostingWorkspace(context);
 const budgetTools = createBudgetTools(context);
-const { workspace, listViews, chrome } = createViews({ ...context, modalMarkup });
+const { workspace, listViews, chrome, rightPanel } = createViews({ ...context, modalMarkup });
 const { act, handleSubmit } = createActions(context);
+const interactions = createBudgetInteractions({ ...context, act });
 const { loadCollections, openEstimate } = service;
+function renderSelection(){
+  const detail=document.querySelector(".detail-content");
+  if(!detail){render();return;}
+  document.querySelectorAll(".line-row").forEach(row=>row.classList.toggle("selected",row.dataset.id===state.selectedLineId));
+  document.querySelectorAll(".section-row[data-id]").forEach(row=>row.classList.toggle("selected",row.dataset.id===state.selectedSectionId));
+  detail.innerHTML=helpBox(state.panel,true)+rightPanel();
+}
 function render() {
   const top = document.querySelector(".table-scroll");
   const position = top?.scrollTop || 0;
@@ -39,19 +49,24 @@ function filterRows(text) {
   });
 }
 function openModal(kind, record = null) {
+  state.contextMenu = null;
+  state.modalDirty = false;
   state.modal = { kind, record };
-  state.acuComponents = kind === "analysis" && record?.components ?
+  state.acuComponents = ["analysis","line-resources"].includes(kind) && record?.components ?
     record.components.map(row => ({ resourceId: row.resource_id, quantity: row.quantity, unitPrice: row.unit_price })) : [];
   state.comparison = null; state.costComparison = null;
   render();
 }
 function closeModal() {
-  state.modal = null; render();
+  if(state.busy)return false;
+  if(state.modalDirty&&!window.confirm("Tenés cambios sin guardar. ¿Descartarlos y cerrar?"))return false;
+  state.modal=null;state.modalDirty=false;render();return true;
 }
 document.addEventListener("click", async evt => {
+  if(state.contextMenu){state.contextMenu=null;if(!evt.target.closest(".app-context-menu")){render();return;}}
   const button = evt.target.closest("[data-action]");
   if (!button || button.disabled) return;
-  if (button.dataset.action === "close-modal" && button.classList.contains("modal-overlay") && button !== evt.target) return;
+  if (button.dataset.action === "close-modal" && button.classList.contains("modal-overlay")) return;
   try { if (button.dataset.action === "open-budget-tools" || button.dataset.action.startsWith("budget-tools-")) await budgetTools.act(button); else if (button.dataset.action === "open-costing" || button.dataset.action.startsWith("cost-")) await costing.act(button); else if (button.dataset.action === "open-planning" || button.dataset.action.startsWith("plan-")) await planning.act(button); else if (button.dataset.action === "open-management" || button.dataset.action.startsWith("manage-")) await management.act(button); else await act(button); }
   catch (error) { state.message = "Error: " + String(error); render(); }
 });
@@ -73,6 +88,7 @@ document.addEventListener("submit", async evt => {
   }finally{state.busy=false;if(submit?.isConnected)submit.disabled=false;}
 });
 document.addEventListener("change", async evt => {
+  if(state.modal&&evt.target.closest?.("#dialog-form"))state.modalDirty=true;
   if(evt.target.name==="library-trade"){
     const trade=state.trades.find(row=>row.id===evt.target.value),form=evt.target.closest("form");
     if(trade&&form){form.querySelector('[name="code"]').value=trade.code;form.querySelector('[name="title"]').value=trade.name;}
@@ -82,7 +98,8 @@ document.addEventListener("change", async evt => {
     const row = evt.target.closest(".component-row");
     const price = row.querySelector('input[name="unitPrice"]');
     const selected = state.resources.find(r => r.id === evt.target.value);
-    if (price && selected?.price != null) price.value = selected.price;
+    if(price && state.modal?.kind==="line-resources" && selectors.currentEstimate()?.currency==="USD")price.value="";
+    else if (price && selected?.price != null) price.value = selected.price;
   }
   if (evt.target.name === "estimate-picker") {
     try { await openEstimate(evt.target.value); }
@@ -90,13 +107,21 @@ document.addEventListener("change", async evt => {
   }
 });
 document.addEventListener("input", evt => {
+  if(state.modal&&evt.target.closest?.("#dialog-form"))state.modalDirty=true;
   if (!evt.target.matches("[data-search]")) return;
   state.search = evt.target.value; filterRows(state.search);
 });
+document.addEventListener("contextmenu", evt => { interactions.contextMenu(evt).catch(error=>{state.message=String(error);render();}); });
+document.addEventListener("dblclick", evt => { interactions.doubleClick(evt).catch(error=>{state.message=String(error);render();}); });
+document.addEventListener("dragstart", evt => interactions.dragStart(evt));
+document.addEventListener("dragover", evt => interactions.dragOver(evt));
+document.addEventListener("dragend", () => interactions.dragEnd());
+document.addEventListener("drop", evt => { interactions.drop(evt).catch(error=>{state.message=String(error);render();}); });
 document.addEventListener("pointerdown", evt => planning.pointerDown(evt));
 document.addEventListener("pointerup", async evt => { try { await planning.pointerUp(evt); } catch(error) { state.message=String(error);render(); } });
 document.addEventListener("keydown", evt => {
-  if (evt.key === "Escape" && state.modal) closeModal();
+  if(interactions.keyDown(evt))return;
+  if (evt.key === "Escape" && state.modal) {evt.preventDefault();closeModal();}
   if ((evt.key === "Enter" || evt.key === " ") && evt.target.matches("tr[data-action]")) {
     evt.preventDefault(); evt.target.click();
   }

@@ -31,10 +31,10 @@ function modalMarkup() {
     title = item.id ? "Editar partida" : "Agregar partida";
     body = field("Descripción", "description", item.description, "required") +
       `<div class="form-grid three">${field("Unidad", "unit", item.unit || "m²", "required")}${field("Cantidad", "quantity", item.quantity ?? 1, 'type="number" min="0" step="any" required')}${field("Precio unitario", "unitCost", item.unit_cost ?? 0, 'type="number" min="0" step="any" required')}</div>` +
-      select("Rubro", "sectionId", sectionOptions, state.assignments[item.id] || "");
+      select("Rubro", "sectionId", sectionOptions, state.assignments[item.id] || state.selectedSectionId || "") + (item.analysis_id ? `<p class="modal-help">Si cambiás manualmente el precio o la unidad, esta partida pasa a precio manual. Su composición anterior se conserva sin alterar otras partidas.</p>` : "");
   } else if (kind === "from-acu") {
     title = "Insertar partida desde ACU";
-    body = select("Análisis de costos", "analysisId", state.analyses.map(a => [a.id, a.code + " · " + a.description + " — ARS " + money(a.unit_cost)])) +
+    body = (!state.analyses.length ? `<p class="modal-help">Todavía no hay ACU guardados. Creá uno en la pestaña ACU, o cerrá esta ventana y asigná insumos directamente a una partida existente.</p>` : "") + select("Análisis de costos", "analysisId", state.analyses.map(a => [a.id, a.code + " · " + a.description + " — ARS " + money(a.unit_cost)])) +
       field("Cantidad", "quantity", 1, 'type="number" min="0" step="any" required') +
       select("Rubro", "sectionId", sectionOptions);
   } else if (kind === "resource") {
@@ -55,27 +55,27 @@ function modalMarkup() {
       select("Moneda", "currency", [["ARS", "ARS"], ["USD", "USD"]]) +
       field("Fecha de vigencia", "effectiveDate", dateToday(), 'type="date" required') +
       field("Fuente / proveedor", "source", "Cotización manual");
-  } else if (kind === "analysis") {
+  } else if (kind === "analysis" || kind === "line-resources") {
     const editing = Boolean(item.id);
-    title = editing ? "Editar análisis de costo unitario" : "Crear análisis de costo unitario";
+    title = kind === "line-resources" ? "Insumos de la partida" : editing ? "Editar análisis de costo unitario" : "Crear análisis de costo unitario";
     wide = true;
-    body = `<div class="form-grid three">
+    body = (kind === "line-resources" ? `<p class="modal-help"><strong>${e(item.description)}</strong> · Consumos por ${e(item.unit)}. Estos insumos forman el precio unitario de esta partida; al guardar se reemplaza su precio manual. Las otras partidas conservan sus precios.</p>` : `<div class="form-grid three">
       ${field("Código ACU", "code", item.code || "", "required")}
       ${field("Descripción", "description", item.description || "", "required")}
       ${field("Unidad de la partida", "unit", item.unit || "m²", "required")}
     </div>
-    <div class="form-subhead">COMPOSICIÓN DEL ACU
+    `) + `<div class="form-subhead">${kind === "line-resources" ? "INSUMOS POR UNIDAD DE PARTIDA" : "COMPOSICIÓN DEL ACU"}
       <button class="btn tiny" type="button" data-action="add-component">＋ Agregar insumo</button>
     </div>
     <div class="component-editor" id="component-editor">
       ${state.acuComponents.map((row, index) => `<div class="form-grid component-row">
-        ${select("Insumo", "resource", resourceOptions, row.resourceId)}
+        ${select("Insumo", "resource", state.resources.some(resource=>resource.id===row.resourceId) ? resourceOptions : [[row.resourceId || "", "Insumo no disponible: elegí un reemplazo"], ...resourceOptions], row.resourceId)}
         ${field("Rendimiento / unidad", "quantity", row.quantity ?? 1, 'type="number" min="0" step="any" required')}
-        ${field("Precio unitario ARS", "unitPrice", row.unitPrice ?? state.resources.find(r => r.id === row.resourceId)?.price ?? 0, 'type="number" min="0" step="any" required')}
+        ${field(kind === "line-resources" ? "Precio unitario " + (currentEstimate()?.currency || "ARS") : "Precio unitario ARS", "unitPrice", row.unitPrice ?? (currentEstimate()?.currency === "USD" ? "" : state.resources.find(r => r.id === row.resourceId)?.price) ?? "", 'type="number" min="0" step="any" required')}
         <button type="button" class="tiny-danger" data-action="remove-component" data-index="${index}" aria-label="Quitar componente">×</button>
       </div>`).join("")}
     </div>
-    <p class="modal-help">Podés modificar rendimientos, insumos y precios de este ACU. La edición no cambia los presupuestos anteriores. Para trasladar los nuevos costos a un borrador, utilizá «Actualizar precios ACU».</p>`;
+    ${!state.resources.length ? `<p class="modal-help">Primero cargá insumos en el catálogo. Cerrá esta ventana y abrí la pestaña Insumos del menú principal.</p>` : ""}<p class="modal-help">${kind === "line-resources" ? "Al guardar se recalcula el precio unitario y el importe de esta partida. Las composiciones de otras partidas y versiones se conservan." : "Podés modificar rendimientos, insumos y precios de este ACU. La edición no cambia los presupuestos anteriores. Para trasladar los nuevos costos a un borrador, utilizá «Actualizar precios ACU»."}</p>`;
   } else if (kind === "reprice") {
     title = "Actualizar precios del ACU"; body = `<p class="modal-help">Se recalculará ${e(state.analyses.find(a => a.id === item.id)?.description)} con las cotizaciones vigentes a la fecha indicada. Los presupuestos anteriores NO cambian.</p>` +
       field("Precios vigentes al", "effectiveDate", dateToday(), 'type="date" required');
@@ -110,11 +110,11 @@ function modalMarkup() {
     body = `<div class="compare-cards"><span>EJECUCIÓN PROPIA<b>${money(d.own_total)}</b></span><span>SUBCONTRATO<b>${money(d.subcontract_total)}</b></span><span>DIFERENCIA<b>${money(d.difference_total)}</b></span></div><p class="modal-help">Diferencia positiva: el subcontrato es más caro. Valores calculados para ${numeric(d.quantity)} unidades, en ARS.</p>`;
   }
   const result = kind === "backups" || kind.endsWith("-result"), save = kind === "comparison" ? "Comparar" : kind === "contracting" ? "Calcular" : "Guardar";
-  return `<div class="modal-overlay" data-action="close-modal"><div class="dialog-shell ${wide ? "wide" : ""}" role="dialog" aria-modal="true" aria-label="${e(title)}">
+  return `<div class="modal-overlay"><div class="dialog-shell ${wide ? "wide" : ""}" role="dialog" aria-modal="true" aria-label="${e(title)}">
     <div class="dialog-header"><h2>${e(title)}</h2><button type="button" class="close-dialog" data-action="close-modal" aria-label="Cerrar">×</button></div>
     <form id="dialog-form" class="dialog-body" data-kind="${kind}">
       ${body}<p class="modal-error" role="alert"></p>
-      <div class="dialog-actions"><button type="button" class="btn" data-action="close-modal">Cerrar</button>${!result ? `<button type="submit" class="btn primary">${save}</button>` : ""}</div>
+      <div class="dialog-actions"><button type="button" class="btn" data-action="close-modal">Cerrar</button>${!result ? `<button type="submit" class="btn primary" ${kind === "from-acu" && !state.analyses.length ? "disabled" : ""}>${save}</button>` : ""}</div>
     </form></div></div>`;
 }
 

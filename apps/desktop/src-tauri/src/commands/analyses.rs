@@ -16,6 +16,7 @@ pub(crate) struct AnalysisComponentView {
 
 #[derive(serde::Serialize)]
 pub(crate) struct AnalysisDetailView {
+    is_line_owned: bool,
     code: String,
     description: String,
     unit: String,
@@ -54,6 +55,7 @@ pub(crate) fn get_analysis_details(
         })
         .collect();
     Ok(AnalysisDetailView {
+        is_line_owned: store.is_line_analysis(id).map_err(|e| e.to_string())?,
         code: analysis.code,
         description: analysis.description,
         unit: analysis.unit,

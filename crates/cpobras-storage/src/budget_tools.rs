@@ -13,6 +13,8 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BudgetDocument {
     #[serde(default)]
+    pub line_analyses: Vec<cpobras_core::UnitCostAnalysis>,
+    #[serde(default)]
     pub formulas: Vec<LineFormula>,
     pub format_version: u32,
     pub currency: Currency,
@@ -80,7 +82,19 @@ impl LocalStore {
                 });
             }
         }
+        let mut line_analyses = Vec::new();
+        let mut included = BTreeSet::new();
+        for line in &lines {
+            if let Some(id) = line.analysis_id {
+                if self.is_line_analysis(id)? && included.insert(id) {
+                    if let Some(analysis) = self.get_analysis(id)? {
+                        line_analyses.push(analysis);
+                    }
+                }
+            }
+        }
         Ok(BudgetDocument {
+            line_analyses,
             formulas,
             format_version: 1,
             currency: estimate.currency,
@@ -204,6 +218,28 @@ impl LocalStore {
             }
             pending = waiting;
         }
+        let mut imported_analyses = BTreeMap::new();
+        if document.line_analyses.len() > document.lines.len() {
+            return Err(invalid("Demasiadas composiciones de partidas"));
+        }
+        for source in &document.line_analyses {
+            if source.components.len() > 1000 || source.components.is_empty() {
+                return Err(invalid("Composición de partida inválida"));
+            }
+            source
+                .direct_unit_cost()
+                .map_err(|e| invalid(&e.to_string()))?;
+            let mut analysis = source.clone();
+            analysis.id = Uuid::new_v4();
+            tx.execute("INSERT INTO analyses(id,code,description,unit,snapshot_json) VALUES (?1,?2,?3,?4,?5)",params![analysis.id.to_string(),analysis.code,analysis.description,analysis.unit,serde_json::to_string(&analysis)?])?;
+            tx.execute(
+                "INSERT INTO line_analysis_snapshots(analysis_id) VALUES (?1)",
+                [analysis.id.to_string()],
+            )?;
+            if imported_analyses.insert(source.id, analysis.id).is_some() {
+                return Err(invalid("Composición duplicada"));
+            }
+        }
         for (position, line) in document.lines.iter().enumerate() {
             if line.description.trim().is_empty()
                 || line.unit.trim().is_empty()
@@ -213,20 +249,36 @@ impl LocalStore {
             {
                 return Err(invalid("Partida inválida"));
             }
-            let analysis = if let Some(id) = line.analysis_id {
-                let exists: bool = tx.query_row(
-                    "SELECT EXISTS(SELECT 1 FROM analyses WHERE id=?1)",
-                    [id.to_string()],
-                    |r| r.get(0),
-                )?;
-                if exists {
-                    Some(id.to_string())
+            let analysis =
+                if let Some(mapped) = line.analysis_id.and_then(|id| imported_analyses.get(&id)) {
+                    let snapshot = document
+                        .line_analyses
+                        .iter()
+                        .find(|analysis| Some(analysis.id) == line.analysis_id)
+                        .ok_or_else(|| invalid("Falta composición de la partida"))?;
+                    if snapshot.unit != line.unit
+                        || snapshot
+                            .direct_unit_cost()
+                            .map_err(|e| invalid(&e.to_string()))?
+                            != line.unit_cost_snapshot
+                    {
+                        return Err(invalid("El precio o unidad no coincide con su composición"));
+                    }
+                    Some(mapped.to_string())
+                } else if let Some(id) = line.analysis_id {
+                    let exists: bool = tx.query_row(
+                        "SELECT EXISTS(SELECT 1 FROM analyses WHERE id=?1)",
+                        [id.to_string()],
+                        |r| r.get(0),
+                    )?;
+                    if exists {
+                        Some(id.to_string())
+                    } else {
+                        None
+                    }
                 } else {
                     None
-                }
-            } else {
-                None
-            };
+                };
             tx.execute("INSERT INTO estimate_lines(id,estimate_id,position,analysis_id,description,unit,quantity,unit_cost_snapshot) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",params![lines[&line.id].to_string(),estimate.id.to_string(),position as i64,analysis,line.description,line.unit,line.quantity.to_string(),line.unit_cost_snapshot.to_string()])?;
         }
         for formula in &document.formulas {
@@ -308,7 +360,18 @@ impl LocalStore {
             {
                 return Err(invalid("Partida inválida"));
             }
-            let updated=tx.execute("UPDATE estimate_lines SET description=?1,unit=?2,quantity=?3,unit_cost_snapshot=?4 WHERE id=?5 AND estimate_id=?6",params![change.description,change.unit,change.quantity.to_string(),change.unit_cost.to_string(),change.id.to_string(),id.to_string()])?;
+            let old: (String, String) = tx.query_row(
+                "SELECT unit,unit_cost_snapshot FROM estimate_lines WHERE id=?1 AND estimate_id=?2",
+                params![change.id.to_string(), id.to_string()],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )?;
+            let manual_override = old.0 != change.unit
+                || old
+                    .1
+                    .parse::<Decimal>()
+                    .map_err(|_| invalid("Precio guardado inválido"))?
+                    != change.unit_cost;
+            let updated=tx.execute("UPDATE estimate_lines SET description=?1,unit=?2,quantity=?3,unit_cost_snapshot=?4,analysis_id=CASE WHEN ?7 THEN NULL ELSE analysis_id END WHERE id=?5 AND estimate_id=?6",params![change.description,change.unit,change.quantity.to_string(),change.unit_cost.to_string(),change.id.to_string(),id.to_string(),manual_override])?;
             if updated != 1 {
                 return Err(invalid("Partida ajena al presupuesto"));
             }
