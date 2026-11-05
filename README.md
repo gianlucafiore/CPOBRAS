@@ -4,6 +4,35 @@ Sistema local de cómputos, presupuestos y gestión de obras para Argentina.
 Rust concentra las reglas de negocio; SQLite guarda los datos en el equipo y
 Tauri 2 presenta la interfaz. Los importes se calculan con precisión decimal.
 
+## Actualizar y probar en Linux Mint
+
+Desde la carpeta del repositorio:
+
+```bash
+git switch develop
+git pull --ff-only origin develop
+cd apps/desktop
+npm ci
+npm run tauri dev
+```
+
+La base existente se migra automáticamente; no hace falta borrarla. Para compilar
+el ejecutable en lugar de arrancar en desarrollo, desde `apps/desktop`:
+
+```bash
+npm run tauri build -- --no-bundle
+```
+
+En **Insumos de la partida**, escribí en el buscador: acepta coincidencias
+aproximadas. La última opción **Agregar** abre una segunda ventana para crear el
+insumo y seleccionarlo al guardar, conservando la composición. Ninguna ventana
+se cierra al pulsar afuera; descartar cambios requiere confirmación.
+
+En **Gestión de obra** están las etapas 6 a 10: compras/stock, producción,
+certificaciones, finanzas y tablero. Elegí obra y fecha de corte. La guía de
+prueba, el circuito de documentos y las reglas de cálculo están en
+[docs/OPERATIONS.md](docs/OPERATIONS.md).
+
 ## Instalar dependencias
 
 Requisitos: Rust 1.99.1 con `rustfmt` (fijado en `rust-toolchain.toml`, instalable con rustup), Node.js 24 (versión fijada en `.nvmrc`) y npm. En Linux también

@@ -9,6 +9,9 @@ async function bridge(page, options={}) {
   const assignments=[];const lineDetails={};
   const estimate = { id: "estimate-1", title: "Presupuesto inicial", currency: "ARS", issued: Boolean(fixture.issued) };
   const totals = { direct: "200", general_expenses: "0", financial_expenses: "0", profit: "0", discount: "0", taxable_subtotal: "200", taxes: "0", total: "200" };
+  const resources=[{ id: "resource-1", code: "MAT-1", description: "Acero", unit: "kg", kind: "material", price: "100" }];
+  const operations=[],warehouses=[];
+  const operationReport=()=>({project_id:project.id,name:project.name,as_of:"2026-11-05",estimate_id:estimate.id,summaries:[{currency:"ARS",budget_cost:"200",budget_sale:"200",committed:"0",accrued:"0",paid:"0",collected:"0",payable:"0",receivable:"0",overdue_payable:"0",overdue_receivable:"0",cash:"0",cost_to_finish:"200",expected_result:"0",physical_percent:"0",certified:"0"}],cash_flow:[],production:[],costs:[],quotes:[],needs:[],alerts:[],scheduled_finish:null,planned_percent:null});
   const records = []; const nested = []; const calls = []; let plan = null;
   window.__calls = calls;
   const schedule = current => ({ tasks: current.tasks.map((task, index) => ({ id: task.id, start: "2026-11-05", finish: "2026-11-09", start_day: index, finish_day: index + task.duration_days, float_days: 0, critical: true })), duration_days: current.tasks.reduce((n, task) => n + task.duration_days, 0), finish: "2026-11-09", curve: [{ date: "2026-11-05", period_cost: "100", cumulative_cost: "100" }], budget: "100", planned_progress: "50", actual_progress: current.tasks[0]?.actual_progress || "0", warnings: [] });
@@ -16,7 +19,15 @@ async function bridge(page, options={}) {
    calls.push({ command, args: structuredClone(args) });
    if (command === "list_clients") return [{ id: "client-1", name: "Comitente", cuit: null }];
    if (command === "list_projects") return [project];
-   if (command === "list_resources") return [{ id: "resource-1", code: "MAT-1", description: "Acero", unit: "kg", kind: "material", price: "100" }];
+   if (command === "list_resources") return resources;
+   if(command==='create_resource'){const r={id:'resource-'+(resources.length+1),...args};resources.push(r);return r;}
+   if(command==='list_operations')return operations;
+   if(command==='list_warehouses')return warehouses;
+   if(command==='create_warehouse'){warehouses.push(args.warehouse);return args.warehouse;}
+   if(command==='stock_balances')return [];
+   if(command==='operations_report')return operationReport();
+   if(command==='operations_portfolio')return [operationReport()];
+   if(command==='post_operation'){const o={...args.operation,calculated:{}};operations.push(o);return o;}
    if (command === "list_analyses") return [];
    if (command === "list_project_estimates") return [estimate];
    if (command === "list_estimate_lines") return lines;
@@ -33,7 +44,7 @@ async function bridge(page, options={}) {
     lineDetails[id]={is_line_owned:true,code:"PART",description:selected.description,unit:selected.unit,unit_cost:String(cost),components:args.components.map(row=>({resource_id:row.resourceId,description:"Acero",kind:"material",quantity:row.quantity,unit_price:row.unitPrice,total:String(Number(row.quantity)*Number(row.unitPrice))}))};return id;
    }
    if (command === "list_budget_sections" || command === "list_line_sections" || command === "list_backups" || command === "list_budget_templates" || command === "list_plan_revisions" || command === "list_plan_baselines" || command === "list_fx_quotes" || command === "scoped_price_history") return [];
-   if (command === "list_management_records") return records.filter(record => record.kind === args.kind);
+   if (command === "list_management_records") return args.kind==='supplier'?[{id:'supplier-1',kind:'supplier',name:'Proveedor de prueba'}]:records.filter(record => record.kind === args.kind);
    if (command === "save_management_record") { const record = { ...args.record, revision: args.record.revision + 1 }; const old = records.findIndex(item => item.id === record.id); if (old >= 0) records[old] = record; else records.push(record); return record; }
    if (command === "list_change_events") return [{ sequence: 1, entity_type: "management_records", entity_id: records[0]?.id, operation: "insert", occurred_at: "2026-11-05 10:00" }];
    if (command === "get_project_plan") return plan;
@@ -180,4 +191,41 @@ test("backdrop clicks preserve popup drafts and explicit closing confirms discar
  page.once('dialog',dialog=>dialog.accept());await page.getByRole('dialog').getByRole('button',{name:'Cerrar',exact:true}).last().click();
  await expect(page.getByRole('dialog')).toHaveCount(0);
  expect(await page.evaluate(()=>window.__calls.some(row=>row.command==='add_estimate_line'))).toBe(false);
+});
+
+test('fuzzy resource search creates a resource in a child popup and preserves composition',async({page})=>{
+ await bridge(page);await page.getByRole('button',{name:'Abrir ›',exact:true}).click();await page.getByRole('tab',{name:'Insumos',exact:true}).click();await page.getByRole('button',{name:'Asignar',exact:true}).click();
+ await page.getByLabel('Rendimiento / unidad',{exact:true}).fill('3');await page.getByRole('button',{name:'＋ Agregar insumo',exact:true}).click();
+ const searches=page.getByRole('combobox',{name:/Buscar insumo/});await searches.nth(1).fill('acreo');await expect(page.getByRole('option',{name:'MAT-1 · Acero (kg)'})).toBeVisible();
+ await searches.nth(1).fill('Cemento especial');await page.getByRole('option',{name:'＋ Agregar «Cemento especial»'}).click();
+ const child=page.getByRole('dialog',{name:'Crear insumo sin salir'});await expect(child).toBeVisible();await child.getByLabel('Código',{exact:true}).fill('MAT-2');await child.getByLabel('Precio inicial ARS',{exact:true}).fill('250');await page.screenshot({path:'/workspace/cpobras-quick-resource.png'});
+ await page.locator('.quick-resource-overlay').click({position:{x:2,y:2}});await expect(child).toBeVisible();
+ page.once('dialog',d=>d.dismiss());await page.keyboard.press('Escape');await expect(child).toBeVisible();
+ await child.getByRole('button',{name:'Guardar y seleccionar',exact:true}).click();await expect(child).toHaveCount(0);await expect(searches.nth(1)).toHaveValue('MAT-2 · Cemento especial');await expect(page.getByLabel('Rendimiento / unidad',{exact:true}).nth(0)).toHaveValue('3');
+ await page.getByRole('button',{name:'Guardar',exact:true}).click();const saved=await page.evaluate(()=>window.__calls.find(c=>c.command==='save_line_resources').args);expect(saved.components[1].resourceId).toBe('resource-2');expect(saved.components[1].unitPrice).toBe('250');expect(saved.components[0].quantity).toBe('3');
+});
+
+test('operations creates warehouses and procurement documents without losing form rows',async({page})=>{
+ await bridge(page);await page.getByRole('button',{name:'Gestión de obra',exact:true}).click();await expect(page.getByRole('navigation',{name:'Etapas de gestión'})).toBeVisible();await page.screenshot({path:'/workspace/cpobras-operations.png'});
+ await page.getByText('Depósitos y existencias',{exact:true}).click();await page.getByLabel('Nombre del depósito',{exact:true}).fill('Central');await page.getByLabel('Ubicación / estante',{exact:true}).fill('A1');await page.getByRole('button',{name:'Crear depósito',exact:true}).click();
+ await page.getByLabel('Número / referencia',{exact:true}).fill('SOL-001');await page.getByLabel('Descripción del renglón',{exact:true}).fill('Material pendiente');await page.getByLabel('Cantidad del período / movimiento',{exact:true}).fill('5');await page.getByRole('button',{name:'Agregar renglón',exact:true}).click();await expect(page.getByLabel('Número / referencia',{exact:true})).toHaveValue('SOL-001');await expect(page.getByLabel('Cantidad del período / movimiento',{exact:true}).first()).toHaveValue('5');
+ await page.getByLabel('Descripción del renglón',{exact:true}).nth(1).fill('Otro material');await page.getByRole('button',{name:'Registrar solicitud de materiales',exact:true}).click();await expect(page.getByRole('dialog',{name:'Documento registrado'})).toBeVisible();await page.locator('.modal-overlay').click({position:{x:2,y:2}});await expect(page.getByRole('dialog',{name:'Documento registrado'})).toBeVisible();await page.keyboard.press('Escape');
+ const saved=await page.evaluate(()=>window.__calls.find(c=>c.command==='post_operation').args.operation);expect(saved.kind).toBe('request');expect(saved.lines).toHaveLength(2);expect(saved.lines[0].quantity).toBe('5');
+ await page.getByRole('combobox',{name:'Tipo de documento',exact:true}).selectOption('rfq');await page.getByRole('combobox',{name:'Documento de origen',exact:true}).selectOption(saved.id);await expect(page.getByLabel('Descripción del renglón',{exact:true}).first()).toHaveValue('Material pendiente');
+});
+
+test('production, certification, finances and dashboard screens expose their workflows',async({page})=>{
+ await bridge(page);await page.getByRole('button',{name:'Gestión de obra',exact:true}).click();
+ await page.getByRole('button',{name:'Producción',exact:true}).click();await page.getByLabel('Número / referencia',{exact:true}).fill('PARTE-001');await page.getByLabel('Descripción del renglón',{exact:true}).fill('Cuadrilla Pérez');await page.getByLabel('Horas trabajadas / equipo',{exact:true}).fill('8');await page.getByLabel('Costo por hora',{exact:true}).fill('100');await page.getByRole('button',{name:'Registrar parte diario',exact:true}).click();await page.keyboard.press('Escape');
+ await page.getByRole('button',{name:'Certificaciones',exact:true}).click();await page.getByRole('combobox',{name:'Tipo de documento',exact:true}).selectOption('index');await page.getByLabel('Número / referencia',{exact:true}).fill('IPC-NOV');await page.getByLabel('URL de la publicación / fuente',{exact:true}).fill('https://www.indec.gob.ar/publicacion');await page.getByLabel('Valor del índice',{exact:true}).fill('123.45');await page.getByRole('button',{name:'Registrar índice de precios',exact:true}).click();await page.keyboard.press('Escape');
+ await page.getByRole('button',{name:'Finanzas',exact:true}).click();await page.getByLabel('Número / referencia',{exact:true}).fill('FAC-001');await page.getByLabel('Importe',{exact:true}).fill('500');await page.getByRole('combobox',{name:'Contraparte',exact:true}).selectOption('supplier-1');await page.getByRole('button',{name:'Registrar factura por pagar',exact:true}).click();await page.keyboard.press('Escape');
+ await page.getByRole('button',{name:'Tablero',exact:true}).click();await expect(page.getByRole('columnheader',{name:'Resultado esperado',exact:true})).toBeVisible();await page.getByRole('combobox',{name:'Contenido del informe',exact:true}).selectOption('portfolio');await page.getByRole('button',{name:'Informe PDF',exact:true}).click();await expect(page.getByRole('status').filter({hasText:'Guardado en'})).toBeVisible();
+ const kinds=await page.evaluate(()=>window.__calls.filter(c=>c.command==='post_operation').map(c=>c.args.operation.kind));expect(kinds).toEqual(['daily','index','payable']);
+});
+
+test('operational drafts survive rejected navigation and are cleared only after explicit discard',async({page})=>{
+ await bridge(page);await page.getByRole('button',{name:'Gestión de obra',exact:true}).click();await page.getByRole('button',{name:'Finanzas',exact:true}).click();await page.getByLabel('Número / referencia',{exact:true}).fill('BORRADOR');
+ page.once('dialog',d=>d.dismiss());await page.getByRole('button',{name:'Insumos',exact:true}).click();await expect(page.getByLabel('Número / referencia',{exact:true})).toHaveValue('BORRADOR');
+ page.once('dialog',d=>d.accept());await page.getByRole('button',{name:'Insumos',exact:true}).click();await expect(page.getByRole('heading',{name:'Biblioteca de insumos',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'Gestión de obra',exact:true}).click();await expect(page.getByLabel('Número / referencia',{exact:true})).toHaveValue('');await expect(page.getByRole('heading',{name:'Factura por pagar',exact:true})).toBeVisible();
 });

@@ -1,6 +1,6 @@
 # Plan de desarrollo y auditoría
 
-Alcance autorizado en esta sesión: **etapas 1 a 5, con 43 subítems**.
+Alcance autorizado en esta sesión: **etapas 1 a 10, con 75 subítems**.
 El listado original completo conserva 85 ítems en 12 etapas.
 
 Los checks siguientes indican una implementación funcional local con la evidencia
@@ -9,8 +9,7 @@ con obras reales. Las decisiones y límites están en [VALIDATION.md](VALIDATION
 la seguridad de dependencias en [DEPENDENCIES.md](DEPENDENCIES.md), y los comandos
 para compilar y arrancar están en el [README principal](../README.md).
 
-El desarrollo se mantiene en `develop`, partiendo de `f50b792`. Los cambios no
-se han publicado en el repositorio remoto. No se modificó main remoto ni se
+El desarrollo se mantiene en `develop`, partiendo de `f50b792`. Los cambios se publican en `origin/develop`. No se modificó main remoto ni se
 eliminaron ramas de otras personas. No se fija una fecha u horas de entrega para
 las etapas futuras.
 
@@ -198,77 +197,88 @@ las etapas futuras.
 
 ## ETAPA 6: Compras, contratación y almacenes
 
-- [ ] 1. Implementar solicitudes de materiales y necesidades por obra.
+- [x] 1. Implementar solicitudes de materiales y necesidades por obra.
 
-- [ ] 2. Crear pedidos de cotización y comparativas de proveedores.
+- [x] 2. Crear pedidos de cotización y comparativas de proveedores.
 
-- [ ] 3. Generar órdenes de compra y órdenes de servicio.
+- [x] 3. Generar órdenes de compra y órdenes de servicio.
 
-- [ ] 4. Administrar contratos de subcontratistas y sus condiciones.
+- [x] 4. Administrar contratos de subcontratistas y sus condiciones.
 
-- [ ] 5. Registrar remitos, recepciones y entregas parciales.
+- [x] 5. Registrar remitos, recepciones y entregas parciales.
 
-- [ ] 6. Implementar depósitos, ubicaciones, existencias y movimientos de stock.
+- [x] 6. Implementar depósitos, ubicaciones, existencias y movimientos de stock.
 
-- [ ] 7. Registrar consumos, devoluciones y transferencias entre obras.
+- [x] 7. Registrar consumos, devoluciones y transferencias entre obras.
 
-- [ ] 8. Vincular compras, materiales y subcontratos con costos reales.
+- [x] 8. Vincular compras, materiales y subcontratos con costos reales.
+
+Evidencia funcional y guía de uso: [OPERATIONS.md](OPERATIONS.md).
 
 ## ETAPA 7: Ejecución y producción
 
-- [ ] 1. Crear partes diarios de obra.
+- [x] 1. Crear partes diarios de obra.
 
-- [ ] 2. Registrar asistencia, horas trabajadas, cuadrillas y equipos.
+- [x] 2. Registrar asistencia, horas trabajadas, cuadrillas y equipos.
 
-- [ ] 3. Registrar ejecución de tareas, cantidades y producción diaria.
+- [x] 3. Registrar ejecución de tareas, cantidades y producción diaria.
 
-- [ ] 4. Comparar rendimientos reales contra los previstos en ACU.
+- [x] 4. Comparar rendimientos reales contra los previstos en ACU.
 
-- [ ] 5. Registrar incidencias, imprevistos, fotografías y observaciones.
+- [x] 5. Registrar incidencias, imprevistos, fotografías y observaciones.
 
-- [ ] 6. Implementar seguimiento de avances físicos por rubro.
+- [x] 6. Implementar seguimiento de avances físicos por rubro.
 
-- [ ] 7. Crear indicadores de productividad y desvíos.
+- [x] 7. Crear indicadores de productividad y desvíos.
+
+Evidencia funcional y guía de uso: [OPERATIONS.md](OPERATIONS.md).
 
 ## ETAPA 8: Certificaciones y ajustes de precios
 
-- [ ] 1. Implementar certificados de avance por período y partida.
+- [x] 1. Implementar certificados de avance por período y partida.
 
-- [ ] 2. Calcular acumulados anteriores, del período y pendientes.
+- [x] 2. Calcular acumulados anteriores, del período y pendientes.
 
-- [ ] 3. Gestionar anticipos financieros, descuentos y fondos de reparo.
+- [x] 3. Gestionar anticipos financieros, descuentos y fondos de reparo.
 
-- [ ] 4. Crear certificados de subcontratistas y conciliaciones.
+- [x] 4. Crear certificados de subcontratistas y conciliaciones.
 
-- [ ] 5. Implementar índices CAC, IPC e INDEC con fuentes y períodos verificables.
+- [x] 5. Implementar índices CAC, IPC e INDEC con fuentes y períodos verificables.
 
-- [ ] 6. Agregar fórmulas contractuales de redeterminación de precios.
+- [x] 6. Agregar fórmulas contractuales de redeterminación de precios.
 
-- [ ] 7. Generar certificados y anexos exportables, con historial inmutable.
+- [x] 7. Generar certificados y anexos exportables, con historial inmutable.
+
+Evidencia funcional y guía de uso: [OPERATIONS.md](OPERATIONS.md).
 
 ## ETAPA 9: Finanzas y rentabilidad
 
-- [ ] 1. Registrar compromisos, facturas, cuentas por pagar y cuentas por cobrar.
+- [x] 1. Registrar compromisos, facturas, cuentas por pagar y cuentas por cobrar.
 
-- [ ] 2. Registrar pagos, cobros y vencimientos.
+- [x] 2. Registrar pagos, cobros y vencimientos.
 
-- [ ] 3. Crear flujo de fondos previsto y realizado.
+- [x] 3. Crear flujo de fondos previsto y realizado.
 
-- [ ] 4. Comparar presupuesto, comprometido, devengado y efectivamente pagado.
+- [x] 4. Comparar presupuesto, comprometido, devengado y efectivamente pagado.
 
-- [ ] 5. Calcular resultados por obra, centro de costos y rubro.
+- [x] 5. Calcular resultados por obra, centro de costos y rubro.
 
-- [ ] 6. Agregar proyección de costo a terminar y resultado final esperado.
+- [x] 6. Agregar proyección de costo a terminar y resultado final esperado.
+
+Evidencia funcional y guía de uso: [OPERATIONS.md](OPERATIONS.md).
 
 ## ETAPA 10: Tableros e informes
 
-- [ ] 1. Crear un panel general de cartera de obras.
+- [x] 1. Crear un panel general de cartera de obras.
 
-- [ ] 2. Mostrar avances físicos y económicos, plazos y alertas.
+- [x] 2. Mostrar avances físicos y económicos, plazos y alertas.
 
-- [ ] 3. Desarrollar indicadores de rentabilidad, productividad y desviaciones.
+- [x] 3. Desarrollar indicadores de rentabilidad, productividad y desviaciones.
 
-- [ ] 4. Crear informes configurables exportables a Excel y PDF.
+- [x] 4. Crear informes configurables exportables a Excel y PDF.
+
+
+Evidencia funcional y guía de uso: [OPERATIONS.md](OPERATIONS.md).
 
 ## ETAPA 11: Inteligencia artificial y colaboración
 

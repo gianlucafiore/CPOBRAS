@@ -5,10 +5,10 @@ con Node 24.22.1 y Rust 1.99.1. `tools/check.sh` reúne los checks reproducibles
 
 | Comprobación | Evidencia |
 | --- | --- |
-| Rust, núcleo y almacenamiento | 47 tests: 17 de dominio y 30 de persistencia/regresión |
+| Rust, núcleo y almacenamiento | 59 tests: 17 de dominio y 42 de persistencia/regresión |
 | Escritorio Tauri | 2 tests nativos: recorrido IPC y regresión GLib optimizada |
-| JavaScript | 17 tests, con aislamiento de procesos desactivado explícitamente en el runner |
-| Chromium | 10 recorridos de interfaz sobre DOM real y un puente IPC de prueba |
+| JavaScript | 20 tests, con aislamiento de procesos desactivado explícitamente en el runner |
+| Chromium | 14 recorridos de interfaz sobre DOM real y un puente IPC de prueba |
 | Formato Rust | Workspace y aplicación Tauri |
 | Frontend de producción | Vite build, incluyendo los módulos de Excel y PDF |
 | Ejecutable Linux | Compilación con `custom-protocol` y arranque WebKitGTK en Xvfb |
@@ -19,7 +19,25 @@ cuentan como cobertura adicional. Los tests de Chromium no sustituyen la
 integración nativa: el recorrido IPC usa Tauri con su configuración real y
 comprueba clientes, obras, ACU, presupuesto emitido, directorios, listas de
 precios, ACU anidados, importación, cronograma, línea base, copia/restauración,
-exportación y rechazo de ventanas/orígenes sin permisos.
+exportación, depósitos, documentos operativos, reportes de gestión y rechazo de ventanas/orígenes sin permisos.
+
+## Regresiones de gestión (etapas 6–10)
+
+- Solicitud → pedido de cotización → oferta completa → orden → recepción parcial.
+- Rechazo de exceso de recepción, consumo sin stock, devolución excesiva,
+  moneda mezclada y movimiento retroactivo. Transferencias entre obras conservan valor.
+- Consumos concurrentes en dos conexiones SQLite no gastan la misma existencia.
+- Promedio ponderado periódico conserva el valor exacto al agotar y devolver stock.
+- Partes con producción, asistencia y equipo no duplican cantidades ni horas de personal.
+- Certificados requieren presupuesto emitido, usan sus precios de venta,
+  controlan períodos, saldos, anticipos, reparos y liberaciones.
+- Ajustes requieren índices y ponderadores válidos; se guarda el cálculo inmutable.
+- Facturas, pagos/cobros parciales, flujo, proyección y resultados se concilian.
+- Copia/restauración conserva documentos y existencias de la migración 15.
+- Buscador aproximado y alta en ventana superpuesta conservan el formulario original.
+- Excel conserva los decimales de los anexos y PDF genera documentos portables.
+
+Guía, reglas económicas y límites: [OPERATIONS.md](OPERATIONS.md).
 
 ## Regresiones comprobadas
 
@@ -48,7 +66,7 @@ exportación y rechazo de ventanas/orígenes sin permisos.
 - Cada obra tiene un calendario con días laborables configurables y feriados.
   Las dependencias FS/SS/FF/SF usan desfases laborables. Las fechas límite
   incumplidas generan alertas. Asignar recursos no hace nivelación automática
-  de capacidad ni reemplaza los partes diarios de etapas posteriores.
+  de capacidad ni reemplaza los partes diarios de Gestión de obra.
 - Una partida presupuestaria se vincula a una sola tarea valorizada por plan,
   para impedir duplicación involuntaria de su costo. Las tareas sin partida
   admiten un presupuesto explícito. El costo se distribuye por día laborable;

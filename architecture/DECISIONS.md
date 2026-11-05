@@ -6,8 +6,8 @@
 - IDs are UUIDs to support offline entity creation.
 - Financial documents must store immutable price snapshots and revision history.
 - All edits from AI tools will require an explicit human review before persistence.
-- SQLite storage and an initial Tauri desktop frontend are implemented. Gantt,
-  certification, authentication and AI remain in the development roadmap.
+- SQLite storage and the local Tauri desktop implement stages 1–10.
+  Authentication, collaboration, AI and distribution remain in stages 11–12.
 - Monetary and measured-quantity values cross IPC as decimal strings. Frontend
   subtotals use scaled BigInt arithmetic and round only when formatting.
 - Invalid monetary display values are shown as unavailable, never silently as zero.
@@ -40,3 +40,27 @@
   in memory before altering the live connection; the UI creates a safety snapshot.
 - A narrowly scoped, verified upstream GLib security fix is carried under `vendor`;
   see vendor/README.md for provenance and the criterion for removing the backport.
+
+## Development stages 6–10
+
+- Construction operations live in `cpobras-storage::operations`; desktop IPC uses
+  a dedicated commands module and the existing main-window permission boundary.
+- Migration 15 stores immutable source documents, normalized foreign-key links,
+  warehouses and an append-only stock ledger. Validation, reconciliation and
+  posting share one immediate SQLite transaction; repeated document IDs fail.
+- Stock uses weighted average per warehouse/resource/currency. Row allocations
+  carry exact values; the final outflow/return carries the division remainder.
+  Concurrent consumption is tested with two independent database connections.
+- Receipts create inventory; consumption and service acceptance create real cost.
+  Daily labor/equipment hours create their own cost. Financial invoices and
+  certificates do not duplicate those physical costs. Attendance rows do not
+  duplicate production quantities or equipment hours as labor hours.
+- Certificates freeze issued-budget sale prices or subcontract prices, period
+  quantities, accumulation, advances, retention and net amounts. Indices retain
+  period, publication date and source URL; input-source verification is manual.
+- Reports calculate at an explicit date, separate currencies and distinguish
+  recognized result from cash. The projected remaining cost is an explicit latest
+  forecast or a documented production-based budget estimate.
+- Frontend operational drafts survive rerenders and require explicit discard on
+  navigation. Quick resource creation uses an overlay above the existing dialog,
+  preserving its DOM and values; the parent is inert until the child closes.

@@ -11,3 +11,5 @@ pub(crate) mod planning;
 pub(crate) mod projects;
 pub(crate) mod resources;
 pub(crate) mod sections;
+
+pub(crate) mod operations;

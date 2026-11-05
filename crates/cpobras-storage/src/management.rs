@@ -348,6 +348,8 @@ impl LocalStore {
                 let alias = if op == "delete" { "OLD" } else { "NEW" };
                 let key = if fields.iter().any(|field| field == "id") {
                     "id"
+                } else if fields.iter().any(|field| field == "document_id") {
+                    "document_id"
                 } else if fields.iter().any(|field| field == "line_id") {
                     "line_id"
                 } else if fields.iter().any(|field| field == "project_id") {

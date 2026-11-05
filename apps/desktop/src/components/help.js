@@ -1,5 +1,6 @@
 import { e } from "./helpers.js";
 const pages={
+ operations:["Gestión de obra: compras, producción, certificaciones y finanzas","Elegí obra, presupuesto y fecha de corte. Usá las pestañas para recorrer cada etapa y registrar documentos vinculados. El tablero reúne la cartera y los informes se exportan a Excel o PDF."],
  projects:["Obras y presupuestos","Creá una obra y abrila para trabajar con sus presupuestos. Antes necesitás registrar al comitente en Clientes."],
  clients:["Clientes","Registrá a quienes te contratan. Después podrás elegirlos al crear una obra; los contactos y datos ampliados están en Organización."],
  resources:["Catálogo de insumos","Cargá materiales, mano de obra, equipos y subcontratos con su unidad y precio. Luego asignálos desde la pestaña Insumos de una partida."],

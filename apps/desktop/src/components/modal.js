@@ -1,3 +1,4 @@
+import { resourcePicker } from './resource-picker.js';
 import { money, numeric, sumDecimals, absoluteDecimal } from "../decimal.js";
 import { e, dateToday, kindName, kindBadge, field, select, btn } from "./helpers.js";
 
@@ -8,7 +9,6 @@ function modalMarkup() {
   let title = "", body = "", wide = false;
   const projectOptions = state.clients.map(c => [c.id, c.name]);
   const sectionOptions = [["", "Sin rubro"], ...state.sections.map(s => [s.id, s.code + " · " + s.title])];
-  const resourceOptions = state.resources.map(r => [r.id, r.code + " · " + r.description + " (" + r.unit + ")"]);
   if (kind === "backups") {
     title = "Copias de seguridad";
     body = `<p>Se guardan en el directorio de datos de CPOBRAS. La restauración crea una copia de seguridad del estado actual antes de reemplazarlo.</p><button type="button" class="btn" data-action="create-backup">Crear copia</button><button type="button" class="btn" data-action="verify-database">Verificar integridad</button><ul>${state.backups.map(copy => `<li>${e(new Date(copy.created_at * 1000).toLocaleString("es-AR"))} · ${e(copy.bytes)} bytes <button type="button" class="btn" data-action="restore-backup" data-id="${e(copy.id)}">Restaurar</button></li>`).join("") || "<li>No hay copias todavía.</li>"}</ul>`;
@@ -69,13 +69,13 @@ function modalMarkup() {
     </div>
     <div class="component-editor" id="component-editor">
       ${state.acuComponents.map((row, index) => `<div class="form-grid component-row">
-        ${select("Insumo", "resource", state.resources.some(resource=>resource.id===row.resourceId) ? resourceOptions : [[row.resourceId || "", "Insumo no disponible: elegí un reemplazo"], ...resourceOptions], row.resourceId)}
+        ${resourcePicker(state.resources,row.resourceId,index)}
         ${field("Rendimiento / unidad", "quantity", row.quantity ?? 1, 'type="number" min="0" step="any" required')}
         ${field(kind === "line-resources" ? "Precio unitario " + (currentEstimate()?.currency || "ARS") : "Precio unitario ARS", "unitPrice", row.unitPrice ?? (currentEstimate()?.currency === "USD" ? "" : state.resources.find(r => r.id === row.resourceId)?.price) ?? "", 'type="number" min="0" step="any" required')}
         <button type="button" class="tiny-danger" data-action="remove-component" data-index="${index}" aria-label="Quitar componente">×</button>
       </div>`).join("")}
     </div>
-    ${!state.resources.length ? `<p class="modal-help">Primero cargá insumos en el catálogo. Cerrá esta ventana y abrí la pestaña Insumos del menú principal.</p>` : ""}<p class="modal-help">${kind === "line-resources" ? "Al guardar se recalcula el precio unitario y el importe de esta partida. Las composiciones de otras partidas y versiones se conservan." : "Podés modificar rendimientos, insumos y precios de este ACU. La edición no cambia los presupuestos anteriores. Para trasladar los nuevos costos a un borrador, utilizá «Actualizar precios ACU»."}</p>`;
+    ${!state.resources.length ? `<p class="modal-help">Buscá un insumo y elegí «Agregar» para crearlo sin salir de esta ventana.</p>` : ""}<p class="modal-help">${kind === "line-resources" ? "Al guardar se recalcula el precio unitario y el importe de esta partida. Las composiciones de otras partidas y versiones se conservan." : "Podés modificar rendimientos, insumos y precios de este ACU. La edición no cambia los presupuestos anteriores. Para trasladar los nuevos costos a un borrador, utilizá «Actualizar precios ACU»."}</p>`;
   } else if (kind === "reprice") {
     title = "Actualizar precios del ACU"; body = `<p class="modal-help">Se recalculará ${e(state.analyses.find(a => a.id === item.id)?.description)} con las cotizaciones vigentes a la fecha indicada. Los presupuestos anteriores NO cambian.</p>` +
       field("Precios vigentes al", "effectiveDate", dateToday(), 'type="date" required');

@@ -120,6 +120,46 @@ fn ipc_creates_budget_and_preserves_issued_snapshot() {
     )
     .unwrap();
     let backup = call("create_backup", json!({})).unwrap();
+    let wh_id = uuid::Uuid::new_v4();
+    call("create_warehouse",json!({"warehouse":{"id":wh_id,"project_id":project["id"],"name":"Depósito IPC","location":"A1"}})).unwrap();
+    assert_eq!(
+        call("list_warehouses", json!({}))
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    let op_id = uuid::Uuid::new_v4();
+    let op=call("post_operation",json!({"operation":{"id":op_id,"project_id":project["id"],"kind":"request","number":"SOL-IPC","date":"2026-11-05","lines":[{"resource_id":resource["id"],"description":"Material IPC","quantity":"2","unit_price":"1.005"}]}})).unwrap();
+    assert_eq!(op["id"], op_id.to_string());
+    assert_eq!(
+        call("list_operations", json!({"projectId":project["id"]}))
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        call("stock_balances", json!({"asOf":"2026-11-05"})).unwrap(),
+        json!([])
+    );
+    let report = call(
+        "operations_report",
+        json!({"projectId":project["id"],"estimateId":estimate["id"],"asOf":"2026-11-05"}),
+    )
+    .unwrap();
+    assert_eq!(report["project_id"], project["id"]);
+    assert_eq!(
+        call("operations_portfolio", json!({"asOf":"2026-11-05"}))
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(call("post_operation", json!({"operation":op})).is_err());
     call("verify_database", json!({})).unwrap();
     call("restore_backup", json!({"id":backup})).unwrap();
     let exported = call(

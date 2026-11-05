@@ -26,6 +26,13 @@ pub fn run() {
 
 pub(crate) fn configure<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
     builder.invoke_handler(tauri::generate_handler![
+        commands::operations::list_operations,
+        commands::operations::post_operation,
+        commands::operations::list_warehouses,
+        commands::operations::create_warehouse,
+        commands::operations::stock_balances,
+        commands::operations::operations_report,
+        commands::operations::operations_portfolio,
         commands::budget_tools::export_budget_document,
         commands::budget_tools::import_budget_document,
         commands::budget_tools::save_budget_template,
