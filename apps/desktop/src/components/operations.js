@@ -213,28 +213,24 @@ export function createOperationsWorkspace({
       projectId: model.projectId || null,
     });
     model.warehouses = await invoke("list_warehouses");
-    model.stock = await invoke("stock_balances", { asOf: model.asOf });
-    model.portfolio = await invoke("operations_portfolio", {
-      asOf: model.asOf,
-    });
+    model.stock = (await invoke("stock_balances", { asOf: model.asOf })).filter(b=>model.warehouses.some(w=>w.id===b.warehouse_id&&w.project_id===model.projectId));
+
     if (model.projectId) {
       model.estimates = await invoke("list_project_estimates", {
         projectId: model.projectId,
       });
-      if (!model.estimates.some((e) => e.id === model.estimateId))
-        model.estimateId =
-          model.estimates.find((e) => e.issued)?.id ||
-          model.estimates[0]?.id ||
-          "";
+      model.estimateId = state.estimateId || "";
       model.report = await invoke("operations_report", {
         projectId: model.projectId,
         estimateId: model.estimateId || null,
         asOf: model.asOf,
       });
+      model.portfolio = [model.report];
       model.lines = model.estimateId
         ? await invoke("list_estimate_lines", { estimateId: model.estimateId })
         : [];
     } else {
+      model.portfolio = [];
       model.report = null;
       model.lines = [];
     }
@@ -390,7 +386,7 @@ export function createOperationsWorkspace({
         ["USD", "USD"],
       ],
       o.currency,
-    )}${select("Contraparte", "o:partner_id", [["", "Comitente / sin contraparte"], ...model.partners.map((p) => [p.id, p.name])], o.partner_id)}${available.length || ["rfq", "quote", "purchase_order", "service_order", "subcontract", "receipt", "service_receipt", "return", "subcertificate", "adjustment", "payable", "receivable", "payment", "collection", "advance_paid", "retention_payable", "retention_receivable"].includes(o.kind) ? select("Documento de origen", "o:reference_id", [["", "Sin origen"], ...available.map((d) => [d.id, `${operationNames[d.kind]} · ${d.number} · ${partnerName(d.partner_id)} · ${d.currency} ${money(d.amount)}`])], o.reference_id) : ""}${select("Presupuesto de referencia", "o:estimate_id", [["", "Sin vínculo"], ...model.estimates.map((x) => [x.id, x.title + (x.issued ? " · Emitido" : " · Borrador")])], o.estimate_id)}</div>
+    )}${select("Contraparte", "o:partner_id", [["", "Comitente / sin contraparte"], ...model.partners.map((p) => [p.id, p.name])], o.partner_id)}${available.length || ["rfq", "quote", "purchase_order", "service_order", "subcontract", "receipt", "service_receipt", "return", "subcertificate", "adjustment", "payable", "receivable", "payment", "collection", "advance_paid", "retention_payable", "retention_receivable"].includes(o.kind) ? select("Documento de origen", "o:reference_id", [["", "Sin origen"], ...available.map((d) => [d.id, `${operationNames[d.kind]} · ${d.number} · ${partnerName(d.partner_id)} · ${d.currency} ${money(d.amount)}`])], o.reference_id) : ""}${select("Presupuesto de referencia", "o:estimate_id", [["", "Sin vínculo"], ...model.estimates.filter(x=>x.id===model.estimateId||x.id===o.estimate_id).map((x) => [x.id, x.title + (x.issued ? " · Emitido" : " · Borrador")])], o.estimate_id)}</div>
  ${stockKinds.includes(o.kind) ? `<div class="form-grid">${select("Depósito", "o:warehouse_id", opts(model.warehouses.filter((w) => w.project_id === model.projectId)), o.warehouse_id)}${o.kind === "transfer" ? select("Depósito de destino", "o:destination_id", [["", "Seleccionar…"], ...model.warehouses.map((w) => [w.id, whName(w.id)])], o.destination_id) : ""}</div>` : ""}
  ${cert ? `<div class="form-grid three">${field("Inicio del período", "o:period_start", o.period_start, 'type="date" required')}${field("Fin del período", "o:period_end", o.period_end, 'type="date" required')}${field("Anticipo a descontar", "o:advance", o.advance, 'type="number" min="0" step="any" required')}${field("Otros descuentos", "o:discount", o.discount, 'type="number" min="0" step="any" required')}${field("Fondo de reparo %", "o:retention_percent", o.retention_percent, 'type="number" min="0" max="100" step="any" required')}${field("Vencimiento", "o:due_date", o.due_date, 'type="date" required')}</div>` : ""}
  ${monetary.includes(o.kind) ? `<div class="form-grid">${field(o.kind === "forecast" ? "Costo restante estimado" : "Importe", "o:amount", o.amount, 'type="number" min="0" step="any" required')}${field(o.kind === "forecast" ? "Fin previsto" : "Vencimiento / fecha prevista", "o:due_date", o.due_date, 'type="date" required')}</div>` : ""}
@@ -473,6 +469,7 @@ export function createOperationsWorkspace({
         "Tipo",
         "Número",
         "Contraparte",
+        "Presupuesto",
         "Moneda",
         "Importe",
         "Acciones",
@@ -486,6 +483,7 @@ export function createOperationsWorkspace({
           e(operationNames[d.kind]),
           e(d.number),
           e(partnerName(d.partner_id)),
+          e(model.estimates.find(est=>est.id===d.estimate_id)?.title||"Sin vínculo"),
           e(d.currency),
           money(d.amount),
           `<button class="btn" data-action="ops-detail" data-id="${d.id}">Ver / exportar</button>`,
@@ -650,7 +648,7 @@ export function createOperationsWorkspace({
     );
   }
   function dashboard() {
-    return `<p class="context-help">Cartera a ${e(model.asOf)}. Se usa el último presupuesto emitido de cada obra; si no existe, el último borrador. Los importes se muestran por moneda. El costo real proviene de consumos netos, servicios aceptados y horas de partes, sin duplicar las facturas. El costo a terminar utiliza la última proyección o la proporción del costo presupuestado pendiente según producción.</p>${table(
+    return `<p class="context-help">${state.view==='portfolio'?"Cartera global: último presupuesto emitido de cada obra, o último borrador si no hay emitidos.":"Tablero de esta obra con el presupuesto activo indicado arriba."} Fecha de corte: ${e(model.asOf)}. Los importes se muestran por moneda. El costo real proviene de consumos netos, servicios aceptados y horas de partes, sin duplicar las facturas. El costo a terminar utiliza la última proyección o la proporción del costo presupuestado pendiente según producción.</p>${table(
       [
         "Obra",
         "Moneda",
@@ -684,7 +682,7 @@ export function createOperationsWorkspace({
   function detail() {
     const d = model.detail;
     if (!d) return "";
-    return `<div class="modal-overlay"><section class="dialog-shell wide" role="dialog" aria-modal="true" aria-label="Documento registrado"><div class="dialog-header"><h2>${e(operationNames[d.kind])} · ${e(d.number)}</h2><button type="button" data-action="ops-close-detail" aria-label="Cerrar documento">×</button></div><div class="dialog-body"><p>${e(d.date)} · ${e(partnerName(d.partner_id))} · ${e(d.currency)} ${money(d.amount)}</p><p>${e(d.notes)}</p><p>${e(d.terms)}</p>${d.period_start ? `<p>Período: ${e(d.period_start)} a ${e(d.period_end)}</p>` : ""}${table(
+    return `<div class="modal-overlay"><section class="dialog-shell wide" role="dialog" aria-modal="true" aria-label="Documento registrado"><div class="dialog-header"><h2>${e(operationNames[d.kind])} · ${e(d.number)}</h2><button type="button" data-action="ops-close-detail" aria-label="Cerrar documento">×</button></div><div class="dialog-body"><p>Presupuesto del documento: <strong>${e(model.estimates.find(est=>est.id===d.estimate_id)?.title||"Sin vínculo")}</strong></p><p>${e(d.date)} · ${e(partnerName(d.partner_id))} · ${e(d.currency)} ${money(d.amount)}</p><p>${e(d.notes)}</p><p>${e(d.terms)}</p>${d.period_start ? `<p>Período: ${e(d.period_start)} a ${e(d.period_end)}</p>` : ""}${table(
       ["Descripción", "Cantidad", "Precio", "Horas"],
       d.lines.map((l) => [
         e(l.description),
@@ -697,8 +695,12 @@ export function createOperationsWorkspace({
       Object.entries(d.calculated || {}).map(([k, v]) => [e(k), numeric(v)]),
     )}${d.kind === "index" ? `<p>${e(d.index_series)} · ${e(d.index_period)} · ${numeric(d.index_value)}</p><a href="${e(d.index_source)}" target="_blank" rel="noreferrer">${e(d.index_source)}</a>` : ""}<p>${e(d.incidents)}</p><div class="operation-photos">${d.photos.map((p, i) => `<img src="${e(p)}" alt="Foto ${i + 1}">`).join("")}</div><div class="dialog-actions"><button type="button" class="btn" data-action="ops-export-document" data-format="xlsx">Exportar Excel</button><button type="button" class="btn" data-action="ops-export-document" data-format="pdf">Exportar PDF</button><button type="button" class="btn" data-action="ops-close-detail">Cerrar</button></div></div></section></div>`;
   }
+  async function refreshPortfolio(){
+    model.portfolio=await invoke('operations_portfolio',{asOf:model.asOf});
+  }
   function markup() {
-    return `<section class="feature-page operations-page"><div class="work-toolbar">${select("Obra de gestión", "ops-project", [["", "Seleccionar obra"], ...state.projects.map((p) => [p.id, p.name])], model.projectId)}${field("Fecha de corte", "ops-asof", model.asOf, 'type="date" required')}${select("Presupuesto del informe", "ops-estimate", [["", "Automático"], ...model.estimates.map((e) => [e.id, e.title])], model.estimateId)}<button class="btn" data-action="ops-refresh">Actualizar</button></div><nav class="operations-tabs" aria-label="Etapas de gestión">${[
+    if(state.view==='portfolio')return `<main class="feature-page"><div class="feature-toolbar"><h1>Cartera de obras</h1>${field('Fecha de corte','portfolio-asof',model.asOf,'type="date" required')}<button class="btn" data-action="ops-portfolio-refresh">Actualizar cartera</button><button class="btn" data-action="ops-export" data-format="xlsx">Informe Excel</button><button class="btn" data-action="ops-export" data-format="pdf">Informe PDF</button></div>${dashboard()}${model.lastExport?`<p role="status">Guardado en ${e(model.lastExport)}</p>`:''}</main>`;
+    return `<section class="feature-page operations-page"><div class="work-toolbar"><strong>${e(state.projects.find(p=>p.id===state.projectId)?.name)}</strong>${field("Fecha de corte", "ops-asof", model.asOf, 'type="date" required')}<button class="btn" data-action="ops-refresh">Actualizar</button></div><nav class="operations-tabs" aria-label="Etapas de gestión">${[
       ["purchases", "Compras y almacenes"],
       ["production", "Producción"],
       ["certificates", "Certificaciones"],
@@ -733,16 +735,25 @@ export function createOperationsWorkspace({
         ["costs", "Resultados por centro y partida"],
         ["sections", "Resultados por rubro"],
         ["documents", "Documentos"],
-        ["portfolio", "Cartera de obras"],
+
       ],
       model.exportScope || "summary",
-    )}<button class="btn" data-action="ops-export" data-format="xlsx">Informe Excel</button><button class="btn" data-action="ops-export" data-format="pdf">Informe PDF</button></div>${model.lastExport ? `<p role="status">Guardado en ${e(model.lastExport)}</p>` : ""}${model.report?.alerts.map((a) => `<p class="operations-alert">${e(a)}</p>`).join("") || ""}${model.tab === "dashboard" ? dashboard() : !model.projectId ? "<p>Seleccioná una obra para comenzar.</p>" : `${model.tab === "purchases" ? purchasing() : model.tab === "production" ? production() : model.tab === "finance" ? finances() : summary(model.report)}${formMarkup()}<h3>Historial de documentos</h3>${documentRows()}`}${detail()}</section>`;
+    )}<button class="btn" data-action="ops-export" data-format="xlsx">Informe Excel</button><button class="btn" data-action="ops-export" data-format="pdf">Informe PDF</button></div>${model.lastExport ? `<p role="status">Guardado en ${e(model.lastExport)}</p>` : ""}${model.report?.alerts.map((a) => `<p class="operations-alert">${e(a)}</p>`).join("") || ""}${model.tab === "dashboard" ? dashboard() : !model.projectId ? "<p>Seleccioná una obra para comenzar.</p>" : `${model.tab === "purchases" ? purchasing() : model.tab === "production" ? production() : model.tab === "finance" ? finances() : summary(model.report)}${formMarkup()}<h3>Historial de documentos de esta obra (todas las versiones)</h3>${documentRows()}`}${detail()}</section>`;
   }
   async function act(button) {
     const a = button.dataset.action;
+    if(a==='open-portfolio'){
+      if(state.projectId)throw new Error('La cartera global se consulta desde Inicio');
+      model.projectId='';model.estimateId='';model.draft=null;model.dirty=false;model.report=null;model.detail=null;model.lines=[];model.docs=[];model.lastExport='';model.exportScope='portfolio';model.portfolio=[];
+      await refreshPortfolio();state.view='portfolio';render();return;
+    }
+    if(a==='ops-portfolio-refresh'){await refreshPortfolio();render();return;}
     if (a === "open-operations") {
       if (state.view === "operations" && !protect()) return;
-      model.projectId ||= state.projectId || state.projects[0]?.id || "";
+      if(!state.projectId)throw new Error("Abrí una obra desde Inicio");
+      model.projectId = state.projectId;
+      model.estimateId = state.estimateId || "";
+      model.draft=null;model.detail=null;model.dirty=false;model.lastExport="";model.exportScope="summary";
       [model.partners, model.centers] = await Promise.all([
         Promise.all(
           ["supplier", "subcontractor", "contact"].map((kind) =>
@@ -754,6 +765,8 @@ export function createOperationsWorkspace({
           projectId: null,
         }),
       ]);
+      model.partners=model.partners.filter(p=>!p.project_id||p.project_id===model.projectId);
+      model.centers=model.centers.filter(c=>!c.project_id||c.project_id===model.projectId);
       await refresh();
       if (model.tab !== "dashboard")
         model.draft ||= draft(operationGroups[model.tab][0]);
@@ -820,6 +833,7 @@ export function createOperationsWorkspace({
     return true;
   }
   async function change(target) {
+    if(state.view==='portfolio'&&target.name==='portfolio-asof'){model.asOf=target.value;await refreshPortfolio();render();return;}
     if (state.view !== "operations") return;
     const name = target.name;
     read();
@@ -835,39 +849,6 @@ export function createOperationsWorkspace({
       }
       model.draft = draft(target.value);
       model.dirty = false;
-      render();
-      return;
-    }
-    if (name === "ops-project") {
-      if (!protect()) {
-        render();
-        return;
-      }
-      model.projectId = target.value;
-      model.estimateId = "";
-      await refresh();
-      model.draft =
-        model.tab === "dashboard" ? null : draft(operationGroups[model.tab][0]);
-      model.dirty = false;
-      render();
-      return;
-    }
-    if (name === "ops-estimate") {
-      if (!protect()) {
-        render();
-        return;
-      }
-      model.estimateId = target.value;
-      await refresh();
-      model.draft =
-        model.tab === "dashboard" ? null : draft(operationGroups[model.tab][0]);
-      model.dirty = false;
-      render();
-      return;
-    }
-    if (name === "ops-asof") {
-      model.asOf = target.value;
-      await refresh();
       render();
       return;
     }

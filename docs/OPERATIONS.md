@@ -1,9 +1,13 @@
 # Gestión de obra — etapas 6 a 10
 
-Abrí **Gestión de obra**, elegí obra, presupuesto de referencia y fecha de corte.
+Desde **Inicio**, abrí una obra y luego **Gestión de obra**. La obra permanece
+fija en todas las pestañas. Usá la barra **Presupuesto activo** para elegir la
+versión (con confirmación) y la fecha de corte para el informe.
 Las cinco pestañas cubren compras y almacenes, producción, certificaciones,
 finanzas y tablero. Cada tipo de documento explica su uso en pantalla.
-Los proveedores, subcontratistas y centros de costos se cargan en Organización.
+Los proveedores y subcontratistas se cargan desde **Inicio → Organización**;
+los centros de costos y contratos de la obra, en **Datos de obra**. El historial
+de gestión reúne sus documentos y muestra el presupuesto de origen de cada uno.
 
 ## Compras, contratación y stock
 
@@ -60,7 +64,7 @@ Emití el presupuesto de referencia antes de certificar. Registrá el período y
 cantidades nuevas; no cargues acumulados como si fueran cantidades del período.
 El sistema conserva cantidades anteriores, del período y pendientes por partida,
 así como anterior, bruto, acumulado, pendiente, reparo y neto del documento.
-Los certificados de obra aplican los porcentajes de venta del presupuesto emitido;
+Los certificados de obra aplican la determinación de precio del presupuesto emitido;
 los de subcontratista usan los precios y límites de su contrato.
 
 Registrá primero el anticipo recibido o pagado en Finanzas. Su descuento en los
@@ -111,7 +115,12 @@ corte; en su ausencia usa costo presupuestado pendiente según producción.
 
 ## Tablero e informes
 
-El tablero reúne la cartera con avance físico/económico, comparación con avance
+La **Cartera de obras** se consulta desde **Inicio** y conserva el resumen global
+con el último presupuesto emitido de cada obra, o el último borrador si no hay
+emitidos. Incluye exportación a Excel y PDF.
+
+El tablero dentro de la obra muestra su presupuesto activo, con avance
+físico/económico, comparación con avance
 programado, fin programado, costo real, pagos, cobros, rentabilidad y resultado esperado. El desvío de costo
 ejecutado compara costo real con el costo presupuestado de la producción
 registrada; el desvío final compara costo real más costo restante con presupuesto. Emite

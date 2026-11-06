@@ -7,7 +7,7 @@ export function createBudgetTools({ invoke, state, render, document, window, For
  async function refresh() {
   model.templates = await invoke("list_budget_templates");
   if (state.estimateId) { model.snapshot = await invoke("export_budget_document", { estimateId: state.estimateId }); model.lines = model.snapshot.lines.map(line => ({ id: line.id, description: line.description, unit: line.unit, quantity: line.quantity, unit_cost: line.unit_cost_snapshot })); model.totals = await invoke("priced_estimate_total", { estimateId: state.estimateId }); }
-  model.formulaLineId ||= model.lines[0]?.id || "";
+  if(!model.lines.some(l=>l.id===model.formulaLineId))model.formulaLineId = model.lines[0]?.id || "";
  }
  function readLines() {
   const form = document.querySelector("#budget-bulk-form"); if (!form) return;
@@ -27,14 +27,14 @@ export function createBudgetTools({ invoke, state, render, document, window, For
  }
  async function act(button) {
   const action = button.dataset.action;
-  if (action === "open-budget-tools") { if (!state.estimateId) throw new Error("Seleccioná un presupuesto"); state.view = "budget-tools"; state.search = ""; await refresh(); }
+  if (action === "open-budget-tools") { if (!state.estimateId) throw new Error("Seleccioná un presupuesto"); state.view = "budget-tools"; state.search = ""; model.lastExport=""; await refresh(); }
   if (action === "budget-tools-back") { state.view = "workspace"; await loadEstimate(); }
   if (action === "budget-tools-sort") { readLines(); model.lines.sort((a, b) => a.description.localeCompare(b.description, "es-AR")); }
   if (["budget-tools-up", "budget-tools-down"].includes(action)) { readLines(); const index = model.lines.findIndex(line => line.id === button.dataset.id), target = index + (action.endsWith("up") ? -1 : 1); if (target >= 0 && target < model.lines.length) [model.lines[index], model.lines[target]] = [model.lines[target], model.lines[index]]; }
   if (action === "budget-tools-copy") { readLines(); await invoke("edit_budget_lines", { estimateId: state.estimateId, changes: model.lines, order: model.lines.map(line => line.id) }); await invoke("duplicate_budget_line", { estimateId: state.estimateId, lineId: button.dataset.id }); await refresh(); }
   render();
  }
- async function importDocument(snapshot, title) { snapshot.title = title; const created = await invoke("import_budget_document", { projectId: state.projectId, document: snapshot }); state.estimateId = created.id; await loadEstimates(); await loadEstimate(); await refresh(); state.message = "Presupuesto creado sin modificar el anterior"; }
+ async function importDocument(snapshot, title) { if(state.pageDirty&&!window.confirm("¿Descartar la edición masiva pendiente y abrir el presupuesto nuevo?"))return;state.pageDirty=false; snapshot.title = title; const created = await invoke("import_budget_document", { projectId: state.projectId, document: snapshot }); state.estimateId = created.id; await loadEstimates(); await loadEstimate(); await refresh(); state.message = "Presupuesto creado sin modificar el anterior"; }
  async function submit(form) {
   const data = new FormData(form), value = name => String(data.get(name) || "").trim();
   if (form.id === "budget-bulk-form") { readLines(); await invoke("edit_budget_lines", { estimateId: state.estimateId, changes: model.lines, order: model.lines.map(line => line.id) }); await loadEstimate(); await refresh(); }

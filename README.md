@@ -40,6 +40,21 @@ certificaciones, finanzas y tablero. Elegí obra y fecha de corte. La guía de
 prueba, el circuito de documentos y las reglas de cálculo están en
 [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
+## Inicio y obra activa
+
+**Inicio / Obras** concentra clientes, catálogos de insumos y ACU, listas de
+precios, organización general, cartera global y copias de seguridad. Al abrir
+una obra, el menú cambia a sus secciones: presupuesto, determinación de precio, gestión,
+planificación y datos de obra. Todas conservan la misma obra; para abrir otra,
+volvé a **← Inicio**.
+
+La barra **Presupuesto activo** muestra la versión y si está en borrador o
+emitida. Cambiarla pide confirmación y actualiza los informes de esa obra.
+Si tenés un documento, ficha, tarea o determinación sin guardar, podés cancelar
+la salida y conservar lo cargado. Los documentos históricos indican su
+presupuesto de origen. El cronograma pertenece a la obra y sus vínculos con
+partidas identifican la versión correspondiente.
+
 ## Reutilizar cómputos y precios de insumos
 
 **Patrones de cómputo**, en la grilla del presupuesto, permite copiar rubros y
@@ -189,9 +204,9 @@ presenta una ventana en el escritorio del usuario.
 ## Prueba rápida de los avances
 
 1. En **Clientes**, creá un comitente; luego creá una obra con su moneda base.
-2. En **Organización**, registrá empresas, establecimientos, usuarios/roles,
-   proveedores, contactos, contratos, centros de costos, unidades y rubros.
-   La ficha de obra permite cargar ubicación, responsable, fechas y porcentajes
+2. Desde **Inicio → Organización**, registrá empresas, establecimientos, usuarios/roles,
+   proveedores, contactos, unidades y rubros. Abrí la obra y usá **Datos de obra**
+   para sus contratos, centros de costos y ficha. Esta última permite cargar ubicación, responsable, fechas y porcentajes
    económicos predeterminados para los presupuestos nuevos.
 3. En **Insumos** y **ACU**, cargá recursos y análisis. Abrí una obra, creá un
    presupuesto y agregá rubros, subrubros, partidas y metrados.
@@ -206,10 +221,10 @@ presenta una ventana en el escritorio del usuario.
    Las importaciones crean un presupuesto nuevo. Los archivos generados quedan
    en `exports/`, dentro del directorio de datos de la aplicación; la pantalla
    muestra su ruta exacta.
-5. En **Costos y precios**, creá listas por proveedor/moneda/zona y cargá precios
+5. Desde **Inicio → Costos y precios**, creá listas por proveedor/moneda/zona y cargá precios
    con fecha y fuente. Probá ACU compuestos, rendimientos, desperdicios,
    escenarios de variación y conversiones con cotización explícita.
-6. En **Planificación**, seleccioná una obra, configurá días laborables y
+6. Abrí una obra y, en **Planificación**, configurá días laborables y
    feriados, cargá tareas/hitos, dependencias y recursos. Podés arrastrar una barra
    del Gantt o cambiar su duración desde el extremo. Guardá una línea base,
    registrá avances y compará la curva S, las holguras y la ruta crítica.

@@ -114,7 +114,7 @@ async function act(button) {
     if (state.view === "analyses" && state.selectedAnalysisId) await refreshAnalysis();
     render(); return;
   }
-  if (action === "goto-resources") { state.view = "resources"; state.search = ""; render(); return; }
+  if (action === "goto-resources") { if(state.projectId)throw new Error("El catálogo general se administra desde Inicio"); state.view = "resources"; state.search = ""; render(); return; }
   if (action === "open-project") { await openProject(button.dataset.id); return; }
   if (action === "open-estimate") { await openEstimate(button.dataset.id); return; }
   if (action === "select-line") {

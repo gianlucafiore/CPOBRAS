@@ -8,7 +8,7 @@ con Node 24.22.1 y Rust 1.99.1. `tools/check.sh` reúne los checks reproducibles
 | Rust, núcleo y almacenamiento | 81 tests: 22 de dominio y 59 de persistencia/regresión |
 | Escritorio Tauri | 2 tests nativos: recorrido IPC y regresión GLib optimizada |
 | JavaScript | 23 tests, con aislamiento de procesos desactivado explícitamente en el runner |
-| Chromium | 25 recorridos de interfaz sobre DOM real y un puente IPC de prueba |
+| Chromium | 29 recorridos de interfaz sobre DOM real y un puente IPC de prueba |
 | Formato Rust | Workspace y aplicación Tauri |
 | Frontend de producción | Vite build, incluyendo los módulos de Excel y PDF |
 | Ejecutable Linux | Compilación con `custom-protocol` y arranque WebKitGTK en Xvfb |
@@ -20,6 +20,19 @@ integración nativa: el recorrido IPC usa Tauri con su configuración real y
 comprueba clientes, obras, ACU, presupuesto emitido, directorios, listas de
 precios, ACU anidados, importación, cronograma, línea base, copia/restauración,
 exportación, depósitos, documentos operativos, reportes de gestión y rechazo de ventanas/orígenes sin permisos.
+
+## Navegación y contexto de obra
+
+- Inicio concentra los catálogos generales; dentro de una obra solo aparecen
+  sus pestañas, con obra y presupuesto activos visibles en todas ellas.
+- Dos obras alternadas mediante Inicio: planificación y gestión consultan la
+  obra correcta; las fichas de Datos de obra excluyen registros de la anterior.
+- Cambio confirmado de presupuesto actualiza cabecera e informe; cancelar
+  conserva la selección y los borradores. Se protegen también tareas y fichas.
+- Gestión no selecciona automáticamente otra versión ni carga la cartera
+  global; el historial identifica el presupuesto de cada documento.
+- La cartera global sigue disponible en Inicio, con exportación, separada del
+  tablero e informes de la obra abierta.
 
 ## Determinación de precio
 

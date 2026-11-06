@@ -44,7 +44,7 @@ export function createBudgetInteractions({invoke,state,editable,currentLine,load
  }
  async function contextMenu(event){
   if(event.target.closest?.('input,textarea,select,[contenteditable="true"]'))return;
-  event.preventDefault();if(state.modal||state.busy)return;
+  event.preventDefault();if(state.modal||state.busy||state.navigating||state.pageDirty)return;
   const row=rowAt(event.target);let items=[];
   if(state.view==='workspace'&&row?.classList.contains('line-row')){
    state.selectedLineId=row.dataset.id;state.selectedSectionId=state.assignments[row.dataset.id]||null;await loadPanel();
@@ -63,7 +63,7 @@ export function createBudgetInteractions({invoke,state,editable,currentLine,load
    const entry={projects:['modal-project','Nueva obra'],clients:['modal-client','Nuevo cliente'],resources:['modal-resource','Nuevo insumo'],analyses:['modal-analysis','Nuevo ACU'],workspace:['modal-line','Nueva partida'],management:['manage-new','Nuevo registro'],planning:['plan-new','Nueva tarea / hito'],costing:['cost-new-analysis','Nuevo ACU compuesto']}[state.view];
    if(entry)items.push({action:entry[0],label:entry[1],disabled:state.view==='workspace'&&!editable()});
   }
-  items.push({action:'navigate',view:'projects',label:'Ir a obras'});
+  items.push(state.projectId?{action:'go-home',label:'Volver a Inicio'}:{action:'navigate',view:'projects',label:'Ir a Inicio'});
   state.contextMenu={x:Math.max(8,Math.min(event.clientX,(window.innerWidth||1120)-280)),y:Math.max(8,Math.min(event.clientY,(window.innerHeight||740)-(items.length*36+16))),items};
   render();document.querySelector('.app-context-menu button:not(:disabled)')?.focus();
  }
