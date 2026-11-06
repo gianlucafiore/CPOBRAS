@@ -5,10 +5,10 @@ con Node 24.22.1 y Rust 1.99.1. `tools/check.sh` reúne los checks reproducibles
 
 | Comprobación | Evidencia |
 | --- | --- |
-| Rust, núcleo y almacenamiento | 63 tests: 17 de dominio y 46 de persistencia/regresión |
+| Rust, núcleo y almacenamiento | 73 tests: 17 de dominio y 56 de persistencia/regresión |
 | Escritorio Tauri | 2 tests nativos: recorrido IPC y regresión GLib optimizada |
 | JavaScript | 21 tests, con aislamiento de procesos desactivado explícitamente en el runner |
-| Chromium | 18 recorridos de interfaz sobre DOM real y un puente IPC de prueba |
+| Chromium | 22 recorridos de interfaz sobre DOM real y un puente IPC de prueba |
 | Formato Rust | Workspace y aplicación Tauri |
 | Frontend de producción | Vite build, incluyendo los módulos de Excel y PDF |
 | Ejecutable Linux | Compilación con `custom-protocol` y arranque WebKitGTK en Xvfb |
@@ -20,6 +20,24 @@ integración nativa: el recorrido IPC usa Tauri con su configuración real y
 comprueba clientes, obras, ACU, presupuesto emitido, directorios, listas de
 precios, ACU anidados, importación, cronograma, línea base, copia/restauración,
 exportación, depósitos, documentos operativos, reportes de gestión y rechazo de ventanas/orígenes sin permisos.
+
+## Patrones y precios por presupuesto
+
+- Selección de rubros, subrubros, partidas sueltas y rubros vacíos; ausencia de
+  duplicación al marcar un rubro y sus partidas; conservación de jerarquía,
+  fórmulas, metrados y nuevas identidades.
+- Incorporación en un presupuesto existente y en un rubro elegido, con resolución
+  de códigos repetidos, tasas del destino intactas y rollback ante errores.
+- Patrones guardados independientes del origen; cantidades sin precios entre
+  monedas distintas; rechazo de precios entre monedas distintas y de destinos emitidos.
+- Precio único por recurso y presupuesto; rendimientos conservados, versiones
+  aisladas, biblioteca sin mutación y rollback de todos los cambios ante desbordes.
+- Migración de precios de borradores antiguos, repetición idempotente al abrir
+  de nuevo y preservación de partidas cuya unidad del ACU de biblioteca cambió.
+- IPC real: guardar/consultar/aplicar patrones, precio del presupuesto y recálculo
+  de varias partidas; navegador: árbol parcial, biblioteca, cierre protegido y edición.
+
+Guía: [PATTERNS_AND_PRICES.md](PATTERNS_AND_PRICES.md).
 
 ## Regresiones de gestión (etapas 6–10)
 

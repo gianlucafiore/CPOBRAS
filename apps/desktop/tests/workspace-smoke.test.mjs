@@ -12,6 +12,7 @@ function setup() {
   const lines = [line];
   const calls = [];
   const responses = {
+    get_estimate_resource_prices:()=>({"resource-1":"2000"}),
     list_management_records: () => [],
     list_clients: () => [{ id: "client-1", name: "Cliente demo", cuit: null }],
     list_projects: () => [{ id: "project-1", name: "Nave industrial", client_id: "client-1", currency: "Ars" }],

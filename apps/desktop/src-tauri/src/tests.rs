@@ -111,6 +111,45 @@ fn ipc_creates_budget_and_preserves_issued_snapshot() {
     call("move_budget_line",json!({"estimateId":imported["id"],"lineId":imported_lines[0]["id"],"beforeId":null,"sectionId":null})).unwrap();
     assert!(call("save_line_resources",json!({"estimateId":estimate["id"],"lineId":document["lines"][0]["id"],"components":[{"resourceId":resource["id"],"quantity":"1","unitPrice":"1"}]})).is_err());
 
+    let pattern=call("save_budget_pattern",json!({"source":{"estimate_id":imported["id"],"template_id":null},"selection":{"line_ids":[imported_lines[0]["id"]],"section_ids":[]},"name":"Patrón IPC","includePrices":true})).unwrap();
+    let pattern_document = call(
+        "get_pattern_document",
+        json!({"source":{"estimate_id":null,"template_id":pattern["id"]}}),
+    )
+    .unwrap();
+    assert_eq!(pattern_document["lines"].as_array().unwrap().len(), 1);
+    let pattern_target = call(
+        "create_estimate",
+        json!({"projectId":project["id"],"title":"Patrones IPC"}),
+    )
+    .unwrap();
+    let pattern_args = json!({"destinationId":pattern_target["id"],"source":{"estimate_id":null,"template_id":pattern["id"]},"selection":{"line_ids":[imported_lines[0]["id"]],"section_ids":[]},"includePrices":true,"parentId":null});
+    let copied = call("apply_budget_pattern", pattern_args.clone()).unwrap();
+    call("apply_budget_pattern", pattern_args.clone()).unwrap();
+    let prices = call(
+        "get_estimate_resource_prices",
+        json!({"estimateId":pattern_target["id"]}),
+    )
+    .unwrap();
+    assert_eq!(prices[resource["id"].as_str().unwrap()], "1.005");
+    call("save_line_resources",json!({"estimateId":pattern_target["id"],"lineId":copied["line_ids"][0],"components":[{"resourceId":resource["id"],"quantity":"2.5","unitPrice":"2"}]})).unwrap();
+    let synchronized = call(
+        "list_estimate_lines",
+        json!({"estimateId":pattern_target["id"]}),
+    )
+    .unwrap();
+    for line in synchronized.as_array().unwrap() {
+        assert_eq!(
+            line["unit_cost"]
+                .as_str()
+                .unwrap()
+                .parse::<rust_decimal::Decimal>()
+                .unwrap(),
+            rust_decimal::Decimal::from(5)
+        );
+    }
+    call("issue_estimate", json!({"estimateId":pattern_target["id"]})).unwrap();
+    assert!(call("apply_budget_pattern", pattern_args).is_err());
     let task_id = uuid::Uuid::new_v4();
     let saved=call("save_project_plan",json!({"projectId":project["id"],"revision":0,"asOf":"2026-11-05","plan":{"calendar":{"start_date":"2026-11-05","nonworking_weekdays":[5,6],"holidays":[]},"tasks":[{"id":task_id,"parent_id":null,"estimate_line_id":document["lines"][0]["id"],"name":"Tarea IPC","duration_days":3,"predecessors":[],"not_before":null,"finish_by":null,"assignments":[],"budget":"0","actual_progress":"25"}]}})).unwrap();
     assert_eq!(saved["revision"], 1);

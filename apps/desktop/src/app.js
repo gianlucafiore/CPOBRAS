@@ -1,3 +1,4 @@
+import { createBudgetPatterns } from './components/budget-patterns.js';
 import { createUnitPicker } from './components/unit-picker.js';
 import { createOperationsWorkspace } from './components/operations.js';
 import { createResourcePicker } from './components/resource-picker.js';
@@ -27,6 +28,7 @@ const operations = createOperationsWorkspace(context);
 const management = createManagementWorkspace(context);
 const planning = createPlanningWorkspace(context);
 const costing = createCostingWorkspace(context);
+const patterns = createBudgetPatterns(context);
 const budgetTools = createBudgetTools(context);
 const { workspace, listViews, chrome, rightPanel } = createViews({ ...context, modalMarkup });
 const { act, handleSubmit } = createActions(context);
@@ -43,6 +45,7 @@ function render() {
   const top = document.querySelector(".table-scroll");
   const position = top?.scrollTop || 0;
   root.innerHTML = state.view === "operations" ? chrome(operations.markup()) : state.view === "budget-tools" ? chrome(budgetTools.markup()) : state.view === "costing" ? chrome(costing.markup()) : state.view === "planning" ? chrome(planning.markup()) : state.view === "management" ? chrome(management.markup()) : state.view === "workspace" ? workspace() : listViews();
+  if(patterns.model.active){root.innerHTML+=patterns.markup();patterns.afterRender();}
   const restored = document.querySelector(".table-scroll");
   if (restored) restored.scrollTop = position;
   if (state.search) filterRows(state.search);
@@ -77,7 +80,7 @@ document.addEventListener("click", async evt => {
   if(evt.target.matches?.('.resource-search'))resourcePicker.toggle(evt.target);
   if (!button || button.disabled || state.busy) return;
   if (button.dataset.action === "close-modal" && button.classList.contains("modal-overlay")) return;
-  try { if(state.view==='operations'&&!button.dataset.action.startsWith('ops-')&&['navigate','open-project','open-estimate','open-costing','open-planning','open-management'].includes(button.dataset.action)&&!operations.protect())return; if(button.classList?.contains("resource-search"))return; if(await unitPicker.act(button))return; if(await resourcePicker.act(button))return; if(button.dataset.action==="open-operations"||button.dataset.action.startsWith("ops-")){await operations.act(button);return;} if (button.dataset.action === "open-budget-tools" || button.dataset.action.startsWith("budget-tools-")) await budgetTools.act(button); else if (button.dataset.action === "open-costing" || button.dataset.action.startsWith("cost-")) await costing.act(button); else if (button.dataset.action === "open-planning" || button.dataset.action.startsWith("plan-")) await planning.act(button); else if (button.dataset.action === "open-management" || button.dataset.action.startsWith("manage-")) await management.act(button); else await act(button); }
+  try { if(state.view==='operations'&&!button.dataset.action.startsWith('ops-')&&['navigate','open-project','open-estimate','open-costing','open-planning','open-management'].includes(button.dataset.action)&&!operations.protect())return; if(button.classList?.contains("resource-search"))return; if(button.dataset.action==="open-patterns"||button.dataset.action.startsWith("pattern-")){await patterns.act(button);return;} if(await unitPicker.act(button))return; if(await resourcePicker.act(button))return; if(button.dataset.action==="open-operations"||button.dataset.action.startsWith("ops-")){await operations.act(button);return;} if (button.dataset.action === "open-budget-tools" || button.dataset.action.startsWith("budget-tools-")) await budgetTools.act(button); else if (button.dataset.action === "open-costing" || button.dataset.action.startsWith("cost-")) await costing.act(button); else if (button.dataset.action === "open-planning" || button.dataset.action.startsWith("plan-")) await planning.act(button); else if (button.dataset.action === "open-management" || button.dataset.action.startsWith("manage-")) await management.act(button); else await act(button); }
   catch (error) { state.message = "Error: " + String(error); render(); }
 });
 document.addEventListener("submit", async evt => {
@@ -107,7 +110,7 @@ document.addEventListener("change", async evt => {
     const trade=state.trades.find(row=>row.id===evt.target.value),form=evt.target.closest("form");
     if(trade&&form){form.querySelector('[name="code"]').value=trade.code;form.querySelector('[name="title"]').value=trade.name;}
   }
-  try { await operations.change(evt.target); await management.change(evt.target); await planning.change(evt.target); await costing.change(evt.target); await budgetTools.change(evt.target); } catch(error) { state.message = String(error); render(); }
+  try { await patterns.change(evt.target); await operations.change(evt.target); await management.change(evt.target); await planning.change(evt.target); await costing.change(evt.target); await budgetTools.change(evt.target); } catch(error) { state.message = String(error); render(); }
   if (evt.target.name === "resource" && evt.target.closest(".component-row")) {
     const row = evt.target.closest(".component-row");
     const price = row.querySelector('input[name="unitPrice"]');
@@ -122,6 +125,7 @@ document.addEventListener("change", async evt => {
 });
 document.addEventListener("focusin",evt=>{unitPicker.focus(evt);resourcePicker.focus(evt);});
 document.addEventListener("input", evt => {
+  patterns.input(evt.target);
   unitPicker.input(evt);
   resourcePicker.input(evt);
   operations.input(evt.target);
@@ -138,6 +142,7 @@ document.addEventListener("drop", evt => { interactions.drop(evt).catch(error=>{
 document.addEventListener("pointerdown", evt => planning.pointerDown(evt));
 document.addEventListener("pointerup", async evt => { try { await planning.pointerUp(evt); } catch(error) { state.message=String(error);render(); } });
 document.addEventListener("keydown", evt => {
+  if(patterns.keyDown(evt))return;
   if(unitPicker.keyDown(evt))return;
   if(resourcePicker.keyDown(evt))return;
   if(operations.keyDown(evt))return;

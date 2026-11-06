@@ -140,3 +140,58 @@ pub(crate) fn save_line_resources(
         .map(|id| id.to_string())
         .map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub(crate) fn get_pattern_document(
+    db: tauri::State<'_, Db>,
+    source: cpobras_storage::budget_patterns::PatternSource,
+) -> Result<BudgetDocument, String> {
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .pattern_document(&source)
+        .map_err(|e| e.to_string())
+}
+#[tauri::command]
+pub(crate) fn save_budget_pattern(
+    db: tauri::State<'_, Db>,
+    source: cpobras_storage::budget_patterns::PatternSource,
+    selection: cpobras_storage::budget_patterns::PatternSelection,
+    name: String,
+    include_prices: bool,
+) -> Result<BudgetTemplate, String> {
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .save_budget_pattern(&source, &selection, &name, include_prices)
+        .map_err(|e| e.to_string())
+}
+#[tauri::command]
+pub(crate) fn apply_budget_pattern(
+    db: tauri::State<'_, Db>,
+    destination_id: Uuid,
+    source: cpobras_storage::budget_patterns::PatternSource,
+    selection: cpobras_storage::budget_patterns::PatternSelection,
+    include_prices: bool,
+    parent_id: Option<Uuid>,
+) -> Result<cpobras_storage::budget_patterns::PatternApplied, String> {
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .apply_budget_pattern(
+            destination_id,
+            &source,
+            &selection,
+            include_prices,
+            parent_id,
+        )
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub(crate) fn get_estimate_resource_prices(
+    db: tauri::State<'_, Db>,
+    estimate_id: Uuid,
+) -> Result<BTreeMap<Uuid, Decimal>, String> {
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .estimate_resource_prices(estimate_id)
+        .map_err(|e| e.to_string())
+}

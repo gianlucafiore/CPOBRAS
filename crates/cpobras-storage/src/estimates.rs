@@ -3,7 +3,7 @@ use super::{LocalStore, Result, StorageError};
 use cpobras_core::{Currency, EstimateLine};
 use rusqlite::{params, OptionalExtension};
 use rust_decimal::Decimal;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::str::FromStr;
 use uuid::Uuid;
 
@@ -208,6 +208,11 @@ impl LocalStore {
                 item.unit_cost_snapshot.to_string(),
             ],
         )?;
+        crate::estimate_resource_prices::synchronize(
+            &transaction,
+            item.estimate_id,
+            &BTreeMap::new(),
+        )?;
         checked_budget_total(&transaction, item.estimate_id)?;
         transaction.commit()?;
         Ok(())
@@ -251,6 +256,12 @@ impl LocalStore {
         )?;
         if changed != 1 {
             return Err(StorageError::InvalidValue("estimate line not found".into()));
+        }
+        if manual_override {
+            transaction.execute(
+                "DELETE FROM line_analysis_sources WHERE line_id=?1",
+                [item.id.to_string()],
+            )?;
         }
         checked_budget_total(&transaction, item.estimate_id)?;
         transaction.commit()?;
@@ -442,6 +453,7 @@ impl LocalStore {
                     entry.unit_cost_snapshot.to_string(),
                 ],
             )?;
+            transaction.execute("INSERT INTO line_analysis_sources(line_id,analysis_id) SELECT ?1,analysis_id FROM line_analysis_sources WHERE line_id=?2",params![new_line_id.to_string(),entry.id.to_string()])?;
             transaction.execute("UPDATE line_origins SET origin_id=(SELECT origin_id FROM line_origins WHERE line_id=?1) WHERE line_id=?2",params![entry.id.to_string(),new_line_id.to_string()])?;
             transaction.execute("INSERT INTO line_formulas(line_id,expression,variables_json) SELECT ?1,expression,variables_json FROM line_formulas WHERE line_id=?2",params![new_line_id.to_string(),entry.id.to_string()])?;
             if let Some(section_id) = assignments.get(&entry.id) {
@@ -479,6 +491,7 @@ impl LocalStore {
              FROM estimate_pricing WHERE estimate_id=?2",
             params![copy.id.to_string(), source_id.to_string()],
         )?;
+        crate::estimate_resource_prices::synchronize(&transaction, copy.id, &BTreeMap::new())?;
         transaction.commit()?;
         Ok(copy)
     }
@@ -542,6 +555,10 @@ impl LocalStore {
         &mut self,
         estimate_id: Uuid,
     ) -> Result<DraftRepriceResult> {
+        let tx = rusqlite::Transaction::new_unchecked(
+            &self.conn,
+            rusqlite::TransactionBehavior::Immediate,
+        )?;
         let estimate = self
             .get_estimate(estimate_id)?
             .ok_or_else(|| StorageError::InvalidValue("estimate not found".into()))?;
@@ -556,42 +573,45 @@ impl LocalStore {
             ));
         }
         let old_direct_total = self.estimate_total(estimate_id)?;
-        let mut updated = Vec::new();
+        let mut prices = BTreeMap::new();
         for line in self.estimate_items(estimate_id)? {
-            let Some(analysis_id) = line.analysis_id else {
-                continue;
-            };
-            let analysis = self
-                .get_analysis(analysis_id)?
-                .ok_or_else(|| StorageError::InvalidValue("referenced ACU not found".into()))?;
-            if analysis.unit != line.unit {
-                return Err(StorageError::InvalidValue(
-                    "ACU unit no longer matches the budget item".into(),
-                ));
-            }
-            let price = analysis
-                .direct_unit_cost()
-                .map_err(|e| StorageError::InvalidValue(e.to_string()))?;
-            if price != line.unit_cost_snapshot {
-                updated.push((line.id, price));
+            let source: Option<String> = tx
+                .query_row(
+                    "SELECT analysis_id FROM line_analysis_sources WHERE line_id=?1",
+                    [line.id.to_string()],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            let source = source
+                .map(|id| Uuid::parse_str(&id))
+                .transpose()?
+                .or(line.analysis_id);
+            if let Some(id) = source {
+                if self.is_line_analysis(id)? {
+                    continue;
+                }
+                let analysis = self
+                    .get_analysis(id)?
+                    .ok_or_else(|| StorageError::InvalidValue("referenced ACU not found".into()))?;
+                if analysis.unit != line.unit {
+                    return Err(StorageError::InvalidValue(
+                        "ACU unit no longer matches the budget item".into(),
+                    ));
+                }
+                analysis
+                    .direct_unit_cost()
+                    .map_err(|e| StorageError::InvalidValue(e.to_string()))?;
+                for c in analysis.components {
+                    prices.entry(c.resource_id).or_insert(c.unit_price);
+                }
             }
         }
-        let transaction = self.conn.transaction()?;
-        for (line_id, price) in &updated {
-            transaction.execute(
-                "UPDATE estimate_lines SET unit_cost_snapshot=?1
-                 WHERE id=?2 AND estimate_id=?3",
-                params![
-                    price.to_string(),
-                    line_id.to_string(),
-                    estimate_id.to_string()
-                ],
-            )?;
-        }
-        let new_direct_total = checked_budget_total(&transaction, estimate_id)?;
-        transaction.commit()?;
+        let updated_lines =
+            crate::estimate_resource_prices::synchronize(&tx, estimate_id, &prices)?;
+        let new_direct_total = checked_budget_total(&tx, estimate_id)?;
+        tx.commit()?;
         Ok(DraftRepriceResult {
-            updated_lines: updated.len(),
+            updated_lines,
             old_direct_total,
             new_direct_total,
         })

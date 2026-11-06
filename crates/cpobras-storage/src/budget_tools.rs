@@ -328,6 +328,7 @@ impl LocalStore {
                 .ok_or_else(|| invalid("Medición de partida inexistente"))?;
             tx.execute("INSERT INTO takeoff_rows(id,estimate_id,line_id,note,factor,length,width,height,sign,position) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",params![Uuid::new_v4().to_string(),estimate.id.to_string(),line.to_string(),row.note,row.factor.to_string(),row.length.to_string(),row.width.to_string(),row.height.to_string(),row.sign,row.position])?;
         }
+        crate::estimate_resource_prices::synchronize(&tx, estimate.id, &BTreeMap::new())?;
         crate::estimates::checked_budget_total(&tx, estimate.id)?;
         tx.commit()?;
         Ok(estimate)
@@ -372,6 +373,12 @@ impl LocalStore {
                     .map_err(|_| invalid("Precio guardado inválido"))?
                     != change.unit_cost;
             let updated=tx.execute("UPDATE estimate_lines SET description=?1,unit=?2,quantity=?3,unit_cost_snapshot=?4,analysis_id=CASE WHEN ?7 THEN NULL ELSE analysis_id END WHERE id=?5 AND estimate_id=?6",params![change.description,change.unit,change.quantity.to_string(),change.unit_cost.to_string(),change.id.to_string(),id.to_string(),manual_override])?;
+            if manual_override {
+                tx.execute(
+                    "DELETE FROM line_analysis_sources WHERE line_id=?1",
+                    [change.id.to_string()],
+                )?;
+            }
             if updated != 1 {
                 return Err(invalid("Partida ajena al presupuesto"));
             }
@@ -436,6 +443,7 @@ impl LocalStore {
             return Err(invalid("Partida inexistente"));
         }
         tx.execute("INSERT INTO line_formulas(line_id,expression,variables_json) VALUES (?1,?2,?3) ON CONFLICT(line_id) DO UPDATE SET expression=excluded.expression,variables_json=excluded.variables_json",params![line.to_string(),expression,serde_json::to_string(variables)?])?;
+        crate::estimate_resource_prices::synchronize(&tx, estimate, &BTreeMap::new())?;
         crate::estimates::checked_budget_total(&tx, estimate)?;
         tx.commit()?;
         Ok(quantity)
@@ -461,10 +469,12 @@ impl LocalStore {
         )?;
         tx.execute("INSERT INTO estimate_lines(id,estimate_id,position,analysis_id,description,unit,quantity,unit_cost_snapshot) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",params![id.to_string(),estimate.to_string(),position,line.analysis_id.map(|id|id.to_string()),line.description,line.unit,line.quantity.to_string(),line.unit_cost_snapshot.to_string()])?;
         tx.execute("INSERT INTO estimate_line_sections(line_id,section_id) SELECT ?1,section_id FROM estimate_line_sections WHERE line_id=?2",params![id.to_string(),line_id.to_string()])?;
+        tx.execute("INSERT INTO line_analysis_sources(line_id,analysis_id) SELECT ?1,analysis_id FROM line_analysis_sources WHERE line_id=?2",params![id.to_string(),line_id.to_string()])?;
         tx.execute("INSERT INTO line_formulas(line_id,expression,variables_json) SELECT ?1,expression,variables_json FROM line_formulas WHERE line_id=?2",params![id.to_string(),line_id.to_string()])?;
         for row in rows {
             tx.execute("INSERT INTO takeoff_rows(id,estimate_id,line_id,note,factor,length,width,height,sign,position) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",params![Uuid::new_v4().to_string(),estimate.to_string(),id.to_string(),row.note,row.factor.to_string(),row.length.to_string(),row.width.to_string(),row.height.to_string(),row.sign,row.position])?;
         }
+        crate::estimate_resource_prices::synchronize(&tx, estimate, &BTreeMap::new())?;
         crate::estimates::checked_budget_total(&tx, estimate)?;
         tx.commit()?;
         Ok(id)

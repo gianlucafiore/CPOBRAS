@@ -65,3 +65,15 @@ Los combos de insumos y unidades cierran al seleccionar, al volver a pulsar el
 campo o al hacer clic fuera de su lista, incluido el fondo del popup. Esto solo
 cierra la lista: el formulario y sus valores se conservan. Se evita además que
 la selección reactive el campo y vuelva a abrir el desplegable.
+
+## Patrones y precio común de insumos
+
+La grilla ofrece Patrones de cómputo: árbol de rubros y partidas desde presupuestos
+de cualquier obra o patrones guardados. Se puede guardar la selección o agregarla
+al presupuesto actual, con precios o con cantidades y precio cero. Se conservan
+metrados, fórmulas y estructura sin duplicar selecciones solapadas.
+
+La edición de un insumo conserva el rendimiento de cada partida y actualiza su
+precio en todas las partidas del mismo presupuesto. Las otras versiones, la
+biblioteca y los documentos de costos reales conservan sus precios. Ver
+[PATTERNS_AND_PRICES.md](PATTERNS_AND_PRICES.md).

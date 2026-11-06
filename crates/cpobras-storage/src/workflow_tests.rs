@@ -1329,7 +1329,7 @@ fn upgrades_populated_schema_fifteen_and_deletes_its_preexisting_linked_line() {
         assert!(name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'));
         old.execute_batch(&format!("DROP TRIGGER {name}")).unwrap();
     }
-    old.execute_batch("ALTER TABLE operation_links DROP COLUMN archived_line_id; DROP TABLE deleted_estimate_lines; DELETE FROM schema_migrations WHERE version=16; CREATE TRIGGER operation_links_no_update BEFORE UPDATE ON operation_links BEGIN SELECT RAISE(ABORT,'operation links are immutable'); END;").unwrap();
+    old.execute_batch("ALTER TABLE operation_links DROP COLUMN archived_line_id; DROP TABLE deleted_estimate_lines; DROP TABLE line_analysis_sources; DROP TABLE estimate_resource_prices; DELETE FROM schema_migrations WHERE version>=16; CREATE TRIGGER operation_links_no_update BEFORE UPDATE ON operation_links BEGIN SELECT RAISE(ABORT,'operation links are immutable'); END;").unwrap();
     drop(old);
     let mut upgraded = LocalStore::open(&path).unwrap();
     assert_eq!(
@@ -1338,12 +1338,662 @@ fn upgrades_populated_schema_fifteen_and_deletes_its_preexisting_linked_line() {
             .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| r
                 .get::<_, i64>(0))
             .unwrap(),
-        16
+        17
     );
     upgraded.delete_estimate_item(e.id, line.id).unwrap();
     assert!(upgraded.estimate_items(e.id).unwrap().is_empty());
     assert_eq!(upgraded.operation_documents(Some(p.id)).unwrap().len(), 1);
     assert!(upgraded.get_resource(res).unwrap().is_some());
+    upgraded.verify_integrity().unwrap();
+    drop(upgraded);
+    std::fs::remove_file(path).unwrap();
+}
+
+fn pattern_fixture() -> (LocalStore, Project, Estimate, Vec<Uuid>, Vec<Uuid>) {
+    let (mut s, p, e, l) = fixture();
+    let second = EstimateItem {
+        id: Uuid::new_v4(),
+        position: 1,
+        description: "Revoque".into(),
+        quantity: 6.into(),
+        ..l.clone()
+    };
+    let third = EstimateItem {
+        id: Uuid::new_v4(),
+        position: 2,
+        description: "Pintura".into(),
+        quantity: 4.into(),
+        ..l.clone()
+    };
+    s.add_estimate_item(&second).unwrap();
+    s.add_estimate_item(&third).unwrap();
+    let root = crate::budget_sections::BudgetSection {
+        id: Uuid::new_v4(),
+        estimate_id: e.id,
+        parent_id: None,
+        code: "01".into(),
+        title: "Estructura".into(),
+        position: 0,
+    };
+    let child = crate::budget_sections::BudgetSection {
+        id: Uuid::new_v4(),
+        parent_id: Some(root.id),
+        code: "01.01".into(),
+        title: "Terminaciones".into(),
+        position: 1,
+        ..root.clone()
+    };
+    let other = crate::budget_sections::BudgetSection {
+        id: Uuid::new_v4(),
+        code: "02".into(),
+        title: "Otros".into(),
+        position: 2,
+        ..root.clone()
+    };
+    let empty = crate::budget_sections::BudgetSection {
+        id: Uuid::new_v4(),
+        code: "03".into(),
+        title: "Vacío".into(),
+        position: 3,
+        ..root.clone()
+    };
+    for section in [&root, &child, &other, &empty] {
+        s.save_budget_section(section).unwrap();
+    }
+    for (line, section) in [(l.id, root.id), (second.id, child.id), (third.id, other.id)] {
+        s.assign_line_section(e.id, line, section).unwrap();
+    }
+    s.set_line_formula(e.id, l.id, "x", &BTreeMap::from([("x".into(), 2.into())]))
+        .unwrap();
+    s.save_takeoff_row(&crate::takeoffs::TakeoffRow {
+        id: Uuid::new_v4(),
+        estimate_id: e.id,
+        line_id: second.id,
+        note: "Pared".into(),
+        factor: 2.into(),
+        length: 3.into(),
+        width: 1.into(),
+        height: 1.into(),
+        sign: 1,
+        position: 0,
+    })
+    .unwrap();
+    (
+        s,
+        p,
+        e,
+        vec![l.id, second.id, third.id],
+        vec![root.id, child.id, other.id, empty.id],
+    )
+}
+fn pattern_destination(s: &mut LocalStore, p: &Project) -> Estimate {
+    let dest = Project {
+        id: Uuid::new_v4(),
+        name: "Obra destino".into(),
+        ..p.clone()
+    };
+    s.save_project(&dest).unwrap();
+    let estimate = Estimate {
+        id: Uuid::new_v4(),
+        project_id: dest.id,
+        title: "Destino".into(),
+        currency: p.currency,
+        issued: false,
+    };
+    s.create_estimate(&estimate).unwrap();
+    estimate
+}
+#[test]
+fn patterns_copy_selected_trees_once_with_takeoffs_formulas_and_fresh_identities() {
+    use crate::budget_patterns::*;
+    let (mut s, p, e, lines, sections) = pattern_fixture();
+    let target = pattern_destination(&mut s, &p);
+    let existing = EstimateItem {
+        id: Uuid::new_v4(),
+        estimate_id: target.id,
+        position: 0,
+        analysis_id: None,
+        description: "Existente".into(),
+        unit: "un".into(),
+        quantity: 1.into(),
+        unit_cost_snapshot: 10.into(),
+    };
+    s.add_estimate_item(&existing).unwrap();
+    let root = crate::budget_sections::BudgetSection {
+        id: Uuid::new_v4(),
+        estimate_id: target.id,
+        parent_id: None,
+        code: "01".into(),
+        title: "Destino".into(),
+        position: 0,
+    };
+    s.save_budget_section(&root).unwrap();
+    s.save_estimate_pricing(
+        target.id,
+        PricingRates {
+            profit_percent: 10.into(),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let result = s
+        .apply_budget_pattern(
+            target.id,
+            &PatternSource {
+                estimate_id: Some(e.id),
+                template_id: None,
+            },
+            &PatternSelection {
+                line_ids: vec![lines[1]],
+                section_ids: vec![sections[0], sections[1]],
+            },
+            true,
+            Some(root.id),
+        )
+        .unwrap();
+    assert_eq!(result.line_ids.len(), 2);
+    assert_eq!(result.section_ids.len(), 2);
+    assert_eq!(result.takeoff_count, 1);
+    assert!(result.line_ids.iter().all(|id| !lines.contains(id)));
+    assert_eq!(s.estimate_total(target.id).unwrap(), 810.into());
+    assert_eq!(s.estimate_items(e.id).unwrap().len(), 3);
+    let copied = s.export_budget(target.id).unwrap();
+    assert_eq!(copied.formulas.len(), 1);
+    assert_eq!(copied.takeoffs[0].note, "Pared");
+    assert_eq!(copied.rates.profit_percent, 10.into());
+    let imported_root = copied
+        .sections
+        .iter()
+        .find(|r| r.title == "Estructura")
+        .unwrap();
+    assert_eq!(imported_root.parent_id, Some(root.id));
+    assert_eq!(imported_root.code, "01-2");
+    let origin: String = s
+        .conn
+        .query_row(
+            "SELECT origin_id FROM line_origins WHERE line_id=?1",
+            [result.line_ids[0].to_string()],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(origin, result.line_ids[0].to_string());
+    s.verify_integrity().unwrap();
+}
+#[test]
+fn patterns_select_single_lines_without_siblings_and_can_copy_empty_sections() {
+    use crate::budget_patterns::*;
+    let (mut s, p, e, lines, sections) = pattern_fixture();
+    let target = pattern_destination(&mut s, &p);
+    let source = PatternSource {
+        estimate_id: Some(e.id),
+        template_id: None,
+    };
+    let result = s
+        .apply_budget_pattern(
+            target.id,
+            &source,
+            &PatternSelection {
+                line_ids: vec![lines[1]],
+                section_ids: vec![],
+            },
+            false,
+            None,
+        )
+        .unwrap();
+    assert_eq!(result.line_ids.len(), 1);
+    assert_eq!(result.section_ids.len(), 2);
+    let copied = s.estimate_items(target.id).unwrap();
+    assert_eq!(copied[0].description, "Revoque");
+    assert_eq!(copied[0].quantity, 6.into());
+    assert_eq!(copied[0].unit_cost_snapshot, 0.into());
+    assert!(copied[0].analysis_id.is_none());
+    assert_eq!(
+        s.list_takeoff_rows(target.id, copied[0].id).unwrap().len(),
+        1
+    );
+    let empty = s
+        .apply_budget_pattern(
+            target.id,
+            &source,
+            &PatternSelection {
+                line_ids: vec![],
+                section_ids: vec![sections[3]],
+            },
+            false,
+            None,
+        )
+        .unwrap();
+    assert!(empty.line_ids.is_empty());
+    assert_eq!(empty.section_ids.len(), 1);
+}
+#[test]
+fn saved_patterns_are_independent_and_can_cross_currencies_without_prices() {
+    use crate::budget_patterns::*;
+    let (mut s, p, e, lines, _) = pattern_fixture();
+    let saved = s
+        .save_budget_pattern(
+            &PatternSource {
+                estimate_id: Some(e.id),
+                template_id: None,
+            },
+            &PatternSelection {
+                line_ids: vec![lines[1]],
+                section_ids: vec![],
+            },
+            "Muros",
+            true,
+        )
+        .unwrap();
+    let mut changed = s.estimate_items(e.id).unwrap()[1].clone();
+    changed.description = "Otro nombre".into();
+    changed.quantity = 20.into();
+    s.update_estimate_item(&changed).unwrap();
+    let usd = Project {
+        currency: Currency::Usd,
+        ..p.clone()
+    };
+    let target = pattern_destination(&mut s, &usd);
+    let source = PatternSource {
+        estimate_id: None,
+        template_id: Some(saved.id),
+    };
+    let selection = PatternSelection {
+        line_ids: vec![lines[1]],
+        section_ids: vec![],
+    };
+    assert!(s
+        .apply_budget_pattern(target.id, &source, &selection, true, None)
+        .is_err());
+    s.apply_budget_pattern(target.id, &source, &selection, false, None)
+        .unwrap();
+    let line = &s.estimate_items(target.id).unwrap()[0];
+    assert_eq!(line.description, "Revoque");
+    assert_eq!(line.quantity, 6.into());
+    assert_eq!(line.unit_cost_snapshot, 0.into());
+    assert_eq!(
+        s.budget_templates().unwrap()[0].document.lines[0].quantity,
+        6.into()
+    );
+}
+#[test]
+fn invalid_or_issued_pattern_application_is_atomic() {
+    use crate::budget_patterns::*;
+    let (mut s, p, e, lines, sections) = pattern_fixture();
+    let target = pattern_destination(&mut s, &p);
+    let source = PatternSource {
+        estimate_id: Some(e.id),
+        template_id: None,
+    };
+    let before = s.change_events(0).unwrap().len();
+    assert!(s
+        .apply_budget_pattern(
+            target.id,
+            &source,
+            &PatternSelection {
+                line_ids: vec![Uuid::new_v4()],
+                section_ids: vec![]
+            },
+            false,
+            None
+        )
+        .is_err());
+    assert!(s
+        .apply_budget_pattern(
+            target.id,
+            &source,
+            &PatternSelection {
+                line_ids: vec![lines[0]],
+                section_ids: vec![]
+            },
+            false,
+            Some(sections[0])
+        )
+        .is_err());
+    assert_eq!(before, s.change_events(0).unwrap().len());
+    s.conn
+        .execute(
+            "UPDATE line_formulas SET expression='x+1' WHERE line_id=?1",
+            [lines[0].to_string()],
+        )
+        .unwrap();
+    let before = s.change_events(0).unwrap().len();
+    assert!(s
+        .apply_budget_pattern(
+            target.id,
+            &source,
+            &PatternSelection {
+                line_ids: vec![],
+                section_ids: vec![sections[0]]
+            },
+            true,
+            None
+        )
+        .is_err());
+    assert!(s.estimate_items(target.id).unwrap().is_empty());
+    assert!(s.list_budget_sections(target.id).unwrap().is_empty());
+    assert_eq!(before, s.change_events(0).unwrap().len());
+    let item = EstimateItem {
+        id: Uuid::new_v4(),
+        estimate_id: target.id,
+        position: 0,
+        analysis_id: None,
+        description: "Emitido".into(),
+        unit: "un".into(),
+        quantity: 1.into(),
+        unit_cost_snapshot: 1.into(),
+    };
+    s.add_estimate_item(&item).unwrap();
+    s.issue_estimate(target.id).unwrap();
+    assert!(s
+        .apply_budget_pattern(
+            target.id,
+            &source,
+            &PatternSelection {
+                line_ids: vec![lines[1]],
+                section_ids: vec![]
+            },
+            false,
+            None
+        )
+        .is_err());
+}
+#[test]
+fn resource_price_changes_propagate_within_one_budget_without_changing_yields_or_versions() {
+    let (mut s, p, e, l, supplier, res, _) = stock_fixture();
+    let _ = supplier;
+    let second = EstimateItem {
+        id: Uuid::new_v4(),
+        position: 1,
+        description: "Otra partida".into(),
+        ..l.clone()
+    };
+    s.add_estimate_item(&second).unwrap();
+    let input = |qty, price| crate::line_workflows::LineResourceInput {
+        resource_id: res,
+        quantity: Decimal::from(qty),
+        unit_price: Decimal::from(price),
+    };
+    s.save_line_resources(e.id, l.id, &[input(2, 10)]).unwrap();
+    s.save_line_resources(e.id, second.id, &[input(3, 10)])
+        .unwrap();
+    let copy = s.duplicate_estimate(e.id, "Otra versión").unwrap();
+    s.issue_estimate(copy.id).unwrap();
+    let other = pattern_destination(&mut s, &p);
+    let other_line = EstimateItem {
+        id: Uuid::new_v4(),
+        estimate_id: other.id,
+        position: 0,
+        ..l.clone()
+    };
+    s.add_estimate_item(&other_line).unwrap();
+    s.save_line_resources(other.id, other_line.id, &[input(1, 7)])
+        .unwrap();
+    s.save_line_resources(e.id, l.id, &[input(2, 15)]).unwrap();
+    let lines = s.estimate_items(e.id).unwrap();
+    assert_eq!(lines[0].unit_cost_snapshot, 30.into());
+    assert_eq!(lines[1].unit_cost_snapshot, 45.into());
+    assert_eq!(
+        s.get_analysis(lines[1].analysis_id.unwrap())
+            .unwrap()
+            .unwrap()
+            .components[0]
+            .quantity_per_unit,
+        3.into()
+    );
+    assert_eq!(s.estimate_resource_prices(e.id).unwrap()[&res], 15.into());
+    assert_eq!(
+        s.estimate_items(copy.id).unwrap()[1].unit_cost_snapshot,
+        30.into()
+    );
+    assert_eq!(
+        s.estimate_items(other.id).unwrap()[0].unit_cost_snapshot,
+        7.into()
+    );
+    s.verify_integrity().unwrap();
+}
+#[test]
+fn pattern_prices_use_destination_resource_prices_and_without_prices_do_not_get_repriced() {
+    use crate::budget_patterns::*;
+    let (mut s, p, e, l, _, res, _) = stock_fixture();
+    let input = |q, p| crate::line_workflows::LineResourceInput {
+        resource_id: res,
+        quantity: Decimal::from(q),
+        unit_price: Decimal::from(p),
+    };
+    s.save_line_resources(e.id, l.id, &[input(2, 10)]).unwrap();
+    let target = pattern_destination(&mut s, &p);
+    let line = EstimateItem {
+        id: Uuid::new_v4(),
+        estimate_id: target.id,
+        position: 0,
+        ..l.clone()
+    };
+    s.add_estimate_item(&line).unwrap();
+    s.save_line_resources(target.id, line.id, &[input(1, 5)])
+        .unwrap();
+    let source = PatternSource {
+        estimate_id: Some(e.id),
+        template_id: None,
+    };
+    let selection = PatternSelection {
+        line_ids: vec![l.id],
+        section_ids: vec![],
+    };
+    let with = s
+        .apply_budget_pattern(target.id, &source, &selection, true, None)
+        .unwrap();
+    let without = s
+        .apply_budget_pattern(target.id, &source, &selection, false, None)
+        .unwrap();
+    let rows = s.estimate_items(target.id).unwrap();
+    assert_eq!(
+        rows.iter()
+            .find(|l| l.id == with.line_ids[0])
+            .unwrap()
+            .unit_cost_snapshot,
+        10.into()
+    );
+    s.save_line_resources(target.id, line.id, &[input(1, 8)])
+        .unwrap();
+    let rows = s.estimate_items(target.id).unwrap();
+    assert_eq!(
+        rows.iter()
+            .find(|l| l.id == with.line_ids[0])
+            .unwrap()
+            .unit_cost_snapshot,
+        16.into()
+    );
+    assert_eq!(
+        rows.iter()
+            .find(|l| l.id == without.line_ids[0])
+            .unwrap()
+            .unit_cost_snapshot,
+        0.into()
+    );
+    assert!(rows
+        .iter()
+        .find(|l| l.id == without.line_ids[0])
+        .unwrap()
+        .analysis_id
+        .is_none());
+}
+#[test]
+fn resource_price_overflow_rolls_back_every_partida_and_price() {
+    let (mut s, _, e, l, _, res, _) = stock_fixture();
+    let second = EstimateItem {
+        id: Uuid::new_v4(),
+        position: 1,
+        ..l.clone()
+    };
+    s.add_estimate_item(&second).unwrap();
+    let input = |q, p| crate::line_workflows::LineResourceInput {
+        resource_id: res,
+        quantity: q,
+        unit_price: p,
+    };
+    s.save_line_resources(e.id, l.id, &[input(1.into(), 1.into())])
+        .unwrap();
+    s.save_line_resources(
+        e.id,
+        second.id,
+        &[input(Decimal::MAX / Decimal::from(10), 1.into())],
+    )
+    .unwrap();
+    let before = s.estimate_items(e.id).unwrap();
+    assert!(s
+        .save_line_resources(e.id, l.id, &[input(1.into(), 100.into())])
+        .is_err());
+    assert_eq!(s.estimate_items(e.id).unwrap(), before);
+    assert_eq!(s.estimate_resource_prices(e.id).unwrap()[&res], 1.into());
+}
+
+#[test]
+fn library_acus_adopt_the_budget_price_without_mutating_the_library() {
+    let (mut s, _, e, l, _, res, _) = stock_fixture();
+    let make = |price, quantity| cpobras_core::UnitCostAnalysis {
+        id: Uuid::new_v4(),
+        code: Uuid::new_v4().to_string(),
+        description: "ACU".into(),
+        unit: l.unit.clone(),
+        components: vec![cpobras_core::ResourcePriceSnapshot {
+            resource_id: res,
+            description: "Material".into(),
+            kind: cpobras_core::ResourceKind::Material,
+            quantity_per_unit: Decimal::from(quantity),
+            unit_price: Decimal::from(price),
+        }],
+    };
+    let first = make(10, 2);
+    let second = make(20, 3);
+    s.save_analysis(&first).unwrap();
+    s.save_analysis(&second).unwrap();
+    let a = EstimateItem {
+        id: Uuid::new_v4(),
+        position: 1,
+        analysis_id: Some(first.id),
+        unit_cost_snapshot: 20.into(),
+        ..l.clone()
+    };
+    let b = EstimateItem {
+        id: Uuid::new_v4(),
+        position: 2,
+        analysis_id: Some(second.id),
+        unit_cost_snapshot: 60.into(),
+        ..l.clone()
+    };
+    s.add_estimate_item(&a).unwrap();
+    s.add_estimate_item(&b).unwrap();
+    let rows = s.estimate_items(e.id).unwrap();
+    assert_eq!(rows[2].unit_cost_snapshot, 30.into());
+    assert_eq!(
+        s.get_analysis(second.id).unwrap().unwrap().components[0].unit_price,
+        20.into()
+    );
+    assert_ne!(rows[2].analysis_id, Some(second.id));
+}
+#[test]
+fn schema_seventeen_reconciles_legacy_draft_prices_once_using_the_latest_composition() {
+    let (mut s, _, e, l, _, res, _) = stock_fixture();
+    s.save_line_resources(
+        e.id,
+        l.id,
+        &[crate::line_workflows::LineResourceInput {
+            resource_id: res,
+            quantity: 2.into(),
+            unit_price: 10.into(),
+        }],
+    )
+    .unwrap();
+    let second = EstimateItem {
+        id: Uuid::new_v4(),
+        position: 1,
+        ..l.clone()
+    };
+    s.add_estimate_item(&second).unwrap();
+    let analysis = cpobras_core::UnitCostAnalysis {
+        id: Uuid::new_v4(),
+        code: "LEGACY".into(),
+        description: "Legacy".into(),
+        unit: l.unit.clone(),
+        components: vec![cpobras_core::ResourcePriceSnapshot {
+            resource_id: res,
+            description: "Material".into(),
+            kind: cpobras_core::ResourceKind::Material,
+            quantity_per_unit: 3.into(),
+            unit_price: 20.into(),
+        }],
+    };
+    s.save_analysis(&analysis).unwrap();
+    s.conn
+        .execute(
+            "INSERT INTO line_analysis_snapshots(analysis_id) VALUES (?1)",
+            [analysis.id.to_string()],
+        )
+        .unwrap();
+    s.conn
+        .execute(
+            "UPDATE estimate_lines SET analysis_id=?1,unit_cost_snapshot='60' WHERE id=?2",
+            params![analysis.id.to_string(), second.id.to_string()],
+        )
+        .unwrap();
+    let path =
+        std::env::temp_dir().join(format!("cpobras-legacy-prices-{}.sqlite", Uuid::new_v4()));
+    s.backup_to(&path).unwrap();
+    let old = Connection::open(&path).unwrap();
+    old.execute_batch("DROP TABLE line_analysis_sources;DROP TABLE estimate_resource_prices;DELETE FROM schema_migrations WHERE version=17;").unwrap();
+    drop(old);
+    let upgraded = LocalStore::open(&path).unwrap();
+    let rows = upgraded.estimate_items(e.id).unwrap();
+    assert_eq!(rows[0].unit_cost_snapshot, 40.into());
+    assert_eq!(rows[1].unit_cost_snapshot, 60.into());
+    assert_eq!(
+        upgraded.estimate_resource_prices(e.id).unwrap()[&res],
+        20.into()
+    );
+    let events = upgraded.change_events(0).unwrap().len();
+    drop(upgraded);
+    let reopened = LocalStore::open(&path).unwrap();
+    assert_eq!(reopened.estimate_items(e.id).unwrap(), rows);
+    assert_eq!(reopened.change_events(0).unwrap().len(), events);
+    reopened.verify_integrity().unwrap();
+    drop(reopened);
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn legacy_library_unit_changes_do_not_prevent_opening_or_reinterpret_stored_prices() {
+    let (mut s, _, e, l, _, res, _) = stock_fixture();
+    let a = cpobras_core::UnitCostAnalysis {
+        id: Uuid::new_v4(),
+        code: "LEGACY-UNIT".into(),
+        description: "Biblioteca modificada".into(),
+        unit: "kg".into(),
+        components: vec![cpobras_core::ResourcePriceSnapshot {
+            resource_id: res,
+            description: "Material".into(),
+            kind: cpobras_core::ResourceKind::Material,
+            quantity_per_unit: 2.into(),
+            unit_price: 10.into(),
+        }],
+    };
+    s.save_analysis(&a).unwrap();
+    s.conn
+        .execute(
+            "UPDATE estimate_lines SET analysis_id=?1 WHERE id=?2",
+            params![a.id.to_string(), l.id.to_string()],
+        )
+        .unwrap();
+    let path =
+        std::env::temp_dir().join(format!("cpobras-unit-migration-{}.sqlite", Uuid::new_v4()));
+    s.backup_to(&path).unwrap();
+    let old = Connection::open(&path).unwrap();
+    old.execute_batch("DROP TABLE line_analysis_sources;DROP TABLE estimate_resource_prices;DELETE FROM schema_migrations WHERE version=17;").unwrap();
+    drop(old);
+    let upgraded = LocalStore::open(&path).unwrap();
+    let line = &upgraded.estimate_items(e.id).unwrap()[0];
+    assert!(line.analysis_id.is_none());
+    assert_eq!(line.unit, l.unit);
+    assert_eq!(line.unit_cost_snapshot, l.unit_cost_snapshot);
     upgraded.verify_integrity().unwrap();
     drop(upgraded);
     std::fs::remove_file(path).unwrap();

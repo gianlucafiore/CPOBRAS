@@ -96,9 +96,9 @@ export function createResourcePicker({
     const price = row.querySelector('[name="unitPrice"]');
     if (price)
       price.value =
-        state.modal?.kind === "line-resources" &&
-        currentEstimate()?.currency === "USD"
-          ? ""
+        state.modal?.kind === "line-resources"
+          ? (state.estimateResourcePrices?.[r.id] ??
+            (currentEstimate()?.currency === "USD" ? "" : (r.price ?? "")))
           : (r.price ?? "");
     state.modalDirty = true;
     hide();

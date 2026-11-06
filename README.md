@@ -40,6 +40,18 @@ certificaciones, finanzas y tablero. Elegí obra y fecha de corte. La guía de
 prueba, el circuito de documentos y las reglas de cálculo están en
 [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
+## Reutilizar cómputos y precios de insumos
+
+**Patrones de cómputo**, en la grilla del presupuesto, permite copiar rubros y
+partidas desde otras obras o patrones guardados, con selección en árbol y opción
+con precios o solo cantidades. También copia los metrados y fórmulas. Para crear
+un patrón, seleccioná elementos del origen y usá **Guardar selección como patrón**.
+
+Cada insumo tiene un precio único dentro de cada presupuesto. Editarlo recalcula
+las partidas que lo usan, conservando sus rendimientos y los precios de otras
+versiones. La actualización de la base es automática. Guía y criterios:
+[docs/PATTERNS_AND_PRICES.md](docs/PATTERNS_AND_PRICES.md).
+
 ## Instalar dependencias
 
 Requisitos: Rust 1.99.1 con `rustfmt` (fijado en `rust-toolchain.toml`, instalable con rustup), Node.js 24 (versión fijada en `.nvmrc`) y npm. En Linux también

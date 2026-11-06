@@ -2,6 +2,11 @@
 identifier = "workspace"
 description = "Local workspace operations, granted only to the main window."
 commands.allow = [
+  "get_estimate_resource_prices",
+  "get_pattern_document",
+  "save_budget_pattern",
+  "apply_budget_pattern",
+
   "list_operations",
   "post_operation",
   "list_warehouses",

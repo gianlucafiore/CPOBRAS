@@ -96,6 +96,17 @@ impl LocalStore {
         if changed != 1 {
             return Err(invalid("La partida ya no existe"));
         }
+        let mut prices = std::collections::BTreeMap::new();
+        for input in inputs {
+            if let Some(old) = prices.insert(input.resource_id, input.unit_price) {
+                if old != input.unit_price {
+                    return Err(invalid(
+                        "Un mismo insumo no puede tener dos precios en el presupuesto",
+                    ));
+                }
+            }
+        }
+        crate::estimate_resource_prices::synchronize(&tx, estimate_id, &prices)?;
         checked_budget_total(&tx, estimate_id)?;
         tx.commit()?;
         Ok(analysis.id)

@@ -66,3 +66,15 @@
 - Frontend operational drafts survive rerenders and require explicit discard on
   navigation. Quick resource creation uses an overlay above the existing dialog,
   preserving its DOM and values; the parent is inert until the child closes.
+
+## Selective patterns and estimate resource prices
+
+- `budget_patterns` selects subtrees or individual lines from authoritative
+  budget/template snapshots and appends fresh entities in one immediate transaction.
+  Ancestor scaffolding does not implicitly select sibling lines. Existing pricing
+  rates stay in the destination. Quantities-only copies have zero prices and no ACU.
+- Migration 17 keeps a resource price book scoped to an estimate. Snapshot recipes
+  are copied on price changes, preserving yields and independent issued versions.
+  Source library ACU links are retained separately for explicit repricing.
+- Pattern application adopts existing destination resource prices. New resources
+  seed the destination price book; no implicit FX conversion occurs.

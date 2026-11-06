@@ -5,10 +5,12 @@ use std::path::Path;
 use uuid::Uuid;
 
 pub mod advanced_costing;
+pub mod budget_patterns;
 pub mod budget_pricing;
 pub mod budget_sections;
 pub mod budget_tools;
 pub mod estimate_comparison;
+pub mod estimate_resource_prices;
 pub mod estimates;
 pub mod line_workflows;
 pub mod maintenance;
@@ -78,6 +80,7 @@ impl LocalStore {
             include_str!("../migrations/0014_line_resource_snapshots.sql"),
             include_str!("../migrations/0015_operations.sql"),
             include_str!("../migrations/0016_deleted_line_history.sql"),
+            include_str!("../migrations/0017_estimate_resource_prices.sql"),
         ];
         let latest: i64 = conn.query_row(
             "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
@@ -108,6 +111,7 @@ impl LocalStore {
         }
         let store = Self { conn };
         store.install_audit_triggers()?;
+        store.reconcile_draft_prices()?;
         Ok(store)
     }
 

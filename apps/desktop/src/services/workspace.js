@@ -31,9 +31,10 @@ async function loadEstimate() {
 }
 async function loadPanel() {
   const line = currentLine(),panel=state.panel,estimateId=state.estimateId;
-  const current=()=>state.selectedLineId===line?.id&&state.panel===panel&&state.estimateId===estimateId;
+  const current=()=>state.selectedLineId===(line?.id||null)&&state.panel===panel&&state.estimateId===estimateId;
   state.detail = null;
   state.takeoffs = [];
+  if(["acu","resources"].includes(panel)&&estimateId){const prices=await invoke("get_estimate_resource_prices",{estimateId});if(current())state.estimateResourcePrices=prices;}
   if (["acu","resources"].includes(state.panel) && line?.analysis_id) {
     try { const detail = await invoke("get_analysis_details", { analysisId: line.analysis_id }); if(current())state.detail=detail; }
     catch { if(current())state.detail = null; }

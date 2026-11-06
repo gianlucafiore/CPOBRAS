@@ -84,7 +84,7 @@ function workspace() {
       <button class="btn ghost" data-action="duplicate-estimate" ${est ? "" : "disabled"}>Duplicar</button><button class="btn ghost" data-action="refresh-draft-costs" ${locked()}>↻ Actualizar precios ACU</button>
       <button class="btn ghost" data-action="modal-comparison" ${state.estimates.length < 2 ? "disabled" : ""}>Comparar</button>
       <span class="grow"></span>
-      <button class="btn" data-action="open-budget-tools" ${est ? "" : "disabled"}>Herramientas / exportar</button><button class="btn dark" data-action="issue" ${locked()}>Emitir</button>
+      <button class="btn" data-action="open-patterns" ${est ? "" : "disabled"}>Patrones de cómputo</button><button class="btn" data-action="open-budget-tools" ${est ? "" : "disabled"}>Herramientas / exportar</button><button class="btn dark" data-action="issue" ${locked()}>Emitir</button>
     </div>
     <div class="workspace-columns">
       <section class="grid-pane">
@@ -117,8 +117,8 @@ function rightPanel() {
   const line = currentLine();
   if (state.panel === "summary") return summaryPane();
   if (state.panel === "resources") return `<div class="detail-heading"><b>INSUMOS</b><span>${line?e(line.description):"Seleccioná una partida para asignar"}</span><button class="btn tiny primary" data-action="edit-line-resources" ${locked()} ${!line?"disabled":""}>＋ Agregar insumo</button></div>
-    <div class="mini-scroll"><table class="mini-table"><thead><tr><th>TIPO</th><th>DESCRIPCIÓN</th><th>UND.</th><th class="number">PRECIO ARS</th><th>ASIGNAR</th></tr></thead><tbody>
-    ${state.resources.map(r => `<tr><td><span class="kind kind-${e(r.kind)}">${kindBadge(r.kind)}</span></td><td>${e(r.description)}</td><td>${e(r.unit)}</td><td class="number">${r.price === null ? "—" : money(r.price)}</td><td><button class="btn tiny" data-action="assign-resource" data-id="${e(r.id)}" ${locked()} ${!line||r.active===false?"disabled":""}>Asignar</button></td></tr>`).join("")}
+    <div class="mini-scroll"><table class="mini-table"><thead><tr><th>TIPO</th><th>DESCRIPCIÓN</th><th>UND.</th><th class="number">PRECIO ${e(currentEstimate()?.currency||"ARS")}</th><th>ASIGNAR</th></tr></thead><tbody>
+    ${state.resources.map(r => `<tr><td><span class="kind kind-${e(r.kind)}">${kindBadge(r.kind)}</span></td><td>${e(r.description)}</td><td>${e(r.unit)}</td><td class="number">${(state.estimateResourcePrices?.[r.id] ?? (currentEstimate()?.currency==="USD"?null:r.price)) == null ? "—" : money(state.estimateResourcePrices?.[r.id] ?? r.price)}</td><td><button class="btn tiny" data-action="assign-resource" data-id="${e(r.id)}" ${locked()} ${!line||r.active===false?"disabled":""}>Asignar</button></td></tr>`).join("")}
     </tbody></table></div><div class="detail-footer">${btn("Abrir catálogo", "goto-resources", "primary")}</div>`;
   if (!line) return `<div class="blank-state"><span>▧</span><strong>Seleccioná una partida</strong><p>Su análisis de costos y mediciones aparecerán acá.</p></div>`;
   if (state.panel === "takeoffs") return takeoffPane(line);
@@ -140,7 +140,7 @@ function acuPane(line) {
   ${d ? `<div class="mini-scroll"><table class="mini-table"><thead><tr><th>TIPO</th><th>DESCRIPCIÓN</th><th class="number">CANT.</th><th class="number">PRECIO</th><th class="number">PARCIAL</th><th>ACCIÓN</th></tr></thead><tbody>${byKinds}</tbody></table></div>` :
     `<div class="blank-state"><span>▤</span><strong>Partida con precio manual</strong><p>Abrí Insumos para asignar recursos a esta partida, o usá Agregar insumo para construir su precio.</p></div>`}
   <div class="context-summary"><div><small>Precio unitario guardado</small><b>${money(line.unit_cost)}</b></div><div><small>${d?.is_line_owned?"Precio calculado por insumos":"Precio actual del ACU"}</small><b>${d ? money(d.unit_cost) : "—"}</b></div></div>
-  <div class="detail-footer muted-note">El presupuesto conserva el precio unitario original aunque se actualicen los insumos.</div>`;
+  <div class="detail-footer muted-note">Cada insumo tiene un precio único en este presupuesto. Las otras versiones conservan sus precios.</div>`;
 }
 function takeoffPane(line) {
   const qty = sumDecimals(state.takeoffs.map(row => row.quantity));

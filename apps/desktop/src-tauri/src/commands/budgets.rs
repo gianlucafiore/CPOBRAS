@@ -223,7 +223,13 @@ pub(crate) fn add_line_from_analysis(
         unit_cost_snapshot,
     };
     store.add_estimate_item(&item).map_err(|e| e.to_string())?;
-    Ok(LineView::from(item))
+    let saved = store
+        .estimate_items(estimate_id)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .find(|line| line.id == item.id)
+        .ok_or("La partida no se guardó")?;
+    Ok(LineView::from(saved))
 }
 
 #[derive(serde::Serialize)]
