@@ -52,6 +52,14 @@ las partidas que lo usan, conservando sus rendimientos y los precios de otras
 versiones. La actualización de la base es automática. Guía y criterios:
 [docs/PATTERNS_AND_PRICES.md](docs/PATTERNS_AND_PRICES.md).
 
+## Determinación de precio
+
+Desde un presupuesto, abrí **Determinación de precio** para ordenar y activar
+conceptos, aplicar porcentajes sobre costo directo, subtotal o utilidad, y
+detallar gastos por grupos e ítems. Permite montos manuales, referencias,
+plantillas y exportación. Usá **Guardar determinación** para persistir la vista
+previa. Guía de cálculo y prueba: [docs/PRICE_DETERMINATION.md](docs/PRICE_DETERMINATION.md).
+
 ## Instalar dependencias
 
 Requisitos: Rust 1.99.1 con `rustfmt` (fijado en `rust-toolchain.toml`, instalable con rustup), Node.js 24 (versión fijada en `.nvmrc`) y npm. En Linux también

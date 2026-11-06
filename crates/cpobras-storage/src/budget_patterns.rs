@@ -109,6 +109,9 @@ fn selected_document(
     if d.lines.len() > 10000 || d.sections.len() > 5000 || d.takeoffs.len() > 100000 {
         return Err(invalid("El patrón supera el tamaño admitido"));
     }
+    d.price_definition = None;
+    d.rates = Default::default();
+    d.format_version = 1;
     Ok(d)
 }
 impl LocalStore {

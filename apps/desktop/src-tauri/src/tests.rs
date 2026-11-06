@@ -189,6 +189,56 @@ fn ipc_creates_budget_and_preserves_issued_snapshot() {
             .len(),
         1
     );
+    let price_estimate = call(
+        "duplicate_estimate",
+        json!({"estimateId":imported["id"],"title":"Determinación de precio IPC"}),
+    )
+    .unwrap();
+    let initial = call(
+        "get_price_definition",
+        json!({"estimateId":price_estimate["id"]}),
+    )
+    .unwrap();
+    let mut definition = initial["definition"].clone();
+    definition["rows"][0]["reference_percent"] = json!("10");
+    let preview = call(
+        "calculate_price_definition",
+        json!({"estimateId":price_estimate["id"],"definition":definition}),
+    )
+    .unwrap();
+    let saved_price = call(
+        "save_price_definition",
+        json!({"estimateId":price_estimate["id"],"revision":0,"definition":definition}),
+    )
+    .unwrap();
+    assert_eq!(saved_price["revision"], 1);
+    assert_eq!(saved_price["calculation"], preview);
+    let priced = call(
+        "priced_estimate_total",
+        json!({"estimateId":price_estimate["id"]}),
+    )
+    .unwrap();
+    assert_eq!(priced["total"], preview["breakdown"]["total"]);
+    assert_eq!(priced["rows"], preview["rows"]);
+    call(
+        "save_price_template",
+        json!({"name":"Modelo IPC","currency":"ARS","scope":"definition","definition":definition}),
+    )
+    .unwrap();
+    assert_eq!(
+        call("list_price_templates", json!({}))
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    call("issue_estimate", json!({"estimateId":price_estimate["id"]})).unwrap();
+    assert!(call(
+        "save_price_definition",
+        json!({"estimateId":price_estimate["id"],"revision":1,"definition":definition})
+    )
+    .is_err());
     let backup = call("create_backup", json!({})).unwrap();
     let wh_id = uuid::Uuid::new_v4();
     call("create_warehouse",json!({"warehouse":{"id":wh_id,"project_id":project["id"],"name":"Depósito IPC","location":"A1"}})).unwrap();
@@ -232,6 +282,22 @@ fn ipc_creates_budget_and_preserves_issued_snapshot() {
     assert!(call("post_operation", json!({"operation":op})).is_err());
     call("verify_database", json!({})).unwrap();
     call("restore_backup", json!({"id":backup})).unwrap();
+    assert_eq!(
+        call("list_price_templates", json!({}))
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        call(
+            "priced_estimate_total",
+            json!({"estimateId":price_estimate["id"]})
+        )
+        .unwrap()["total"],
+        preview["breakdown"]["total"]
+    );
     let exported = call(
         "write_export",
         json!({"name":"presupuesto.csv","bytes":[65,66,67]}),

@@ -17,6 +17,7 @@ pub mod maintenance;
 pub mod management;
 pub mod operations;
 pub mod planning;
+pub mod price_determination;
 pub mod resource_catalog;
 pub mod takeoffs;
 
@@ -81,6 +82,7 @@ impl LocalStore {
             include_str!("../migrations/0015_operations.sql"),
             include_str!("../migrations/0016_deleted_line_history.sql"),
             include_str!("../migrations/0017_estimate_resource_prices.sql"),
+            include_str!("../migrations/0018_price_determination.sql"),
         ];
         let latest: i64 = conn.query_row(
             "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",

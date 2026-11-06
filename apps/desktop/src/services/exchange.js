@@ -38,10 +38,12 @@ export function rowsToBudget(rows, { currency, title, uuid = () => globalThis.cr
  });
  return { format_version: 1, currency, title, lines, sections, assignments, takeoffs: [], rates: { general_expenses_percent: "0", financial_expenses_percent: "0", profit_percent: "0", discount_percent: "0", tax_percent: "0" } };
 }
-export async function exportExcel(document) {
+export async function exportExcel(document, totals = null) {
  const { default: writeExcelFile } = await import("write-excel-file/universal");
  const rows = [headers.map(value=>({value,fontWeight:"bold"})), ...budgetRows(document).map(row=>row.map(value=>({value:String(value),type:String})))];
- const blob=await writeExcelFile(rows,{sheet:"Presupuesto",columns:[55,12,24,24,35,15,26].map(width=>({width}))}).toBlob();
+ const sheets=[{data:rows,sheet:"Presupuesto",columns:[55,12,24,24,35,15,26].map(width=>({width}))}];
+ if(totals?.rows){const summary=[["Determinación de precio","Importe"],["Costo directo",totals.direct],...totals.rows.filter(row=>row.enabled).map(row=>[row.label,row.amount]),["PRESUPUESTO TOTAL",totals.total]];sheets.push({sheet:"Determinación de precio",data:summary.map(row=>row.map(value=>({value:String(value),type:String}))),columns:[{width:55},{width:30}]});}
+ const blob=await writeExcelFile(sheets).toBlob();
  return new Uint8Array(await blob.arrayBuffer());
 }
 export async function validateWorkbookArchive(buffer) {
@@ -77,7 +79,8 @@ export async function exportPdf(document, { title = document.title, landscape = 
  else { for (const row of budgetRows(document)) { line(row[0], true); line(`${row[4]} | ${row[1]} | Cantidad ${numeric(row[2])} | P. unitario ${money(row[3])} | Importe ${money(row[6])}`); } }
  if (mode === "budget" && totals) {
   line("Resumen económico", true);
-  for (const [label, key] of [["Costo directo","direct"],["Gastos generales","general_expenses"],["Gastos financieros","financial_expenses"],["Beneficio","profit"],["Descuento","discount"],["Subtotal imponible","taxable_subtotal"],["Impuestos","taxes"],["TOTAL","total"]]) line(label + ": " + money(totals[key]), key === "total");
+  if(totals.rows){line("Costo directo: "+money(totals.direct));for(const row of totals.rows.filter(row=>row.enabled))line(row.label+": "+money(row.amount));line("TOTAL: "+money(totals.total),true);}
+  else for (const [label, key] of [["Costo directo","direct"],["Gastos generales","general_expenses"],["Gastos financieros","financial_expenses"],["Beneficio","profit"],["Descuento","discount"],["Subtotal imponible","taxable_subtotal"],["Impuestos","taxes"],["TOTAL","total"]]) line(label + ": " + money(totals[key]), key === "total");
  }
  for (let page = 1; page <= pdf.getNumberOfPages(); page++) { pdf.setPage(page); pdf.setFontSize(8); pdf.text(`${page} / ${pdf.getNumberOfPages()}`, width - 30, pdf.internal.pageSize.getHeight() - 8); }
  return new Uint8Array(pdf.output("arraybuffer"));

@@ -63,6 +63,7 @@ pub(crate) fn compare_estimates(
 
 #[derive(serde::Serialize)]
 pub(crate) struct PricingView {
+    rows: Vec<cpobras_core::price_determination::PriceRowResult>,
     financial_expenses: String,
     direct: String,
     general_expenses: String,
@@ -141,12 +142,16 @@ pub(crate) fn priced_estimate_total(
     estimate_id: String,
 ) -> Result<PricingView, String> {
     let id = Uuid::parse_str(&estimate_id).map_err(|e| e.to_string())?;
-    let priced = db
-        .lock()
-        .map_err(|e| e.to_string())?
-        .priced_estimate_total(id)
-        .map_err(|e| e.to_string())?;
+    let store = db.lock().map_err(|e| e.to_string())?;
+    let definition = store.get_price_definition(id).map_err(|e| e.to_string())?;
+    let calculation = definition.calculation.ok_or_else(|| {
+        definition
+            .calculation_error
+            .unwrap_or_else(|| "Determinación inválida".into())
+    })?;
+    let priced = calculation.breakdown;
     Ok(PricingView {
+        rows: calculation.rows,
         financial_expenses: priced.financial_expenses.to_string(),
         direct: priced.direct.to_string(),
         general_expenses: priced.general_expenses.to_string(),

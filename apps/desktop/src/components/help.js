@@ -1,5 +1,6 @@
 import { e } from "./helpers.js";
 const pages={
+ "price-determination":["Determinación de precio","Activá y ordená conceptos para pasar del costo directo al precio final. Cada línea puede usar porcentaje, monto o detalle. Revisá la vista previa y guardá la determinación antes de salir."],
  operations:["Gestión de obra: compras, producción, certificaciones y finanzas","Elegí obra, presupuesto y fecha de corte. Usá las pestañas para recorrer cada etapa y registrar documentos vinculados. El tablero reúne la cartera y los informes se exportan a Excel o PDF."],
  projects:["Obras y presupuestos","Creá una obra y abrila para trabajar con sus presupuestos. Antes necesitás registrar al comitente en Clientes."],
  clients:["Clientes","Registrá a quienes te contratan. Después podrás elegirlos al crear una obra; los contactos y datos ampliados están en Organización."],

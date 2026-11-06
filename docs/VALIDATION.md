@@ -5,10 +5,10 @@ con Node 24.22.1 y Rust 1.99.1. `tools/check.sh` reúne los checks reproducibles
 
 | Comprobación | Evidencia |
 | --- | --- |
-| Rust, núcleo y almacenamiento | 73 tests: 17 de dominio y 56 de persistencia/regresión |
+| Rust, núcleo y almacenamiento | 81 tests: 22 de dominio y 59 de persistencia/regresión |
 | Escritorio Tauri | 2 tests nativos: recorrido IPC y regresión GLib optimizada |
-| JavaScript | 21 tests, con aislamiento de procesos desactivado explícitamente en el runner |
-| Chromium | 22 recorridos de interfaz sobre DOM real y un puente IPC de prueba |
+| JavaScript | 23 tests, con aislamiento de procesos desactivado explícitamente en el runner |
+| Chromium | 25 recorridos de interfaz sobre DOM real y un puente IPC de prueba |
 | Formato Rust | Workspace y aplicación Tauri |
 | Frontend de producción | Vite build, incluyendo los módulos de Excel y PDF |
 | Ejecutable Linux | Compilación con `custom-protocol` y arranque WebKitGTK en Xvfb |
@@ -20,6 +20,26 @@ integración nativa: el recorrido IPC usa Tauri con su configuración real y
 comprueba clientes, obras, ACU, presupuesto emitido, directorios, listas de
 precios, ACU anidados, importación, cronograma, línea base, copia/restauración,
 exportación, depósitos, documentos operativos, reportes de gestión y rechazo de ventanas/orígenes sin permisos.
+
+## Determinación de precio
+
+- Exactitud del ejemplo de referencia: costo directo 12.356.539,73, gastos
+  generales 10% CD, beneficio 15% CD e IVA 21% del subtotal: total
+  18.689.266,341625 (18.689.266,34 en pantalla).
+- Equivalencia con los porcentajes anteriores, orden de cálculo, utilidad
+  anterior, conceptos desactivados y subtotales sin doble suma.
+- Grupos anidados, participación, cambio entre detalle/manual/referencia,
+  rechazo de ciclos, padres inexistentes, desbordes y deducciones excesivas.
+- Revisión al guardar, duplicación, JSON versión 2, plantillas, bloqueo de
+  emitidos y reparación de una determinación invalidada por cambios de costo.
+- Certificación proporcional con cargos fijos y coherencia del precio final.
+- IPC real de consultar/calcular/guardar/plantillas/totales y conservación
+  después de copia/restauración. Chromium verifica edición individual, cierre
+  protegido, modos, orden, plantillas, exportación y navegación sin perder datos.
+- Excel y PDF del presupuesto incluyen los conceptos personalizados; las
+  exportaciones de determinación conservan los decimales exactos.
+
+Guía: [PRICE_DETERMINATION.md](PRICE_DETERMINATION.md). Esquema SQLite: 18.
 
 ## Patrones y precios por presupuesto
 

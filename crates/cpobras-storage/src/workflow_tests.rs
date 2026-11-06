@@ -1329,7 +1329,7 @@ fn upgrades_populated_schema_fifteen_and_deletes_its_preexisting_linked_line() {
         assert!(name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'));
         old.execute_batch(&format!("DROP TRIGGER {name}")).unwrap();
     }
-    old.execute_batch("ALTER TABLE operation_links DROP COLUMN archived_line_id; DROP TABLE deleted_estimate_lines; DROP TABLE line_analysis_sources; DROP TABLE estimate_resource_prices; DELETE FROM schema_migrations WHERE version>=16; CREATE TRIGGER operation_links_no_update BEFORE UPDATE ON operation_links BEGIN SELECT RAISE(ABORT,'operation links are immutable'); END;").unwrap();
+    old.execute_batch("ALTER TABLE operation_links DROP COLUMN archived_line_id; DROP TABLE deleted_estimate_lines; DROP TABLE line_analysis_sources; DROP TABLE estimate_resource_prices; DROP TABLE estimate_price_definitions; DROP TABLE price_definition_templates; DELETE FROM schema_migrations WHERE version>=16; CREATE TRIGGER operation_links_no_update BEFORE UPDATE ON operation_links BEGIN SELECT RAISE(ABORT,'operation links are immutable'); END;").unwrap();
     drop(old);
     let mut upgraded = LocalStore::open(&path).unwrap();
     assert_eq!(
@@ -1338,7 +1338,7 @@ fn upgrades_populated_schema_fifteen_and_deletes_its_preexisting_linked_line() {
             .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| r
                 .get::<_, i64>(0))
             .unwrap(),
-        17
+        18
     );
     upgraded.delete_estimate_item(e.id, line.id).unwrap();
     assert!(upgraded.estimate_items(e.id).unwrap().is_empty());
@@ -1997,4 +1997,122 @@ fn legacy_library_unit_changes_do_not_prevent_opening_or_reinterpret_stored_pric
     upgraded.verify_integrity().unwrap();
     drop(upgraded);
     std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn custom_price_definition_revision_copy_export_and_issue_are_consistent() {
+    use cpobras_core::price_determination::{PriceDefinition, PriceKind};
+    let (mut store, project, estimate, _) = fixture();
+    let original = store.get_price_definition(estimate.id).unwrap();
+    assert!(!original.custom);
+    assert_eq!(original.revision, 0);
+    let mut definition = PriceDefinition::from_rates(PricingRates::default());
+    definition.rows[0].reference_percent = Decimal::from(10);
+    definition.rows[2].kind = PriceKind::PercentDirect;
+    definition.rows[2].percent = Decimal::from(15);
+    definition.rows.last_mut().unwrap().percent = Decimal::from(21);
+    let saved = store
+        .save_price_definition(estimate.id, 0, &definition)
+        .unwrap();
+    assert_eq!(saved.revision, 1);
+    assert_eq!(
+        saved.calculation.unwrap().breakdown.total,
+        Decimal::new(3025, 1)
+    );
+    assert!(store
+        .save_price_definition(estimate.id, 0, &definition)
+        .is_err());
+    assert!(store
+        .save_estimate_pricing(estimate.id, PricingRates::default())
+        .is_err());
+    let duplicate = store.duplicate_estimate(estimate.id, "Revisión").unwrap();
+    assert_eq!(
+        store.priced_estimate_total(duplicate.id).unwrap().total,
+        Decimal::new(3025, 1)
+    );
+    let document = store.export_budget(estimate.id).unwrap();
+    assert_eq!(document.format_version, 2);
+    let json = serde_json::to_string(&document).unwrap();
+    let imported = store
+        .import_budget(project.id, &serde_json::from_str(&json).unwrap())
+        .unwrap();
+    assert_eq!(
+        store.priced_estimate_total(imported.id).unwrap().total,
+        Decimal::new(3025, 1)
+    );
+    store
+        .save_price_template("Modelo", "ARS", "definition", &definition)
+        .unwrap();
+    assert_eq!(store.price_templates().unwrap()[0].definition, definition);
+    store.issue_estimate(estimate.id).unwrap();
+    assert!(store
+        .save_price_definition(estimate.id, 1, &definition)
+        .is_err());
+    assert_eq!(
+        store.priced_estimate_total(estimate.id).unwrap().total,
+        Decimal::new(3025, 1)
+    );
+}
+
+#[test]
+fn invalid_custom_price_can_be_repaired_after_direct_cost_change() {
+    use cpobras_core::price_determination::{PriceDefinition, PriceKind, PriceRole};
+    let (mut store, _, estimate, line) = fixture();
+    let mut definition = PriceDefinition::from_rates(PricingRates::default());
+    definition.rows[0].kind = PriceKind::Fixed;
+    definition.rows[0].role = PriceRole::Discount;
+    definition.rows[0].subtract = true;
+    definition.rows[0].amount = Decimal::from(150);
+    store
+        .save_price_definition(estimate.id, 0, &definition)
+        .unwrap();
+    store
+        .edit_budget_lines(
+            estimate.id,
+            &[LineEdit {
+                id: line.id,
+                description: line.description,
+                unit: line.unit,
+                quantity: Decimal::ONE,
+                unit_cost: Decimal::from(100),
+            }],
+            &[],
+        )
+        .unwrap();
+    let saved = store.get_price_definition(estimate.id).unwrap();
+    assert!(saved.calculation.is_none());
+    assert!(saved.calculation_error.is_some());
+    assert!(store.issue_estimate(estimate.id).is_err());
+    definition.rows[0].amount = Decimal::from(10);
+    store
+        .save_price_definition(estimate.id, 1, &definition)
+        .unwrap();
+    assert_eq!(
+        store.priced_estimate_total(estimate.id).unwrap().total,
+        Decimal::from(90)
+    );
+    store.issue_estimate(estimate.id).unwrap();
+}
+
+#[test]
+fn certificates_prorate_custom_price_including_fixed_charges() {
+    use cpobras_core::price_determination::{PriceDefinition, PriceKind};
+    let (mut s, p, e, l) = fixture();
+    let mut definition = PriceDefinition::from_rates(PricingRates::default());
+    definition.rows[0].kind = PriceKind::Fixed;
+    definition.rows[0].amount = 50.into();
+    s.save_price_definition(e.id, 0, &definition).unwrap();
+    s.issue_estimate(e.id).unwrap();
+    let mut cert = operation(p.id, "certificate");
+    cert.estimate_id = Some(e.id);
+    cert.period_start = "2026-11-01".into();
+    cert.period_end = "2026-11-05".into();
+    cert.lines = vec![crate::operations::OperationLine {
+        line_id: Some(l.id),
+        description: "Mitad del trabajo".into(),
+        quantity: 1.into(),
+        ..Default::default()
+    }];
+    let cert = s.post_operation(&cert).unwrap();
+    assert_eq!(cert.calculated["gross"], 125.into());
 }

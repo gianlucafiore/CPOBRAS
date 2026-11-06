@@ -9,6 +9,9 @@ async function bridge(page, options={}) {
   const assignments=[];const lineDetails={};
   const estimate = { id: "estimate-1", title: "Presupuesto inicial", currency: "ARS", issued: Boolean(fixture.issued) };
   const totals = { direct: "200", general_expenses: "0", financial_expenses: "0", profit: "0", discount: "0", taxable_subtotal: "200", taxes: "0", total: "200" };
+  const makePriceRow=(label,kind,role,percent='0')=>({id:crypto.randomUUID(),label,kind,role,enabled:true,subtract:false,percent,amount:'0',detail_mode:'reference',reference_percent:percent,items:[]});
+  let priceDefinition={rows:[makePriceRow('Gastos generales','detailed','overhead'),makePriceRow('Beneficio','percent_direct','profit'),makePriceRow('Subtotal','subtotal','other'),makePriceRow('IVA','percent_subtotal','tax')]},priceRevision=0;const priceTemplates=[];
+  function calculatePrice(definition){let running=Number(totals.direct),profit=0;const rows=[];for(const row of definition.rows){const item_totals={};let detail=0;for(const i of row.items.filter(i=>!i.group)){const v=Number(i.quantity)*Number(i.unit_price)*Number(i.participation_percent)/100;detail+=v;item_totals[i.id]=String(v);let parent=i.parent_id;while(parent){item_totals[parent]=String(Number(item_totals[parent]||0)+v);parent=row.items.find(i=>i.id===parent)?.parent_id;}}const base=row.kind==='percent_direct'?Number(totals.direct):row.kind==='percent_profit'?profit:running;const reference=Number(totals.direct)*Number(row.reference_percent)/100;const raw=row.kind==='subtotal'?running:row.kind==='fixed'?Number(row.amount):row.kind==='detailed'?row.detail_mode==='items'?detail:row.detail_mode==='manual'?Number(row.amount):reference:base*Number(row.percent)/100;const amount=row.enabled?raw*(row.subtract?-1:1):0;if(row.enabled&&row.kind!=='subtotal'){running+=amount;if(row.role==='profit')profit+=amount;}rows.push({...row,base:String(base),amount:String(amount),running_total:String(running),detail_total:String(detail),reference_total:String(reference),item_totals});}return {rows,breakdown:{...totals,total:String(running)}};}
   const resources=[{ id: "resource-1", code: "MAT-1", description: "Acero", unit: "kg", kind: "material", price: "100" }];
   const resourcePrices={};const templates=[];
   const sourceProject={...project,id:'source-project',name:'Obra modelo'};
@@ -64,7 +67,12 @@ async function bridge(page, options={}) {
    if (command === "calculate_schedule") return schedule(args.plan);
    if (command === "save_project_plan") { plan = { project_id: args.projectId, revision: args.revision + 1, plan: args.plan }; return plan; }
    if (command === "get_estimate_pricing") return { general_expenses_percent: "0", financial_expenses_percent: "0", profit_percent: "0", discount_percent: "0", tax_percent: "0" };
-   if (command === "priced_estimate_total") return totals;
+   if(command==='get_price_definition')return {revision:priceRevision,custom:priceRevision>0,definition:structuredClone(priceDefinition),direct:totals.direct,calculation:calculatePrice(priceDefinition),calculation_error:null};
+   if(command==='calculate_price_definition')return calculatePrice(args.definition);
+   if(command==='save_price_definition'){if(estimate.issued)throw new Error('Presupuesto emitido');if(args.revision!==priceRevision)throw new Error('Recargá');priceDefinition=structuredClone(args.definition);priceRevision++;return {revision:priceRevision,calculation:calculatePrice(priceDefinition),direct:totals.direct};}
+   if(command==='list_price_templates')return priceTemplates;
+   if(command==='save_price_template'){const template={...structuredClone(args),id:crypto.randomUUID()};priceTemplates.push(template);return template;}
+   if (command === "priced_estimate_total") return priceRevision?{...calculatePrice(priceDefinition).breakdown,rows:calculatePrice(priceDefinition).rows}:totals;
    if (command === "export_budget_document") return { format_version: 1, currency: "Ars", title: estimate.title, lines: [{ ...line, estimate_id: estimate.id, position: 0, unit_cost_snapshot: line.unit_cost }], sections: [], assignments: [], rates: {}, takeoffs: [] };
    if (command === "edit_budget_lines") {Object.assign(line,args.changes[0]);return null;}
    if(command === "update_estimate_line"){const selected=lines.find(row=>row.id===args.lineId);Object.assign(selected,{description:args.description,unit:args.unit,quantity:args.quantity,unit_cost:args.unitCost,total:String(Number(args.quantity)*Number(args.unitCost))});return selected;}
@@ -285,4 +293,42 @@ test('one resource price is reused and updating it recalculates all lines in the
 
 test('issued budgets can supply saved patterns while incorporating into them remains disabled',async({page})=>{
  await bridge(page,{patterns:true,issued:true});await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.getByRole('button',{name:'Patrones de cómputo',exact:true}).click();await expect(page.getByRole('button',{name:'Incorporar selección',exact:true})).toBeDisabled();await page.getByRole('checkbox',{name:'Partida Muro modelo'}).check();await page.getByLabel('Nombre del patrón',{exact:true}).fill('Patrón desde emitido');await page.getByRole('button',{name:'Guardar selección como patrón',exact:true}).click();await expect(page.getByRole('status').filter({hasText:'Patrón guardado'})).toBeVisible();
+});
+
+test('price determination details, modal protection, percentages, saving and export', async({page})=>{
+ await page.setViewportSize({width:1600,height:1000});
+ await bridge(page);await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.getByRole('button',{name:'Determinación de precio',exact:true}).first().click();
+ await expect(page.getByRole('heading',{name:'Determinación de precio',exact:true})).toBeVisible();
+ await page.locator('.price-right').getByRole('button',{name:'Con detalle',exact:true}).click();
+ await page.getByRole('button',{name:'＋ Grupo',exact:true}).click();await page.getByLabel('Descripción del detalle').fill('Administración');await page.locator('.price-modal button[type=submit]').click();
+ await page.getByRole('button',{name:'＋ Ítem',exact:true}).click();await page.getByLabel('Descripción del detalle').fill('Oficina');await page.getByLabel('Grupo del detalle').selectOption({label:'Administración'});await page.getByLabel('Cantidad del detalle').fill('2');await page.getByLabel('Precio del detalle ARS').fill('100');await page.getByLabel('Participación %',{exact:true}).fill('25');
+ await page.locator('.price-modal').click({position:{x:3,y:3}});await expect(page.getByLabel('Descripción del detalle')).toHaveValue('Oficina');await page.locator('.price-modal button[type=submit]').click();
+ await expect(page.locator('.price-detail-totals')).toContainText('50,00');
+ await page.getByLabel('Porcentaje Beneficio',{exact:true}).fill('15');await expect(page.locator('.summary-final')).toContainText('280,00');
+ await page.getByLabel('Porcentaje IVA',{exact:true}).fill('21');await expect(page.locator('.summary-final')).toContainText('338,80');
+ await page.getByRole('button',{name:'Guardar determinación',exact:true}).click();await expect(page.locator('.price-status')).toContainText('Valores guardados');
+ await page.screenshot({path:'/workspace/cpobras-price-determination.png'});
+ const saved=await page.evaluate(()=>window.__calls.filter(c=>c.command==='save_price_definition').at(-1).args);expect(saved.definition.rows[0].items).toHaveLength(2);expect(saved.definition.rows[0].detail_mode).toBe('items');
+ await page.getByRole('button',{name:'Guardar plantilla',exact:true}).click();await page.getByLabel('Nombre de plantilla').fill('Modelo oficina');await page.locator('.price-modal button[type=submit]').click();
+ await page.getByRole('button',{name:'Exportar',exact:true}).click();await page.getByLabel('Formato de exportación').selectOption('pdf');await page.locator('.price-modal button[type=submit]').click();await expect(page.locator('.price-left')).toContainText('presupuesto.pdf');
+ await page.getByRole('button',{name:'← Presupuesto',exact:true}).click();await page.getByRole('tab',{name:'Resumen',exact:true}).click();await expect(page.locator('.summary-final')).toContainText('338,80');
+});
+
+test('price determination issued controls are disabled',async({page})=>{
+ await bridge(page,{issued:true});await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.getByRole('button',{name:'Determinación de precio',exact:true}).first().click();await expect(page.getByRole('button',{name:'Guardar determinación',exact:true})).toBeDisabled();await expect(page.getByLabel('Tipo de cálculo')).toBeDisabled();await expect(page.getByLabel('Nombre de línea 1')).toBeDisabled();
+});
+
+test('price determination modes, ordering, templates and dirty navigation are explicit',async({page})=>{
+ await bridge(page);await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.getByRole('button',{name:'Determinación de precio',exact:true}).first().click();
+ await page.getByLabel('Referencia % del costo directo').fill('10');await expect(page.locator('.summary-final')).toContainText('220,00');
+ await page.getByRole('button',{name:'Monto manual',exact:true}).click();await page.getByLabel('Monto manual del concepto').fill('50');await expect(page.locator('.summary-final')).toContainText('250,00');
+ await page.getByLabel('Porcentaje Beneficio').fill('10');await expect(page.locator('.summary-final')).toContainText('270,00');
+ await page.locator('[data-price-row]').nth(1).getByRole('button',{name:'% costo directo',exact:true}).click();await page.getByLabel('Tipo de cálculo').selectOption('percent_subtotal');await expect(page.locator('.summary-final')).toContainText('275,00');
+ await page.getByRole('button',{name:'Subir Beneficio',exact:true}).click();await expect(page.locator('.summary-final')).toContainText('270,00');
+ await page.getByLabel('Activar Gastos generales',{exact:true}).uncheck();await expect(page.locator('.summary-final')).toContainText('220,00');
+ await page.getByRole('button',{name:'Guardar plantilla',exact:true}).click();await page.getByLabel('Nombre de plantilla').fill('Orden y modos');await page.locator('.price-modal button[type=submit]').click();
+ await page.getByLabel('Activar Gastos generales',{exact:true}).check();await expect(page.locator('.summary-final')).toContainText('270,00');await page.getByLabel('Plantilla de determinación o detalle').selectOption({label:'Determinación · Orden y modos'});
+ page.once('dialog',d=>d.accept());await page.getByRole('button',{name:'Cargar plantilla',exact:true}).click();await expect(page.locator('.summary-final')).toContainText('220,00');
+ page.once('dialog',d=>d.dismiss());await page.getByRole('button',{name:'Gestión de obra',exact:true}).click();await expect(page.getByRole('heading',{name:'Determinación de precio',exact:true})).toBeVisible();
+ page.once('dialog',d=>d.accept());await page.getByRole('button',{name:'← Presupuesto',exact:true}).click();await expect(page.locator('.total-head')).toContainText('200,00');
 });

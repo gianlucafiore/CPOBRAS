@@ -844,28 +844,15 @@ impl LocalStore {
             }
             let direct = crate::estimates::checked_budget_total(&tx, estimate)?;
             let sale = if o.kind == "certificate" {
-                let rates:Option<(String,String,String,String,String)>=tx.query_row("SELECT general_expenses_percent,financial_expenses_percent,profit_percent,discount_percent,tax_percent FROM estimate_pricing WHERE estimate_id=?1",[estimate.to_string()],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))).optional()?;
-                let rates = if let Some((g, f, p, d, t)) = rates {
-                    let parse = |s: String| {
-                        s.parse::<D>()
-                            .map_err(|_| err("Porcentaje persistido inválido"))
-                    };
-                    cpobras_core::PricingRates {
-                        general_expenses_percent: parse(g)?,
-                        financial_expenses_percent: parse(f)?,
-                        profit_percent: parse(p)?,
-                        discount_percent: parse(d)?,
-                        tax_percent: parse(t)?,
-                    }
-                } else {
-                    Default::default()
-                };
-                cpobras_core::price_estimate(direct, rates)
-                    .map_err(|e| err(&e.to_string()))?
+                crate::price_determination::calculate_price(&tx, estimate)?
+                    .breakdown
                     .total
             } else {
                 reference.as_ref().unwrap().amount
             };
+            if o.kind == "certificate" && direct == D::ZERO && sale > D::ZERO {
+                return Err(err("No se puede distribuir la determinación de precio entre partidas con costo directo cero"));
+            }
             let sale_factor = if o.kind == "certificate" && direct > D::ZERO {
                 div(sale, direct)?
             } else {

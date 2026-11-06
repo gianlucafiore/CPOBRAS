@@ -42,6 +42,12 @@ impl LocalStore {
     }
 
     pub fn save_estimate_pricing(&mut self, estimate_id: Uuid, rates: PricingRates) -> Result<()> {
+        if self.stored_price_definition(estimate_id)?.is_some() {
+            return Err(StorageError::InvalidValue(
+                "Este presupuesto usa Determinación de precio. Editá sus líneas desde esa sección"
+                    .into(),
+            ));
+        }
         price_estimate(self.estimate_total(estimate_id)?, rates)
             .map_err(|err| StorageError::InvalidValue(err.to_string()))?;
         if self.get_estimate(estimate_id)?.is_none() {
@@ -73,9 +79,7 @@ impl LocalStore {
         if self.get_estimate(estimate_id)?.is_none() {
             return Err(StorageError::InvalidValue("estimate not found".into()));
         }
-        let direct = self.estimate_total(estimate_id)?;
-        let rates = self.get_estimate_pricing(estimate_id)?;
-        price_estimate(direct, rates).map_err(|err| StorageError::InvalidValue(err.to_string()))
+        Ok(crate::price_determination::calculate_price(&self.conn, estimate_id)?.breakdown)
     }
 }
 

@@ -491,6 +491,7 @@ impl LocalStore {
              FROM estimate_pricing WHERE estimate_id=?2",
             params![copy.id.to_string(), source_id.to_string()],
         )?;
+        transaction.execute("INSERT INTO estimate_price_definitions(estimate_id,revision,definition_json) SELECT ?1,1,definition_json FROM estimate_price_definitions WHERE estimate_id=?2",params![copy.id.to_string(),source_id.to_string()])?;
         crate::estimate_resource_prices::synchronize(&transaction, copy.id, &BTreeMap::new())?;
         transaction.commit()?;
         Ok(copy)
@@ -618,7 +619,11 @@ impl LocalStore {
     }
 
     pub fn issue_estimate(&mut self, id: Uuid) -> Result<()> {
-        let changed = self.conn.execute(
+        let tx = self
+            .conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        crate::price_determination::calculate_price(&tx, id)?;
+        let changed = tx.execute(
             "UPDATE estimates SET status='issued', issued_at=CURRENT_TIMESTAMP
              WHERE id=?1 AND status='draft'
                AND EXISTS (SELECT 1 FROM estimate_lines WHERE estimate_id=?1)",
@@ -629,6 +634,7 @@ impl LocalStore {
                 "estimate missing, already issued or without items".into(),
             ));
         }
+        tx.commit()?;
         Ok(())
     }
 }

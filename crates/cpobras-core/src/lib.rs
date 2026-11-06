@@ -3,6 +3,8 @@ pub mod contracting;
 pub mod costing;
 pub mod planning;
 
+pub mod price_determination;
+
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;

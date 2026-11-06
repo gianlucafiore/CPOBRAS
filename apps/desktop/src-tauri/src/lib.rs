@@ -26,6 +26,11 @@ pub fn run() {
 
 pub(crate) fn configure<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
     builder.invoke_handler(tauri::generate_handler![
+        commands::price_determination::get_price_definition,
+        commands::price_determination::calculate_price_definition,
+        commands::price_determination::save_price_definition,
+        commands::price_determination::list_price_templates,
+        commands::price_determination::save_price_template,
         commands::operations::list_operations,
         commands::operations::post_operation,
         commands::operations::list_warehouses,

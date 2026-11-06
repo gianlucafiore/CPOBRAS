@@ -13,6 +13,8 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BudgetDocument {
     #[serde(default)]
+    pub price_definition: Option<cpobras_core::price_determination::PriceDefinition>,
+    #[serde(default)]
     pub line_analyses: Vec<cpobras_core::UnitCostAnalysis>,
     #[serde(default)]
     pub formulas: Vec<LineFormula>,
@@ -94,9 +96,14 @@ impl LocalStore {
             }
         }
         Ok(BudgetDocument {
+            price_definition: self.stored_price_definition(id)?,
             line_analyses,
             formulas,
-            format_version: 1,
+            format_version: if self.stored_price_definition(id)?.is_some() {
+                2
+            } else {
+                1
+            },
             currency: estimate.currency,
             title: estimate.title,
             sections: self.list_budget_sections(id)?,
@@ -146,7 +153,7 @@ impl LocalStore {
         project_id: Uuid,
         document: &BudgetDocument,
     ) -> Result<Estimate> {
-        if document.format_version != 1
+        if ![1, 2].contains(&document.format_version)
             || document.title.trim().is_empty()
             || document.lines.len() > 10_000
             || document.sections.len() > 5000
@@ -329,6 +336,12 @@ impl LocalStore {
             tx.execute("INSERT INTO takeoff_rows(id,estimate_id,line_id,note,factor,length,width,height,sign,position) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",params![Uuid::new_v4().to_string(),estimate.id.to_string(),line.to_string(),row.note,row.factor.to_string(),row.length.to_string(),row.width.to_string(),row.height.to_string(),row.sign,row.position])?;
         }
         crate::estimate_resource_prices::synchronize(&tx, estimate.id, &BTreeMap::new())?;
+        if let Some(definition) = &document.price_definition {
+            definition
+                .calculate(crate::estimates::checked_budget_total(&tx, estimate.id)?)
+                .map_err(StorageError::InvalidValue)?;
+            tx.execute("INSERT INTO estimate_price_definitions(estimate_id,revision,definition_json) VALUES (?1,1,?2)",params![estimate.id.to_string(),serde_json::to_string(definition)?])?;
+        }
         crate::estimates::checked_budget_total(&tx, estimate.id)?;
         tx.commit()?;
         Ok(estimate)

@@ -1,3 +1,4 @@
+import {sumDecimals} from '../decimal.js';
 export function createWorkspaceService({ invoke, state, currentLine, render }) {
 async function loadCollections() {
   [state.clients, state.projects, state.resources, state.analyses, state.units, state.trades] = await Promise.all([
@@ -19,11 +20,12 @@ async function loadEstimate() {
     invoke("list_budget_sections", { estimateId: id }),
     invoke("list_line_sections", { estimateId: id }),
     invoke("get_estimate_pricing", { estimateId: id }),
-    invoke("priced_estimate_total", { estimateId: id })
+    invoke("priced_estimate_total", { estimateId: id }).catch(error=>({pricing_error:String(error),total:null}))
   ]);
   if (state.estimateId !== id) return;
   state.lines = lines; state.sections = sections;
   state.assignments = Object.fromEntries(assignments.map(item => [item.line_id, item.section_id]));
+  if(totals.pricing_error)totals.direct=sumDecimals(lines.map(l=>l.total));
   state.rates = rates; state.totals = totals;
   if (!state.lines.some(line => line.id === state.selectedLineId)) state.selectedLineId = state.lines[0]?.id || null;
   await loadPanel();

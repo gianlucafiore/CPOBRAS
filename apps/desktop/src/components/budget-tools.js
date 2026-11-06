@@ -52,7 +52,7 @@ export function createBudgetTools({ invoke, state, render, document, window, For
    const snapshot = await invoke("export_budget_document", { estimateId: state.estimateId }), format = value("format"); let bytes;
    if (format === "csv") bytes = new TextEncoder().encode(exportCsv(snapshot));
    if (format === "json") bytes = new TextEncoder().encode(JSON.stringify(snapshot, null, 2));
-   if (format === "xlsx") bytes = await exportExcel(snapshot);
+   if (format === "xlsx") bytes = await exportExcel(snapshot, model.totals);
    if (format === "pdf") { const analyses = value("pdf_mode") === "analyses" ? await Promise.all([...new Set(snapshot.lines.map(line => line.analysis_id).filter(Boolean))].map(analysisId => invoke("get_analysis_details", { analysisId }))) : []; bytes = await exportPdf(snapshot, { title: value("title"), landscape: value("orientation") === "landscape", mode: value("pdf_mode"), analyses, totals: model.totals }); }
    model.lastExport = await invoke("write_export", { name: "presupuesto." + format, bytes: Array.from(bytes) });
   }

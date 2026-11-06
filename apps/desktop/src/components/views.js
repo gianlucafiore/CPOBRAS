@@ -4,14 +4,14 @@ import { e, dateToday, kindName, kindBadge, field, select, btn } from "./helpers
 
 export function createViews({ state, currentProject, currentEstimate, currentLine, editable, projectName, clientName, locked, modalMarkup }) {
 function chrome(content) {
-  const work = state.view === "workspace";
-  const active = state.modal?.kind==="backups" ? "backups" : ["workspace","budget-tools"].includes(state.view)?"projects":state.view;
+  const work = ["workspace","price-determination"].includes(state.view);
+  const active = state.modal?.kind==="backups" ? "backups" : ["workspace","budget-tools","price-determination"].includes(state.view)?"projects":state.view;
   return `<div class="app">
     <header class="app-header">
       <div class="brand"><span class="brand-mark">▦</span><b>CPOBRAS</b><small>estudio de costos</small></div>
-      <div class="context-title">${work ? `<span>${e(currentProject()?.name)}</span><i class="breadcrumb-arrow">›</i><b>${e(currentEstimate()?.title || "Sin presupuesto")}</b>` : `<b>${({ operations: "Gestión de obra", management: "Organización y obras", planning: "Planificación", costing: "Costos y precios", "budget-tools": "Herramientas de presupuesto", projects: "Obras y presupuestos", clients: "Directorio de clientes", resources: "Catálogo de insumos", analyses: "Biblioteca de ACU" })[state.view]}</b>`}</div>
+      <div class="context-title">${work ? `<span>${e(currentProject()?.name)}</span><i class="breadcrumb-arrow">›</i><b>${e(currentEstimate()?.title || "Sin presupuesto")}</b>` : `<b>${({ "price-determination":"Determinación de precio", operations: "Gestión de obra", management: "Organización y obras", planning: "Planificación", costing: "Costos y precios", "budget-tools": "Herramientas de presupuesto", projects: "Obras y presupuestos", clients: "Directorio de clientes", resources: "Catálogo de insumos", analyses: "Biblioteca de ACU" })[state.view]}</b>`}</div>
       <div class="header-right">${work && currentEstimate() ? `<span class="status-pill ${currentEstimate().issued ? "issued" : ""}">${currentEstimate().issued ? "● Emitido" : "● En elaboración"}</span>
-        <span class="total-head"><small>TOTAL</small> ${e(currentEstimate()?.currency)} <strong>${money(state.totals?.total)}</strong></span>` : `<span class="connection">● SQLite local</span>`}</div>
+        <span class="total-head"><small>${state.view==="price-determination"&&state.pricePreview?.dirty?"VISTA PREVIA":"TOTAL"}</small> ${e(currentEstimate()?.currency)} <strong>${state.view==="price-determination"&&state.pricePreview?(state.pricePreview.total==null?"—":money(state.pricePreview.total)):state.totals?.pricing_error?"—":money(state.totals?.total)}</strong></span>` : `<span class="connection">● SQLite local</span>`}</div>
     </header>
     <nav class="menu-bar" aria-label="Navegación principal">
       ${[["projects", "Obras"], ["clients", "Clientes"], ["resources", "Insumos"], ["analyses", "ACU"]].map(([view, label]) =>
@@ -84,7 +84,7 @@ function workspace() {
       <button class="btn ghost" data-action="duplicate-estimate" ${est ? "" : "disabled"}>Duplicar</button><button class="btn ghost" data-action="refresh-draft-costs" ${locked()}>↻ Actualizar precios ACU</button>
       <button class="btn ghost" data-action="modal-comparison" ${state.estimates.length < 2 ? "disabled" : ""}>Comparar</button>
       <span class="grow"></span>
-      <button class="btn" data-action="open-patterns" ${est ? "" : "disabled"}>Patrones de cómputo</button><button class="btn" data-action="open-budget-tools" ${est ? "" : "disabled"}>Herramientas / exportar</button><button class="btn dark" data-action="issue" ${locked()}>Emitir</button>
+      <button class="btn" data-action="open-price-determination" ${est ? "" : "disabled"}>Determinación de precio</button><button class="btn" data-action="open-patterns" ${est ? "" : "disabled"}>Patrones de cómputo</button><button class="btn" data-action="open-budget-tools" ${est ? "" : "disabled"}>Herramientas / exportar</button><button class="btn dark" data-action="issue" ${locked()}>Emitir</button>
     </div>
     <div class="workspace-columns">
       <section class="grid-pane">
@@ -154,9 +154,9 @@ function takeoffPane(line) {
 function summaryPane() {
   const t = state.totals || {};
   const r = state.rates || {};
-  return `<div class="detail-heading"><strong>RESUMEN DEL PRESUPUESTO</strong><button class="btn tiny" data-action="modal-rates" ${locked()}>Editar porcentajes</button></div>
+  return `<div class="detail-heading"><strong>RESUMEN DEL PRESUPUESTO</strong><button class="btn tiny" data-action="open-price-determination">Determinación de precio</button></div>
     <div class="summary-rows">
-      ${[
+      ${t.pricing_error?`<p class="price-error">${e(t.pricing_error)}. Revisá Determinación de precio.</p>`:t.rows?.length?`<div class="summary-row"><span>Costo directo</span><strong>${money(t.direct)}</strong></div>`+t.rows.filter(row=>row.enabled).map(row=>`<div class="summary-row"><span>${e(row.label)}</span><strong>${money(row.amount)}</strong></div>`).join(""):[
         ["Costo directo", t.direct, ""],
         ["Gastos generales", t.general_expenses, r.general_expenses_percent],
         ["Gastos financieros", t.financial_expenses, r.financial_expenses_percent],
@@ -165,8 +165,8 @@ function summaryPane() {
         ["Subtotal gravado", t.taxable_subtotal, ""],
         ["Impuestos", t.taxes, r.tax_percent]
       ].map(([label, value, rate]) => `<div class="summary-row"><span>${label} ${rate !== "" && rate != null ? `<small>${e(rate)}%</small>` : ""}</span><strong>${money(value)}</strong></div>`).join("")}
-    </div><div class="summary-final"><span>TOTAL PRESUPUESTADO</span><strong>${e(currentEstimate()?.currency || "ARS")} ${money(t.total)}</strong></div>
-    <div class="detail-footer muted-note">Cálculo decimal realizado en Rust. Los porcentajes son configurables y quedan bloqueados al emitir.</div>`;
+    </div><div class="summary-final"><span>TOTAL PRESUPUESTADO</span><strong>${e(currentEstimate()?.currency || "ARS")} ${t.pricing_error?"—":money(t.total)}</strong></div>
+    <div class="detail-footer muted-note">Cálculo decimal realizado en Rust. La determinación queda bloqueada al emitir.</div>`;
 }
 
 function listViews() {
