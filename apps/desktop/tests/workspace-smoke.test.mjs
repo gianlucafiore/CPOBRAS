@@ -69,7 +69,7 @@ function setup() {
   const click = async (action, id, extra = {}) => {
     const button = { dataset: { action, id, ...extra }, disabled: false,
       classList: { contains: () => false } };
-    await listeners.click({ target: { closest: () => button } });
+    await listeners.click({ target: { closest: () => button }, preventDefault() {} });
   };
   return { root, calls, click, listeners, lines };
 }

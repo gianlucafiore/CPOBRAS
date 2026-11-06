@@ -119,6 +119,37 @@ fn ipc_creates_budget_and_preserves_issued_snapshot() {
         json!({"projectId":project["id"],"name":"Contractual","asOf":"2026-11-05"}),
     )
     .unwrap();
+    let deletion_estimate = call(
+        "duplicate_estimate",
+        json!({"estimateId":imported["id"],"title":"Prueba de borrado"}),
+    )
+    .unwrap();
+    let deletion_lines = call(
+        "list_estimate_lines",
+        json!({"estimateId":deletion_estimate["id"]}),
+    )
+    .unwrap();
+    call(
+        "delete_estimate_line",
+        json!({"estimateId":deletion_estimate["id"],"lineId":deletion_lines[0]["id"]}),
+    )
+    .unwrap();
+    assert_eq!(
+        call(
+            "list_estimate_lines",
+            json!({"estimateId":deletion_estimate["id"]})
+        )
+        .unwrap(),
+        json!([])
+    );
+    assert_eq!(
+        call("list_resources", json!({}))
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
     let backup = call("create_backup", json!({})).unwrap();
     let wh_id = uuid::Uuid::new_v4();
     call("create_warehouse",json!({"warehouse":{"id":wh_id,"project_id":project["id"],"name":"Depósito IPC","location":"A1"}})).unwrap();

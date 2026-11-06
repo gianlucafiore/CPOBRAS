@@ -26,7 +26,9 @@
   typed kinds and optimistic revisions; optional business fields use validated JSON.
 - Ordered SQLite migrations run in immediate transactions. Change events store
   before/after values; financial documents, plan baselines and revision history
-  have immutable storage guards. Current plan links use SQL foreign keys.
+  have immutable storage guards. Current plan links use SQL foreign keys. Draft
+  line deletion archives its original values, detaches current plan tasks in a
+  new revision and preserves operational document links through migration 16.
 - Core planning calculates working-day CPM with FS/SS/FF/SF relations, holidays,
   constraints, float and exact valued cashflow. Assignments do not imply automatic
   resource leveling. Historical plans/baselines retain their snapshots.

@@ -258,13 +258,85 @@ impl LocalStore {
     }
 
     pub fn delete_estimate_item(&mut self, estimate_id: Uuid, item_id: Uuid) -> Result<()> {
-        let changed = self.conn.execute(
+        let tx = self
+            .conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let existing:Option<(String,String,String,Option<String>)>=tx.query_row("SELECT e.status,e.project_id,e.currency,l.analysis_id FROM estimate_lines l JOIN estimates e ON e.id=l.estimate_id WHERE l.id=?1 AND l.estimate_id=?2",params![item_id.to_string(),estimate_id.to_string()],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional()?;
+        let Some((status, project, currency, analysis_id)) = existing else {
+            return Err(StorageError::InvalidValue(
+                "La partida ya no existe en este presupuesto".into(),
+            ));
+        };
+        if status != "draft" {
+            return Err(StorageError::InvalidValue(
+                "Las partidas de un presupuesto emitido no se eliminan".into(),
+            ));
+        }
+        let line_json:String=tx.query_row("SELECT json_object('id',id,'estimate_id',estimate_id,'position',position,'analysis_id',analysis_id,'description',description,'unit',unit,'quantity',quantity,'unit_cost_snapshot',unit_cost_snapshot) FROM estimate_lines WHERE id=?1",[item_id.to_string()],|r|r.get(0))?;
+        let analysis_json: Option<String> = if let Some(id) = &analysis_id {
+            tx.query_row(
+                "SELECT snapshot_json FROM analyses WHERE id=?1",
+                [id],
+                |r| r.get(0),
+            )
+            .optional()?
+        } else {
+            None
+        };
+        tx.execute("INSERT INTO deleted_estimate_lines(id,estimate_id,project_id,currency,line_json,analysis_json) VALUES (?1,?2,?3,?4,?5,?6)",params![item_id.to_string(),estimate_id.to_string(),project,currency,line_json,analysis_json])?;
+        // A task keeps its valued scope, assignments and actual progress; only its live budget link is removed.
+        let plans:Vec<(String,u32,String)>=tx.prepare("SELECT project_id,revision,plan_json FROM project_plans WHERE project_id IN (SELECT project_id FROM plan_task_references WHERE line_id=?1)")?.query_map([item_id.to_string()],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?.collect::<std::result::Result<_,_>>()?;
+        for (project, revision, json) in plans {
+            let mut plan: cpobras_core::planning::Plan = serde_json::from_str(&json)?;
+            for task in &mut plan.tasks {
+                if task.estimate_line_id == Some(item_id) {
+                    task.estimate_line_id = None;
+                }
+            }
+            let json = serde_json::to_string(&plan)?;
+            let revision = revision.checked_add(1).ok_or_else(|| {
+                StorageError::InvalidValue("Revisión de planificación fuera de rango".into())
+            })?;
+            tx.execute("UPDATE project_plans SET revision=?1,plan_json=?2,updated_at=CURRENT_TIMESTAMP WHERE project_id=?3",params![revision,json,project])?;
+            tx.execute(
+                "INSERT INTO plan_revisions(project_id,revision,plan_json) VALUES (?1,?2,?3)",
+                params![project, revision, json],
+            )?;
+        }
+        tx.execute(
+            "UPDATE plan_task_references SET line_id=NULL WHERE line_id=?1",
+            [item_id.to_string()],
+        )?;
+        // The source payload remains untouched; the normalized link now points at the archived snapshot.
+        tx.execute(
+            "UPDATE operation_links SET archived_line_id=line_id,line_id=NULL WHERE line_id=?1",
+            [item_id.to_string()],
+        )?;
+        tx.execute(
             "DELETE FROM estimate_lines WHERE id=?1 AND estimate_id=?2",
             params![item_id.to_string(), estimate_id.to_string()],
         )?;
-        if changed != 1 {
-            return Err(StorageError::InvalidValue("estimate line not found".into()));
+        if let Some(id) = analysis_id {
+            let private: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM line_analysis_snapshots WHERE analysis_id=?1)",
+                [&id],
+                |r| r.get(0),
+            )?;
+            let shared: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM estimate_lines WHERE analysis_id=?1)",
+                [&id],
+                |r| r.get(0),
+            )?;
+            if private && !shared {
+                tx.execute(
+                    "DELETE FROM line_analysis_snapshots WHERE analysis_id=?1",
+                    [&id],
+                )?;
+                tx.execute("DELETE FROM analyses WHERE id=?1", [&id])?;
+            }
         }
+        checked_budget_total(&tx, estimate_id)?;
+        tx.commit()?;
         Ok(())
     }
 

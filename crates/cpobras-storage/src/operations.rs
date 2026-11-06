@@ -406,6 +406,13 @@ impl LocalStore {
             }
             if let Some(id) = l.line_id {
                 let relation:Option<(String,String,String)>=tx.query_row("SELECT e.project_id,l.estimate_id,e.currency FROM estimate_lines l JOIN estimates e ON e.id=l.estimate_id WHERE l.id=?1",[id.to_string()],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?;
+                let relation = if relation.is_none()
+                    && ["receipt", "service_receipt", "return"].contains(&o.kind.as_str())
+                {
+                    tx.query_row("SELECT project_id,estimate_id,currency FROM deleted_estimate_lines WHERE id=?1",[id.to_string()],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?
+                } else {
+                    relation
+                };
                 let Some((project, estimate, currency)) = relation else {
                     return Err(err("Partida inexistente"));
                 };
@@ -1186,7 +1193,16 @@ impl LocalStore {
         }
         tx.execute("INSERT INTO operation_documents(id,project_id,kind,date,reference_id,payload,partner_id,estimate_id,warehouse_id,destination_id) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",params![o.id.to_string(),o.project_id.to_string(),o.kind,o.date,o.reference_id.map(|x|x.to_string()),serde_json::to_string(&o)?,o.partner_id.map(|x|x.to_string()),o.estimate_id.map(|x|x.to_string()),o.warehouse_id.map(|x|x.to_string()),o.destination_id.map(|x|x.to_string())])?;
         for (i, l) in o.lines.iter().enumerate() {
-            tx.execute("INSERT INTO operation_links(document_id,position,resource_id,line_id,center_id) VALUES (?1,?2,?3,?4,?5)",params![o.id.to_string(),i as i64,l.resource_id.map(|x|x.to_string()),l.line_id.map(|x|x.to_string()),l.center_id.map(|x|x.to_string())])?;
+            let archived = if let Some(id) = l.line_id {
+                tx.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM deleted_estimate_lines WHERE id=?1)",
+                    [id.to_string()],
+                    |r| r.get::<_, bool>(0),
+                )?
+            } else {
+                false
+            };
+            tx.execute("INSERT INTO operation_links(document_id,position,resource_id,line_id,center_id,archived_line_id) VALUES (?1,?2,?3,?4,?5,?6)",params![o.id.to_string(),i as i64,l.resource_id.map(|x|x.to_string()),if archived{None}else{l.line_id.map(|x|x.to_string())},l.center_id.map(|x|x.to_string()),if archived{l.line_id.map(|x|x.to_string())}else{None}])?;
         }
         if ["receipt", "consumption", "return", "transfer"].contains(&o.kind.as_str()) {
             for (i, l) in o.lines.iter().enumerate() {
@@ -1259,6 +1275,7 @@ pub struct ProductionStatus {
 }
 #[derive(Debug, Serialize)]
 pub struct CostGroup {
+    pub line_description: String,
     pub certified_income: D,
     pub result: D,
     pub line_id: Option<Uuid>,
@@ -1811,7 +1828,13 @@ impl LocalStore {
             row.currency = currency.clone();
             row.actual_cost = add(row.actual_cost, actual)?;
             row.certified_income = add(row.certified_income, income)?;
+            let line_description = if let Some(id) = line_id {
+                self.conn.query_row("SELECT description FROM estimate_lines WHERE id=?1 UNION ALL SELECT json_extract(line_json,'$.description') || ' (eliminada)' FROM deleted_estimate_lines WHERE id=?1 LIMIT 1",[id.to_string()],|r|r.get::<_,String>(0)).optional()?.unwrap_or_else(||"Sin partida".into())
+            } else {
+                "Sin partida".into()
+            };
             groups.push(CostGroup {
+                line_description,
                 line_id,
                 center_id,
                 currency,

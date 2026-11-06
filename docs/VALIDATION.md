@@ -5,10 +5,10 @@ con Node 24.22.1 y Rust 1.99.1. `tools/check.sh` reúne los checks reproducibles
 
 | Comprobación | Evidencia |
 | --- | --- |
-| Rust, núcleo y almacenamiento | 59 tests: 17 de dominio y 42 de persistencia/regresión |
+| Rust, núcleo y almacenamiento | 63 tests: 17 de dominio y 46 de persistencia/regresión |
 | Escritorio Tauri | 2 tests nativos: recorrido IPC y regresión GLib optimizada |
 | JavaScript | 21 tests, con aislamiento de procesos desactivado explícitamente en el runner |
-| Chromium | 16 recorridos de interfaz sobre DOM real y un puente IPC de prueba |
+| Chromium | 18 recorridos de interfaz sobre DOM real y un puente IPC de prueba |
 | Formato Rust | Workspace y aplicación Tauri |
 | Frontend de producción | Vite build, incluyendo los módulos de Excel y PDF |
 | Ejecutable Linux | Compilación con `custom-protocol` y arranque WebKitGTK en Xvfb |
@@ -49,8 +49,13 @@ Guía, reglas económicas y límites: [OPERATIONS.md](OPERATIONS.md).
   rubros y fórmulas; los cambios manuales de cantidad invalidan una fórmula vieja.
 - Arrastre entre rubros, doble clic, menú contextual propio y asignación directa de insumos con composiciones privadas; ver [UX_REVIEW.md](UX_REVIEW.md).
 - Los presupuestos emitidos, las líneas base y el historial no se alteran.
-- Las partidas usadas por el plan actual tienen referencias SQL que impiden
-  borrarlas accidentalmente; las asignaciones conservan referencias a recursos.
+- El borrado de partidas en borrador elimina metrados, asignaciones, fórmulas
+  y composición propia sin borrar el catálogo ni afectar otras versiones. Se
+  desvinculan tareas conservando sus datos y una nueva revisión; los documentos
+  operativos conservan una referencia histórica protegida. Los emitidos se bloquean.
+- Migración de una base versión 15 poblada con documentos y referencias, borrado
+  posterior sin errores FK y rollback íntegro ante un fallo de la eliminación.
+- Los combos se cierran al seleccionar o pulsar fuera; el formulario sigue abierto.
 - Migración de un esquema original versión 6 y restauración de una copia antigua
   a través de un clon en memoria, antes de reemplazar la base activa.
 - Excel/CSV conservan los dígitos decimales; PDF contiene título y resumen

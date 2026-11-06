@@ -69,10 +69,12 @@ function closeModal() {
   state.modal=null;state.modalDirty=false;render();return true;
 }
 document.addEventListener("click", async evt => {
+  unitPicker.dismissOutside(evt.target);resourcePicker.dismissOutside(evt.target);
+  if(evt.target.closest?.('[role="option"]'))evt.preventDefault();
   if(state.contextMenu){state.contextMenu=null;if(!evt.target.closest(".app-context-menu")){render();return;}}
   const button = evt.target.closest("[data-action]");
-  if(evt.target.matches?.('.unit-search'))unitPicker.open(evt.target);
-  if(evt.target.matches?.('.resource-search'))resourcePicker.open(evt.target);
+  if(evt.target.matches?.('.unit-search'))unitPicker.toggle(evt.target);
+  if(evt.target.matches?.('.resource-search'))resourcePicker.toggle(evt.target);
   if (!button || button.disabled || state.busy) return;
   if (button.dataset.action === "close-modal" && button.classList.contains("modal-overlay")) return;
   try { if(state.view==='operations'&&!button.dataset.action.startsWith('ops-')&&['navigate','open-project','open-estimate','open-costing','open-planning','open-management'].includes(button.dataset.action)&&!operations.protect())return; if(button.classList?.contains("resource-search"))return; if(await unitPicker.act(button))return; if(await resourcePicker.act(button))return; if(button.dataset.action==="open-operations"||button.dataset.action.startsWith("ops-")){await operations.act(button);return;} if (button.dataset.action === "open-budget-tools" || button.dataset.action.startsWith("budget-tools-")) await budgetTools.act(button); else if (button.dataset.action === "open-costing" || button.dataset.action.startsWith("cost-")) await costing.act(button); else if (button.dataset.action === "open-planning" || button.dataset.action.startsWith("plan-")) await planning.act(button); else if (button.dataset.action === "open-management" || button.dataset.action.startsWith("manage-")) await management.act(button); else await act(button); }

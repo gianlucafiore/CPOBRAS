@@ -208,7 +208,7 @@ async function act(button) {
   }
   if (action === "delete-line") {
     const line = currentLine();
-    if (!editable() || !line || !window.confirm(`¿Eliminar la partida "${line.description}"?`)) return;
+    if (!editable() || !line || !window.confirm(`¿Eliminar la partida "${line.description}" junto con su composición y metrados? Los insumos del catálogo y el historial se conservan.`)) return;
     await invoke("delete_estimate_line", { estimateId: state.estimateId, lineId: line.id });
     state.selectedLineId = null; await loadEstimate(); return;
   }

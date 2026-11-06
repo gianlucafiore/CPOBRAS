@@ -248,6 +248,13 @@ export function createUnitPicker({
     validate,
     keyDown,
     open,
+    toggle: (input) => {
+      if (input.getAttribute("aria-expanded") === "true") hide();
+      else open(input);
+    },
+    dismissOutside: (target) => {
+      if (!target.closest?.(".unit-picker")) hide();
+    },
     input: (evt) => {
       if (evt.target.matches(".unit-search")) open(evt.target);
     },

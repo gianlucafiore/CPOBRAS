@@ -458,7 +458,7 @@ export function createOperationsWorkspace({
                      l.attendance || "present",
                    )
                  : ""
-             }${select("Insumo (opcional)", "resource_id", opts(state.resources), l.resource_id)}${select("Partida (opcional)", "line_id", opts(model.lines), l.line_id)}${select("Centro de costos", "center_id", opts(model.centers.filter((c) => !c.project_id || c.project_id === model.projectId)), l.center_id)}${field("Descripción del renglón", "description", l.description, 'required maxlength="1000"')}${field(o.kind === "daily" ? "Cantidad producida" : "Cantidad del período / movimiento", "quantity", l.quantity, 'type="number" min="0.000001" step="any" required')}${field(o.kind === "daily" ? "Costo por hora" : "Precio unitario", "unit_price", l.unit_price, 'type="number" min="0" step="any" required')}${o.kind === "daily" ? field("Horas trabajadas / equipo", "hours", l.hours, 'type="number" min="0" step="any" required') : ""}</div><button type="button" class="btn" data-action="ops-remove-line" data-index="${i}">Quitar renglón</button></fieldset>`,
+             }${select("Insumo (opcional)", "resource_id", opts(state.resources), l.resource_id)}${select("Partida (opcional)", "line_id", opts(model.lines.filter(line=>!line.archived||["receipt","service_receipt","return"].includes(o.kind))), l.line_id)}${select("Centro de costos", "center_id", opts(model.centers.filter((c) => !c.project_id || c.project_id === model.projectId)), l.center_id)}${field("Descripción del renglón", "description", l.description, 'required maxlength="1000"')}${field(o.kind === "daily" ? "Cantidad producida" : "Cantidad del período / movimiento", "quantity", l.quantity, 'type="number" min="0.000001" step="any" required')}${field(o.kind === "daily" ? "Costo por hora" : "Precio unitario", "unit_price", l.unit_price, 'type="number" min="0" step="any" required')}${o.kind === "daily" ? field("Horas trabajadas / equipo", "hours", l.hours, 'type="number" min="0" step="any" required') : ""}</div><button type="button" class="btn" data-action="ops-remove-line" data-index="${i}">Quitar renglón</button></fieldset>`,
          )
          .join("")}`
      : ""
@@ -614,7 +614,8 @@ export function createOperationsWorkspace({
         ],
         (model.report?.costs || []).map((c) => [
           e(
-            model.lines.find((l) => l.id === c.line_id)?.description ||
+            c.line_description ||
+              model.lines.find((l) => l.id === c.line_id)?.description ||
               "Sin partida",
           ),
           e(
@@ -900,6 +901,15 @@ export function createOperationsWorkspace({
           ].includes(o.kind)
         )
           o.lines = r.lines.map((l) => ({ ...l }));
+        if (["receipt", "service_receipt", "return"].includes(o.kind))
+          for (const line of r.lines) {
+            if (line.line_id && !model.lines.some((l) => l.id === line.line_id))
+              model.lines.push({
+                id: line.line_id,
+                description: "Partida eliminada · " + line.description,
+              archived: true,
+              });
+          }
         o.amount = r.amount;
         if (["receipt", "service_receipt", "return"].includes(o.kind)) {
           o.lines = o.lines

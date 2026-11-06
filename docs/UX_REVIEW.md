@@ -50,3 +50,18 @@ y ya utilizadas. Agregar unidad abre otro formulario, la guarda en la biblioteca
 y la selecciona en el campo de origen. Las ventanas anteriores conservan sus
 valores y se bloquean mientras la ventana superior está abierta. El fondo no
 cierra las ventanas; descartar cambios sigue requiriendo confirmación.
+
+## Eliminación de partidas y cierre de desplegables
+
+La migración 16 guarda una referencia histórica inmutable antes de eliminar una
+partida en borrador. Se eliminan en cascada metrados, asignación a rubro, identidad
+y fórmula; la composición privada se limpia cuando ninguna otra versión la usa.
+El catálogo permanece intacto. Las tareas quedan desvinculadas conservando costo,
+recursos y avance; se registra la nueva revisión del plan. Los documentos ya
+registrados conservan sus valores y apuntan al registro histórico. Las recepciones
+y devoluciones pendientes pueden continuar sobre esos documentos.
+
+Los combos de insumos y unidades cierran al seleccionar, al volver a pulsar el
+campo o al hacer clic fuera de su lista, incluido el fondo del popup. Esto solo
+cierra la lista: el formulario y sus valores se conservan. Se evita además que
+la selección reactive el campo y vuelva a abrir el desplegable.

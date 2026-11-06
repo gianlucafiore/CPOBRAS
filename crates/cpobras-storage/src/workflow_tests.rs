@@ -168,10 +168,6 @@ fn saved_plan_resolves_budget_links_and_keeps_immutable_baselines() {
     assert!(store
         .save_project_plan(project.id, 0, plan.clone(), "2026-11-05")
         .is_err());
-    assert!(
-        store.delete_estimate_item(estimate.id, line.id).is_err(),
-        "Linked budget lines must remain referenced by the current plan"
-    );
     let baseline = store
         .create_plan_baseline(project.id, "Contractual", "2026-11-05")
         .unwrap();
@@ -197,6 +193,17 @@ fn saved_plan_resolves_budget_links_and_keeps_immutable_baselines() {
         store.estimate_total(estimate.id).unwrap(),
         Decimal::from(200)
     );
+    store.delete_estimate_item(estimate.id, line.id).unwrap();
+    let plan = store.project_plan(project.id).unwrap().unwrap();
+    assert_eq!(plan.revision, 3);
+    assert!(plan.plan.tasks[0].estimate_line_id.is_none());
+    assert_eq!(plan.plan.tasks[0].budget, Decimal::from(200));
+    assert_eq!(plan.plan.tasks[0].actual_progress, Decimal::from(25));
+    assert_eq!(
+        store.plan_baselines(project.id).unwrap()[0].plan.tasks[0].estimate_line_id,
+        Some(line.id)
+    );
+    store.verify_integrity().unwrap();
 }
 #[test]
 fn scoped_prices_choose_latest_revision_and_reject_bad_validity() {
@@ -1070,5 +1077,274 @@ fn simultaneous_stock_consumptions_cannot_spend_the_same_existence() {
         1.into()
     );
     drop(reloaded);
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn deleting_a_draft_cascades_owned_data_preserves_catalog_and_other_versions() {
+    use crate::line_workflows::LineResourceInput;
+    use crate::takeoffs::TakeoffRow;
+    let (mut store, _, estimate, line) = fixture();
+    let resource = Uuid::new_v4();
+    store
+        .save_resource(&crate::resource_catalog::Resource {
+            id: resource,
+            code: "MAT-DELETE".into(),
+            description: "Material compartido".into(),
+            unit: "kg".into(),
+            kind: cpobras_core::ResourceKind::Material,
+            active: true,
+        })
+        .unwrap();
+    let inputs = [LineResourceInput {
+        resource_id: resource,
+        quantity: 2.into(),
+        unit_price: 3.into(),
+    }];
+    let analysis = store
+        .save_line_resources(estimate.id, line.id, &inputs)
+        .unwrap();
+    let copy = store
+        .duplicate_estimate(estimate.id, "Otra versión")
+        .unwrap();
+    let section = crate::budget_sections::BudgetSection {
+        id: Uuid::new_v4(),
+        estimate_id: estimate.id,
+        parent_id: None,
+        code: "01".into(),
+        title: "Rubro".into(),
+        position: 0,
+    };
+    store.save_budget_section(&section).unwrap();
+    store
+        .assign_line_section(estimate.id, line.id, section.id)
+        .unwrap();
+    store
+        .save_takeoff_row(&TakeoffRow {
+            id: Uuid::new_v4(),
+            estimate_id: estimate.id,
+            line_id: line.id,
+            note: "Medición".into(),
+            factor: 1.into(),
+            length: 2.into(),
+            width: 1.into(),
+            height: 1.into(),
+            sign: 1,
+            position: 0,
+        })
+        .unwrap();
+    store
+        .set_line_formula(
+            estimate.id,
+            line.id,
+            "x",
+            &BTreeMap::from([("x".into(), 2.into())]),
+        )
+        .unwrap();
+    store.delete_estimate_item(estimate.id, line.id).unwrap();
+    assert!(store.estimate_items(estimate.id).unwrap().is_empty());
+    assert_eq!(store.estimate_total(estimate.id).unwrap(), 0.into());
+    assert!(store.list_line_sections(estimate.id).unwrap().is_empty());
+    assert!(store.get_resource(resource).unwrap().is_some());
+    assert!(store.get_analysis(analysis).unwrap().is_some());
+    assert_eq!(store.estimate_total(copy.id).unwrap(), 12.into());
+    for table in ["takeoff_rows", "line_formulas", "line_origins"] {
+        let count: i64 = store
+            .conn
+            .query_row(
+                &format!("SELECT COUNT(*) FROM {table} WHERE line_id=?1"),
+                [line.id.to_string()],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 0);
+    }
+    let copied_line = store.estimate_items(copy.id).unwrap()[0].id;
+    store.issue_estimate(copy.id).unwrap();
+    assert!(store.delete_estimate_item(copy.id, copied_line).is_err());
+    assert_eq!(store.estimate_total(copy.id).unwrap(), 12.into());
+    assert!(store
+        .conn
+        .execute(
+            "UPDATE deleted_estimate_lines SET line_json='{}' WHERE id=?1",
+            [line.id.to_string()]
+        )
+        .is_err());
+    store.verify_integrity().unwrap();
+}
+#[test]
+fn deleting_a_line_keeps_documents_stock_and_receiving_pending_orders_working() {
+    let (mut store, p, e, line, supplier, res, wh) = stock_fixture();
+    let analysis = store
+        .save_line_resources(
+            e.id,
+            line.id,
+            &[crate::line_workflows::LineResourceInput {
+                resource_id: res,
+                quantity: 1.into(),
+                unit_price: 2.into(),
+            }],
+        )
+        .unwrap();
+    let mut order = operation(p.id, "purchase_order");
+    order.partner_id = Some(supplier);
+    order.estimate_id = Some(e.id);
+    order.lines = vec![material_row(res, line.id, 4, 2)];
+    let order = store.post_operation(&order).unwrap();
+    let before = serde_json::to_string(&order).unwrap();
+    let mut first = operation(p.id, "receipt");
+    first.reference_id = Some(order.id);
+    first.partner_id = Some(supplier);
+    first.estimate_id = Some(e.id);
+    first.warehouse_id = Some(wh);
+    first.lines = vec![material_row(res, line.id, 2, 2)];
+    store.post_operation(&first).unwrap();
+    let mut usage = operation(p.id, "consumption");
+    usage.warehouse_id = Some(wh);
+    usage.lines = vec![material_row(res, line.id, 1, 0)];
+    let usage = store.post_operation(&usage).unwrap();
+    let mut progress = operation(p.id, "daily");
+    progress.lines = vec![crate::operations::OperationLine {
+        line_id: Some(line.id),
+        description: "Producción registrada".into(),
+        hours: 3.into(),
+        unit_price: 1.into(),
+        ..Default::default()
+    }];
+    store.post_operation(&progress).unwrap();
+    store.delete_estimate_item(e.id, line.id).unwrap();
+    assert!(store.get_analysis(analysis).unwrap().is_none());
+    assert!(!store.is_line_analysis(analysis).unwrap());
+    assert!(store.get_resource(res).unwrap().is_some());
+    assert_eq!(
+        serde_json::to_string(&store.operation_documents(Some(p.id)).unwrap()[0]).unwrap(),
+        before
+    );
+    let link: (Option<String>, String) = store
+        .conn
+        .query_row(
+            "SELECT line_id,archived_line_id FROM operation_links WHERE document_id=?1",
+            [order.id.to_string()],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert!(link.0.is_none());
+    assert_eq!(link.1, line.id.to_string());
+    assert!(store
+        .conn
+        .execute(
+            "UPDATE operation_links SET archived_line_id=NULL WHERE document_id=?1",
+            [order.id.to_string()]
+        )
+        .is_err());
+    let mut receipt = operation(p.id, "receipt");
+    receipt.reference_id = Some(order.id);
+    receipt.partner_id = Some(supplier);
+    receipt.estimate_id = Some(e.id);
+    receipt.warehouse_id = Some(wh);
+    receipt.lines = vec![material_row(res, line.id, 2, 2)];
+    store.post_operation(&receipt).unwrap();
+    assert_eq!(
+        store.operation_stock("2026-11-05").unwrap()[0].value,
+        6.into()
+    );
+    assert_eq!(
+        store
+            .operations_report(p.id, Some(e.id), "2026-11-05")
+            .unwrap()
+            .summaries[0]
+            .accrued,
+        5.into()
+    );
+    let mut returned = operation(p.id, "return");
+    returned.reference_id = Some(usage.id);
+    returned.warehouse_id = Some(wh);
+    returned.lines = vec![material_row(res, line.id, 1, 0)];
+    store.post_operation(&returned).unwrap();
+    let report = store
+        .operations_report(p.id, Some(e.id), "2026-11-05")
+        .unwrap();
+    assert_eq!(report.summaries[0].accrued, 3.into());
+    assert!(report.costs[0].line_description.contains("eliminada"));
+    let mut daily = operation(p.id, "daily");
+    daily.lines = vec![crate::operations::OperationLine {
+        line_id: Some(line.id),
+        description: "No se puede producir una partida eliminada".into(),
+        ..Default::default()
+    }];
+    assert!(store.post_operation(&daily).is_err());
+    let archived: Option<String> = store
+        .conn
+        .query_row(
+            "SELECT analysis_json FROM deleted_estimate_lines WHERE id=?1",
+            [line.id.to_string()],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let snapshot: cpobras_core::UnitCostAnalysis =
+        serde_json::from_str(&archived.unwrap()).unwrap();
+    assert_eq!(snapshot.direct_unit_cost().unwrap(), 2.into());
+    store.verify_integrity().unwrap();
+}
+#[test]
+fn failed_line_deletion_rolls_back_archive_and_composition() {
+    let (mut store, _, e, l) = fixture();
+    store.conn.execute_batch("CREATE TRIGGER fail_line_delete BEFORE DELETE ON estimate_lines BEGIN SELECT RAISE(ABORT,'simulate failure'); END;").unwrap();
+    let before = store.change_events(0).unwrap().len();
+    assert!(store.delete_estimate_item(e.id, l.id).is_err());
+    assert_eq!(store.estimate_items(e.id).unwrap().len(), 1);
+    assert_eq!(
+        store
+            .conn
+            .query_row("SELECT COUNT(*) FROM deleted_estimate_lines", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    assert_eq!(store.change_events(0).unwrap().len(), before);
+    store.verify_integrity().unwrap();
+}
+
+#[test]
+fn upgrades_populated_schema_fifteen_and_deletes_its_preexisting_linked_line() {
+    let (mut store, p, e, line, supplier, res, _) = stock_fixture();
+    let mut order = operation(p.id, "purchase_order");
+    order.partner_id = Some(supplier);
+    order.lines = vec![material_row(res, line.id, 2, 3)];
+    store.post_operation(&order).unwrap();
+    let path = std::env::temp_dir().join(format!("cpobras-schema15-{}.sqlite", Uuid::new_v4()));
+    store.backup_to(&path).unwrap();
+    let old = Connection::open(&path).unwrap();
+    // Build the previous persisted schema with populated source documents and live FK links.
+    let triggers: Vec<String> = old
+        .prepare(
+            "SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name='operation_links'",
+        )
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<std::result::Result<_, _>>()
+        .unwrap();
+    for name in triggers {
+        assert!(name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'));
+        old.execute_batch(&format!("DROP TRIGGER {name}")).unwrap();
+    }
+    old.execute_batch("ALTER TABLE operation_links DROP COLUMN archived_line_id; DROP TABLE deleted_estimate_lines; DELETE FROM schema_migrations WHERE version=16; CREATE TRIGGER operation_links_no_update BEFORE UPDATE ON operation_links BEGIN SELECT RAISE(ABORT,'operation links are immutable'); END;").unwrap();
+    drop(old);
+    let mut upgraded = LocalStore::open(&path).unwrap();
+    assert_eq!(
+        upgraded
+            .conn
+            .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        16
+    );
+    upgraded.delete_estimate_item(e.id, line.id).unwrap();
+    assert!(upgraded.estimate_items(e.id).unwrap().is_empty());
+    assert_eq!(upgraded.operation_documents(Some(p.id)).unwrap().len(), 1);
+    assert!(upgraded.get_resource(res).unwrap().is_some());
+    upgraded.verify_integrity().unwrap();
+    drop(upgraded);
     std::fs::remove_file(path).unwrap();
 }

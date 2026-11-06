@@ -140,7 +140,7 @@ export function createResourcePicker({
       const suggestedCode = `INS-${String(nextCode).padStart(4, "0")}`;
       const overlay = document.createElement("div");
       overlay.className = "modal-overlay quick-resource-overlay";
-      overlay.innerHTML = `<div class="dialog-shell" role="dialog" aria-modal="true" aria-label="Crear insumo sin salir"><div class="dialog-header"><h2>Nuevo insumo</h2><button type="button" data-action="quick-resource-close" aria-label="Cerrar nuevo insumo">×</button></div><form id="quick-resource-form" class="dialog-body"><p class="modal-help">Al guardar se seleccionará en la partida. Lo que ya cargaste se conserva.</p><label class="field">Código<input name="code" required maxlength="100" value="${e(suggestedCode)}"></label><label class="field">Descripción<input name="description" required maxlength="500" value="${e(input.value)}"></label>${field("Unidad","unit","kg","required")}<label class="field">Tipo<select name="kind"><option value="material">Material</option><option value="labor">Mano de obra</option><option value="equipment">Equipo</option><option value="subcontract">Subcontrato</option></select></label><label class="field">Precio inicial ARS<input name="price" type="number" min="0" step="any" value="0" required></label><p class="modal-error" role="alert"></p><div class="dialog-actions"><button type="button" class="btn" data-action="quick-resource-close">Cerrar</button><button class="btn primary" type="submit">Guardar y seleccionar</button></div></form></div>`;
+      overlay.innerHTML = `<div class="dialog-shell" role="dialog" aria-modal="true" aria-label="Crear insumo sin salir"><div class="dialog-header"><h2>Nuevo insumo</h2><button type="button" data-action="quick-resource-close" aria-label="Cerrar nuevo insumo">×</button></div><form id="quick-resource-form" class="dialog-body"><p class="modal-help">Al guardar se seleccionará en la partida. Lo que ya cargaste se conserva.</p><label class="field">Código<input name="code" required maxlength="100" value="${e(suggestedCode)}"></label><label class="field">Descripción<input name="description" required maxlength="500" value="${e(input.value)}"></label>${field("Unidad", "unit", "kg", "required")}<label class="field">Tipo<select name="kind"><option value="material">Material</option><option value="labor">Mano de obra</option><option value="equipment">Equipo</option><option value="subcontract">Subcontrato</option></select></label><label class="field">Precio inicial ARS<input name="price" type="number" min="0" step="any" value="0" required></label><p class="modal-error" role="alert"></p><div class="dialog-actions"><button type="button" class="btn" data-action="quick-resource-close">Cerrar</button><button class="btn primary" type="submit">Guardar y seleccionar</button></div></form></div>`;
       document.querySelector("#app").append(overlay);
       const parentShell = document.querySelector(".dialog-shell");
       parentShell.inert = true;
@@ -246,7 +246,14 @@ export function createResourcePicker({
   }
   return {
     act,
-    open:results,
+    open: results,
+    toggle: (input) => {
+      if (input.getAttribute("aria-expanded") === "true") hide();
+      else results(input);
+    },
+    dismissOutside: (target) => {
+      if (!target.closest?.(".resource-picker")) hide();
+    },
     submit,
     keyDown,
     input: (evt) => {

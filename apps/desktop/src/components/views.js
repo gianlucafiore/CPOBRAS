@@ -93,7 +93,7 @@ function workspace() {
           <span class="grow"></span>
           <input class="search-compact" placeholder="⌕ Buscar partida..." data-search value="${e(state.search)}" aria-label="Buscar partida">
           <button class="icon-btn" data-action="edit-line" title="Editar partida seleccionada" ${locked()}>✎</button>
-          <button class="icon-btn" data-action="delete-line" title="Eliminar partida" ${locked()}>🗑</button>
+          <button class="icon-btn" data-action="delete-line" aria-label="Eliminar partida" title="Eliminar partida" ${locked()}>🗑</button>
         </div>
         <div class="table-scroll">
           <table class="budget-grid"><colgroup><col style="width:9%"><col style="width:43%"><col style="width:9%"><col style="width:12%"><col style="width:13%"><col style="width:14%"></colgroup>

@@ -77,6 +77,7 @@ impl LocalStore {
             include_str!("../migrations/0013_plan_references.sql"),
             include_str!("../migrations/0014_line_resource_snapshots.sql"),
             include_str!("../migrations/0015_operations.sql"),
+            include_str!("../migrations/0016_deleted_line_history.sql"),
         ];
         let latest: i64 = conn.query_row(
             "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",

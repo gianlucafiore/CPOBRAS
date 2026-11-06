@@ -129,9 +129,12 @@ la interfaz muestra la ruta.
 
 ## Conservación y alcance
 
-La migración 15 agrega tablas y referencias sin reiniciar la base. Las copias y
-restauraciones incluyen documentos, fotos y stock. Los documentos registrados y
-sus movimientos no se sobrescriben; no hay eliminación de historia ni reversión
+Las migraciones 15 y 16 agregan tablas y referencias sin reiniciar la base. Las copias y
+restauraciones incluyen documentos, fotos y stock. Borrar una partida en borrador elimina su composición y metrados, preservando el
+catálogo. Las tareas se desvinculan conservando datos e historial. Los documentos
+que la usaban conservan su contenido y una referencia a la partida eliminada;
+se pueden completar recepciones/devoluciones pendientes sin recrear esa partida.
+Los documentos registrados y sus movimientos no se sobrescriben; no hay eliminación de historia ni reversión
 general automática de una operación errónea en esta versión. Las devoluciones
 cubren consumos de materiales. Los borradores en pantalla piden confirmar el
 descarte al cambiar de tipo/obra o salir hacia otra sección.

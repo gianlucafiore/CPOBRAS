@@ -350,10 +350,10 @@ impl LocalStore {
                     "id"
                 } else if fields.iter().any(|field| field == "document_id") {
                     "document_id"
-                } else if fields.iter().any(|field| field == "line_id") {
-                    "line_id"
                 } else if fields.iter().any(|field| field == "project_id") {
                     "project_id"
+                } else if fields.iter().any(|field| field == "line_id") {
+                    "line_id"
                 } else if fields.iter().any(|field| field == "analysis_id") {
                     "analysis_id"
                 } else {

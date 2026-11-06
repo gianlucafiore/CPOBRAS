@@ -228,7 +228,9 @@ export async function exportOperationalReport({
       "Resultado",
     ];
     rows = (r?.costs || []).map((c) => [
-      model.lines.find((l) => l.id === c.line_id)?.description || "Sin partida",
+      c.line_description ||
+        model.lines.find((l) => l.id === c.line_id)?.description ||
+        "Sin partida",
       model.centers.find((x) => x.id === c.center_id)?.name || "Sin centro",
       c.currency,
       c.actual,

@@ -29,7 +29,11 @@ El buscador se abre al pulsarlo o escribir y acepta coincidencias aproximadas. L
 insumo y seleccionarlo al guardar, conservando la composición. Ninguna ventana
 se cierra al pulsar afuera; descartar cambios requiere confirmación. Los campos
 de unidad permiten buscar unidades habituales o de la biblioteca y agregar una
-nueva en otra ventana, que queda seleccionada al guardarla.
+nueva en otra ventana, que queda seleccionada al guardarla. Las listas se cierran
+al seleccionar o hacer clic afuera; los formularios permanecen abiertos.
+
+Borrar una partida en borrador elimina sus metrados y composición, conserva el
+catálogo y otras versiones, y mantiene referencias históricas de sus documentos.
 
 En **Gestión de obra** están las etapas 6 a 10: compras/stock, producción,
 certificaciones, finanzas y tablero. Elegí obra y fecha de corte. La guía de
