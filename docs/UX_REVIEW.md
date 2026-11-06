@@ -36,3 +36,17 @@ asignación directa; la integración Tauri verifica los comandos y permisos real
 
 La migración 14 agrega la identificación de composiciones propias. La migración
 se aplica automáticamente al abrir una base existente. No se reinician los datos.
+
+## Ajuste del 6 de noviembre de 2026
+
+El formulario de la partida edita un solo insumo: Agregar abre uno nuevo y doble
+clic, Enter o Editar sobre un componente abre ese registro. La composición se
+consulta en el panel y guardar conserva los demás componentes. El buscador de
+insumos permanece cerrado al abrir el formulario y se despliega al pulsar,
+escribir o usar las flechas.
+
+Los campos de unidad usan un buscador de unidades habituales, de la biblioteca
+y ya utilizadas. Agregar unidad abre otro formulario, la guarda en la biblioteca
+y la selecciona en el campo de origen. Las ventanas anteriores conservan sus
+valores y se bloquean mientras la ventana superior está abierta. El fondo no
+cierra las ventanas; descartar cambios sigue requiriendo confirmación.

@@ -44,7 +44,9 @@ async function handleSubmit(form) {
     const components=[...form.querySelectorAll(".component-row")].map(row=>({resourceId:row.querySelector('select[name="resource"]')?.value,quantity:row.querySelector('input[name="quantity"]')?.value,unitPrice:row.querySelector('input[name="unitPrice"]')?.value}));
     if(!components.length)throw new Error("Agregá al menos un insumo");
     if(components.some(row=>!row.resourceId))throw new Error("Seleccioná un insumo del catálogo en cada fila");
-    await invoke("save_line_resources",{estimateId,lineId:item.id,components});state.panel="acu";
+    const all=(item.allComponents||[]).map(row=>({resourceId:row.resource_id,quantity:row.quantity,unitPrice:row.unit_price}));
+    if(item.componentIndex>=0)all[item.componentIndex]=components[0];else all.push(components[0]);
+    await invoke("save_line_resources",{estimateId,lineId:item.id,components:all});state.panel="acu";
   } else if (kind === "analysis") {
     const components = [...form.querySelectorAll(".component-row")].map(row => ({
       resourceId: row.querySelector('select[name="resource"]')?.value,
@@ -127,15 +129,16 @@ async function act(button) {
   if (action === "select-analysis") {
     state.selectedAnalysisId = button.dataset.id; await refreshAnalysis(); render(); return;
   }
-  if (action === "edit-line-resources" || action === "assign-resource") {
+  if (["edit-line-resources","assign-resource","edit-line-resource"].includes(action)) {
     const line=currentLine();if(!editable()||!line)return;
     const detail=line.analysis_id ? await invoke("get_analysis_details",{analysisId:line.analysis_id}):null;
-    openModal("line-resources",{...line,components:detail?.components||[]});
-    if(action==="assign-resource"){
-      const resource=state.resources.find(row=>row.id===button.dataset.id);
-      if(resource&&!state.acuComponents.some(row=>row.resourceId===resource.id)){state.modalDirty=true;state.acuComponents.push({resourceId:resource.id,quantity:"1",unitPrice:currentEstimate()?.currency==="USD"?"":resource.price??""});}
-      render();
-    }return;
+    const all=detail?.components||[];
+    let index=action==="edit-line-resource"?Number(button.dataset.index):-1;
+    if(action==="assign-resource")index=all.findIndex(row=>row.resource_id===button.dataset.id);
+    const resource=action==="assign-resource"?state.resources.find(row=>row.id===button.dataset.id):null;
+    const selected=index>=0?all[index]:resource?{resource_id:resource.id,quantity:"1",unit_price:currentEstimate()?.currency==="USD"?"":resource.price??""}:{resource_id:"",quantity:"1",unit_price:""};
+    if(index>=0&&!selected)throw new Error("El insumo ya no está en la composición");
+    openModal("line-resources",{...line,components:[selected],allComponents:all,componentIndex:index});return;
   }
   if (action === "duplicate-line") {if(!editable()||!currentLine())return;state.selectedLineId=await invoke("duplicate_budget_line",{estimateId:state.estimateId,lineId:state.selectedLineId});await loadEstimate();return;}
   if (action === "modal-client") return openModal("client");

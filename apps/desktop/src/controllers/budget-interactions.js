@@ -36,6 +36,8 @@ export function createBudgetInteractions({invoke,state,editable,currentLine,load
  }
  async function doubleClick(event){
   if(state.modal||state.busy||!editable()||event.target.closest?.('button,input,select,textarea'))return;
+  const component=event.target.closest?.('.line-resource-row');
+  if(component){await act({dataset:{action:'edit-line-resource',index:component.dataset.componentIndex}});return;}
   const row=rowAt(event.target);if(!row)return;
   if(row.classList.contains('line-row')){state.selectedLineId=row.dataset.id;await act({dataset:{action:'edit-line'}});}
   else if(row.dataset.dropSection)await act({dataset:{action:'edit-section',id:row.dataset.id}});
@@ -66,6 +68,8 @@ export function createBudgetInteractions({invoke,state,editable,currentLine,load
   render();document.querySelector('.app-context-menu button:not(:disabled)')?.focus();
  }
  function keyDown(event){
+  if((event.key==='Enter'||event.key===' ')&&event.target.matches?.('.line-resource-row')&&!state.modal&&!state.busy&&editable()){event.preventDefault();act({dataset:{action:'edit-line-resource',index:event.target.dataset.componentIndex}}).catch(error=>{state.message=String(error);render();});return true;}
+
   if(state.contextMenu){
    if(event.key==='Escape'){event.preventDefault();state.contextMenu=null;render();document.querySelector(".line-row.selected")?.focus();return true;}
    if(['ArrowDown','ArrowUp','Home','End'].includes(event.key)){

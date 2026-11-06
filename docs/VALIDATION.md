@@ -1,4 +1,4 @@
-# Validación de desarrollo — 2026-11-05
+# Validación de desarrollo — 2026-11-06
 
 Las comprobaciones se ejecutan en la máquina de esta sesión, sobre Linux,
 con Node 24.22.1 y Rust 1.99.1. `tools/check.sh` reúne los checks reproducibles.
@@ -7,8 +7,8 @@ con Node 24.22.1 y Rust 1.99.1. `tools/check.sh` reúne los checks reproducibles
 | --- | --- |
 | Rust, núcleo y almacenamiento | 59 tests: 17 de dominio y 42 de persistencia/regresión |
 | Escritorio Tauri | 2 tests nativos: recorrido IPC y regresión GLib optimizada |
-| JavaScript | 20 tests, con aislamiento de procesos desactivado explícitamente en el runner |
-| Chromium | 14 recorridos de interfaz sobre DOM real y un puente IPC de prueba |
+| JavaScript | 21 tests, con aislamiento de procesos desactivado explícitamente en el runner |
+| Chromium | 16 recorridos de interfaz sobre DOM real y un puente IPC de prueba |
 | Formato Rust | Workspace y aplicación Tauri |
 | Frontend de producción | Vite build, incluyendo los módulos de Excel y PDF |
 | Ejecutable Linux | Compilación con `custom-protocol` y arranque WebKitGTK en Xvfb |

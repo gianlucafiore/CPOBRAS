@@ -41,7 +41,7 @@ async function bridge(page, options={}) {
    if(command === "save_line_resources"){
     const selected=lines.find(row=>row.id===args.lineId);const id="private-"+calls.length;const cost=args.components.reduce((sum,row)=>sum+Number(row.quantity)*Number(row.unitPrice),0);
     selected.analysis_id=id;selected.unit_cost=String(cost);selected.total=String(cost*Number(selected.quantity));
-    lineDetails[id]={is_line_owned:true,code:"PART",description:selected.description,unit:selected.unit,unit_cost:String(cost),components:args.components.map(row=>({resource_id:row.resourceId,description:"Acero",kind:"material",quantity:row.quantity,unit_price:row.unitPrice,total:String(Number(row.quantity)*Number(row.unitPrice))}))};return id;
+    lineDetails[id]={is_line_owned:true,code:"PART",description:selected.description,unit:selected.unit,unit_cost:String(cost),components:args.components.map(row=>({resource_id:row.resourceId,description:resources.find(r=>r.id===row.resourceId)?.description,kind:"material",quantity:row.quantity,unit_price:row.unitPrice,total:String(Number(row.quantity)*Number(row.unitPrice))}))};return id;
    }
    if (command === "list_budget_sections" || command === "list_line_sections" || command === "list_backups" || command === "list_budget_templates" || command === "list_plan_revisions" || command === "list_plan_baselines" || command === "list_fx_quotes" || command === "scoped_price_history") return [];
    if (command === "list_management_records") return args.kind==='supplier'?[{id:'supplier-1',kind:'supplier',name:'Proveedor de prueba'}]:records.filter(record => record.kind === args.kind);
@@ -160,13 +160,13 @@ test("double click edits a different line and right click opens software actions
  await expect(page.locator('.line-row')).toContainText(['Hormigón','Revoque fino']);
  await page.locator('.line-row').filter({hasText:'Revoque fino'}).click({button:'right'});
  await expect(page.getByRole('menu',{name:'Acciones de CPOBRAS'})).toBeVisible();await page.getByRole('menuitem',{name:'Asignar / editar insumos',exact:true}).click();
- await expect(page.getByRole('heading',{name:'Insumos de la partida',exact:true})).toBeVisible();
+ await expect(page.getByRole('heading',{name:'Agregar insumo a la partida',exact:true})).toBeVisible();
 });
 
 test("assigning a catalog resource directly recalculates the selected line",async({page})=>{
  await bridge(page);await page.getByRole('button',{name:'Abrir ›',exact:true}).click();
  await page.getByRole('tab',{name:'Insumos',exact:true}).click();await expect(page.getByRole('tab',{name:'Insumos',exact:true})).toHaveAttribute('aria-selected','true');
- await page.getByRole('button',{name:'Asignar',exact:true}).click();await expect(page.getByRole('heading',{name:'Insumos de la partida',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'Asignar',exact:true}).click();await expect(page.getByRole('heading',{name:'Agregar insumo a la partida',exact:true})).toBeVisible();
  await page.getByLabel('Rendimiento / unidad',{exact:true}).fill('2.5');await page.getByRole('button',{name:'Guardar',exact:true}).click();
  await expect(page.locator('.detail-content')).toContainText('Precio calculado por insumos');
  await expect(page.locator('.line-row .partial')).toHaveText('500,00');
@@ -195,14 +195,16 @@ test("backdrop clicks preserve popup drafts and explicit closing confirms discar
 
 test('fuzzy resource search creates a resource in a child popup and preserves composition',async({page})=>{
  await bridge(page);await page.getByRole('button',{name:'Abrir ›',exact:true}).click();await page.getByRole('tab',{name:'Insumos',exact:true}).click();await page.getByRole('button',{name:'Asignar',exact:true}).click();
- await page.getByLabel('Rendimiento / unidad',{exact:true}).fill('3');await page.getByRole('button',{name:'＋ Agregar insumo',exact:true}).click();
- const searches=page.getByRole('combobox',{name:/Buscar insumo/});await searches.nth(1).fill('acreo');await expect(page.getByRole('option',{name:'MAT-1 · Acero (kg)'})).toBeVisible();
- await searches.nth(1).fill('Cemento especial');await page.getByRole('option',{name:'＋ Agregar «Cemento especial»'}).click();
- const child=page.getByRole('dialog',{name:'Crear insumo sin salir'});await expect(child).toBeVisible();await child.getByLabel('Código',{exact:true}).fill('MAT-2');await child.getByLabel('Precio inicial ARS',{exact:true}).fill('250');await page.screenshot({path:'/workspace/cpobras-quick-resource.png'});
+ await expect(page.getByRole('combobox',{name:'Buscar insumo 1'})).toHaveAttribute('aria-expanded','false');
+ await page.getByLabel('Rendimiento / unidad',{exact:true}).fill('3');await page.getByRole('button',{name:'Guardar',exact:true}).click();
+ await page.getByRole('button',{name:'＋ Agregar insumo',exact:true}).click();
+ const search=page.getByRole('combobox',{name:'Buscar insumo 1'});await search.fill('acreo');await expect(page.getByRole('option',{name:'MAT-1 · Acero (kg)'})).toBeVisible();
+ await search.fill('Cemento especial');await page.getByRole('option',{name:'＋ Agregar «Cemento especial»'}).click();
+ const child=page.getByRole('dialog',{name:'Crear insumo sin salir'});await child.getByLabel('Código',{exact:true}).fill('MAT-2');await child.getByLabel('Precio inicial ARS',{exact:true}).fill('250');
  await page.locator('.quick-resource-overlay').click({position:{x:2,y:2}});await expect(child).toBeVisible();
  page.once('dialog',d=>d.dismiss());await page.keyboard.press('Escape');await expect(child).toBeVisible();
- await child.getByRole('button',{name:'Guardar y seleccionar',exact:true}).click();await expect(child).toHaveCount(0);await expect(searches.nth(1)).toHaveValue('MAT-2 · Cemento especial');await expect(page.getByLabel('Rendimiento / unidad',{exact:true}).nth(0)).toHaveValue('3');
- await page.getByRole('button',{name:'Guardar',exact:true}).click();const saved=await page.evaluate(()=>window.__calls.find(c=>c.command==='save_line_resources').args);expect(saved.components[1].resourceId).toBe('resource-2');expect(saved.components[1].unitPrice).toBe('250');expect(saved.components[0].quantity).toBe('3');
+ await child.getByRole('button',{name:'Guardar y seleccionar',exact:true}).click();await expect(child).toHaveCount(0);await expect(search).toHaveValue('MAT-2 · Cemento especial');
+ await expect(page.locator('.component-row')).toHaveCount(1);await page.getByRole('button',{name:'Guardar',exact:true}).click();const saved=await page.evaluate(()=>window.__calls.filter(c=>c.command==='save_line_resources').at(-1).args);expect(saved.components[1].resourceId).toBe('resource-2');expect(saved.components[1].unitPrice).toBe('250');expect(saved.components[0].quantity).toBe('3');
 });
 
 test('operations creates warehouses and procurement documents without losing form rows',async({page})=>{
@@ -228,4 +230,17 @@ test('operational drafts survive rejected navigation and are cleared only after 
  page.once('dialog',d=>d.dismiss());await page.getByRole('button',{name:'Insumos',exact:true}).click();await expect(page.getByLabel('Número / referencia',{exact:true})).toHaveValue('BORRADOR');
  page.once('dialog',d=>d.accept());await page.getByRole('button',{name:'Insumos',exact:true}).click();await expect(page.getByRole('heading',{name:'Biblioteca de insumos',exact:true})).toBeVisible();
  await page.getByRole('button',{name:'Gestión de obra',exact:true}).click();await expect(page.getByLabel('Número / referencia',{exact:true})).toHaveValue('');await expect(page.getByRole('heading',{name:'Factura por pagar',exact:true})).toBeVisible();
+});
+
+test('double clicking one component opens only that item and preserves the rest on save',async({page})=>{
+ await bridge(page);await page.getByRole('button',{name:'Abrir ›',exact:true}).click();await page.getByRole('tab',{name:'Insumos',exact:true}).click();await page.getByRole('button',{name:'Asignar',exact:true}).click();await page.getByRole('button',{name:'Guardar',exact:true}).click();
+ await page.getByRole('button',{name:'＋ Agregar insumo',exact:true}).click();const search=page.getByRole('combobox',{name:'Buscar insumo 1'});await search.fill('Otro');await page.getByRole('option',{name:'＋ Agregar «Otro»'}).click();const child=page.getByRole('dialog',{name:'Crear insumo sin salir'});await child.getByLabel('Precio inicial ARS').fill('200');await child.getByRole('button',{name:'Guardar y seleccionar'}).click();await page.getByLabel('Rendimiento / unidad',{exact:true}).fill('2');await page.getByRole('button',{name:'Guardar',exact:true}).click();
+ await page.locator('.line-resource-row').filter({hasText:'Acero'}).dblclick();await expect(page.getByRole('heading',{name:'Editar insumo de la partida'})).toBeVisible();await page.screenshot({path:'/workspace/cpobras-single-component.png'});await expect(page.locator('.component-row')).toHaveCount(1);await expect(page.getByRole('listbox')).toHaveCount(0);await page.getByLabel('Rendimiento / unidad',{exact:true}).fill('3');await page.getByRole('button',{name:'Guardar',exact:true}).click();
+ const saved=await page.evaluate(()=>window.__calls.filter(c=>c.command==='save_line_resources').at(-1).args);expect(saved.components.map(c=>c.quantity)).toEqual(['3','2']);await expect(page.locator('.line-resource-row')).toHaveCount(2);await expect(page.locator('.line-row .partial')).toHaveText('1.400,00');
+});
+
+test('units support searching and creating within quick resource creation without losing either parent',async({page})=>{
+ await bridge(page);await page.getByRole('button',{name:'Abrir ›',exact:true}).click();await page.getByRole('button',{name:'＋ Agregar insumo',exact:true}).click();await page.getByLabel('Rendimiento / unidad',{exact:true}).fill('4');const search=page.getByRole('combobox',{name:'Buscar insumo 1'});await search.fill('Pintura');await page.getByRole('option',{name:'＋ Agregar «Pintura»'}).click();const resource=page.getByRole('dialog',{name:'Crear insumo sin salir'});await resource.getByLabel('Precio inicial ARS').fill('350');const unit=resource.getByRole('combobox',{name:'Unidad',exact:true});await expect(unit).toHaveAttribute('aria-expanded','false');await unit.fill('kilo');await page.getByRole('option',{name:'kg · Kilogramo'}).click();await expect(unit).toHaveValue('kg');
+ await unit.fill('balde');await page.getByRole('option',{name:'＋ Agregar unidad «balde»'}).click();const dialog=page.getByRole('dialog',{name:'Agregar unidad',exact:true});await dialog.getByLabel('Nombre de la unidad').fill('Balde de 20 litros');await page.screenshot({path:'/workspace/cpobras-unit-create.png'});await page.locator('.unit-create-overlay').click({position:{x:2,y:2}});await expect(dialog).toBeVisible();page.once('dialog',d=>d.dismiss());await page.keyboard.press('Escape');await expect(dialog).toBeVisible();await dialog.getByRole('button',{name:'Guardar y seleccionar unidad'}).click();await expect(dialog).toHaveCount(0);await expect(unit).toHaveValue('balde');await expect(resource.getByLabel('Precio inicial ARS')).toHaveValue('350');await resource.getByRole('button',{name:'Guardar y seleccionar',exact:true}).click();await expect(page.getByLabel('Rendimiento / unidad',{exact:true})).toHaveValue('4');await page.getByRole('button',{name:'Guardar',exact:true}).click();
+ const calls=await page.evaluate(()=>window.__calls);expect(calls.find(c=>c.command==='create_resource').args.unit).toBe('balde');expect(calls.find(c=>c.command==='save_management_record').args.record.attributes.symbol).toBe('balde');
 });

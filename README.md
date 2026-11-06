@@ -23,10 +23,13 @@ el ejecutable en lugar de arrancar en desarrollo, desde `apps/desktop`:
 npm run tauri build -- --no-bundle
 ```
 
-En **Insumos de la partida**, escribí en el buscador: acepta coincidencias
-aproximadas. La última opción **Agregar** abre una segunda ventana para crear el
+En el panel de la partida, **Agregar insumo** abre un formulario para un solo
+componente. Usá doble clic o **Editar** sobre uno existente para modificarlo.
+El buscador se abre al pulsarlo o escribir y acepta coincidencias aproximadas. La última opción **Agregar** abre una segunda ventana para crear el
 insumo y seleccionarlo al guardar, conservando la composición. Ninguna ventana
-se cierra al pulsar afuera; descartar cambios requiere confirmación.
+se cierra al pulsar afuera; descartar cambios requiere confirmación. Los campos
+de unidad permiten buscar unidades habituales o de la biblioteca y agregar una
+nueva en otra ventana, que queda seleccionada al guardarla.
 
 En **Gestión de obra** están las etapas 6 a 10: compras/stock, producción,
 certificaciones, finanzas y tablero. Elegí obra y fecha de corte. La guía de

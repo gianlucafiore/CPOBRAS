@@ -13,8 +13,8 @@ const pages={
  backups:["Copias de seguridad","Creá una copia antes de cambios importantes. Restaurar recupera los datos guardados y conserva primero una copia del estado actual."]
 };
 const panels={
- acu:["Composición de la partida","Acá ves los insumos por unidad y el precio calculado. «Editar insumos» crea una composición propia de esta partida, sin cambiar otras partidas ni la biblioteca."],
- resources:["Asignar insumos","Seleccioná una partida de la grilla y pulsá Asignar en el insumo que necesites. Ajustá el consumo por unidad y el precio; al guardar se recalcula su precio unitario."],
+ acu:["Composición de la partida","Acá ves los insumos por unidad y el precio calculado. «Agregar insumo» abre un formulario individual. Doble clic o Editar sobre un insumo para cambiarlo; los demás se conservan."],
+ resources:["Asignar insumos","Seleccioná una partida de la grilla y pulsá Asignar en el insumo que necesites. Ajustá el consumo por unidad y el precio en el formulario individual. Al guardar se recalcula la partida."],
  takeoffs:["Metrados","Cargá factor, largo, ancho y alto. Usá Descontar para huecos o aberturas; «Aplicar cantidad medida» lleva el resultado a la partida seleccionada."],
  summary:["Resumen económico","Revisá costo directo, gastos, beneficio e impuestos. Los cambios solo se permiten en borrador; al emitir el presupuesto queda bloqueado."]
 };

@@ -1,3 +1,4 @@
+import { createUnitPicker } from './components/unit-picker.js';
 import { createOperationsWorkspace } from './components/operations.js';
 import { createResourcePicker } from './components/resource-picker.js';
 import { helpBox } from "./components/help.js";
@@ -19,6 +20,7 @@ const state = createState();
 const selectors = createSelectors(state);
 const service = createWorkspaceService({ invoke, state, currentLine: selectors.currentLine, render });
 const context = { invoke, state, ...selectors, ...service, render, renderSelection, openModal, closeModal, document, window, FormData };
+const unitPicker = createUnitPicker(context);
 const resourcePicker = createResourcePicker(context);
 const modalMarkup = createModalRenderer(context);
 const operations = createOperationsWorkspace(context);
@@ -69,9 +71,11 @@ function closeModal() {
 document.addEventListener("click", async evt => {
   if(state.contextMenu){state.contextMenu=null;if(!evt.target.closest(".app-context-menu")){render();return;}}
   const button = evt.target.closest("[data-action]");
+  if(evt.target.matches?.('.unit-search'))unitPicker.open(evt.target);
+  if(evt.target.matches?.('.resource-search'))resourcePicker.open(evt.target);
   if (!button || button.disabled || state.busy) return;
   if (button.dataset.action === "close-modal" && button.classList.contains("modal-overlay")) return;
-  try { if(state.view==='operations'&&!button.dataset.action.startsWith('ops-')&&['navigate','open-project','open-estimate','open-costing','open-planning','open-management'].includes(button.dataset.action)&&!operations.protect())return; if(await resourcePicker.act(button))return; if(button.dataset.action==="open-operations"||button.dataset.action.startsWith("ops-")){await operations.act(button);return;} if (button.dataset.action === "open-budget-tools" || button.dataset.action.startsWith("budget-tools-")) await budgetTools.act(button); else if (button.dataset.action === "open-costing" || button.dataset.action.startsWith("cost-")) await costing.act(button); else if (button.dataset.action === "open-planning" || button.dataset.action.startsWith("plan-")) await planning.act(button); else if (button.dataset.action === "open-management" || button.dataset.action.startsWith("manage-")) await management.act(button); else await act(button); }
+  try { if(state.view==='operations'&&!button.dataset.action.startsWith('ops-')&&['navigate','open-project','open-estimate','open-costing','open-planning','open-management'].includes(button.dataset.action)&&!operations.protect())return; if(button.classList?.contains("resource-search"))return; if(await unitPicker.act(button))return; if(await resourcePicker.act(button))return; if(button.dataset.action==="open-operations"||button.dataset.action.startsWith("ops-")){await operations.act(button);return;} if (button.dataset.action === "open-budget-tools" || button.dataset.action.startsWith("budget-tools-")) await budgetTools.act(button); else if (button.dataset.action === "open-costing" || button.dataset.action.startsWith("cost-")) await costing.act(button); else if (button.dataset.action === "open-planning" || button.dataset.action.startsWith("plan-")) await planning.act(button); else if (button.dataset.action === "open-management" || button.dataset.action.startsWith("manage-")) await management.act(button); else await act(button); }
   catch (error) { state.message = "Error: " + String(error); render(); }
 });
 document.addEventListener("submit", async evt => {
@@ -82,6 +86,8 @@ document.addEventListener("submit", async evt => {
     [planning, ["planning-task-form", "planning-settings"]],
     [management, ["management-form"]]
   ];
+  if(evt.target.id==="unit-create-form"){evt.preventDefault();await unitPicker.submit(evt.target);return;}
+  if(evt.target.querySelector?.('.unit-search')){try{unitPicker.validate(evt.target);}catch(error){evt.preventDefault();const feedback=evt.target.querySelector('.modal-error,.feature-error');if(feedback)feedback.textContent=String(error);return;}}
   if(evt.target.id==="quick-resource-form"){evt.preventDefault();await resourcePicker.submit(evt.target);return;}
   const form = evt.target, group=groups.find(([,ids])=>ids.includes(form.id));
   if(!group && form.id!=="dialog-form")return;
@@ -112,8 +118,9 @@ document.addEventListener("change", async evt => {
     catch (error) { state.message = String(error); render(); }
   }
 });
-document.addEventListener("focusin",evt=>resourcePicker.focus(evt));
+document.addEventListener("focusin",evt=>{unitPicker.focus(evt);resourcePicker.focus(evt);});
 document.addEventListener("input", evt => {
+  unitPicker.input(evt);
   resourcePicker.input(evt);
   operations.input(evt.target);
   if(state.modal&&evt.target.closest?.("#dialog-form"))state.modalDirty=true;
@@ -129,6 +136,7 @@ document.addEventListener("drop", evt => { interactions.drop(evt).catch(error=>{
 document.addEventListener("pointerdown", evt => planning.pointerDown(evt));
 document.addEventListener("pointerup", async evt => { try { await planning.pointerUp(evt); } catch(error) { state.message=String(error);render(); } });
 document.addEventListener("keydown", evt => {
+  if(unitPicker.keyDown(evt))return;
   if(resourcePicker.keyDown(evt))return;
   if(operations.keyDown(evt))return;
   if(interactions.keyDown(evt))return;

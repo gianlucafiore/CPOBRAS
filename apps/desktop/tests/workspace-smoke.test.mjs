@@ -109,7 +109,7 @@ test("opens a new-line popup and saves through Tauri, then returns to the grid",
     id: "dialog-form",
     dataset: { kind: "line" },
     values: { description: "Soldadura", unit: "h", quantity: "10", unitCost: "200", sectionId: "" },
-    querySelector() { return submit; },
+    querySelector(selector) { return selector === ".unit-search" ? null : submit; },
   };
   await app.listeners.submit({ target: form, preventDefault() {} });
   assert.ok(app.calls.some(([name]) => name === "add_estimate_line"));

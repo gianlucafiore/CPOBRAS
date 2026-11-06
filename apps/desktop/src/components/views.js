@@ -116,7 +116,7 @@ function workspace() {
 function rightPanel() {
   const line = currentLine();
   if (state.panel === "summary") return summaryPane();
-  if (state.panel === "resources") return `<div class="detail-heading"><b>INSUMOS</b><span>${line?e(line.description):"Seleccioná una partida para asignar"}</span><button class="btn tiny primary" data-action="edit-line-resources" ${locked()} ${!line?"disabled":""}>Editar insumos</button></div>
+  if (state.panel === "resources") return `<div class="detail-heading"><b>INSUMOS</b><span>${line?e(line.description):"Seleccioná una partida para asignar"}</span><button class="btn tiny primary" data-action="edit-line-resources" ${locked()} ${!line?"disabled":""}>＋ Agregar insumo</button></div>
     <div class="mini-scroll"><table class="mini-table"><thead><tr><th>TIPO</th><th>DESCRIPCIÓN</th><th>UND.</th><th class="number">PRECIO ARS</th><th>ASIGNAR</th></tr></thead><tbody>
     ${state.resources.map(r => `<tr><td><span class="kind kind-${e(r.kind)}">${kindBadge(r.kind)}</span></td><td>${e(r.description)}</td><td>${e(r.unit)}</td><td class="number">${r.price === null ? "—" : money(r.price)}</td><td><button class="btn tiny" data-action="assign-resource" data-id="${e(r.id)}" ${locked()} ${!line||r.active===false?"disabled":""}>Asignar</button></td></tr>`).join("")}
     </tbody></table></div><div class="detail-footer">${btn("Abrir catálogo", "goto-resources", "primary")}</div>`;
@@ -131,14 +131,14 @@ function acuPane(line) {
   const byKinds = ["material", "labor", "equipment", "subcontract"].map(type => {
     const group = rows.filter(row => row.kind === type);
     if (!group.length) return "";
-    return `<tr class="group-row"><td colspan="5">${kindName(type).toUpperCase()}</td></tr>
-      ${group.map(row => `<tr><td><span class="kind kind-${type}">${kindBadge(type)}</span></td><td>${e(row.description)}</td><td class="number">${numeric(row.quantity)}</td><td class="number">${money(row.unit_price)}</td><td class="number">${money(row.total)}</td></tr>`).join("")}`;
+    return `<tr class="group-row"><td colspan="6">${kindName(type).toUpperCase()}</td></tr>
+      ${group.map(row => `<tr class="line-resource-row" data-component-index="${rows.indexOf(row)}" tabindex="0" aria-label="Insumo ${e(row.description)}"><td><span class="kind kind-${type}">${kindBadge(type)}</span></td><td>${e(row.description)}</td><td class="number">${numeric(row.quantity)}</td><td class="number">${money(row.unit_price)}</td><td class="number">${money(row.total)}</td><td><button class="btn tiny" data-action="edit-line-resource" data-index="${rows.indexOf(row)}" ${locked()}>Editar</button></td></tr>`).join("")}`;
   }).join("");
   return `<div class="detail-heading"><div><strong>${e(line.description)}</strong>${subtitle}</div>
-    <div class="heading-actions"><button class="btn tiny" data-action="modal-from-acu" ${locked()}>＋ Partida ACU</button><button class="btn tiny primary" data-action="edit-line-resources" ${locked()}>Editar insumos</button><button class="btn tiny" data-action="edit-analysis" data-id="${e(line.analysis_id)}" ${!line.analysis_id||d?.is_line_owned ? "disabled" : ""}>Editar ACU</button><button class="btn tiny" data-action="modal-contracting" ${!line.analysis_id ? "disabled" : ""}>Comparar costos</button></div>
+    <div class="heading-actions"><button class="btn tiny" data-action="modal-from-acu" ${locked()}>＋ Partida ACU</button><button class="btn tiny primary" data-action="edit-line-resources" ${locked()}>＋ Agregar insumo</button><button class="btn tiny" data-action="edit-analysis" data-id="${e(line.analysis_id)}" ${!line.analysis_id||d?.is_line_owned ? "disabled" : ""}>Editar ACU</button><button class="btn tiny" data-action="modal-contracting" ${!line.analysis_id ? "disabled" : ""}>Comparar costos</button></div>
   </div>
-  ${d ? `<div class="mini-scroll"><table class="mini-table"><thead><tr><th>TIPO</th><th>DESCRIPCIÓN</th><th class="number">CANT.</th><th class="number">PRECIO</th><th class="number">PARCIAL</th></tr></thead><tbody>${byKinds}</tbody></table></div>` :
-    `<div class="blank-state"><span>▤</span><strong>Partida con precio manual</strong><p>Abrí Insumos para asignar recursos a esta partida, o usá Editar insumos para construir su precio.</p></div>`}
+  ${d ? `<div class="mini-scroll"><table class="mini-table"><thead><tr><th>TIPO</th><th>DESCRIPCIÓN</th><th class="number">CANT.</th><th class="number">PRECIO</th><th class="number">PARCIAL</th><th>ACCIÓN</th></tr></thead><tbody>${byKinds}</tbody></table></div>` :
+    `<div class="blank-state"><span>▤</span><strong>Partida con precio manual</strong><p>Abrí Insumos para asignar recursos a esta partida, o usá Agregar insumo para construir su precio.</p></div>`}
   <div class="context-summary"><div><small>Precio unitario guardado</small><b>${money(line.unit_cost)}</b></div><div><small>${d?.is_line_owned?"Precio calculado por insumos":"Precio actual del ACU"}</small><b>${d ? money(d.unit_cost) : "—"}</b></div></div>
   <div class="detail-footer muted-note">El presupuesto conserva el precio unitario original aunque se actualicen los insumos.</div>`;
 }

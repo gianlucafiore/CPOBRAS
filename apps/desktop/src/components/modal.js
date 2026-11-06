@@ -55,27 +55,31 @@ function modalMarkup() {
       select("Moneda", "currency", [["ARS", "ARS"], ["USD", "USD"]]) +
       field("Fecha de vigencia", "effectiveDate", dateToday(), 'type="date" required') +
       field("Fuente / proveedor", "source", "Cotización manual");
-  } else if (kind === "analysis" || kind === "line-resources") {
+  } else if (kind === "line-resources") {
+    title=item.componentIndex>=0?"Editar insumo de la partida":"Agregar insumo a la partida";
+    const row=state.acuComponents[0]||{};
+    body=`<p class="modal-help"><strong>${e(item.description)}</strong> · Consumo por ${e(item.unit)}. Guardar actualiza este insumo y conserva los demás.</p><div class="component-row single-component">${resourcePicker(state.resources,row.resourceId,0)}<div class="form-grid">${field("Rendimiento / unidad","quantity",row.quantity??1,'type="number" min="0" step="any" required')}${field("Precio unitario "+(currentEstimate()?.currency||"ARS"),"unitPrice",row.unitPrice??"",'type="number" min="0" step="any" required')}</div></div><p class="modal-help">La composición completa se ve en el panel de la partida. Podés abrir cada insumo con doble clic o con Editar.</p>`;
+  } else if (kind === "analysis") {
     const editing = Boolean(item.id);
-    title = kind === "line-resources" ? "Insumos de la partida" : editing ? "Editar análisis de costo unitario" : "Crear análisis de costo unitario";
+    title = editing ? "Editar análisis de costo unitario" : "Crear análisis de costo unitario";
     wide = true;
-    body = (kind === "line-resources" ? `<p class="modal-help"><strong>${e(item.description)}</strong> · Consumos por ${e(item.unit)}. Estos insumos forman el precio unitario de esta partida; al guardar se reemplaza su precio manual. Las otras partidas conservan sus precios.</p>` : `<div class="form-grid three">
+    body = `<div class="form-grid three">
       ${field("Código ACU", "code", item.code || "", "required")}
       ${field("Descripción", "description", item.description || "", "required")}
       ${field("Unidad de la partida", "unit", item.unit || "m²", "required")}
     </div>
-    `) + `<div class="form-subhead">${kind === "line-resources" ? "INSUMOS POR UNIDAD DE PARTIDA" : "COMPOSICIÓN DEL ACU"}
+    ` + `<div class="form-subhead">COMPOSICIÓN DEL ACU
       <button class="btn tiny" type="button" data-action="add-component">＋ Agregar insumo</button>
     </div>
     <div class="component-editor" id="component-editor">
       ${state.acuComponents.map((row, index) => `<div class="form-grid component-row">
         ${resourcePicker(state.resources,row.resourceId,index)}
         ${field("Rendimiento / unidad", "quantity", row.quantity ?? 1, 'type="number" min="0" step="any" required')}
-        ${field(kind === "line-resources" ? "Precio unitario " + (currentEstimate()?.currency || "ARS") : "Precio unitario ARS", "unitPrice", row.unitPrice ?? (currentEstimate()?.currency === "USD" ? "" : state.resources.find(r => r.id === row.resourceId)?.price) ?? "", 'type="number" min="0" step="any" required')}
+        ${field("Precio unitario ARS", "unitPrice", row.unitPrice ?? state.resources.find(r => r.id === row.resourceId)?.price ?? "", 'type="number" min="0" step="any" required')}
         <button type="button" class="tiny-danger" data-action="remove-component" data-index="${index}" aria-label="Quitar componente">×</button>
       </div>`).join("")}
     </div>
-    ${!state.resources.length ? `<p class="modal-help">Buscá un insumo y elegí «Agregar» para crearlo sin salir de esta ventana.</p>` : ""}<p class="modal-help">${kind === "line-resources" ? "Al guardar se recalcula el precio unitario y el importe de esta partida. Las composiciones de otras partidas y versiones se conservan." : "Podés modificar rendimientos, insumos y precios de este ACU. La edición no cambia los presupuestos anteriores. Para trasladar los nuevos costos a un borrador, utilizá «Actualizar precios ACU»."}</p>`;
+    ${!state.resources.length ? `<p class="modal-help">Buscá un insumo y elegí «Agregar» para crearlo sin salir de esta ventana.</p>` : ""}<p class="modal-help">Podés modificar rendimientos, insumos y precios de este ACU. La edición no cambia los presupuestos anteriores. Para trasladar los nuevos costos a un borrador, utilizá «Actualizar precios ACU».</p>`;
   } else if (kind === "reprice") {
     title = "Actualizar precios del ACU"; body = `<p class="modal-help">Se recalculará ${e(state.analyses.find(a => a.id === item.id)?.description)} con las cotizaciones vigentes a la fecha indicada. Los presupuestos anteriores NO cambian.</p>` +
       field("Precios vigentes al", "effectiveDate", dateToday(), 'type="date" required');
