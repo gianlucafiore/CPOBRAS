@@ -1,0 +1,12 @@
+# A desktop-like runtime without Node, Rust, GTK development packages or system WebKit.
+FROM ubuntu:22.04
+ENV DEBIAN_FRONTEND=noninteractive
+RUN --mount=type=secret,id=proxy_ca \
+    if [ -f /run/secrets/proxy_ca ]; then export APT_CA="-o Acquire::https::CaInfo=/run/secrets/proxy_ca"; fi; \
+    apt-get ${APT_CA:-} update && \
+    apt-get ${APT_CA:-} install -y --no-install-recommends \
+      xvfb xauth dbus-x11 x11-utils scrot ca-certificates shared-mime-info \
+      fonts-dejavu-core libgl1 libegl1 libgles2 libgl1-mesa-dri libxkbcommon0 && \
+    rm -rf /var/lib/apt/lists/*
+RUN groupadd --gid 1000 cpobras && useradd --uid 1000 --gid 1000 --create-home cpobras
+WORKDIR /workspace/CPOBRAS

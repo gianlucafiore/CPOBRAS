@@ -6,7 +6,7 @@ con Node 24.22.1 y Rust 1.99.1. `tools/check.sh` reúne los checks reproducibles
 | Comprobación | Evidencia |
 | --- | --- |
 | Rust, núcleo y almacenamiento | 92 tests: 22 de dominio y 70 de persistencia/regresión |
-| Escritorio Tauri | 12 tests nativos: IPC, GLib, rutas PDF y lector predeterminado en Linux |
+| Escritorio Tauri | 13 tests nativos: IPC, GLib, rutas PDF y lector predeterminado en Linux |
 | JavaScript | 27 tests, con aislamiento de procesos desactivado explícitamente en el runner |
 | Chromium | 44 recorridos de interfaz sobre DOM real y un puente IPC de prueba |
 | Formato Rust | Workspace y aplicación Tauri |
@@ -20,6 +20,20 @@ integración nativa: el recorrido IPC usa Tauri con su configuración real y
 comprueba clientes, obras, ACU, presupuesto emitido, directorios, listas de
 precios, ACU anidados, importación, cronograma, línea base, copia/restauración,
 exportación, depósitos, documentos operativos, reportes de gestión y rechazo de ventanas/orígenes sin permisos.
+
+## Distribución Linux 0.1.1
+
+- Compilación de distribución sobre Ubuntu 22.04, con glibc 2.35, frontend incluido
+  y runtime AppImage oficial verificado por SHA-256.
+- Al abrir el lector PDF o el explorador del sistema desde el AppImage se quitan
+  las rutas de bibliotecas empaquetadas, conservando la sesión y los datos del
+  usuario. Evita cargar el GLib de Ubuntu 22.04 en programas de un sistema nuevo.
+- Arranque del AppImage en un contenedor Ubuntu 22.04 sin código fuente, Node,
+  Rust ni WebKit del sistema. Captura de la interfaz y base nueva con esquema 21,
+  integridad y referencias verificadas.
+- Publicación automatizada por etiqueta, archivo descargable y SHA256SUMS.
+
+Guía: [APPIMAGE.md](APPIMAGE.md).
 
 ## Vinculación P2P de solo lectura
 

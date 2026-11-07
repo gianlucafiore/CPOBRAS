@@ -1,6 +1,6 @@
 [package]
 name = "cpobras-desktop"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 build = "build.rs"
 
@@ -12,7 +12,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 custom-protocol = ["tauri/custom-protocol"]
 
 [dependencies]
-tauri = "2"
+tauri = { version = "2", features = [] }
 cpobras-core = { path = "../../../crates/cpobras-core" }
 cpobras-storage = { path = "../../../crates/cpobras-storage" }
 uuid = { version = "1", features = ["v4"] }

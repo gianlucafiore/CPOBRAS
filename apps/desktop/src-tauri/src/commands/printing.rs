@@ -79,15 +79,15 @@ pub(crate) fn open_export_pdf(
 fn pdf_command(path: &std::path::Path) -> std::process::Command {
     #[cfg(target_os = "linux")]
     let mut command = {
-        let mut c = std::process::Command::new("gio");
+        let mut c = crate::system_open::command("gio");
         c.arg("open");
         c
     };
     #[cfg(target_os = "macos")]
-    let mut command = std::process::Command::new("open");
+    let mut command = crate::system_open::command("open");
     #[cfg(target_os = "windows")]
     let mut command = {
-        let mut c = std::process::Command::new("rundll32.exe");
+        let mut c = crate::system_open::command("rundll32.exe");
         c.arg("url.dll,FileProtocolHandler");
         c
     };

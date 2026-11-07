@@ -1,0 +1,91 @@
+name: Linux AppImage release
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Etiqueta existente, por ejemplo v0.1.1"
+        required: true
+        default: "v0.1.1"
+permissions:
+  contents: write
+concurrency:
+  group: release-linux-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+jobs:
+  appimage:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      CARGO_BUILD_JOBS: 4
+      APPIMAGE_EXTRACT_AND_RUN: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - name: Validate version
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          python3 - <<'PY'
+          import json, os
+          version=json.load(open('apps/desktop/src-tauri/tauri.conf.json'))['version']
+          assert os.environ['RELEASE_TAG']=='v'+version, 'La etiqueta no coincide con la versión de la aplicación'
+          PY
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.99.1"
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+      - name: Linux packaging dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev librsvg2-dev libayatana-appindicator3-dev libfuse2 patchelf squashfs-tools desktop-file-utils xvfb xauth dbus-x11 x11-utils scrot
+      - name: Install frontend dependencies
+        run: npm --prefix apps/desktop ci
+      - name: Frontend checks
+        run: npm --prefix apps/desktop test
+      - name: Build AppImage
+        working-directory: apps/desktop
+        run: npm run package:linux
+      - name: Check packaged application
+        run: |
+          artifacts=(apps/desktop/src-tauri/target/release/bundle/appimage/*.AppImage)
+          test "${#artifacts[@]}" -eq 1
+          docker build -f tools/Dockerfile.appimage-smoke -t cpobras-appimage-smoke .
+          mkdir -p appimage-smoke
+          docker run --rm --user "$(id -u):$(id -g)" \
+            --mount "type=bind,src=$(realpath "${artifacts[0]}"),dst=/opt/CPOBRAS.AppImage,readonly" \
+            --mount "type=bind,src=$PWD/tools,dst=/checks,readonly" \
+            --mount "type=bind,src=$PWD/appimage-smoke,dst=/output" \
+            -e TMPDIR=/output -e LANG=C.UTF-8 -e LC_ALL=C.UTF-8 \
+            cpobras-appimage-smoke bash /checks/smoke-appimage.sh /opt/CPOBRAS.AppImage
+      - name: Prepare download and checksums
+        run: |
+          mkdir -p release-assets
+          cp apps/desktop/src-tauri/target/release/bundle/appimage/*.AppImage release-assets/
+          cd release-assets
+          sha256sum *.AppImage > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CPOBRAS-${{ env.RELEASE_TAG }}-linux-x86_64
+          path: release-assets/*
+          if-no-files-found: error
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft > /tmp/release-draft.txt 2>/dev/null; then
+            test "$(cat /tmp/release-draft.txt)" = true || { echo 'La versión ya está publicada; no se reemplazará.'; exit 1; }
+          else
+            gh release create "$RELEASE_TAG" --verify-tag --draft --title "CPOBRAS $RELEASE_TAG — Linux" --notes-file "docs/releases/$RELEASE_TAG.md"
+          fi
+          gh release upload "$RELEASE_TAG" release-assets/* --clobber
+          gh release edit "$RELEASE_TAG" --draft=false --latest

@@ -1,14 +1,15 @@
 {
   "name": "cpobras-desktop",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 1420",
     "build": "vite build",
     "tauri": "tauri",
     "test": "node --test --test-isolation=none tests/*.test.mjs",
-    "test:browser": "playwright test"
+    "test:browser": "playwright test",
+    "package:linux": "bash ../../tools/package-linux.sh"
   },
   "dependencies": {
     "@tauri-apps/api": "2.12.4",

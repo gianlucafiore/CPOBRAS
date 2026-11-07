@@ -11,3 +11,6 @@
 
 /apps/desktop/test-results/
 /apps/desktop/playwright-report/
+
+/release-assets/
+/appimage-smoke/

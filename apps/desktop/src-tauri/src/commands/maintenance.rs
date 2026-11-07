@@ -66,14 +66,14 @@ pub(crate) fn open_backup_folder(backups: tauri::State<'_, Backups>) -> Result<(
     }
     #[cfg(target_os = "linux")]
     let mut command = {
-        let mut c = std::process::Command::new("gio");
+        let mut c = crate::system_open::command("gio");
         c.arg("open");
         c
     };
     #[cfg(target_os = "macos")]
-    let mut command = std::process::Command::new("open");
+    let mut command = crate::system_open::command("open");
     #[cfg(target_os = "windows")]
-    let mut command = std::process::Command::new("explorer.exe");
+    let mut command = crate::system_open::command("explorer.exe");
     let status = command
         .arg(folder)
         .stdin(std::process::Stdio::null())

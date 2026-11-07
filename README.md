@@ -4,6 +4,20 @@ Sistema local de cómputos, presupuestos y gestión de obras para Argentina.
 Rust concentra las reglas de negocio; SQLite guarda los datos en el equipo y
 Tauri 2 presenta la interfaz. Los importes se calculan con precisión decimal.
 
+## Descargar y abrir en otra computadora Linux
+
+Descargá el **AppImage** desde [Releases de GitHub](https://github.com/gianlucafiore/CPOBRAS/releases).
+Es un único archivo para Linux x86-64: no necesitás instalar Rust, Node ni Git.
+
+1. Copiá el `.AppImage` a la otra computadora.
+2. Clic derecho → **Propiedades → Permisos → Permitir ejecutar como programa**.
+3. Abrilo con doble clic.
+
+La versión 0.1.1 está preparada para Linux Mint 21/22 y Ubuntu 22.04/24.04.
+Los datos se guardan por usuario fuera del AppImage; no se transfieren con el
+programa. Para consultar una obra de otro equipo, usá **Inicio → Vinculación P2P**.
+Guía y solución para sistemas sin FUSE: [docs/APPIMAGE.md](docs/APPIMAGE.md).
+
 ## Actualizar y probar en Linux Mint
 
 Desde la carpeta del repositorio:
@@ -199,6 +213,18 @@ Ejecutable nativo sin instalador:
 cd apps/desktop
 npm run tauri build -- --no-bundle
 ```
+
+AppImage para llevar a otra computadora Linux:
+
+```bash
+cd apps/desktop
+npm run package:linux
+```
+
+El archivo queda en `apps/desktop/src-tauri/target/release/bundle/appimage/`.
+Para distribuirlo se construye sobre Ubuntu 22.04, conservando compatibilidad
+con Linux Mint 21/22. La compilación hecha en una distribución más nueva puede
+requerir bibliotecas que otra computadora todavía no tenga.
 
 Ejecutable e instaladores de la plataforma actual:
 

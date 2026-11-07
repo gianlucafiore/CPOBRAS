@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "CPOBRAS",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "identifier": "ar.cpobras.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "CPOBRAS \u2014 Gesti\u00f3n de obras",
+        "title": "CPOBRAS — Gestión de obras",
         "width": 1120,
         "height": 740,
         "minWidth": 760,
@@ -27,6 +27,25 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all"
+    "targets": "all",
+    "shortDescription": "Cómputos, presupuestos y gestión de obras",
+    "longDescription": "CPOBRAS permite gestionar obras, presupuestos, análisis de costos, planificación y copias de seguridad locales, con consulta P2P de solo lectura.",
+    "category": "Productivity",
+    "icon": [
+      "icons/icon.png"
+    ],
+    "linux": {
+      "appimage": {
+        "bundleMediaFramework": true,
+        "files": {
+          "usr/lib/libfribidi.so.0": "/usr/lib/x86_64-linux-gnu/libfribidi.so.0",
+          "usr/lib/libharfbuzz.so.0": "/usr/lib/x86_64-linux-gnu/libharfbuzz.so.0",
+          "usr/lib/libgraphite2.so.3": "/usr/lib/x86_64-linux-gnu/libgraphite2.so.3",
+          "usr/share/doc/libfribidi0/copyright": "/usr/share/doc/libfribidi0/copyright",
+          "usr/share/doc/libharfbuzz0b/copyright": "/usr/share/doc/libharfbuzz0b/copyright",
+          "usr/share/doc/libgraphite2-3/copyright": "/usr/share/doc/libgraphite2-3/copyright"
+        }
+      }
+    }
   }
 }

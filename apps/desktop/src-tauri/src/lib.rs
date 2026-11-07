@@ -1,6 +1,7 @@
 mod backups;
 mod commands;
 mod p2p;
+mod system_open;
 
 use cpobras_storage::LocalStore;
 use std::sync::Mutex;
