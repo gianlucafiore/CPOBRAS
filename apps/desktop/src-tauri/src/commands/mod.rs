@@ -21,3 +21,5 @@ pub(crate) mod printing;
 pub(crate) mod organizations;
 
 pub(crate) mod persons;
+
+pub(crate) mod p2p;

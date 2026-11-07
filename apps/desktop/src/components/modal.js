@@ -36,8 +36,8 @@ export function createModalRenderer({
       title = "Copias de seguridad";
       wide=true;
       const settings=state.backupSettings||{}, when=(value)=>value?e(new Date(value*1000).toLocaleString("es-AR")):"Todavía no se hizo una copia";
-      body = `<p>Elegí una carpeta fija. Si está sincronizada con tu nube, tu programa de sincronización se encarga de subir las copias.</p>
-      ${field("Carpeta de respaldos (ruta completa)","backupDirectory",settings.directory||"",'required autocomplete="off" placeholder="/home/usuario/Nube/Respaldos CPOBRAS"')}
+      body = `<p>Usá <strong>Elegir carpeta</strong> para seleccionar dónde guardar tus copias. Si está sincronizada con tu nube, tu programa de sincronización se encarga de subir las copias.</p>
+      ${field("Carpeta de respaldos","backupDirectory",settings.directory||"",'required autocomplete="off"')}<button type="button" class="btn" data-action="choose-backup-folder">Elegir carpeta…</button>
       <label class="backup-enabled"><input type="checkbox" name="backupEnabled" ${settings.enabled?"checked":""}> Crear copias automáticas mientras CPOBRAS esté abierto</label>
       ${select("Frecuencia","backupInterval",[[15,"Cada 15 minutos"],[60,"Cada hora"],[240,"Cada 4 horas"],[1440,"Cada día"]],settings.interval_minutes||60)}
       <p class="modal-help">Guardá para aplicar. Al activar, se crea la primera copia dentro de un minuto si no hay una reciente. Al volver a abrir el programa se recupera la programación pendiente. No se borran copias anteriores.</p>

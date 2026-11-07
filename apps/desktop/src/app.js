@@ -1,3 +1,4 @@
+import { createSharing } from "./components/sharing.js";
 import { createPersons } from "./components/persons.js";
 import { createOrganizations } from "./components/organizations.js";
 import { createPrintProfile } from "./components/print-profile.js";
@@ -60,6 +61,7 @@ export function createWorkspaceApp({
   const budgetTools = createBudgetTools(context);
   const printProfile = createPrintProfile(context);
   const people = createPersons(context);
+  const sharing = createSharing(context);
   const organizations = createOrganizations({
     ...context,
     profile: printProfile,
@@ -108,6 +110,7 @@ export function createWorkspaceApp({
     const position = top?.scrollTop || 0;
     root.innerHTML = ["clients", "suppliers"].includes(state.view)
       ? chrome(people.markup())
+      : state.view === "sharing" ? chrome(sharing.markup())
       : state.view === "organizations"
         ? chrome(organizations.markup())
         : state.view === "budget-printing"
@@ -189,6 +192,7 @@ export function createWorkspaceApp({
     "open-price-determination": "price-determination",
     "open-budget-tools": "budget-tools",
     "open-organizations": "organizations",
+    "open-sharing": "sharing",
     "open-budget-printing": "budget-printing",
   };
   function protectContext() {
@@ -227,6 +231,7 @@ export function createWorkspaceApp({
         "open-project",
         "open-portfolio",
         "open-organizations",
+        "open-sharing",
       ].includes(action)
     )
       throw new Error(
@@ -283,6 +288,7 @@ export function createWorkspaceApp({
         await costing.act(button);
       } else if (action === "open-price-determination")
         await pricing.act(button);
+      else if (action === "open-sharing") await sharing.act(button);
       else if (action === "open-organizations") await organizations.act(button);
       else if (action === "open-budget-printing") await printing.act(button);
       else if (action === "open-budget-tools") await budgetTools.act(button);
@@ -411,6 +417,7 @@ export function createWorkspaceApp({
     }
     try {
       if (await route(button)) return;
+      if (button.dataset.action.startsWith("share-")) {await sharing.act(button);return;}
       if (button.dataset.action.startsWith("person-")) {
         await people.act(button);
         return;
@@ -484,6 +491,7 @@ export function createWorkspaceApp({
   document.addEventListener("submit", async (evt) => {
     const groups = [
       [people, ["person-form"]],
+      [sharing, ["p2p-invite-form", "p2p-join-form"]],
       [organizations, ["organization-create-form"]],
       [printProfile, ["print-profile-form"]],
       [printing, ["budget-print-form"]],
@@ -585,9 +593,10 @@ export function createWorkspaceApp({
     }
   });
   document.addEventListener("change", async (evt) => {
+    sharing.change(evt.target);
     if (
       evt.target.closest?.(
-        "#organization-create-form,#print-profile-form,#budget-print-form,#management-form,#planning-task-form,#planning-settings,#budget-bulk-form,#nested-analysis-form,#price-list-form,#scoped-price-form",
+        "#p2p-invite-form,#p2p-join-form,#organization-create-form,#print-profile-form,#budget-print-form,#management-form,#planning-task-form,#planning-settings,#budget-bulk-form,#nested-analysis-form,#price-list-form,#scoped-price-form",
       )
     )
       state.pageDirty = true;
@@ -646,7 +655,7 @@ export function createWorkspaceApp({
   document.addEventListener("input", (evt) => {
     if (
       evt.target.closest?.(
-        "#organization-create-form,#print-profile-form,#budget-print-form,#management-form,#planning-task-form,#planning-settings,#budget-bulk-form,#nested-analysis-form,#price-list-form,#scoped-price-form",
+        "#p2p-invite-form,#p2p-join-form,#organization-create-form,#print-profile-form,#budget-print-form,#management-form,#planning-task-form,#planning-settings,#budget-bulk-form,#nested-analysis-form,#price-list-form,#scoped-price-form",
       )
     )
       state.pageDirty = true;

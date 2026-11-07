@@ -2,7 +2,9 @@
 
 ## Configuración
 
-Abrí **Inicio → Copias de seguridad**. Indicá una ruta absoluta, por ejemplo
+Abrí **Inicio → Copias de seguridad**. Pulsá **Elegir carpeta** para abrir el selector del sistema. Podés navegar hasta
+la carpeta deseada o crear una desde allí. La ubicación se completa automáticamente.
+Si lo preferís, también podés escribir una ruta absoluta, por ejemplo
 `/home/usuario/Nube/Respaldos CPOBRAS` en Linux Mint. No es una dirección web:
 debe ser una carpeta que exista localmente o que el programa pueda crear.
 Guardá para aplicar. Se comprueba que permita escribir antes de cambiar el destino.

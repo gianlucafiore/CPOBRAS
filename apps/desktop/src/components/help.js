@@ -64,6 +64,7 @@ const pages = {
     "Organización y directorios",
     "Elegí el directorio que querés completar. Empezá por Empresas; luego vinculá establecimientos, responsables, contratos y centros de costos con sus obras.",
   ],
+  sharing: ["Vinculación P2P", "Compartí una obra propia mediante una invitación para un observador de solo lectura. Las actualizaciones llegan cuando ambos equipos están conectados. Las copias recibidas siguen disponibles sin conexión."],
   backups: [
     "Copias de seguridad",
     "Elegí una carpeta fija y activá respaldos automáticos mientras el programa esté abierto. Una carpeta sincronizada permite que tu aplicación de nube los suba. Restaurar conserva antes una copia del estado actual.",

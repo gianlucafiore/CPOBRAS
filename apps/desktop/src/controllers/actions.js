@@ -105,15 +105,21 @@ async function refreshBackups(){
 
 async function act(button) {
   const action = button.dataset.action;
-  if (["backups","create-backup","refresh-backups","open-backup-folder","verify-database","restore-backup"].includes(action)) {
+  if (["backups","create-backup","refresh-backups","open-backup-folder","choose-backup-folder","verify-database","restore-backup"].includes(action)) {
     if(state.busy)return;
-    if(action!=="backups"&&action!=="open-backup-folder"&&state.modalDirty){
+    if(action!=="backups"&&action!=="open-backup-folder"&&action!=="choose-backup-folder"&&state.modalDirty){
       const feedback=document.querySelector("#dialog-form .modal-error");if(feedback)feedback.textContent="Guardá la configuración antes de continuar. Tus cambios se conservan.";return;
     }
     state.busy=true;
     const form=document.querySelector("#dialog-form");if(form)form.inert=true;
     try {
       if(action==="backups"){await refreshBackups();openModal("backups");return;}
+      if(action==="choose-backup-folder"){
+        const input=form.querySelector('[name="backupDirectory"]');
+        const path=await invoke("choose_backup_folder",{currentDirectory:input.value||null});
+        if(path){input.value=path;state.modalDirty=true;form.querySelector(".modal-error").textContent="";}
+        return;
+      }
       if(action==="open-backup-folder"){await invoke("open_backup_folder");return;}
       if(action==="create-backup"){await invoke("create_backup");state.message="Copia creada en la carpeta configurada";}
       if(action==="verify-database"){await invoke("verify_database");state.message="Integridad y referencias verificadas";}

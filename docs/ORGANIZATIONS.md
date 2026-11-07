@@ -57,15 +57,15 @@ utilizaba antes. Abrir de nuevo el programa no recalcula ni reemplaza esas
 asociaciones. La predeterminada, los datos públicos, logotipos y vínculos de obras
 quedan incluidos en las copias de seguridad.
 
-## Preparación para P2P
+## Organizaciones recibidas por P2P
 
 Todavía no se conecta con otros equipos ni se reciben proyectos por red. Quedan
 preparados la procedencia, la identidad del propietario remoto, las revisiones y
 la consulta de organizaciones externas. La escritura local de una externa se
 rechaza en almacenamiento, además de deshabilitar la edición en pantalla.
 
-La futura sincronización autenticada tendrá que entregar las actualizaciones del
-propietario al receptor. El almacenamiento ya distingue esa entrada de las
+La vinculación autenticada entrega las actualizaciones públicas de la organización
+del propietario al receptor. El almacenamiento distingue esa entrada de las
 ediciones locales, rechaza revisiones antiguas, cambios de procedencia y colisiones
 con organizaciones propias. Esa entrada no está expuesta como comando de edición
 local de la interfaz.
@@ -78,3 +78,9 @@ local de la interfaz.
 3. Verificá que las obras anteriores conserven su organización y su emisor al imprimir.
 4. Editá datos públicos o el logotipo de una organización y generá un PDF de una
    obra que le pertenezca: debe usar esa ficha, no la predeterminada de otra obra.
+
+Las obras recibidas desde **Inicio → Vinculación P2P** mantienen una copia de
+su organización propietaria. Se identifica al propietario por su clave de equipo
+y se guarda una identidad local separada, para evitar reemplazar organizaciones
+propias aunque los IDs del origen coincidan. No puede editarse ni elegirse como
+predeterminada. Guía: [P2P.md](P2P.md).

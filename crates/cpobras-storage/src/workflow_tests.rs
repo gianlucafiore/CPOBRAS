@@ -2619,3 +2619,49 @@ fn legacy_duplicate_clients_and_extended_contacts_migrate_to_one_person() {
     drop(migrated);
     std::fs::remove_file(path).unwrap();
 }
+
+#[test]
+fn shared_project_contains_only_its_own_data_and_leaves_the_database_unchanged() {
+    let (mut store, project, estimate, _) = fixture();
+    let secret_client = Client {
+        id: Uuid::new_v4(),
+        name: "CONTACTO PRIVADO DE OTRA OBRA".into(),
+        cuit: None,
+    };
+    store.save_client(&secret_client).unwrap();
+    let other = Project {
+        id: Uuid::new_v4(),
+        client_id: secret_client.id,
+        name: "OBRA CONFIDENCIAL".into(),
+        currency: Currency::Ars,
+    };
+    store.save_project(&other).unwrap();
+    store
+        .create_estimate(&Estimate {
+            id: Uuid::new_v4(),
+            project_id: other.id,
+            title: "PRESUPUESTO PRIVADO".into(),
+            currency: Currency::Ars,
+            issued: false,
+        })
+        .unwrap();
+    let before = store.change_events(0).unwrap().len();
+    let document = store
+        .shared_project_document(project.id, "2026-11-07")
+        .unwrap();
+    assert_eq!(document["project"]["id"], project.id.to_string());
+    assert_eq!(
+        document["budgets"][0]["estimate"]["id"],
+        estimate.id.to_string()
+    );
+    assert_eq!(document["budgets"].as_array().unwrap().len(), 1);
+    let text = document.to_string();
+    assert!(!text.contains("CONFIDENCIAL"));
+    assert!(!text.contains("CONTACTO PRIVADO"));
+    assert!(!text.contains("PRESUPUESTO PRIVADO"));
+    assert_eq!(before, store.change_events(0).unwrap().len());
+    store.verify_integrity().unwrap();
+    assert!(store
+        .shared_project_document(Uuid::new_v4(), "2026-11-07")
+        .is_err());
+}

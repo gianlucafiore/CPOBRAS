@@ -22,6 +22,11 @@ chrono = { version = "=0.4.42", default-features = false, features = ["std"] }
 tempfile = "3"
 
 rust_decimal = { version = "1", features = ["serde"] }
+tauri-plugin-dialog = "2"
+iroh = { version = "=1.4.1", default-features = false, features = ["tls-ring"] }
+tokio = { version = "1", features = ["sync", "time", "rt", "macros"] }
+sha2 = "0.10"
+base64 = "=0.22.1"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -30,6 +35,7 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["test"] }
 
 glib = "=0.18.5"
+iroh-relay = { version = "=1.4.1", default-features = false, features = ["server", "tls-ring"] }
 
 [patch.crates-io]
 glib = { path = "../../../vendor/glib-0.18.5" }

@@ -5,10 +5,10 @@ con Node 24.22.1 y Rust 1.99.1. `tools/check.sh` reúne los checks reproducibles
 
 | Comprobación | Evidencia |
 | --- | --- |
-| Rust, núcleo y almacenamiento | 91 tests: 22 de dominio y 69 de persistencia/regresión |
-| Escritorio Tauri | 8 tests nativos: IPC, GLib, rutas PDF y lector predeterminado en Linux |
+| Rust, núcleo y almacenamiento | 92 tests: 22 de dominio y 70 de persistencia/regresión |
+| Escritorio Tauri | 12 tests nativos: IPC, GLib, rutas PDF y lector predeterminado en Linux |
 | JavaScript | 27 tests, con aislamiento de procesos desactivado explícitamente en el runner |
-| Chromium | 40 recorridos de interfaz sobre DOM real y un puente IPC de prueba |
+| Chromium | 44 recorridos de interfaz sobre DOM real y un puente IPC de prueba |
 | Formato Rust | Workspace y aplicación Tauri |
 | Frontend de producción | Vite build, incluyendo los módulos de Excel y PDF |
 | Ejecutable Linux | Compilación con `custom-protocol` y arranque WebKitGTK en Xvfb |
@@ -20,6 +20,24 @@ integración nativa: el recorrido IPC usa Tauri con su configuración real y
 comprueba clientes, obras, ACU, presupuesto emitido, directorios, listas de
 precios, ACU anidados, importación, cronograma, línea base, copia/restauración,
 exportación, depósitos, documentos operativos, reportes de gestión y rechazo de ventanas/orígenes sin permisos.
+
+## Vinculación P2P de solo lectura
+
+- Exportación por obra sin incluir una segunda obra, sus presupuestos o cliente.
+- Dos aplicaciones con identidades distintas y QUIC real: vinculación, recepción,
+  actualización, copia persistida, sin reescribir cuando no hay cambios y revocación.
+- Relay local real con transporte IP directo deshabilitado: invitación,
+  autenticación y transferencia íntegra únicamente a través del relay.
+- La misma invitación no puede usarse desde otro equipo después de vincularse.
+  Peticiones remotas de edición, versiones e IDs ajenos se rechazan.
+- La copia recibida no crea ni reemplaza proyectos editables. Organizaciones
+  externas conservan procedencia, revisión y bloqueo de edición.
+- Chromium cubre invitaciones, revocación, consulta de pestañas sin controles de
+  edición, desconexión y conservación del formulario ante un error.
+- El relay público está bloqueado por el proxy de esta sesión (HTTP 403).
+  Conectividad entre dos redes públicas distintas pendiente de comprobar.
+
+Guía: [P2P.md](P2P.md).
 
 ## Respaldos en carpeta configurable
 
@@ -33,6 +51,9 @@ exportación, depósitos, documentos operativos, reportes de gestión y rechazo 
   una configuración dañada no impide abrir la aplicación.
 - Arranque del ejecutable Linux con programación activa genera una copia real;
   se verifican el archivo SQLite y el resultado persistido.
+- Selector nativo de carpetas; selección y cancelación conservan las opciones
+  pendientes hasta guardar la configuración. La ventana GTK real se abrió en
+  Linux y la carpeta elegida completó el formulario de respaldos.
 - IPC real guarda destino con espacios, genera y restaura respaldos sin cambiar
   la configuración. Chromium cubre guardado, copia manual, carpeta, cierre,
   errores de almacenamiento y conservación de borradores.
@@ -67,7 +88,7 @@ Guía: [PERSONS.md](PERSONS.md).
 - IPC nativo y Chromium cubren organizaciones, formularios unificados,
   directorios, selección predeterminada y consulta de una ficha externa.
 
-Guía: [ORGANIZATIONS.md](ORGANIZATIONS.md). La sincronización P2P no está implementada.
+Guía: [ORGANIZATIONS.md](ORGANIZATIONS.md). La recepción P2P está documentada en [P2P.md](P2P.md).
 
 ## Presentaciones e impresión
 
@@ -183,7 +204,8 @@ Guía, reglas económicas y límites: [OPERATIONS.md](OPERATIONS.md).
 
 - Los roles son responsabilidades locales; no hay login ni separación de
   permisos entre personas que comparten la cuenta del sistema operativo.
-  Autenticación y sincronización corresponden a la etapa 11.
+  La vinculación P2P ofrece consulta autenticada de solo lectura mediante
+  invitaciones; el login y la edición colaborativa siguen fuera de este alcance.
 - Cada obra tiene un calendario con días laborables configurables y feriados.
   Las dependencias FS/SS/FF/SF usan desfases laborables. Las fechas límite
   incumplidas generan alertas. Asignar recursos no hace nivelación automática

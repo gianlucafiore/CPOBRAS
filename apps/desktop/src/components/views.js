@@ -50,6 +50,7 @@ export function createViews({
                 costing: "Costos y precios",
                 "budget-tools": "Herramientas de presupuesto",
                 organizations: "Organizaciones",
+                sharing: "Vinculación P2P",
                 "budget-printing": "Imprimir presupuesto",
                 projects: "Obras y presupuestos",
                 clients: "Directorio de clientes",
@@ -97,7 +98,7 @@ export function createViews({
               )
               .join(
                 "",
-              )}<button class="menu-item ${active === "costing" ? "active" : ""}" aria-current="${active === "costing" ? "page" : "false"}" data-action="open-costing">Costos y precios</button><button class="menu-item ${active === "portfolio" ? "active" : ""}" aria-current="${active === "portfolio" ? "page" : "false"}" data-action="open-portfolio">Cartera de obras</button><button class="menu-item ${active === "organizations" ? "active" : ""}" aria-current="${active === "organizations" ? "page" : "false"}" data-action="open-organizations">Organizaciones</button><button class="menu-item ${active === "backups" ? "active" : ""}" data-action="backups">Copias de seguridad</button>`
+              )}<button class="menu-item ${active === "costing" ? "active" : ""}" aria-current="${active === "costing" ? "page" : "false"}" data-action="open-costing">Costos y precios</button><button class="menu-item ${active === "portfolio" ? "active" : ""}" aria-current="${active === "portfolio" ? "page" : "false"}" data-action="open-portfolio">Cartera de obras</button><button class="menu-item ${active === "organizations" ? "active" : ""}" aria-current="${active === "organizations" ? "page" : "false"}" data-action="open-organizations">Organizaciones</button><button class="menu-item ${active === "sharing" ? "active" : ""}" aria-current="${active === "sharing" ? "page" : "false"}" data-action="open-sharing">Vinculación P2P</button><button class="menu-item ${active === "backups" ? "active" : ""}" data-action="backups">Copias de seguridad</button>`
       }<span class="grow"></span><span class="kbd-hint">ESC cierra ventanas</span>
     </nav>
     ${work ? `<div class="project-context" role="region" aria-label="Contexto de la obra"><strong>Obra: ${e(currentProject()?.name)}</strong><span class="organization-context">${e(currentProject()?.organization_name || "")}${currentProject()?.read_only ? " · Externa · solo lectura" : ""}</span><label>Presupuesto activo <select name="estimate-picker" aria-label="Presupuesto activo">${state.estimates.map((est) => `<option value="${e(est.id)}" ${est.id === state.estimateId ? "selected" : ""}>${e(est.title)} · ${est.issued ? "Emitido" : "Borrador"}</option>`).join("") || '<option value="">Sin presupuestos</option>'}</select></label><span>${state.view === "planning" ? "Cronograma de la obra · los vínculos indican su presupuesto de origen" : state.view === "operations" ? "Documentos de esta obra · informe del presupuesto activo" : "Datos de la obra abierta"}</span></div>` : ""}

@@ -9,6 +9,7 @@ fn ipc_creates_budget_and_preserves_issued_snapshot() {
     let app = configure(tauri::test::mock_builder())
         .manage(Mutex::new(LocalStore::in_memory().unwrap()))
         .manage(BackupDirectory(temp.join("backups")))
+        .manage(p2p::P2p::load(temp.join("p2p")).unwrap())
         .manage(Mutex::new(
             backups::BackupManager::load(temp.join("backups")).unwrap(),
         ))
@@ -32,6 +33,10 @@ fn ipc_creates_budget_and_preserves_issued_snapshot() {
         )
         .map(|body| body.deserialize::<Value>().unwrap())
     };
+    let network = call("p2p_status", json!({})).unwrap();
+    assert_eq!(network["enabled"], false);
+    assert!(network.get("key").is_none());
+    assert!(call("p2p_read", json!({"id":uuid::Uuid::new_v4()})).is_err());
     let client = call(
         "create_client",
         json!({"clientName":"Comitente", "cuit":null}),

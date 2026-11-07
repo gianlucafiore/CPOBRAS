@@ -22,6 +22,7 @@ pub mod planning;
 pub mod price_determination;
 pub mod printing;
 pub mod resource_catalog;
+pub mod sharing;
 pub mod takeoffs;
 
 const INITIAL_MIGRATION: &str = include_str!("../migrations/0001_initial.sql");

@@ -124,3 +124,34 @@ pub(crate) fn write_export(
     file.sync_all().map_err(|e| e.to_string())?;
     Ok(path.to_string_lossy().into())
 }
+
+#[tauri::command]
+pub(crate) async fn choose_backup_folder<R: tauri::Runtime>(
+    window: tauri::WebviewWindow<R>,
+    current_directory: Option<String>,
+) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut dialog = window
+            .dialog()
+            .file()
+            .set_title("Elegir carpeta de respaldos")
+            .set_parent(&window);
+        if let Some(path) = current_directory
+            .map(std::path::PathBuf::from)
+            .filter(|p| p.is_absolute() && p.is_dir())
+        {
+            dialog = dialog.set_directory(path);
+        }
+        dialog
+            .blocking_pick_folder()
+            .map(|p| {
+                p.into_path()
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .map_err(|e| e.to_string())
+            })
+            .transpose()
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}

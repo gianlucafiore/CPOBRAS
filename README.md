@@ -75,9 +75,23 @@ detallar gastos por grupos e ítems. Permite montos manuales, referencias,
 plantillas y exportación. Usá **Guardar determinación** para persistir la vista
 previa. Guía de cálculo y prueba: [docs/PRICE_DETERMINATION.md](docs/PRICE_DETERMINATION.md).
 
+## Vinculación P2P de solo lectura
+
+Desde **Inicio → Vinculación P2P**, elegí una obra, indicá el nombre del
+observador y pulsá **Crear invitación**. Copiá el código y enviáselo; la otra
+persona lo pega en **Invitación del propietario** y pulsa **Vincular obra**.
+Podrá consultar presupuestos, costos, gestión, planificación y organización
+sin editar tus datos. Cada invitación sirve para un equipo y puede revocarse.
+
+Las actualizaciones son automáticas mientras ambos programas estén conectados.
+Sin conexión se conserva la última copia recibida. Usa conexión directa y relay
+para atravesar redes distintas sin configurar el router. La prueba con el relay
+público está pendiente porque este entorno bloquea su acceso.
+Guía, alcance y pruebas: [docs/P2P.md](docs/P2P.md).
+
 ## Respaldos automáticos en una carpeta sincronizada
 
-En **Inicio → Copias de seguridad**, escribí la ruta completa de una carpeta
+En **Inicio → Copias de seguridad**, pulsá **Elegir carpeta** y seleccioná una carpeta
 fija, activá **Crear copias automáticas** y guardá la configuración. Podés elegir
 cada 15 minutos, una hora, cuatro horas o un día. **Crear copia ahora** funciona
 también con la programación desactivada; **Abrir carpeta** muestra los archivos.

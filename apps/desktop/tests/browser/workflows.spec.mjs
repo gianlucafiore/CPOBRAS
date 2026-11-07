@@ -6,6 +6,8 @@ async function bridge(page, options={}) {
   const line = { id: "10000000-0000-4000-8000-000000000002", description: "Hormigón", unit: "m³", quantity: "2", unit_cost: "100", total: "200", analysis_id: null };
   const lines=[line]; if(fixture.twoLines)lines.push({...line,id:"10000000-0000-4000-8000-000000000003",description:"Revoque"});
   const sections=fixture.twoLines?[{id:"10000000-0000-4000-8000-000000000004",code:"01",title:"Preliminares",parent_id:null,position:0}]:[];
+  const sharedStatus={enabled:false,peer_id:'owner-key',shares:[],subscriptions:[],network_error:null};
+  const sharedDoc={version:1,project:{...project,name:'Obra remota de María'},organization:{id:'remote-org',name:'Estudio de María',profile:{company_name:'Estudio de María',logo_png:[],email:'maria@example.test'}},client:{name:'Cliente remoto'},suppliers:[],budgets:[{estimate:{id:'remote-estimate',title:'Presupuesto remoto',currency:'ARS',issued:false},document:{lines:[{...line,unit_cost_snapshot:'100'}],sections:[],assignments:[],line_analyses:[],takeoffs:[]},pricing:{direct:'200',definition:{rows:[]},calculation:{rows:[],breakdown:{total:'242'}}}}],planning:{plan:{tasks:[{id:'remote-task',name:'Replanteo remoto',duration_days:3,actual_progress:'25'}]}},schedule:{Ok:{tasks:[{id:'remote-task',start:'2026-11-07',finish:'2026-11-10'}]}},baselines:[],operations:[],records:[],stock:[],warehouses:[],parties:[],resources:[]};
   const assignments=[];const lineDetails={};
   let backupSettings={directory:'/data/CPOBRAS/backups',enabled:false,interval_minutes:60,last_success:null,last_file:null,last_error:null};const backupCopies=[];
 
@@ -67,6 +69,17 @@ async function bridge(page, options={}) {
    if(command==='apply_budget_pattern'){const d=patternPart(args.source.template_id?templates.find(t=>t.id===args.source.template_id).document:sourceDocument,args.selection),mapping=new Map(d.sections.map(r=>[r.id,'new-'+r.id+'-'+calls.length])),ids=[];for(const r of d.sections)sections.push({...r,id:mapping.get(r.id),parent_id:r.parent_id?mapping.get(r.parent_id):args.parentId});for(const l of d.lines){const id='new-'+l.id+'-'+calls.length,price=args.includePrices?l.unit_cost_snapshot:'0';lines.push({id,description:l.description,unit:l.unit,quantity:l.quantity,unit_cost:price,total:String(Number(price)*Number(l.quantity)),analysis_id:null});ids.push(id);const assignment=d.assignments.find(([line])=>line===l.id);if(assignment)assignments.push({line_id:id,section_id:mapping.get(assignment[1])});}return {line_ids:ids,section_ids:[...mapping.values()],takeoff_count:d.takeoffs.length};}
    if (command === "list_estimate_lines") return fixture.context&&args.estimateId==='source-estimate'?[{...line,id:'other-line',description:'Partida obra modelo',total:'900'}]:lines;
 
+   if(command==='p2p_status')return structuredClone(sharedStatus);
+   if(command==='p2p_enable'){sharedStatus.enabled=args.enabled;return structuredClone(sharedStatus);}
+   if(command==='p2p_invite'){sharedStatus.enabled=true;sharedStatus.shares.push({id:'share-1',project_id:args.projectId,label:args.label,peer:null,revoked:false,last_seen:null});return {invitation:'cpobras1:invitacion-de-prueba'};}
+   if(command==='p2p_join'){
+    if(args.invitation==='invalida')throw new Error('Invitación inválida');
+    sharedStatus.enabled=true;sharedStatus.subscriptions.push({id:'received-1',name:sharedDoc.project.name,owner:'maria-key',project_id:project.id,last_sync:1794056400,last_checked:1794056400,error:null,revoked:false,has_snapshot:true});return structuredClone(sharedStatus);
+   }
+   if(command==='p2p_sync'){if(fixture.p2pOffline)sharedStatus.subscriptions.forEach(s=>s.error='El propietario no está disponible. Se conserva la última copia recibida');return structuredClone(sharedStatus);}
+   if(command==='p2p_read')return {data:structuredClone(sharedDoc),received_at:1794056400,owner:'maria-key',read_only:true,revoked:false,error:sharedStatus.subscriptions[0]?.error||null};
+   if(command==='p2p_revoke'){sharedStatus.shares.find(s=>s.id===args.id).revoked=true;return structuredClone(sharedStatus);}
+   if(command==='p2p_forget'){sharedStatus.subscriptions=sharedStatus.subscriptions.filter(s=>s.id!==args.id);return structuredClone(sharedStatus);}
    if(command==='get_backup_settings')return structuredClone(backupSettings);
    if(command==='save_backup_settings'){
     if(!args.settings.directory.startsWith('/'))throw new Error('Elegí una ruta absoluta');
@@ -77,6 +90,7 @@ async function bridge(page, options={}) {
     if(fixture.unavailableBackup)throw new Error('La carpeta de respaldo no está disponible');
     const id=crypto.randomUUID();backupSettings.last_success=1794056400;backupSettings.last_file='cpobras-manual-2026-11-07-'+id+'.sqlite';backupCopies.unshift({id,name:backupSettings.last_file,directory:backupSettings.directory,created_at:1794056400,bytes:1048576});return id;
    }
+   if(command==='choose_backup_folder')return fixture.cancelFolder?null:'/home/usuario/Nube/Respaldos CPOBRAS';
    if(command==='open_backup_folder'||command==='verify_database')return null;
    if (command === "list_budget_sections") return sections;
    if (command === "list_line_sections") return assignments;
@@ -452,7 +466,8 @@ test('editing a project can create and select a supplier while retaining its cli
 test('backup settings persist a synchronized folder and manual backups show their destination',async({page})=>{
  await bridge(page);await page.getByRole('button',{name:'Copias de seguridad',exact:true}).click();
  const dialog=page.getByRole('dialog',{name:'Copias de seguridad'});
- await dialog.getByLabel('Carpeta de respaldos').fill('/home/usuario/Nube/Respaldos CPOBRAS');
+ await dialog.getByRole('button',{name:'Elegir carpeta…'}).click();
+ await expect(dialog.getByLabel('Carpeta de respaldos')).toHaveValue('/home/usuario/Nube/Respaldos CPOBRAS');
  await dialog.getByLabel('Crear copias automáticas').check();await dialog.getByLabel('Frecuencia').selectOption('15');
  await dialog.getByRole('button',{name:'Crear copia ahora'}).click();
  await expect(dialog.locator('.modal-error')).toContainText('Guardá la configuración');
@@ -477,4 +492,39 @@ test('backup configuration stays editable when storage is unavailable and failed
  await dialog.getByLabel('Carpeta de respaldos').fill('/home/usuario/Nueva nube');await dialog.getByRole('button',{name:'Guardar configuración'}).click();
  await dialog.getByRole('button',{name:'Crear copia ahora'}).click();await expect(dialog.locator('.modal-error')).toContainText('no está disponible');
  await expect(dialog.getByLabel('Carpeta de respaldos')).toHaveValue('/home/usuario/Nueva nube');
+});
+
+test('canceling the native folder selection keeps the backup draft intact',async({page})=>{
+ await bridge(page,{cancelFolder:true});await page.getByRole('button',{name:'Copias de seguridad',exact:true}).click();
+ const dialog=page.getByRole('dialog',{name:'Copias de seguridad'});
+ await dialog.getByLabel('Crear copias automáticas').check();await dialog.getByLabel('Frecuencia').selectOption('240');
+ await dialog.getByRole('button',{name:'Elegir carpeta…'}).click();
+ await expect(dialog.getByLabel('Carpeta de respaldos')).toHaveValue('/data/CPOBRAS/backups');
+ await expect(dialog.getByLabel('Frecuencia')).toHaveValue('240');await expect(dialog.getByLabel('Crear copias automáticas')).toBeChecked();
+});
+
+test('P2P invitations are scoped to one owned project and access can be revoked',async({page})=>{
+ await bridge(page);await page.getByRole('button',{name:'Vinculación P2P',exact:true}).click();
+ await page.getByLabel('Nombre del observador').fill('Arquitecta María');await page.getByRole('button',{name:'Crear invitación',exact:true}).click();
+ await expect(page.locator('#p2p-invitation')).toHaveValue('cpobras1:invitacion-de-prueba');
+ await expect.poll(()=>page.evaluate(()=>window.__calls.find(c=>c.command==='p2p_invite')?.args)).toEqual({projectId:'10000000-0000-4000-8000-000000000001',label:'Arquitecta María'});
+ page.once('dialog',dialog=>dialog.accept());await page.getByRole('button',{name:'Revocar acceso',exact:true}).click();
+ await expect(page.locator('.sharing-page')).toContainText('Revocado');
+});
+test('received P2P projects stay read only and their last copy remains visible offline',async({page})=>{
+ await bridge(page,{p2pOffline:true});await page.getByRole('button',{name:'Vinculación P2P',exact:true}).click();
+ await page.getByLabel('Invitación del propietario').fill('cpobras1:de-maria');await page.getByRole('button',{name:'Vincular obra',exact:true}).click();
+ await page.getByRole('button',{name:'Abrir copia',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Obra remota de María',exact:true})).toBeVisible();await expect(page.locator('.sharing-view')).toContainText('Hormigón');
+ await expect(page.getByRole('button',{name:'Guardar',exact:true})).toHaveCount(0);await expect(page.getByRole('button',{name:'Emitir',exact:true})).toHaveCount(0);
+ await page.getByRole('button',{name:'Buscar cambios',exact:true}).click();await expect(page.locator('.sharing-page')).toContainText('propietario no está disponible');await expect(page.locator('.sharing-view')).toContainText('Hormigón');
+ await page.getByRole('button',{name:'Planificación',exact:true}).click();await expect(page.locator('.sharing-view')).toContainText('Replanteo remoto');
+ await page.getByRole('button',{name:'Datos de obra y organización',exact:true}).click();await expect(page.locator('.sharing-view')).toContainText('maria@example.test');
+ await page.screenshot({path:'/workspace/cpobras-p2p-readonly.png'});
+ await page.getByRole('button',{name:'Inicio / Obras',exact:true}).click();await expect(page.locator('main')).toContainText('Obra de prueba');await expect(page.locator('main')).not.toContainText('Obra remota de María');
+});
+test('P2P forms preserve drafts when navigation is rejected or an invitation is invalid',async({page})=>{
+ await bridge(page);await page.getByRole('button',{name:'Vinculación P2P',exact:true}).click();await page.getByLabel('Invitación del propietario').fill('invalida');
+ page.once('dialog',dialog=>dialog.dismiss());await page.getByRole('button',{name:'Inicio / Obras',exact:true}).click();await expect(page.getByLabel('Invitación del propietario')).toHaveValue('invalida');
+ await page.getByRole('button',{name:'Vincular obra',exact:true}).click();await expect(page.locator('#p2p-join-form .feature-error')).toContainText('Invitación inválida');await expect(page.getByLabel('Invitación del propietario')).toHaveValue('invalida');
 });
