@@ -1330,7 +1330,7 @@ fn upgrades_populated_schema_fifteen_and_deletes_its_preexisting_linked_line() {
         old.execute_batch(&format!("DROP TRIGGER {name}")).unwrap();
     }
     old.execute_batch("ALTER TABLE operation_links DROP COLUMN archived_line_id; DROP TABLE deleted_estimate_lines; DROP TABLE line_analysis_sources; DROP TABLE estimate_resource_prices; DROP TABLE estimate_price_definitions; DROP TABLE price_definition_templates;
-             DROP TABLE print_profiles; DELETE FROM schema_migrations WHERE version>=16; CREATE TRIGGER operation_links_no_update BEFORE UPDATE ON operation_links BEGIN SELECT RAISE(ABORT,'operation links are immutable'); END;").unwrap();
+             DROP TABLE print_profiles; DROP TRIGGER new_project_organization; DROP TRIGGER external_company_readonly_update; DROP TRIGGER external_company_readonly_delete; DROP TABLE project_organizations; DROP TABLE organization_preferences; DROP TABLE organizations; DELETE FROM schema_migrations WHERE version>=16; CREATE TRIGGER operation_links_no_update BEFORE UPDATE ON operation_links BEGIN SELECT RAISE(ABORT,'operation links are immutable'); END;").unwrap();
     drop(old);
     let mut upgraded = LocalStore::open(&path).unwrap();
     assert_eq!(
@@ -1339,7 +1339,7 @@ fn upgrades_populated_schema_fifteen_and_deletes_its_preexisting_linked_line() {
             .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| r
                 .get::<_, i64>(0))
             .unwrap(),
-        19
+        20
     );
     upgraded.delete_estimate_item(e.id, line.id).unwrap();
     assert!(upgraded.estimate_items(e.id).unwrap().is_empty());
@@ -2226,4 +2226,121 @@ fn zero_direct_cost_prints_fixed_price_as_explicit_unallocated_amount() {
     assert_eq!(data.unallocated_total, 50.into());
     assert_eq!(data.lines[0].sale_total, 0.into());
     assert_eq!(data.lines[0].incidence_percent, 0.into());
+}
+
+#[test]
+fn organization_default_only_changes_new_projects_and_prints_use_the_project_owner() {
+    use crate::printing::PrintProfile;
+    let (mut s, p, e, _) = fixture();
+    let a = s.default_organization().unwrap();
+    s.save_organization(
+        a.id,
+        a.revision,
+        "Organización A",
+        &PrintProfile {
+            company_name: "Emisor A".into(),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let b = s.create_organization("Organización B").unwrap();
+    s.set_default_organization(b.id).unwrap();
+    assert_eq!(s.project_organization(p.id).unwrap().id, a.id);
+    assert_eq!(
+        s.budget_print_data(e.id).unwrap().profile.company_name,
+        "Emisor A"
+    );
+    let new = Project {
+        id: Uuid::new_v4(),
+        name: "Obra nueva".into(),
+        ..p.clone()
+    };
+    s.save_project(&new).unwrap();
+    assert_eq!(s.project_organization(new.id).unwrap().id, b.id);
+    let changed = Project {
+        name: "No debe guardarse".into(),
+        ..p.clone()
+    };
+    assert!(s.save_project_for_organization(&changed, b.id).is_err());
+    assert_eq!(s.get_project(p.id).unwrap().unwrap().name, p.name);
+    assert_eq!(s.default_organization().unwrap().id, b.id);
+}
+#[test]
+fn external_organizations_are_readonly_and_remote_updates_cannot_replace_own_identity() {
+    use crate::printing::PrintProfile;
+    let (mut s, p, _, _) = fixture();
+    let id = Uuid::new_v4();
+    let profile = PrintProfile {
+        company_name: "Propietario remoto".into(),
+        ..Default::default()
+    };
+    s.apply_external_organization_snapshot(id, "owner-key", 1, "Organización remota", &profile)
+        .unwrap();
+    let o = s.organization(id).unwrap();
+    assert_eq!(o.ownership, "external");
+    assert!(!o.is_default);
+    assert!(s.save_organization(id, 1, "Editada", &profile).is_err());
+    assert!(s.set_default_organization(id).is_err());
+    assert!(s
+        .save_project_for_organization(
+            &Project {
+                id: Uuid::new_v4(),
+                ..p.clone()
+            },
+            id
+        )
+        .is_err());
+    assert!(s
+        .apply_external_organization_snapshot(id, "another-key", 2, "Intrusa", &profile)
+        .is_err());
+    assert!(s
+        .apply_external_organization_snapshot(id, "owner-key", 1, "Vieja", &profile)
+        .is_err());
+    s.apply_external_organization_snapshot(
+        id,
+        "owner-key",
+        2,
+        "Actualizada por propietario",
+        &profile,
+    )
+    .unwrap();
+    assert_eq!(s.organization(id).unwrap().revision, 2);
+    let own = s.default_organization().unwrap();
+    assert!(s
+        .apply_external_organization_snapshot(own.id, "owner-key", 9, "Colisión", &profile)
+        .is_err());
+}
+#[test]
+fn schema_nineteen_migration_keeps_legacy_logo_and_project_owner_after_reopening() {
+    use crate::printing::PrintProfile;
+    let (s, p, _, _) = fixture();
+    let path =
+        std::env::temp_dir().join(format!("cpobras-org-migration-{}.sqlite", Uuid::new_v4()));
+    let profile = PrintProfile {
+        company_name: "Emisor anterior".into(),
+        logo_png: vec![1, 2, 3, 4],
+        ..Default::default()
+    };
+    s.conn
+        .execute(
+            "INSERT INTO print_profiles(id,revision,profile_json) VALUES ('default',3,?1)",
+            [serde_json::to_string(&profile).unwrap()],
+        )
+        .unwrap();
+    s.conn.execute_batch("DROP TRIGGER new_project_organization; DROP TRIGGER external_company_readonly_update; DROP TRIGGER external_company_readonly_delete; DROP TABLE project_organizations; DROP TABLE organization_preferences; DROP TABLE organizations; DELETE FROM schema_migrations WHERE version=20;").unwrap();
+    s.conn
+        .backup(rusqlite::DatabaseName::Main, &path, None)
+        .unwrap();
+    drop(s);
+    let mut migrated = LocalStore::open(&path).unwrap();
+    let owner = migrated.project_organization(p.id).unwrap();
+    assert_eq!(owner.profile, profile);
+    let other = migrated.create_organization("Nueva propia").unwrap();
+    migrated.set_default_organization(other.id).unwrap();
+    drop(migrated);
+    let reopened = LocalStore::open(&path).unwrap();
+    assert_eq!(reopened.project_organization(p.id).unwrap().id, owner.id);
+    assert_eq!(reopened.organization(owner.id).unwrap().profile, profile);
+    drop(reopened);
+    std::fs::remove_file(path).unwrap();
 }

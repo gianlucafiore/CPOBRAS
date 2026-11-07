@@ -113,6 +113,20 @@ impl LocalStore {
             return Err(invalid("Datos de ficha inválidos"));
         }
         let existing = self.management_record(record.id)?;
+        for company in [
+            Some(record.id),
+            record.company_id,
+            existing.as_ref().and_then(|r| r.company_id),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            let external:bool=self.conn.query_row("SELECT EXISTS(SELECT 1 FROM organizations WHERE company_id=?1 AND ownership='external')",[company.to_string()],|r|r.get(0))?;
+            if external {
+                return Err(invalid("La organización externa es de solo lectura"));
+            }
+        }
+
         if let Some(old) = &existing {
             if old.kind != record.kind || old.revision != record.revision {
                 return Err(invalid("La ficha cambió; recargá antes de guardar"));

@@ -1,14 +1,14 @@
-# Validación de desarrollo — 2026-11-06
+# Validación de desarrollo — 2026-11-07
 
 Las comprobaciones se ejecutan en la máquina de esta sesión, sobre Linux,
 con Node 24.22.1 y Rust 1.99.1. `tools/check.sh` reúne los checks reproducibles.
 
 | Comprobación | Evidencia |
 | --- | --- |
-| Rust, núcleo y almacenamiento | 84 tests: 22 de dominio y 62 de persistencia/regresión |
+| Rust, núcleo y almacenamiento | 87 tests: 22 de dominio y 65 de persistencia/regresión |
 | Escritorio Tauri | 4 tests nativos: IPC, GLib, rutas PDF y lector predeterminado en Linux |
 | JavaScript | 27 tests, con aislamiento de procesos desactivado explícitamente en el runner |
-| Chromium | 32 recorridos de interfaz sobre DOM real y un puente IPC de prueba |
+| Chromium | 34 recorridos de interfaz sobre DOM real y un puente IPC de prueba |
 | Formato Rust | Workspace y aplicación Tauri |
 | Frontend de producción | Vite build, incluyendo los módulos de Excel y PDF |
 | Ejecutable Linux | Compilación con `custom-protocol` y arranque WebKitGTK en Xvfb |
@@ -20,6 +20,21 @@ integración nativa: el recorrido IPC usa Tauri con su configuración real y
 comprueba clientes, obras, ACU, presupuesto emitido, directorios, listas de
 precios, ACU anidados, importación, cronograma, línea base, copia/restauración,
 exportación, depósitos, documentos operativos, reportes de gestión y rechazo de ventanas/orígenes sin permisos.
+
+## Organizaciones y propietario de la obra
+
+- Varias propias, predeterminada solo para obras nuevas, selección explícita al
+  crear y conservación del propietario y emisor de las obras existentes.
+- Cambio de asociación con presupuestos rechazado con rollback de los datos de
+  obra. La impresión consulta el perfil de su propietario, no la predeterminada.
+- Externas de solo lectura: rechazo de edición, predeterminada y creación local
+  de obras bajo esa identidad; control de procedencia y revisión de snapshots.
+- Migración desde esquema 19 conserva perfil, bytes del logo y asociación al
+  reabrir después de cambiar la predeterminada.
+- IPC nativo y Chromium cubren organizaciones, formularios unificados,
+  directorios, selección predeterminada y consulta de una ficha externa.
+
+Guía: [ORGANIZATIONS.md](ORGANIZATIONS.md). La sincronización P2P no está implementada.
 
 ## Presentaciones e impresión
 
@@ -36,7 +51,7 @@ exportación, depósitos, documentos operativos, reportes de gestión y rechazo 
 - Chromium cubre carga de PNG, guardado, vista pública, cambio de presentación
   conservando condiciones, Excel y recuperación cuando falta asociación PDF.
 
-Guía: [PRINTING.md](PRINTING.md). Esquema SQLite actual: 19.
+Guía: [PRINTING.md](PRINTING.md). Esquema SQLite actual: 20.
 
 ## Navegación y contexto de obra
 

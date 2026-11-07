@@ -43,7 +43,7 @@ prueba, el circuito de documentos y las reglas de cálculo están en
 ## Inicio y obra activa
 
 **Inicio / Obras** concentra clientes, catálogos de insumos y ACU, listas de
-precios, organización general, cartera global y copias de seguridad. Al abrir
+precios, organizaciones y sus directorios, cartera global y copias de seguridad. Al abrir
 una obra, el menú cambia a sus secciones: presupuesto, determinación de precio, gestión,
 planificación y datos de obra. Todas conservan la misma obra; para abrir otra,
 volvé a **← Inicio**.
@@ -75,9 +75,18 @@ detallar gastos por grupos e ítems. Permite montos manuales, referencias,
 plantillas y exportación. Usá **Guardar determinación** para persistir la vista
 previa. Guía de cálculo y prueba: [docs/PRICE_DETERMINATION.md](docs/PRICE_DETERMINATION.md).
 
+## Organizaciones y predeterminada
+
+**Inicio → Organizaciones** concentra los datos generales, logotipo, datos de
+impresión y directorios. Permite varias organizaciones propias y distingue
+externas de solo lectura. Elegí **Usar como predeterminada** para preseleccionarla
+al crear obras nuevas: las existentes conservan su organización y su emisor.
+Cada obra nueva permite elegir explícitamente una organización propia.
+Guía: [docs/ORGANIZATIONS.md](docs/ORGANIZATIONS.md).
+
 ## Presupuesto para cliente, interno e incidencias
 
-Configurá el emisor y su logotipo en **Inicio → Datos de impresión**. Dentro de
+Configurá el emisor y su logotipo en **Inicio → Organizaciones**. Dentro de
 la obra, **Imprimir presupuesto** permite generar la presentación para cliente,
 la interna con costos y determinación de precio, o la planilla de incidencias
 sobre el total final. Se exportan a PDF y Excel.
@@ -216,7 +225,7 @@ presenta una ventana en el escritorio del usuario.
 ## Prueba rápida de los avances
 
 1. En **Clientes**, creá un comitente; luego creá una obra con su moneda base.
-2. Desde **Inicio → Organización**, registrá empresas, establecimientos, usuarios/roles,
+2. Desde **Inicio → Organizaciones → Directorios**, registrá empresas, establecimientos, usuarios/roles,
    proveedores, contactos, unidades y rubros. Abrí la obra y usá **Datos de obra**
    para sus contratos, centros de costos y ficha. Esta última permite cargar ubicación, responsable, fechas y porcentajes
    económicos predeterminados para los presupuestos nuevos.

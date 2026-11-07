@@ -2,13 +2,15 @@
 
 ## Identidad pública
 
-Desde **Inicio → Datos de impresión**, cargá razón social, nombre comercial,
+Desde **Inicio → Organizaciones → Abrir**, cargá razón social, nombre comercial,
 nombre del profesional, título/matrícula, CUIT, domicilio, teléfono, correo,
 sitio web y leyenda pública. Solo se imprimen los campos completos de esta
 ficha. Los datos de usuarios, proveedores y demás fichas internas de
-Organización no se incorporan automáticamente.
+los directorios no se incorporan automáticamente.
 
-El perfil es común a las obras del equipo. Incluye un logotipo PNG o JPEG
+Cada organización tiene su propio perfil. La obra conserva su organización y
+usa sus datos al imprimir, aunque cambie la predeterminada para obras nuevas.
+Incluye un logotipo PNG o JPEG
 (hasta 3 MB al cargar); se adapta a un máximo de 640 px y se guarda como PNG de
 hasta 512 KB, conservando las proporciones. Podés quitarlo sin borrar los datos.
 El perfil y el logotipo quedan incluidos en las copias de seguridad de la base.
@@ -84,7 +86,8 @@ interna; usá la presentación para cliente para preparar su presupuesto.
 Los archivos ya generados no cambian al editar el presupuesto o la ficha
 pública. Al volver a generar, se consultan los valores actuales de la versión
 seleccionada y el perfil público vigente; no se sobrescriben archivos anteriores.
-La migración SQLite 19 agrega el perfil sin modificar las obras existentes.
+La migración SQLite 19 agregó el perfil; la 20 lo conserva dentro de una
+organización y vincula cada obra con su emisor. Ver [ORGANIZATIONS.md](ORGANIZATIONS.md).
 
 ## Prueba sugerida
 

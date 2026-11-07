@@ -1,7 +1,6 @@
 //! Public print identity and consistent, exact snapshots for client/internal reports.
 use crate::{budget_tools::BudgetDocument, estimates::Estimate, LocalStore, Result, StorageError};
 use cpobras_core::{price_determination::PriceResult, Client, Project};
-use rusqlite::{params, OptionalExtension};
 use rust_decimal::{Decimal as D, RoundingStrategy};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -99,24 +98,7 @@ impl PrintProfile {
 }
 impl LocalStore {
     pub fn get_print_profile(&self) -> Result<SavedPrintProfile> {
-        let row: Option<(u32, String)> = self
-            .conn
-            .query_row(
-                "SELECT revision,profile_json FROM print_profiles WHERE id='default'",
-                [],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .optional()?;
-        match row {
-            Some((revision, json)) => Ok(SavedPrintProfile {
-                revision,
-                profile: serde_json::from_str(&json)?,
-            }),
-            None => Ok(SavedPrintProfile {
-                revision: 0,
-                profile: PrintProfile::default(),
-            }),
-        }
+        self.organization_print_profile()
     }
     pub fn save_print_profile(
         &mut self,
@@ -124,27 +106,16 @@ impl LocalStore {
         profile: &PrintProfile,
     ) -> Result<SavedPrintProfile> {
         profile.validate()?;
-        let tx = self
-            .conn
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        let current: u32 = tx.query_row(
-            "SELECT COALESCE((SELECT revision FROM print_profiles WHERE id='default'),0)",
-            [],
-            |r| r.get(0),
-        )?;
-        if current != revision {
-            return Err(invalid(
-                "Los datos de impresión cambiaron. Recargá antes de guardar",
-            ));
-        }
-        let revision = revision
-            .checked_add(1)
-            .ok_or_else(|| invalid("Revisión fuera de rango"))?;
-        tx.execute("INSERT INTO print_profiles(id,revision,profile_json) VALUES ('default',?1,?2) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,profile_json=excluded.profile_json",params![revision,serde_json::to_string(profile)?])?;
-        tx.commit()?;
+        let o = self.default_organization()?;
+        let name = if !profile.company_name.trim().is_empty() {
+            &profile.company_name
+        } else {
+            &profile.professional_name
+        };
+        let saved = self.save_organization(o.id, revision, name, profile)?;
         Ok(SavedPrintProfile {
-            revision,
-            profile: profile.clone(),
+            revision: saved.revision,
+            profile: saved.profile,
         })
     }
     pub fn budget_print_data(&self, id: Uuid) -> Result<BudgetPrintData> {
@@ -160,7 +131,7 @@ impl LocalStore {
             .ok_or_else(|| invalid("Cliente inexistente"))?;
         let document = self.export_budget(id)?;
         let calculation = crate::price_determination::calculate_price(&tx, id)?;
-        let profile = self.get_print_profile()?.profile;
+        let profile = self.project_organization(project.id)?.profile;
         let final_total = round(calculation.breakdown.total, 2);
         let direct = calculation.breakdown.direct;
         let mut lines = vec![];

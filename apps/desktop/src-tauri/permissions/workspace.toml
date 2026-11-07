@@ -2,6 +2,11 @@
 identifier = "workspace"
 description = "Local workspace operations, granted only to the main window."
 commands.allow = [
+  "list_organizations",
+  "get_organization",
+  "create_organization",
+  "save_organization",
+  "set_default_organization",
   "get_print_profile",
   "save_print_profile",
   "get_budget_print_data",

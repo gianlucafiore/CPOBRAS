@@ -255,6 +255,56 @@ fn ipc_creates_budget_and_preserves_issued_snapshot() {
     assert_eq!(printable["profile"]["company_name"], "Empresa pública IPC");
     assert!(printable["lines"].as_array().unwrap().len() > 0);
     assert!(call("open_export_pdf", json!({"path":"/etc/passwd"})).is_err());
+    let orgs = call("list_organizations", json!({})).unwrap();
+    let original_owner = orgs
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|o| o["is_default"] == true)
+        .unwrap()["id"]
+        .clone();
+    let org_b = call(
+        "create_organization",
+        json!({"name":"Otra organización IPC"}),
+    )
+    .unwrap();
+    call(
+        "set_default_organization",
+        json!({"organizationId":org_b["id"]}),
+    )
+    .unwrap();
+    let new_project = call(
+        "create_project",
+        json!({"projectName":"Obra nueva de B","clientId":client["id"],"currency":"ARS"}),
+    )
+    .unwrap();
+    assert_eq!(new_project["organization_id"], org_b["id"]);
+    let existing = call("list_projects", json!({})).unwrap();
+    assert_eq!(
+        existing
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["id"] == project["id"])
+            .unwrap()["organization_id"],
+        original_owner
+    );
+    assert_eq!(
+        call(
+            "get_budget_print_data",
+            json!({"estimateId":price_estimate["id"]})
+        )
+        .unwrap()["profile"]["company_name"],
+        "Empresa pública IPC"
+    );
+    let explicit=call("create_project",json!({"projectName":"Obra con selección explícita","clientId":client["id"],"currency":"ARS","organizationId":original_owner})).unwrap();
+    assert_eq!(explicit["organization_id"], original_owner);
+    assert!(call("update_project",json!({"projectId":project["id"],"projectName":"No cambiar propietario","clientId":client["id"],"currency":"ARS","organizationId":org_b["id"]})).is_err());
+    call(
+        "set_default_organization",
+        json!({"organizationId":original_owner}),
+    )
+    .unwrap();
     let backup = call("create_backup", json!({})).unwrap();
     let wh_id = uuid::Uuid::new_v4();
     call("create_warehouse",json!({"warehouse":{"id":wh_id,"project_id":project["id"],"name":"Depósito IPC","location":"A1"}})).unwrap();
@@ -293,7 +343,7 @@ fn ipc_creates_budget_and_preserves_issued_snapshot() {
             .as_array()
             .unwrap()
             .len(),
-        1
+        3
     );
     assert!(call("post_operation", json!({"operation":op})).is_err());
     call("verify_database", json!({})).unwrap();

@@ -75,7 +75,7 @@ export function createBudgetPrinting({
             )
             .join("")}`
         : ""
-    }<p class="small-muted">Los datos públicos y el logotipo se configuran desde Inicio → Datos de impresión. La impresión no modifica el presupuesto.</p></section></main>`;
+    }<p class="small-muted">Los datos públicos y el logotipo se configuran desde Inicio → Organizaciones → Datos de la organización. La impresión no modifica el presupuesto.</p></section></main>`;
   }
   async function act(button) {
     if (button.dataset.action === "open-budget-printing") {

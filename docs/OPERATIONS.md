@@ -5,7 +5,7 @@ fija en todas las pestañas. Usá la barra **Presupuesto activo** para elegir la
 versión (con confirmación) y la fecha de corte para el informe.
 Las cinco pestañas cubren compras y almacenes, producción, certificaciones,
 finanzas y tablero. Cada tipo de documento explica su uso en pantalla.
-Los proveedores y subcontratistas se cargan desde **Inicio → Organización**;
+Los proveedores y subcontratistas se cargan desde **Inicio → Organizaciones → Directorios**;
 los centros de costos y contratos de la obra, en **Datos de obra**. El historial
 de gestión reúne sus documentos y muestra el presupuesto de origen de cada uno.
 

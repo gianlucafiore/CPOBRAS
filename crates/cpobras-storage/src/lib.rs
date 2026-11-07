@@ -16,6 +16,7 @@ pub mod line_workflows;
 pub mod maintenance;
 pub mod management;
 pub mod operations;
+pub mod organizations;
 pub mod planning;
 pub mod price_determination;
 pub mod printing;
@@ -85,6 +86,7 @@ impl LocalStore {
             include_str!("../migrations/0017_estimate_resource_prices.sql"),
             include_str!("../migrations/0018_price_determination.sql"),
             include_str!("../migrations/0019_print_profile.sql"),
+            include_str!("../migrations/0020_organizations.sql"),
         ];
         let latest: i64 = conn.query_row(
             "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
@@ -114,6 +116,7 @@ impl LocalStore {
             tx.commit()?;
         }
         let store = Self { conn };
+        store.initialize_organizations()?;
         store.install_audit_triggers()?;
         store.reconcile_draft_prices()?;
         Ok(store)
@@ -186,11 +189,16 @@ impl LocalStore {
         Ok(row.map(|(name, cuit)| Client { id, name, cuit }))
     }
 
-    pub fn save_project(&mut self, project: &Project) -> Result<()> {
+    pub fn save_project(&self, project: &Project) -> Result<()> {
         if project.name.trim().is_empty() || project.name.len() > 500 {
             return Err(StorageError::InvalidValue("Nombre de obra inválido".into()));
         }
         if let Some(old) = self.get_project(project.id)? {
+            if self.project_organization(project.id)?.ownership != "own" {
+                return Err(StorageError::InvalidValue(
+                    "La obra externa es de solo lectura".into(),
+                ));
+            }
             if old.currency != project.currency
                 && !self.list_project_estimates(project.id)?.is_empty()
             {
@@ -462,7 +470,7 @@ mod tests {
 
     #[test]
     fn project_requires_existing_client() {
-        let mut db = LocalStore::in_memory().unwrap();
+        let db = LocalStore::in_memory().unwrap();
         let project = Project {
             id: Uuid::new_v4(),
             client_id: Uuid::new_v4(),

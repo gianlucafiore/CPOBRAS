@@ -1,6 +1,31 @@
 use crate::Db;
 use cpobras_core::{Currency, Project};
 use uuid::Uuid;
+#[derive(serde::Serialize)]
+pub(crate) struct ProjectView {
+    #[serde(flatten)]
+    project: Project,
+    organization_id: Uuid,
+    organization_name: String,
+    organization_locked: bool,
+    read_only: bool,
+}
+fn view(store: &cpobras_storage::LocalStore, project: Project) -> Result<ProjectView, String> {
+    let o = store
+        .project_organization(project.id)
+        .map_err(|e| e.to_string())?;
+    let locked = !store
+        .list_project_estimates(project.id)
+        .map_err(|e| e.to_string())?
+        .is_empty();
+    Ok(ProjectView {
+        project,
+        organization_id: o.id,
+        organization_name: o.name,
+        organization_locked: locked,
+        read_only: o.ownership != "own",
+    })
+}
 
 #[tauri::command]
 pub(crate) fn update_project(
@@ -9,7 +34,8 @@ pub(crate) fn update_project(
     project_name: String,
     client_id: String,
     currency: String,
-) -> Result<Project, String> {
+    organization_id: Option<Uuid>,
+) -> Result<ProjectView, String> {
     if project_name.trim().is_empty() {
         return Err("El nombre de la obra es obligatorio".into());
     }
@@ -30,16 +56,30 @@ pub(crate) fn update_project(
         name: project_name.trim().to_owned(),
         currency,
     };
-    store.save_project(&project).map_err(|e| e.to_string())?;
-    Ok(project)
+    let org = match organization_id {
+        Some(id) => id,
+        None => {
+            store
+                .project_organization(id)
+                .map_err(|e| e.to_string())?
+                .id
+        }
+    };
+    store
+        .save_project_for_organization(&project, org)
+        .map_err(|e| e.to_string())?;
+    view(&store, project)
 }
 
 #[tauri::command]
-pub(crate) fn list_projects(db: tauri::State<'_, Db>) -> Result<Vec<Project>, String> {
-    db.lock()
-        .map_err(|e| e.to_string())?
+pub(crate) fn list_projects(db: tauri::State<'_, Db>) -> Result<Vec<ProjectView>, String> {
+    let store = db.lock().map_err(|e| e.to_string())?;
+    store
         .list_projects()
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(|p| view(&store, p))
+        .collect()
 }
 
 #[tauri::command]
@@ -48,7 +88,8 @@ pub(crate) fn create_project(
     project_name: String,
     client_id: String,
     currency: String,
-) -> Result<Project, String> {
+    organization_id: Option<Uuid>,
+) -> Result<ProjectView, String> {
     if project_name.trim().is_empty() {
         return Err("El nombre de la obra es obligatorio".into());
     }
@@ -63,9 +104,13 @@ pub(crate) fn create_project(
         name: project_name.trim().to_owned(),
         currency,
     };
-    db.lock()
-        .map_err(|e| e.to_string())?
-        .save_project(&project)
+    let mut store = db.lock().map_err(|e| e.to_string())?;
+    let org = match organization_id {
+        Some(id) => id,
+        None => store.default_organization().map_err(|e| e.to_string())?.id,
+    };
+    store
+        .save_project_for_organization(&project, org)
         .map_err(|e| e.to_string())?;
-    Ok(project)
+    view(&store, project)
 }

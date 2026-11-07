@@ -49,7 +49,7 @@ export function createViews({
                 planning: "Planificación",
                 costing: "Costos y precios",
                 "budget-tools": "Herramientas de presupuesto",
-                "print-profile": "Datos públicos de impresión",
+                organizations: "Organizaciones",
                 "budget-printing": "Imprimir presupuesto",
                 projects: "Obras y presupuestos",
                 clients: "Directorio de clientes",
@@ -95,10 +95,10 @@ export function createViews({
               )
               .join(
                 "",
-              )}<button class="menu-item ${active === "costing" ? "active" : ""}" aria-current="${active === "costing" ? "page" : "false"}" data-action="open-costing">Costos y precios</button><button class="menu-item ${active === "portfolio" ? "active" : ""}" aria-current="${active === "portfolio" ? "page" : "false"}" data-action="open-portfolio">Cartera de obras</button><button class="menu-item ${active === "print-profile" ? "active" : ""}" aria-current="${active === "print-profile" ? "page" : "false"}" data-action="open-print-profile">Datos de impresión</button><button class="menu-item ${active === "management" ? "active" : ""}" aria-current="${active === "management" ? "page" : "false"}" data-action="open-management">Organización</button><button class="menu-item ${active === "backups" ? "active" : ""}" data-action="backups">Copias de seguridad</button>`
+              )}<button class="menu-item ${active === "costing" ? "active" : ""}" aria-current="${active === "costing" ? "page" : "false"}" data-action="open-costing">Costos y precios</button><button class="menu-item ${active === "portfolio" ? "active" : ""}" aria-current="${active === "portfolio" ? "page" : "false"}" data-action="open-portfolio">Cartera de obras</button><button class="menu-item ${active === "organizations" ? "active" : ""}" aria-current="${active === "organizations" ? "page" : "false"}" data-action="open-organizations">Organizaciones</button><button class="menu-item ${active === "backups" ? "active" : ""}" data-action="backups">Copias de seguridad</button>`
       }<span class="grow"></span><span class="kbd-hint">ESC cierra ventanas</span>
     </nav>
-    ${work ? `<div class="project-context" role="region" aria-label="Contexto de la obra"><strong>Obra: ${e(currentProject()?.name)}</strong><label>Presupuesto activo <select name="estimate-picker" aria-label="Presupuesto activo">${state.estimates.map((est) => `<option value="${e(est.id)}" ${est.id === state.estimateId ? "selected" : ""}>${e(est.title)} · ${est.issued ? "Emitido" : "Borrador"}</option>`).join("") || '<option value="">Sin presupuestos</option>'}</select></label><span>${state.view === "planning" ? "Cronograma de la obra · los vínculos indican su presupuesto de origen" : state.view === "operations" ? "Documentos de esta obra · informe del presupuesto activo" : "Datos de la obra abierta"}</span></div>` : ""}
+    ${work ? `<div class="project-context" role="region" aria-label="Contexto de la obra"><strong>Obra: ${e(currentProject()?.name)}</strong><span class="organization-context">${e(currentProject()?.organization_name || "")}${currentProject()?.read_only ? " · Externa · solo lectura" : ""}</span><label>Presupuesto activo <select name="estimate-picker" aria-label="Presupuesto activo">${state.estimates.map((est) => `<option value="${e(est.id)}" ${est.id === state.estimateId ? "selected" : ""}>${e(est.title)} · ${est.issued ? "Emitido" : "Borrador"}</option>`).join("") || '<option value="">Sin presupuestos</option>'}</select></label><span>${state.view === "planning" ? "Cronograma de la obra · los vínculos indican su presupuesto de origen" : state.view === "operations" ? "Documentos de esta obra · informe del presupuesto activo" : "Datos de la obra abierta"}</span></div>` : ""}
     <datalist id="unit-library">${state.units.map((unit) => `<option value="${e(unit.attributes.symbol || unit.code || unit.name)}">${e(unit.name)}</option>`).join("")}</datalist>
     ${helpBox(state.modal?.kind === "backups" ? "backups" : state.view === "management" && state.projectId ? "project-data" : state.view)}
     ${content}
@@ -331,11 +331,11 @@ export function createViews({
       title = "Obras";
       subtitle = "Accedé a tus presupuestos y sus análisis.";
       action = btn("＋ Nueva obra", "modal-project", "primary");
-      headers = ["OBRA", "CLIENTE", "MONEDA", ""];
+      headers = ["OBRA", "ORGANIZACIÓN", "CLIENTE", "MONEDA", ""];
       rows = state.projects
         .map(
           (p) =>
-            `<tr data-searchable="${e((p.name + " " + clientName(p.client_id)).toLowerCase())}"><td><strong>${e(p.name)}</strong></td><td>${e(clientName(p.client_id))}</td><td>${e(p.currency === "Usd" ? "USD" : "ARS")}</td><td class="actions-cell"><button class="btn tiny" data-action="edit-project" data-id="${e(p.id)}">Editar</button><button class="btn tiny primary" data-action="open-project" data-id="${e(p.id)}">Abrir ›</button></td></tr>`,
+            `<tr data-searchable="${e((p.name + " " + (p.organization_name || "") + " " + clientName(p.client_id)).toLowerCase())}"><td><strong>${e(p.name)}</strong></td><td>${e(p.organization_name || "—")}${p.read_only ? ' <span class="organization-badge external">Externa · solo lectura</span>' : ""}</td><td>${e(clientName(p.client_id))}</td><td>${e(p.currency === "Usd" ? "USD" : "ARS")}</td><td class="actions-cell"><button class="btn tiny" data-action="edit-project" data-id="${e(p.id)}" ${p.read_only ? "disabled" : ""}>Editar</button><button class="btn tiny primary" data-action="open-project" data-id="${e(p.id)}">Abrir ›</button></td></tr>`,
         )
         .join("");
     } else if (state.view === "clients") {

@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 
 async function bridge(page, options={}) {
  await page.addInitScript((fixture) => {
-  const project = { id: "10000000-0000-4000-8000-000000000001", name: "Obra de prueba", client_id: "client-1", currency: "Ars" };
+  const project = { id: "10000000-0000-4000-8000-000000000001", name: "Obra de prueba", client_id: "client-1", currency: "Ars", organization_id:"org-own",organization_name:"Mi organización",organization_locked:true,read_only:false };
   const line = { id: "10000000-0000-4000-8000-000000000002", description: "Hormigón", unit: "m³", quantity: "2", unit_cost: "100", total: "200", analysis_id: null };
   const lines=[line]; if(fixture.twoLines)lines.push({...line,id:"10000000-0000-4000-8000-000000000003",description:"Revoque"});
   const sections=fixture.twoLines?[{id:"10000000-0000-4000-8000-000000000004",code:"01",title:"Preliminares",parent_id:null,position:0}]:[];
@@ -18,6 +18,9 @@ async function bridge(page, options={}) {
   const sourceDocument={format_version:1,currency:'Ars',title:'Modelo de cómputo',rates:{},line_analyses:[],sections:[{id:'src-parent',parent_id:null,code:'01',title:'Estructura modelo',position:0},{id:'src-child',parent_id:'src-parent',code:'01.01',title:'Terminaciones modelo',position:1},{id:'src-other',parent_id:null,code:'02',title:'Otros modelo',position:2},{id:'src-empty',parent_id:null,code:'03',title:'Rubro vacío',position:3}],lines:[{id:'src-a',description:'Columna modelo',unit:'m³',quantity:'2',unit_cost_snapshot:'10',analysis_id:null},{id:'src-b',description:'Muro modelo',unit:'m²',quantity:'6',unit_cost_snapshot:'20',analysis_id:null},{id:'src-c',description:'Pintura modelo',unit:'m²',quantity:'3',unit_cost_snapshot:'30',analysis_id:null}],assignments:[['src-a','src-parent'],['src-b','src-child'],['src-c','src-other']],formulas:[{line_id:'src-a',expression:'x',variables:{x:'2'}}],takeoffs:[{line_id:'src-b',factor:'2',length:'3',width:'1',height:'1',sign:1,position:0,note:'Pared'}]};
   function patternPart(source,selection){const d=structuredClone(source),sectionIds=new Set(selection.section_ids),lineIds=new Set(selection.line_ids);let previous=-1;while(previous!==sectionIds.size){previous=sectionIds.size;for(const r of d.sections)if(sectionIds.has(r.parent_id))sectionIds.add(r.id);}for(const[l,r]of d.assignments)if(sectionIds.has(r))lineIds.add(l);for(const[l,r]of d.assignments)if(lineIds.has(l))sectionIds.add(r);previous=-1;while(previous!==sectionIds.size){previous=sectionIds.size;for(const r of d.sections)if(sectionIds.has(r.id)&&r.parent_id)sectionIds.add(r.parent_id);}d.lines=d.lines.filter(l=>lineIds.has(l.id));d.sections=d.sections.filter(r=>sectionIds.has(r.id));d.assignments=d.assignments.filter(([l])=>lineIds.has(l));return d;}
   let publicPrint={revision:0,profile:{company_name:'',trade_name:'',professional_name:'',qualification:'',tax_id:'',address:'',phone:'',email:'',website:'',footer:'',logo_png:[]}};
+  const organizations=[{id:'org-own',name:'Mi organización',ownership:'own',owner_peer_id:null,company_id:null,revision:0,profile:structuredClone(publicPrint.profile),is_default:true}];
+  if(fixture.organizations)organizations.push({id:'org-other',name:'Otra propia',ownership:'own',company_id:'org-other',revision:1,profile:{...structuredClone(publicPrint.profile),company_name:'Emisor B'},is_default:false},{id:'org-external',name:'Organización recibida',ownership:'external',owner_peer_id:'remote-owner',company_id:null,revision:3,profile:{...structuredClone(publicPrint.profile),company_name:'Propietario remoto'},is_default:false});
+  const projectList=fixture.patterns||fixture.context?[project,sourceProject]:[project];
   const operations=[],warehouses=[];
   const operationReport=()=>({project_id:project.id,name:project.name,as_of:"2026-11-05",estimate_id:estimate.id,summaries:[{currency:"ARS",budget_cost:"200",budget_sale:"200",committed:"0",accrued:"0",paid:"0",collected:"0",payable:"0",receivable:"0",overdue_payable:"0",overdue_receivable:"0",cash:"0",cost_to_finish:"200",expected_result:"0",physical_percent:"0",certified:"0"}],cash_flow:[],production:[],costs:[],quotes:[],needs:[],alerts:[],scheduled_finish:null,planned_percent:null});
   const records = fixture.context?[{id:'center-one',kind:'cost_center',name:'Centro obra de prueba',project_id:project.id,attributes:{},revision:1},{id:'center-two',kind:'cost_center',name:'Centro obra modelo',project_id:sourceProject.id,attributes:{},revision:1}]:[]; const nested = []; const calls = []; let plan = null;
@@ -25,12 +28,18 @@ async function bridge(page, options={}) {
   const schedule = current => ({ tasks: current.tasks.map((task, index) => ({ id: task.id, start: "2026-11-05", finish: "2026-11-09", start_day: index, finish_day: index + task.duration_days, float_days: 0, critical: true })), duration_days: current.tasks.reduce((n, task) => n + task.duration_days, 0), finish: "2026-11-09", curve: [{ date: "2026-11-05", period_cost: "100", cumulative_cost: "100" }], budget: "100", planned_progress: "50", actual_progress: current.tasks[0]?.actual_progress || "0", warnings: [] });
   window.__TAURI_INTERNALS__ = { invoke: async (command, args = {}) => {
    calls.push({ command, args: structuredClone(args) });
+   if(command==='list_organizations')return structuredClone(organizations);
+   if(command==='get_organization')return structuredClone(organizations.find(o=>o.id===args.organizationId));
+   if(command==='set_default_organization'){const selected=organizations.find(o=>o.id===args.organizationId);if(selected.ownership!=='own')throw new Error('Solo propia');for(const o of organizations)o.is_default=o.id===args.organizationId;return null;}
+   if(command==='create_organization'){const o={id:crypto.randomUUID(),name:args.name,ownership:'own',company_id:null,revision:1,profile:{...structuredClone(publicPrint.profile),company_name:args.name},is_default:false};o.company_id=o.id;organizations.push(o);records.push({id:o.id,kind:'company',name:args.name,attributes:{},revision:1});return structuredClone(o);}
+   if(command==='save_organization'){const o=organizations.find(o=>o.id===args.organizationId);if(o.ownership!=='own')throw new Error('Solo lectura');if(o.revision!==args.revision)throw new Error('Recargá');Object.assign(o,{name:args.name,profile:structuredClone(args.profile),company_id:o.company_id||o.id,revision:o.revision+1});if(!records.some(r=>r.id===o.company_id))records.push({id:o.company_id,kind:'company',name:o.name,attributes:{},revision:1});return structuredClone(o);}
+   if(command==='create_project'){const o=organizations.find(o=>o.id===(args.organizationId||organizations.find(x=>x.is_default).id));const p={id:crypto.randomUUID(),name:args.projectName,client_id:args.clientId,currency:'Ars',organization_id:o.id,organization_name:o.name,organization_locked:false,read_only:false};projectList.push(p);return p;}
    if(command==='get_print_profile')return structuredClone(publicPrint);
    if(command==='save_print_profile'){if(args.revision!==publicPrint.revision)throw new Error('Recargá');publicPrint={revision:publicPrint.revision+1,profile:structuredClone(args.profile)};return structuredClone(publicPrint);}
    if(command==='open_export_pdf'){if(fixture.readerFails)throw new Error('No hay lector PDF asociado');return null;}
-   if(command==='get_budget_print_data'){const calculation=calculatePrice(priceDefinition),direct=Number(totals.direct),total=Number(calculation.breakdown.total);let cumulative=0,allocated=0,pct=0;const printLines=lines.map(l=>{const cost=Number(l.total);cumulative+=cost;const next=direct?Math.round(cumulative/direct*total*100)/100:0,sale=next-allocated;allocated=next;const nextPct=total?Math.round(next/total*1000000)/10000:0,incidence=nextPct-pct;pct=nextPct;return{id:l.id,direct_total:l.total,sale_total:String(sale),sale_unit:String(Number(l.quantity)?sale/Number(l.quantity):0),incidence_percent:String(incidence),cumulative_percent:String(nextPct)};});return {document:{title:estimate.title,currency:'Ars',lines:lines.map(l=>({...l,unit_cost_snapshot:l.unit_cost})),sections,assignments:assignments.map(a=>[a.line_id,a.section_id])},estimate,project,client:{id:'client-1',name:'Comitente',cuit:null},profile:structuredClone(publicPrint.profile),calculation,lines:printLines,final_total:String(total),unallocated_total:direct?'0':String(total)};}
+   if(command==='get_budget_print_data'){const calculation=calculatePrice(priceDefinition),direct=Number(totals.direct),total=Number(calculation.breakdown.total);let cumulative=0,allocated=0,pct=0;const printLines=lines.map(l=>{const cost=Number(l.total);cumulative+=cost;const next=direct?Math.round(cumulative/direct*total*100)/100:0,sale=next-allocated;allocated=next;const nextPct=total?Math.round(next/total*1000000)/10000:0,incidence=nextPct-pct;pct=nextPct;return{id:l.id,direct_total:l.total,sale_total:String(sale),sale_unit:String(Number(l.quantity)?sale/Number(l.quantity):0),incidence_percent:String(incidence),cumulative_percent:String(nextPct)};});return {document:{title:estimate.title,currency:'Ars',lines:lines.map(l=>({...l,unit_cost_snapshot:l.unit_cost})),sections,assignments:assignments.map(a=>[a.line_id,a.section_id])},estimate,project,client:{id:'client-1',name:'Comitente',cuit:null},profile:structuredClone(organizations.find(o=>o.id===project.organization_id).profile),calculation,lines:printLines,final_total:String(total),unallocated_total:direct?'0':String(total)};}
    if (command === "list_clients") return [{ id: "client-1", name: "Comitente", cuit: null }];
-   if (command === "list_projects") return fixture.patterns||fixture.context?[project,sourceProject]:[project];
+   if (command === "list_projects") return projectList;
    if (command === "list_resources") return resources;
    if(command==='create_resource'){const r={id:'resource-'+(resources.length+1),...args};resources.push(r);return r;}
    if(command==='list_operations')return operations;
@@ -95,23 +104,11 @@ async function bridge(page, options={}) {
  await expect(page.getByText("Obra de prueba", { exact: true }).first()).toBeVisible();
 }
 
-test("directories create and edit company and related establishment", async ({ page }) => {
- await bridge(page); await page.getByRole("button", { name: "Organización", exact: true }).click();
- await page.getByRole("button", { name: "Nuevo registro", exact: true }).click();
- await page.getByLabel("Nombre", { exact: true }).fill("Constructora Sur");
- await page.getByLabel("Código", { exact: true }).fill("SUR");
- await page.getByRole("button", { name: "Guardar ficha", exact: true }).click();
- await expect(page.getByRole("cell", { name: "Constructora Sur", exact: true })).toBeVisible();
- await page.getByRole("combobox", { name: "Directorio", exact: true }).selectOption("establishment");
- await page.getByRole("button", { name: "Nuevo registro", exact: true }).click();
- await page.getByLabel("Nombre", { exact: true }).fill("Sede Buenos Aires");
- await page.getByRole("combobox", { name: "Empresa", exact: true }).selectOption({ label: "Constructora Sur" });
- await page.getByLabel("Domicilio", { exact: true }).fill("Av. Central 123");
- await page.getByRole("button", { name: "Guardar ficha", exact: true }).click();
- await expect(page.getByRole("cell", { name: "Sede Buenos Aires", exact: true })).toBeVisible();
- const calls = await page.evaluate(() => window.__calls.filter(call => call.command === "save_management_record"));
- expect(calls[1].args.record.company_id).toBe(calls[0].args.record.id);
- expect(calls[1].args.record.attributes.address).toBe("Av. Central 123");
+test("organizations unify company identity and related establishment directories", async ({ page }) => {
+ await bridge(page);await page.getByRole('button',{name:'Organizaciones',exact:true}).click();await page.getByRole('row').filter({hasText:'Mi organización'}).getByRole('button',{name:'Abrir',exact:true}).click();
+ await page.getByLabel('Nombre de la organización',{exact:true}).fill('Constructora Sur');await page.getByLabel('Razón social / empresa',{exact:true}).fill('Constructora Sur');await page.getByRole('button',{name:'Guardar organización',exact:true}).click();
+ await page.getByRole('button',{name:'Directorios de la organización',exact:true}).click();await page.getByRole('button',{name:'Nuevo registro',exact:true}).click();await page.getByLabel('Nombre',{exact:true}).fill('Sede Buenos Aires');await page.getByLabel('Domicilio',{exact:true}).fill('Av. Central 123');await page.getByRole('button',{name:'Guardar ficha',exact:true}).click();await expect(page.getByRole('cell',{name:'Sede Buenos Aires',exact:true})).toBeVisible();
+ const saved=await page.evaluate(()=>window.__calls.filter(c=>c.command==='save_management_record').at(-1).args.record);expect(saved.company_id).toBe('org-own');expect(saved.attributes.address).toBe('Av. Central 123');
 });
 
 test("planner saves a task, progress and resource assignment and renders Gantt", async ({ page }) => {
@@ -165,7 +162,7 @@ test("budget tools submit an atomic bulk edit and generate a PDF", async ({ page
 
 test("navigation marks the active section and every section explains its purpose",async({page})=>{
  await bridge(page);
- for(const [label,help]of [["Costos y precios","Costos y precios"],["Organización","Organización y directorios"],["Clientes","Clientes"],["Insumos","Catálogo de insumos"],["ACU","Biblioteca de ACU"]]){
+ for(const [label,help]of [["Costos y precios","Costos y precios"],["Organizaciones","Organizaciones"],["Clientes","Clientes"],["Insumos","Catálogo de insumos"],["ACU","Biblioteca de ACU"]]){
   const tab=page.getByRole('button',{name:label,exact:true}).first();await tab.click();await expect(tab).toHaveAttribute('aria-current','page');await expect(page.getByRole('complementary',{name:'Ayuda: '+help,exact:true})).toBeVisible();
  }
 });
@@ -380,9 +377,9 @@ test('global portfolio remains available from home and is separate from an open 
 });
 
 test('public print identity and logo persist independently and appear in client printing',async({page})=>{
- await bridge(page);await page.getByRole('button',{name:'Datos de impresión',exact:true}).click();await page.getByLabel('Razón social / empresa',{exact:true}).fill('Constructora Sur');await page.getByLabel('Nombre del profesional',{exact:true}).fill('Profesional público');await page.getByLabel('CUIT / identificación fiscal',{exact:true}).fill('30-123');await page.getByLabel('Correo público',{exact:true}).fill('publico@example.test');
- await page.locator('[name=print-logo]').setInputFiles({name:'logo.png',mimeType:'image/png',buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP43qH1HwAGzAKpX36DZQAAAABJRU5ErkJggg==','base64')});await expect(page.getByRole('img',{name:'Logotipo público',exact:true})).toBeVisible();await page.getByRole('button',{name:'Guardar datos de impresión',exact:true}).click();
- const saved=await page.evaluate(()=>window.__calls.filter(c=>c.command==='save_print_profile').at(-1).args);expect(saved.profile.logo_png.length).toBeGreaterThan(30);expect(saved.profile.company_name).toBe('Constructora Sur');
+ await bridge(page);await page.getByRole('button',{name:'Organizaciones',exact:true}).click();await page.getByRole('row').filter({hasText:'Mi organización'}).getByRole('button',{name:'Abrir',exact:true}).click();await page.getByLabel('Razón social / empresa',{exact:true}).fill('Constructora Sur');await page.getByLabel('Nombre del profesional',{exact:true}).fill('Profesional público');await page.getByLabel('CUIT / identificación fiscal',{exact:true}).fill('30-123');await page.getByLabel('Correo público',{exact:true}).fill('publico@example.test');
+ await page.locator('[name=print-logo]').setInputFiles({name:'logo.png',mimeType:'image/png',buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP43qH1HwAGzAKpX36DZQAAAABJRU5ErkJggg==','base64')});await expect(page.getByRole('img',{name:'Logotipo público',exact:true})).toBeVisible();await page.getByRole('button',{name:'Guardar organización',exact:true}).click();
+ const saved=await page.evaluate(()=>window.__calls.filter(c=>c.command==='save_organization').at(-1).args);expect(saved.profile.logo_png.length).toBeGreaterThan(30);expect(saved.profile.company_name).toBe('Constructora Sur');
  await page.getByRole('button',{name:'Inicio / Obras',exact:true}).click();await page.getByRole('button',{name:'Abrir ›',exact:true}).click();await page.getByRole('button',{name:'Imprimir presupuesto',exact:true}).click();await expect(page.locator('.print-preview-heading')).toContainText('Constructora Sur');await expect(page.getByRole('img',{name:'Logotipo del emisor',exact:true})).toBeVisible();await expect(page.getByRole('columnheader',{name:'Costo directo',exact:true})).toHaveCount(0);
  await page.getByRole('textbox',{name:'Condiciones y observaciones públicas',exact:true}).fill('Validez: 15 días');await page.getByRole('button',{name:'Generar documento',exact:true}).click();await expect(page.locator('.print-export-result')).toContainText('presupuesto.pdf');expect(await page.evaluate(()=>window.__calls.filter(c=>c.command==='open_export_pdf').at(-1).args.path)).toContain('.pdf');
 });
@@ -394,4 +391,18 @@ test('internal and incidence printing preserve entered conditions and can export
 
 test('reader failures keep the generated PDF available to reopen',async({page})=>{
  await bridge(page,{readerFails:true});await page.getByRole('button',{name:'Abrir ›',exact:true}).click();await page.getByRole('button',{name:'Imprimir presupuesto',exact:true}).click();await page.getByRole('button',{name:'Generar documento',exact:true}).click();await expect(page.locator('.print-export-result')).toContainText('No hay lector PDF asociado');await expect(page.getByRole('button',{name:'Abrir PDF',exact:true})).toBeVisible();await expect(page.locator('.print-export-result')).toContainText('.pdf');
+});
+
+test('organization default preselects only new projects and external identity is readonly',async({page})=>{
+ await bridge(page,{organizations:true});await page.getByRole('button',{name:'Organizaciones',exact:true}).click();await expect(page.getByRole('button',{name:'Datos de impresión',exact:true})).toHaveCount(0);await expect(page.getByRole('button',{name:'Organización',exact:true})).toHaveCount(0);
+ const external=page.getByRole('row').filter({hasText:'Organización recibida'});await expect(external).toContainText('Externa · solo lectura');await expect(external.getByRole('button',{name:'Usar como predeterminada',exact:true})).toBeDisabled();await external.getByRole('button',{name:'Consultar',exact:true}).click();await expect(page.getByLabel('Razón social / empresa',{exact:true})).toBeDisabled();await expect(page.getByRole('button',{name:'Guardar organización',exact:true})).toBeDisabled();
+ await page.getByRole('button',{name:'Volver a organizaciones',exact:true}).click();await page.getByRole('row').filter({hasText:'Otra propia'}).getByRole('button',{name:'Usar como predeterminada',exact:true}).click();await expect(page.getByRole('row').filter({hasText:'Otra propia'})).toContainText('✓ Para obras nuevas');
+ await page.getByRole('button',{name:'Inicio / Obras',exact:true}).click();await page.getByRole('row').filter({hasText:'Obra de prueba'}).getByRole('button',{name:'Editar',exact:true}).click();await expect(page.getByRole('combobox',{name:'Organización de la obra',exact:true})).toHaveValue('org-own');await page.getByRole('button',{name:'Cerrar',exact:true}).first().click();
+ await page.getByRole('button',{name:'＋ Nueva obra',exact:true}).click();await expect(page.getByRole('combobox',{name:'Organización de la obra',exact:true})).toHaveValue('org-other');await expect(page.getByRole('combobox',{name:'Organización de la obra',exact:true}).locator('option')).toHaveCount(2);await page.getByLabel('Nombre de la obra',{exact:true}).fill('Obra de otra organización');await page.getByRole('button',{name:'Guardar',exact:true}).click();expect(await page.evaluate(()=>window.__calls.filter(c=>c.command==='create_project').at(-1).args.organizationId)).toBe('org-other');await expect(page.getByRole('row').filter({hasText:'Obra de prueba'})).toContainText('Mi organización');
+});
+
+test('new own organizations can be edited and default changes do not replace the print owner',async({page})=>{
+ await bridge(page,{organizations:true});await page.getByRole('button',{name:'Organizaciones',exact:true}).click();await page.getByRole('button',{name:'Nueva organización',exact:true}).click();await page.getByLabel('Nombre de la organización',{exact:true}).fill('Empresa nueva');await page.getByRole('button',{name:'Crear organización',exact:true}).click();await expect(page.getByLabel('Razón social / empresa',{exact:true})).toHaveValue('Empresa nueva');await page.getByLabel('Correo público',{exact:true}).fill('nuevo@example.test');await page.getByRole('button',{name:'Guardar organización',exact:true}).click();
+ await page.getByRole('button',{name:'Volver a organizaciones',exact:true}).click();await page.getByRole('row').filter({hasText:'Otra propia'}).getByRole('button',{name:'Usar como predeterminada',exact:true}).click();await page.screenshot({path:'/workspace/cpobras-organizations.png'});
+ await page.getByRole('button',{name:'Inicio / Obras',exact:true}).click();await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.getByRole('button',{name:'Imprimir presupuesto',exact:true}).click();await expect(page.locator('.print-preview-heading')).not.toContainText('Emisor B');
 });

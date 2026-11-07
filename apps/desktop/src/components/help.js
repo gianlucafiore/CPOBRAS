@@ -1,8 +1,8 @@
 import { e } from "./helpers.js";
 const pages = {
-  "print-profile": [
-    "Datos públicos de impresión",
-    "Configurá la identidad de la empresa o profesional, el logotipo y los datos que querés publicar. Solo esta ficha se imprime automáticamente; los directorios internos se conservan por separado.",
+  organizations: [
+    "Organizaciones",
+    "Elegí una organización propia o consultá una externa de solo lectura. Sus datos públicos, logotipo y directorios están dentro de la misma ficha. La predeterminada se preselecciona solo al crear obras nuevas.",
   ],
   "budget-printing": [
     "Imprimir presupuesto",
@@ -26,7 +26,7 @@ const pages = {
   ],
   clients: [
     "Clientes",
-    "Registrá a quienes te contratan. Después podrás elegirlos al crear una obra; los contactos y datos ampliados están en Organización.",
+    "Registrá a quienes te contratan. Después podrás elegirlos al crear una obra; los contactos y datos ampliados están en Organizaciones → Directorios.",
   ],
   resources: [
     "Catálogo de insumos",

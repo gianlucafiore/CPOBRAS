@@ -1,3 +1,4 @@
+import { createOrganizations } from "./components/organizations.js";
 import { createPrintProfile } from "./components/print-profile.js";
 import { createBudgetPrinting } from "./components/budget-printing.js";
 import { createPriceDetermination } from "./components/price-determination.js";
@@ -57,6 +58,11 @@ export function createWorkspaceApp({
   const pricing = createPriceDetermination(context);
   const budgetTools = createBudgetTools(context);
   const printProfile = createPrintProfile(context);
+  const organizations = createOrganizations({
+    ...context,
+    profile: printProfile,
+    management,
+  });
   const printing = createBudgetPrinting(context);
   const { workspace, listViews, chrome, rightPanel } = createViews({
     ...context,
@@ -99,8 +105,8 @@ export function createWorkspaceApp({
     const top = document.querySelector(".table-scroll");
     const position = top?.scrollTop || 0;
     root.innerHTML =
-      state.view === "print-profile"
-        ? chrome(printProfile.markup())
+      state.view === "organizations"
+        ? chrome(organizations.markup())
         : state.view === "budget-printing"
           ? chrome(printing.markup())
           : state.view === "price-determination"
@@ -179,7 +185,7 @@ export function createWorkspaceApp({
     "open-costing": "costing",
     "open-price-determination": "price-determination",
     "open-budget-tools": "budget-tools",
-    "open-print-profile": "print-profile",
+    "open-organizations": "organizations",
     "open-budget-printing": "budget-printing",
   };
   function protectContext() {
@@ -217,7 +223,7 @@ export function createWorkspaceApp({
         "open-costing",
         "open-project",
         "open-portfolio",
-        "open-print-profile",
+        "open-organizations",
       ].includes(action)
     )
       throw new Error(
@@ -237,6 +243,7 @@ export function createWorkspaceApp({
       throw new Error("Abrí una obra desde Inicio");
     if (!protectContext()) return true;
     state.message = "";
+    if (destination !== "organizations") state.organizationId = null;
     state.navigating = true;
     root.inert = true;
     render();
@@ -273,7 +280,7 @@ export function createWorkspaceApp({
         await costing.act(button);
       } else if (action === "open-price-determination")
         await pricing.act(button);
-      else if (action === "open-print-profile") await printProfile.act(button);
+      else if (action === "open-organizations") await organizations.act(button);
       else if (action === "open-budget-printing") await printing.act(button);
       else if (action === "open-budget-tools") await budgetTools.act(button);
       else await act(button);
@@ -401,6 +408,10 @@ export function createWorkspaceApp({
     }
     try {
       if (await route(button)) return;
+      if (button.dataset.action.startsWith("organization-")) {
+        await organizations.act(button);
+        return;
+      }
       if (button.dataset.action.startsWith("print-profile-")) {
         await printProfile.act(button);
         return;
@@ -465,6 +476,7 @@ export function createWorkspaceApp({
   });
   document.addEventListener("submit", async (evt) => {
     const groups = [
+      [organizations, ["organization-create-form"]],
       [printProfile, ["print-profile-form"]],
       [printing, ["budget-print-form"]],
       [
@@ -535,6 +547,7 @@ export function createWorkspaceApp({
       else await handleSubmit(form);
       if (
         [
+          "organization-create-form",
           "print-profile-form",
           "budget-print-form",
           "management-form",
@@ -566,7 +579,7 @@ export function createWorkspaceApp({
   document.addEventListener("change", async (evt) => {
     if (
       evt.target.closest?.(
-        "#print-profile-form,#budget-print-form,#management-form,#planning-task-form,#planning-settings,#budget-bulk-form,#nested-analysis-form,#price-list-form,#scoped-price-form",
+        "#organization-create-form,#print-profile-form,#budget-print-form,#management-form,#planning-task-form,#planning-settings,#budget-bulk-form,#nested-analysis-form,#price-list-form,#scoped-price-form",
       )
     )
       state.pageDirty = true;
@@ -625,7 +638,7 @@ export function createWorkspaceApp({
   document.addEventListener("input", (evt) => {
     if (
       evt.target.closest?.(
-        "#print-profile-form,#budget-print-form,#management-form,#planning-task-form,#planning-settings,#budget-bulk-form,#nested-analysis-form,#price-list-form,#scoped-price-form",
+        "#organization-create-form,#print-profile-form,#budget-print-form,#management-form,#planning-task-form,#planning-settings,#budget-bulk-form,#nested-analysis-form,#price-list-form,#scoped-price-form",
       )
     )
       state.pageDirty = true;
