@@ -17,6 +17,7 @@ pub mod maintenance;
 pub mod management;
 pub mod operations;
 pub mod organizations;
+pub mod persons;
 pub mod planning;
 pub mod price_determination;
 pub mod printing;
@@ -87,6 +88,7 @@ impl LocalStore {
             include_str!("../migrations/0018_price_determination.sql"),
             include_str!("../migrations/0019_print_profile.sql"),
             include_str!("../migrations/0020_organizations.sql"),
+            include_str!("../migrations/0021_persons.sql"),
         ];
         let latest: i64 = conn.query_row(
             "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
@@ -116,6 +118,7 @@ impl LocalStore {
             tx.commit()?;
         }
         let store = Self { conn };
+        store.initialize_persons()?;
         store.initialize_organizations()?;
         store.install_audit_triggers()?;
         store.reconcile_draft_prices()?;
@@ -161,20 +164,7 @@ impl LocalStore {
     }
 
     pub fn save_client(&mut self, client: &Client) -> Result<()> {
-        if client.name.trim().is_empty()
-            || client.name.len() > 500
-            || client.cuit.as_ref().is_some_and(|v| v.len() > 50)
-        {
-            return Err(StorageError::InvalidValue(
-                "Datos de cliente inválidos".into(),
-            ));
-        }
-        self.conn.execute(
-            "INSERT INTO clients(id, name, cuit) VALUES (?1, ?2, ?3)
-             ON CONFLICT(id) DO UPDATE SET name=excluded.name, cuit=excluded.cuit",
-            params![client.id.to_string(), client.name, client.cuit],
-        )?;
-        Ok(())
+        self.save_client_person(client)
     }
 
     pub fn get_client(&self, id: Uuid) -> Result<Option<Client>> {
@@ -190,6 +180,11 @@ impl LocalStore {
     }
 
     pub fn save_project(&self, project: &Project) -> Result<()> {
+        if self.get_client(project.client_id)?.is_none() {
+            return Err(StorageError::InvalidValue(
+                "Seleccioná una persona habilitada como cliente".into(),
+            ));
+        }
         if project.name.trim().is_empty() || project.name.len() > 500 {
             return Err(StorageError::InvalidValue("Nombre de obra inválido".into()));
         }

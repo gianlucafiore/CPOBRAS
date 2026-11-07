@@ -48,6 +48,7 @@ pub struct ChangeEvent {
 fn invalid(message: &str) -> StorageError {
     StorageError::InvalidValue(message.into())
 }
+const RECORD_SELECT:&str="SELECT m.id,m.kind,CASE WHEN m.kind IN ('supplier','client_profile') AND p.id IS NOT NULL THEN p.name ELSE m.name END,CASE WHEN m.kind IN ('supplier','client_profile') AND p.id IS NOT NULL THEN p.code ELSE m.code END,m.company_id,m.parent_id,m.project_id,m.client_id,CASE WHEN m.kind IN ('supplier','client_profile') AND p.id IS NOT NULL THEN json_set(m.attributes_json,'$.cuit',COALESCE(p.cuit,''),'$.email',p.email,'$.phone',p.phone,'$.address',p.address,'$.person_id',p.id,'$.person_primary',CASE WHEN m.id=(SELECT a.id FROM management_records a WHERE a.kind='supplier' AND a.person_id=p.id ORDER BY a.id LIMIT 1) THEN 'true' ELSE 'false' END) ELSE m.attributes_json END,m.revision FROM management_records m LEFT JOIN persons p ON p.id=m.person_id";
 fn row_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<ManagementRecord> {
     let decode = |index| -> rusqlite::Result<Option<Uuid>> {
         let value: Option<String> = row.get(index)?;
@@ -84,7 +85,14 @@ fn row_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<ManagementRecord> {
 }
 impl LocalStore {
     pub fn management_record(&self, id: Uuid) -> Result<Option<ManagementRecord>> {
-        Ok(self.conn.query_row("SELECT id,kind,name,code,company_id,parent_id,project_id,client_id,attributes_json,revision FROM management_records WHERE id=?1",[id.to_string()],row_record).optional()?)
+        Ok(self
+            .conn
+            .query_row(
+                &format!("{RECORD_SELECT} WHERE m.id=?1"),
+                [id.to_string()],
+                row_record,
+            )
+            .optional()?)
     }
     pub fn management_records(
         &self,
@@ -94,7 +102,7 @@ impl LocalStore {
         if !KINDS.contains(&kind) {
             return Err(invalid("Tipo de ficha desconocido"));
         }
-        Ok(self.conn.prepare("SELECT id,kind,name,code,company_id,parent_id,project_id,client_id,attributes_json,revision FROM management_records WHERE kind=?1 AND (?2 IS NULL OR project_id=?2) ORDER BY name,id")?.query_map(params![kind,project.map(|id|id.to_string())],row_record)?.collect::<std::result::Result<_,_>>()?)
+        Ok(self.conn.prepare(&format!("{RECORD_SELECT} WHERE m.kind=?1 AND (?2 IS NULL OR m.project_id=?2) ORDER BY 3,m.id"))?.query_map(params![kind,project.map(|id|id.to_string())],row_record)?.collect::<std::result::Result<_,_>>()?)
     }
     pub fn save_management_record(
         &mut self,
@@ -292,6 +300,9 @@ impl LocalStore {
                     return Err(invalid("Importe contractual negativo"));
                 }
             }
+        }
+        if ["supplier", "client_profile"].contains(&record.kind.as_str()) {
+            return self.save_supplier_person_record(record);
         }
         let mut saved = record.clone();
         saved.name = saved.name.trim().into();

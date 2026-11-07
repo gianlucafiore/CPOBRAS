@@ -75,6 +75,19 @@ detallar gastos por grupos e ítems. Permite montos manuales, referencias,
 plantillas y exportación. Usá **Guardar determinación** para persistir la vista
 previa. Guía de cálculo y prueba: [docs/PRICE_DETERMINATION.md](docs/PRICE_DETERMINATION.md).
 
+## Clientes y proveedores
+
+Se administran desde **Inicio → Clientes** e **Inicio → Proveedores**, en vistas
+separadas. Internamente comparten una persona: cliente, proveedor o ambos.
+**Importar desde…** incorpora el contacto existente a la otra función; al crear,
+se sugieren coincidencias por CUIT, nombre, correo y teléfono.
+
+Al crear o editar una obra, elegí el cliente y los proveedores vinculados.
+Los botones **Crear cliente/proveedor** e **Importar desde…** abren una ventana
+superpuesta, conservan el formulario de obra y seleccionan el contacto guardado.
+Los cambios de contacto de una persona con ambas funciones se reflejan en las
+dos vistas. Guía: [docs/PERSONS.md](docs/PERSONS.md).
+
 ## Organizaciones y predeterminada
 
 **Inicio → Organizaciones** concentra los datos generales, logotipo, datos de
@@ -224,9 +237,11 @@ presenta una ventana en el escritorio del usuario.
 
 ## Prueba rápida de los avances
 
-1. En **Clientes**, creá un comitente; luego creá una obra con su moneda base.
+1. En **Inicio → Clientes** y **Inicio → Proveedores**, cargá los contactos.
+   Podés incorporar una misma persona a ambas funciones. Al crear o editar una
+   obra, seleccioná su cliente y proveedores, o crealos desde esa ventana.
 2. Desde **Inicio → Organizaciones → Directorios**, registrá empresas, establecimientos, usuarios/roles,
-   proveedores, contactos, unidades y rubros. Abrí la obra y usá **Datos de obra**
+   contactos, unidades y rubros. Abrí la obra y usá **Datos de obra**
    para sus contratos, centros de costos y ficha. Esta última permite cargar ubicación, responsable, fechas y porcentajes
    económicos predeterminados para los presupuestos nuevos.
 3. En **Insumos** y **ACU**, cargá recursos y análisis. Abrí una obra, creá un

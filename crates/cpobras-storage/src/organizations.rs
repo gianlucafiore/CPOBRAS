@@ -200,6 +200,15 @@ impl LocalStore {
             &self.conn,
             rusqlite::TransactionBehavior::Immediate,
         )?;
+        self.save_project_organization_inner(project, organization)?;
+        tx.commit()?;
+        Ok(())
+    }
+    pub(crate) fn save_project_organization_inner(
+        &self,
+        project: &Project,
+        organization: Uuid,
+    ) -> Result<()> {
         if self.organization(organization)?.ownership != "own" {
             return Err(invalid(
                 "Las obras nuevas deben pertenecer a una organización propia",
@@ -212,15 +221,14 @@ impl LocalStore {
         }
         let owner = self.organization(organization)?;
         if owner.company_id.is_none() {
-            tx.execute("INSERT INTO management_records(id,kind,name,code,attributes_json,revision) VALUES (?1,'company',?2,'','{}',1)",params![owner.id.to_string(),owner.name])?;
-            tx.execute(
+            self.conn.execute("INSERT INTO management_records(id,kind,name,code,attributes_json,revision) VALUES (?1,'company',?2,'','{}',1)",params![owner.id.to_string(),owner.name])?;
+            self.conn.execute(
                 "UPDATE organizations SET company_id=id WHERE id=?1",
                 [owner.id.to_string()],
             )?;
         }
         self.save_project(project)?;
-        tx.execute("INSERT INTO project_organizations(project_id,organization_id) VALUES (?1,?2) ON CONFLICT(project_id) DO UPDATE SET organization_id=excluded.organization_id",params![project.id.to_string(),organization.to_string()])?;
-        tx.commit()?;
+        self.conn.execute("INSERT INTO project_organizations(project_id,organization_id) VALUES (?1,?2) ON CONFLICT(project_id) DO UPDATE SET organization_id=excluded.organization_id",params![project.id.to_string(),organization.to_string()])?;
         Ok(())
     }
     /// Storage boundary for a future authenticated sync transport; deliberately not exposed over IPC.

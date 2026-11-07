@@ -5,10 +5,10 @@ con Node 24.22.1 y Rust 1.99.1. `tools/check.sh` reúne los checks reproducibles
 
 | Comprobación | Evidencia |
 | --- | --- |
-| Rust, núcleo y almacenamiento | 87 tests: 22 de dominio y 65 de persistencia/regresión |
+| Rust, núcleo y almacenamiento | 91 tests: 22 de dominio y 69 de persistencia/regresión |
 | Escritorio Tauri | 4 tests nativos: IPC, GLib, rutas PDF y lector predeterminado en Linux |
 | JavaScript | 27 tests, con aislamiento de procesos desactivado explícitamente en el runner |
-| Chromium | 34 recorridos de interfaz sobre DOM real y un puente IPC de prueba |
+| Chromium | 38 recorridos de interfaz sobre DOM real y un puente IPC de prueba |
 | Formato Rust | Workspace y aplicación Tauri |
 | Frontend de producción | Vite build, incluyendo los módulos de Excel y PDF |
 | Ejecutable Linux | Compilación con `custom-protocol` y arranque WebKitGTK en Xvfb |
@@ -20,6 +20,21 @@ integración nativa: el recorrido IPC usa Tauri con su configuración real y
 comprueba clientes, obras, ACU, presupuesto emitido, directorios, listas de
 precios, ACU anidados, importación, cronograma, línea base, copia/restauración,
 exportación, depósitos, documentos operativos, reportes de gestión y rechazo de ventanas/orígenes sin permisos.
+
+## Personas, clientes y proveedores
+
+- Una identidad con tres funciones y revisión de concurrencia; separación de
+  vistas, incorporación sin duplicar y datos compartidos al editar.
+- CUIT normalizado único; sugerencias por identificación, nombre aproximado,
+  correo y teléfono, sin unir automáticamente por parecido.
+- Migración desde esquema 20, incluidos clientes duplicados por CUIT y fichas
+  ampliadas; conserva vínculos, identificadores históricos y documentos inmutables.
+- Cliente principal y varios proveedores por obra, guardados atómicamente;
+  rechazo de identidades con función incorrecta sin modificar la obra.
+- IPC nativo, copia/restauración y cuatro recorridos Chromium: separación,
+  coincidencias, alta/importación desde obra y edición sin perder el formulario.
+
+Guía: [PERSONS.md](PERSONS.md).
 
 ## Organizaciones y propietario de la obra
 
@@ -51,7 +66,7 @@ Guía: [ORGANIZATIONS.md](ORGANIZATIONS.md). La sincronización P2P no está imp
 - Chromium cubre carga de PNG, guardado, vista pública, cambio de presentación
   conservando condiciones, Excel y recuperación cuando falta asociación PDF.
 
-Guía: [PRINTING.md](PRINTING.md). Esquema SQLite actual: 20.
+Guía: [PRINTING.md](PRINTING.md). Esquema SQLite actual: 21.
 
 ## Navegación y contexto de obra
 

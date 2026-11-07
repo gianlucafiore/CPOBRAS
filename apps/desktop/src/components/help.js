@@ -22,11 +22,15 @@ const pages = {
   ],
   projects: [
     "Obras y presupuestos",
-    "Inicio reúne los datos base y las obras. Abrí una obra para trabajar con sus presupuestos. Antes necesitás registrar al comitente en Clientes.",
+    "Inicio reúne los datos base y las obras. Abrí una obra para trabajar con sus presupuestos. Elegí su cliente al crearla, o creá uno desde esa misma ventana. Clientes y Proveedores se administran desde Inicio.",
+  ],
+  suppliers: [
+    "Proveedores",
+    "Gestioná personas que suministran materiales o servicios. Importar desde Clientes agrega la función de proveedor al mismo contacto, conservando una única identidad. Las coincidencias ayudan a evitar duplicados.",
   ],
   clients: [
     "Clientes",
-    "Registrá a quienes te contratan. Después podrás elegirlos al crear una obra; los contactos y datos ampliados están en Organizaciones → Directorios.",
+    "Registrá a quienes te contratan. Podés incorporarlos desde Proveedores sin duplicar datos, o crearlos desde la obra si todavía no existen. Una persona puede cumplir ambas funciones.",
   ],
   resources: [
     "Catálogo de insumos",

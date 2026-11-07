@@ -60,7 +60,7 @@ export function createBudgetInteractions({invoke,state,editable,currentLine,load
    const row=event.target.closest?.('tr[data-action]');
    if(state.view==='resources'&&row?.dataset.id)items.push({action:'edit-resource',id:row.dataset.id,label:'Editar insumo'},{action:'modal-price',id:row.dataset.id,label:'Registrar precio'});
    if(state.view==='analyses'&&row?.dataset.id)items.push({action:'edit-analysis',id:row.dataset.id,label:'Editar ACU'});
-   const entry={projects:['modal-project','Nueva obra'],clients:['modal-client','Nuevo cliente'],resources:['modal-resource','Nuevo insumo'],analyses:['modal-analysis','Nuevo ACU'],workspace:['modal-line','Nueva partida'],management:['manage-new','Nuevo registro'],planning:['plan-new','Nueva tarea / hito'],costing:['cost-new-analysis','Nuevo ACU compuesto']}[state.view];
+   const entry={projects:['modal-project','Nueva obra'],clients:['person-new','Nuevo cliente'],suppliers:['person-new','Nuevo proveedor'],resources:['modal-resource','Nuevo insumo'],analyses:['modal-analysis','Nuevo ACU'],workspace:['modal-line','Nueva partida'],management:['manage-new','Nuevo registro'],planning:['plan-new','Nueva tarea / hito'],costing:['cost-new-analysis','Nuevo ACU compuesto']}[state.view];
    if(entry)items.push({action:entry[0],label:entry[1],disabled:state.view==='workspace'&&!editable()});
   }
   items.push(state.projectId?{action:'go-home',label:'Volver a Inicio'}:{action:'navigate',view:'projects',label:'Ir a Inicio'});

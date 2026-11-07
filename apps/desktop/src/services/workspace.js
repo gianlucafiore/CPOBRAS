@@ -9,6 +9,8 @@ export function createWorkspaceService({ invoke, state, currentLine, render }) {
       state.units,
       state.trades,
       state.organizations,
+      state.personClients,
+      state.personSuppliers,
     ] = await Promise.all([
       invoke("list_clients"),
       invoke("list_projects"),
@@ -17,6 +19,8 @@ export function createWorkspaceService({ invoke, state, currentLine, render }) {
       invoke("list_management_records", { kind: "unit", projectId: null }),
       invoke("list_management_records", { kind: "trade", projectId: null }),
       invoke("list_organizations"),
+      invoke("list_persons", { role: "client" }),
+      invoke("list_persons", { role: "supplier" }),
     ]);
   }
   async function loadEstimates() {

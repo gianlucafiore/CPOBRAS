@@ -2,6 +2,8 @@ export function createState() {
   return {
     view: "projects",
     organizations: [],
+    personClients: [],
+    personSuppliers: [],
     organizationId: null,
     projectId: null,
     estimateId: null,

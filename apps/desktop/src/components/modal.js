@@ -69,6 +69,7 @@ export function createModalRenderer({
           projectOptions,
           item.client_id,
         ) +
+        `<div class="project-person-actions"><button type="button" class="btn" data-action="person-project-new" data-role="client">＋ Crear cliente</button><button type="button" class="btn" data-action="person-project-import" data-role="client">Importar desde Proveedores</button></div><fieldset class="project-suppliers"><legend>Proveedores vinculados a la obra</legend><input name="project-supplier-search" placeholder="Buscar proveedor" autocomplete="off"><div class="project-supplier-options">${(state.personSuppliers || []).map((p) => `<label class="project-supplier-choice" data-supplier-search="${e((p.name + " " + (p.cuit || "")).toLowerCase())}"><input type="checkbox" name="supplierIds" value="${p.id}" ${item.supplier_ids?.includes(p.id) ? "checked" : ""}>${e(p.name)}${p.cuit ? " · " + e(p.cuit) : ""}</label>`).join("") || "<p>Sin proveedores vinculados todavía.</p>"}</div><div class="project-person-actions"><button type="button" class="btn" data-action="person-project-new" data-role="supplier">＋ Crear proveedor</button><button type="button" class="btn" data-action="person-project-import" data-role="supplier">Importar desde Clientes</button></div></fieldset>` +
         select(
           "Moneda base",
           "currency",

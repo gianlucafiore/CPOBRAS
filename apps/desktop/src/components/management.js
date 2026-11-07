@@ -193,7 +193,9 @@ export function createManagementWorkspace({
       "Directorio",
       "management-kind",
       Object.entries(directoryKinds).filter(([kind]) =>
-        scoped() ? projectKinds.includes(kind) : kind !== "company",
+        scoped()
+          ? projectKinds.includes(kind)
+          : !["company", "supplier", "client_profile"].includes(kind),
       ),
       model.kind,
     )}<button class="btn primary" data-action="manage-new">Nuevo registro</button>${scoped() || state.organizationId ? "" : '<button class="btn" data-action="manage-audit">Historial de cambios</button>'}</div>

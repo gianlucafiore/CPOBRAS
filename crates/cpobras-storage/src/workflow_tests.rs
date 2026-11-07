@@ -47,6 +47,16 @@ fn fixture() -> (LocalStore, Project, Estimate, EstimateItem) {
     store.add_estimate_item(&line).unwrap();
     (store, project, estimate, line)
 }
+fn undo_people_migration_for_fixture(conn: &rusqlite::Connection) {
+    let triggers:Vec<String>=conn.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND (name LIKE 'audit_persons_%' OR name LIKE 'audit_management_records_%')").unwrap().query_map([],|r|r.get(0)).unwrap().collect::<std::result::Result<_,_>>().unwrap();
+    for name in triggers {
+        conn.execute_batch(&format!("DROP TRIGGER {name}")).unwrap();
+    }
+    conn.execute_batch("UPDATE management_records SET name=(SELECT name FROM persons p WHERE p.id=management_records.person_id),code=(SELECT code FROM persons p WHERE p.id=management_records.person_id),attributes_json=json_set(attributes_json,'$.cuit',COALESCE((SELECT cuit FROM persons p WHERE p.id=management_records.person_id),''),'$.email',(SELECT email FROM persons p WHERE p.id=management_records.person_id),'$.phone',(SELECT phone FROM persons p WHERE p.id=management_records.person_id),'$.address',(SELECT address FROM persons p WHERE p.id=management_records.person_id)) WHERE kind IN ('supplier','client_profile') AND person_id IS NOT NULL;
+    DROP VIEW clients;DROP INDEX supplier_person_link;DROP TABLE project_suppliers;DROP TABLE person_legacy_links;DROP TABLE people_migration_state;ALTER TABLE management_records DROP COLUMN person_id;DELETE FROM persons WHERE role='supplier';DROP INDEX person_tax_identity;
+    ALTER TABLE persons DROP COLUMN role;ALTER TABLE persons DROP COLUMN code;ALTER TABLE persons DROP COLUMN email;ALTER TABLE persons DROP COLUMN phone;ALTER TABLE persons DROP COLUMN address;ALTER TABLE persons DROP COLUMN tax_key;ALTER TABLE persons DROP COLUMN revision;ALTER TABLE persons RENAME TO clients;DELETE FROM schema_migrations WHERE version=21;").unwrap();
+}
+
 #[test]
 fn failed_bulk_edit_and_import_are_atomic() {
     let (mut store, project, estimate, line) = fixture();
@@ -1329,6 +1339,7 @@ fn upgrades_populated_schema_fifteen_and_deletes_its_preexisting_linked_line() {
         assert!(name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'));
         old.execute_batch(&format!("DROP TRIGGER {name}")).unwrap();
     }
+    undo_people_migration_for_fixture(&old);
     old.execute_batch("ALTER TABLE operation_links DROP COLUMN archived_line_id; DROP TABLE deleted_estimate_lines; DROP TABLE line_analysis_sources; DROP TABLE estimate_resource_prices; DROP TABLE estimate_price_definitions; DROP TABLE price_definition_templates;
              DROP TABLE print_profiles; DROP TRIGGER new_project_organization; DROP TRIGGER external_company_readonly_update; DROP TRIGGER external_company_readonly_delete; DROP TABLE project_organizations; DROP TABLE organization_preferences; DROP TABLE organizations; DELETE FROM schema_migrations WHERE version>=16; CREATE TRIGGER operation_links_no_update BEFORE UPDATE ON operation_links BEGIN SELECT RAISE(ABORT,'operation links are immutable'); END;").unwrap();
     drop(old);
@@ -1339,7 +1350,7 @@ fn upgrades_populated_schema_fifteen_and_deletes_its_preexisting_linked_line() {
             .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| r
                 .get::<_, i64>(0))
             .unwrap(),
-        20
+        21
     );
     upgraded.delete_estimate_item(e.id, line.id).unwrap();
     assert!(upgraded.estimate_items(e.id).unwrap().is_empty());
@@ -2342,5 +2353,269 @@ fn schema_nineteen_migration_keeps_legacy_logo_and_project_owner_after_reopening
     assert_eq!(reopened.project_organization(p.id).unwrap().id, owner.id);
     assert_eq!(reopened.organization(owner.id).unwrap().profile, profile);
     drop(reopened);
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn one_person_can_be_client_and_supplier_with_shared_data_and_stale_edits_rejected() {
+    use crate::persons::PersonInput;
+    let mut s = LocalStore::in_memory().unwrap();
+    let p = s
+        .save_person(
+            None,
+            0,
+            "client",
+            &PersonInput {
+                name: "Gómez Construcciones".into(),
+                cuit: Some("30-12345678-9".into()),
+                email: "contacto@example.test".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let both = s.add_person_role(p.id, p.revision, "supplier").unwrap();
+    assert_eq!(both.id, p.id);
+    assert_eq!(both.role, "both");
+    assert_eq!(s.persons("client").unwrap().len(), 1);
+    assert_eq!(s.persons("supplier").unwrap().len(), 1);
+    assert_eq!(
+        s.conn
+            .query_row("SELECT COUNT(*) FROM persons", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        s.conn
+            .query_row(
+                "SELECT type FROM sqlite_master WHERE name='clients'",
+                [],
+                |r| r.get::<_, String>(0)
+            )
+            .unwrap(),
+        "view"
+    );
+    let alias = both.supplier_record_id.unwrap();
+    let stale = s.management_record(alias).unwrap().unwrap();
+    let mut edited = both.data;
+    edited.phone = "1112345678".into();
+    edited.name = "Gómez Obras".into();
+    let changed = s
+        .save_person(Some(p.id), both.revision, "client", &edited)
+        .unwrap();
+    assert_eq!(changed.role, "both");
+    assert_eq!(s.list_clients().unwrap()[0].name, "Gómez Obras");
+    assert_eq!(
+        s.management_record(alias).unwrap().unwrap().attributes["phone"],
+        "1112345678"
+    );
+    assert!(s.save_management_record(&stale).is_err());
+    assert!(s
+        .save_person(Some(p.id), p.revision, "client", &edited)
+        .is_err());
+    let duplicate = PersonInput {
+        name: "Otro nombre".into(),
+        cuit: Some("30123456789".into()),
+        ..Default::default()
+    };
+    assert!(s.save_person(None, 0, "supplier", &duplicate).is_err());
+    let matches = s.similar_persons(&duplicate, None).unwrap();
+    assert_eq!(matches[0].person.id, p.id);
+    assert_eq!(matches[0].score, 100);
+    assert!(s
+        .similar_persons(
+            &PersonInput {
+                name: "Gomez Obra".into(),
+                ..Default::default()
+            },
+            None
+        )
+        .unwrap()
+        .iter()
+        .any(|m| m.person.id == p.id));
+}
+#[test]
+fn project_party_selection_is_atomic_and_uses_person_roles() {
+    use crate::persons::PersonInput;
+    let (mut s, p, _, _) = fixture();
+    let supplier = s
+        .save_person(
+            None,
+            0,
+            "supplier",
+            &PersonInput {
+                name: "Proveedor principal".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let owner = s.project_organization(p.id).unwrap();
+    s.save_project_parties(&p, owner.id, &[supplier.id])
+        .unwrap();
+    assert_eq!(s.project_suppliers(p.id).unwrap(), vec![supplier.id]);
+    let wrong = Project {
+        name: "Cambio inválido".into(),
+        client_id: supplier.id,
+        ..p.clone()
+    };
+    assert!(s.save_project_parties(&wrong, owner.id, &[]).is_err());
+    assert_eq!(s.get_project(p.id).unwrap().unwrap().name, p.name);
+    assert_eq!(s.project_suppliers(p.id).unwrap(), vec![supplier.id]);
+    assert!(s
+        .save_project_parties(&p, owner.id, &[p.client_id])
+        .is_err());
+    let both = s
+        .add_person_role(supplier.id, supplier.revision, "client")
+        .unwrap();
+    let valid = Project {
+        client_id: both.id,
+        ..p
+    };
+    s.save_project_parties(&valid, owner.id, &[both.id])
+        .unwrap();
+    assert_eq!(s.get_project(valid.id).unwrap().unwrap().client_id, both.id);
+}
+#[test]
+fn migration_merges_exact_tax_identity_keeps_document_links_and_does_not_merge_similar_names() {
+    use crate::persons::PersonInput;
+    let (mut s, p, _, _, supplier, _, _) = stock_fixture();
+    let client = s.get_client(p.client_id).unwrap().unwrap();
+    s.save_client(&Client {
+        cuit: Some("30-12345678-9".into()),
+        ..client
+    })
+    .unwrap();
+    let mut invoice = operation(p.id, "payable");
+    invoice.partner_id = Some(supplier);
+    invoice.amount = 10.into();
+    invoice.due_date = "2026-11-30".into();
+    let saved = s.post_operation(&invoice).unwrap();
+    let payload: String = s
+        .conn
+        .query_row(
+            "SELECT payload FROM operation_documents WHERE id=?1",
+            [saved.id.to_string()],
+            |r| r.get(0),
+        )
+        .unwrap();
+    undo_people_migration_for_fixture(&s.conn);
+    s.conn.execute("UPDATE management_records SET name='Proveedor anterior',attributes_json=json_set(attributes_json,'$.cuit','30123456789','$.email','proveedor@example.test') WHERE id=?1",[supplier.to_string()]).unwrap();
+    let path = std::env::temp_dir().join(format!(
+        "cpobras-person-migration-{}.sqlite",
+        Uuid::new_v4()
+    ));
+    s.conn
+        .backup(rusqlite::DatabaseName::Main, &path, None)
+        .unwrap();
+    drop(s);
+    let mut migrated = LocalStore::open(&path).unwrap();
+    let person = migrated.person(p.client_id).unwrap().unwrap();
+    assert_eq!(person.role, "both");
+    assert_eq!(person.data.email, "proveedor@example.test");
+    assert_eq!(person.supplier_record_id, Some(supplier));
+    assert_eq!(
+        migrated.management_record(supplier).unwrap().unwrap().name,
+        person.data.name
+    );
+    assert_eq!(
+        migrated
+            .conn
+            .query_row(
+                "SELECT payload FROM operation_documents WHERE id=?1",
+                [saved.id.to_string()],
+                |r| r.get::<_, String>(0)
+            )
+            .unwrap(),
+        payload
+    );
+    assert_eq!(
+        migrated.get_project(p.id).unwrap().unwrap().client_id,
+        p.client_id
+    );
+    migrated.verify_integrity().unwrap();
+    migrated
+        .save_person(
+            None,
+            0,
+            "client",
+            &PersonInput {
+                name: "Juan Pérez".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    migrated
+        .save_person(
+            None,
+            0,
+            "supplier",
+            &PersonInput {
+                name: "Juan Perez".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(migrated.persons("supplier").unwrap().len(), 2);
+    drop(migrated);
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn legacy_duplicate_clients_and_extended_contacts_migrate_to_one_person() {
+    let (s, p, _, _) = fixture();
+    undo_people_migration_for_fixture(&s.conn);
+    s.conn
+        .execute(
+            "UPDATE clients SET cuit='30-22222222-2' WHERE id=?1",
+            [p.client_id.to_string()],
+        )
+        .unwrap();
+    let duplicate = Uuid::new_v4();
+    s.conn
+        .execute(
+            "INSERT INTO clients(id,name,cuit) VALUES(?1,'Cliente duplicado','30222222222')",
+            [duplicate.to_string()],
+        )
+        .unwrap();
+    let second = Uuid::new_v4();
+    s.conn
+        .execute(
+            "INSERT INTO projects(id,name,client_id,currency) VALUES(?1,'Segunda obra',?2,'ARS')",
+            params![second.to_string(), duplicate.to_string()],
+        )
+        .unwrap();
+    let profile = Uuid::new_v4();
+    s.conn.execute("INSERT INTO management_records(id,kind,name,code,client_id,attributes_json,revision) VALUES(?1,'client_profile','Ficha ampliada','',?2,?3,1)",params![profile.to_string(),duplicate.to_string(),r#"{"email":"cliente@example.test","phone":"1122334455","address":"Domicilio anterior"}"#]).unwrap();
+    let path = std::env::temp_dir().join(format!("cpobras-client-merge-{}.sqlite", Uuid::new_v4()));
+    s.conn
+        .backup(rusqlite::DatabaseName::Main, &path, None)
+        .unwrap();
+    drop(s);
+    let migrated = LocalStore::open(&path).unwrap();
+    let a = migrated.get_project(p.id).unwrap().unwrap();
+    let b = migrated.get_project(second).unwrap().unwrap();
+    assert_eq!(a.client_id, b.client_id);
+    let person = migrated.person(a.client_id).unwrap().unwrap();
+    assert_eq!(person.data.email, "cliente@example.test");
+    assert_eq!(person.data.phone, "1122334455");
+    assert_eq!(migrated.list_clients().unwrap().len(), 1);
+    assert_eq!(
+        migrated
+            .management_record(profile)
+            .unwrap()
+            .unwrap()
+            .attributes["email"],
+        "cliente@example.test"
+    );
+    assert!(!migrated
+        .conn
+        .query_row(
+            "SELECT attributes_json FROM management_records WHERE id=?1",
+            [profile.to_string()],
+            |r| r.get::<_, String>(0)
+        )
+        .unwrap()
+        .contains("cliente@example.test"));
+    migrated.verify_integrity().unwrap();
+    drop(migrated);
     std::fs::remove_file(path).unwrap();
 }

@@ -26,6 +26,10 @@ pub fn run() {
 
 pub(crate) fn configure<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
     builder.invoke_handler(tauri::generate_handler![
+        commands::persons::list_persons,
+        commands::persons::save_person,
+        commands::persons::add_person_role,
+        commands::persons::find_similar_persons,
         commands::organizations::list_organizations,
         commands::organizations::get_organization,
         commands::organizations::create_organization,

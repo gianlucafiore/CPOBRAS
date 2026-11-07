@@ -7,7 +7,7 @@ async function handleSubmit(form) {
   const estimateId = state.estimateId;
   if (kind === "client") await invoke("create_client", { clientName: v("clientName"), cuit: v("cuit") || null });
   else if (kind === "project") {
-    const args = { projectName: v("projectName"), clientId: v("clientId"), currency: v("currency"), organizationId:v("organizationId")||item.organization_id||null };
+    const args = { projectName: v("projectName"), clientId: v("clientId"), currency: v("currency"), organizationId:v("organizationId")||item.organization_id||null,supplierIds:data.getAll("supplierIds").map(String) };
     await invoke(item.id ? "update_project" : "create_project", item.id ? { ...args, projectId: item.id } : args);
   } else if (kind === "estimate") {
     const created = await invoke("create_estimate", { projectId: state.projectId, title: v("title") });

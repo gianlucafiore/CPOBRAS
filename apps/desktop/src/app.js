@@ -1,3 +1,4 @@
+import { createPersons } from "./components/persons.js";
 import { createOrganizations } from "./components/organizations.js";
 import { createPrintProfile } from "./components/print-profile.js";
 import { createBudgetPrinting } from "./components/budget-printing.js";
@@ -58,6 +59,7 @@ export function createWorkspaceApp({
   const pricing = createPriceDetermination(context);
   const budgetTools = createBudgetTools(context);
   const printProfile = createPrintProfile(context);
+  const people = createPersons(context);
   const organizations = createOrganizations({
     ...context,
     profile: printProfile,
@@ -104,8 +106,9 @@ export function createWorkspaceApp({
     }
     const top = document.querySelector(".table-scroll");
     const position = top?.scrollTop || 0;
-    root.innerHTML =
-      state.view === "organizations"
+    root.innerHTML = ["clients", "suppliers"].includes(state.view)
+      ? chrome(people.markup())
+      : state.view === "organizations"
         ? chrome(organizations.markup())
         : state.view === "budget-printing"
           ? chrome(printing.markup())
@@ -408,6 +411,10 @@ export function createWorkspaceApp({
     }
     try {
       if (await route(button)) return;
+      if (button.dataset.action.startsWith("person-")) {
+        await people.act(button);
+        return;
+      }
       if (button.dataset.action.startsWith("organization-")) {
         await organizations.act(button);
         return;
@@ -476,6 +483,7 @@ export function createWorkspaceApp({
   });
   document.addEventListener("submit", async (evt) => {
     const groups = [
+      [people, ["person-form"]],
       [organizations, ["organization-create-form"]],
       [printProfile, ["print-profile-form"]],
       [printing, ["budget-print-form"]],
@@ -642,6 +650,7 @@ export function createWorkspaceApp({
       )
     )
       state.pageDirty = true;
+    people.input(evt.target);
     printing.input(evt.target);
     pricing.input(evt.target);
     patterns.input(evt.target);
@@ -655,6 +664,10 @@ export function createWorkspaceApp({
     filterRows(state.search);
   });
   document.addEventListener("contextmenu", (evt) => {
+    if (people.hasModal()) {
+      evt.preventDefault();
+      return;
+    }
     interactions.contextMenu(evt).catch((error) => {
       state.message = String(error);
       render();
@@ -698,6 +711,7 @@ export function createWorkspaceApp({
     }
   });
   document.addEventListener("keydown", (evt) => {
+    if (people.keyDown(evt)) return;
     if (patterns.keyDown(evt)) return;
     if (unitPicker.keyDown(evt)) return;
     if (pricing.keyDown(evt)) return;

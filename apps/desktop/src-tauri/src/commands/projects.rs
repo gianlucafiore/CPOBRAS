@@ -9,6 +9,7 @@ pub(crate) struct ProjectView {
     organization_name: String,
     organization_locked: bool,
     read_only: bool,
+    supplier_ids: Vec<Uuid>,
 }
 fn view(store: &cpobras_storage::LocalStore, project: Project) -> Result<ProjectView, String> {
     let o = store
@@ -18,7 +19,11 @@ fn view(store: &cpobras_storage::LocalStore, project: Project) -> Result<Project
         .list_project_estimates(project.id)
         .map_err(|e| e.to_string())?
         .is_empty();
+    let suppliers = store
+        .project_suppliers(project.id)
+        .map_err(|e| e.to_string())?;
     Ok(ProjectView {
+        supplier_ids: suppliers,
         project,
         organization_id: o.id,
         organization_name: o.name,
@@ -35,6 +40,7 @@ pub(crate) fn update_project(
     client_id: String,
     currency: String,
     organization_id: Option<Uuid>,
+    supplier_ids: Option<Vec<Uuid>>,
 ) -> Result<ProjectView, String> {
     if project_name.trim().is_empty() {
         return Err("El nombre de la obra es obligatorio".into());
@@ -65,8 +71,14 @@ pub(crate) fn update_project(
                 .id
         }
     };
+    let suppliers = match supplier_ids {
+        Some(ids) => ids,
+        None => store
+            .project_suppliers(project.id)
+            .map_err(|e| e.to_string())?,
+    };
     store
-        .save_project_for_organization(&project, org)
+        .save_project_parties(&project, org, &suppliers)
         .map_err(|e| e.to_string())?;
     view(&store, project)
 }
@@ -89,6 +101,7 @@ pub(crate) fn create_project(
     client_id: String,
     currency: String,
     organization_id: Option<Uuid>,
+    supplier_ids: Option<Vec<Uuid>>,
 ) -> Result<ProjectView, String> {
     if project_name.trim().is_empty() {
         return Err("El nombre de la obra es obligatorio".into());
@@ -109,8 +122,14 @@ pub(crate) fn create_project(
         Some(id) => id,
         None => store.default_organization().map_err(|e| e.to_string())?.id,
     };
+    let suppliers = match supplier_ids {
+        Some(ids) => ids,
+        None => store
+            .project_suppliers(project.id)
+            .map_err(|e| e.to_string())?,
+    };
     store
-        .save_project_for_organization(&project, org)
+        .save_project_parties(&project, org, &suppliers)
         .map_err(|e| e.to_string())?;
     view(&store, project)
 }

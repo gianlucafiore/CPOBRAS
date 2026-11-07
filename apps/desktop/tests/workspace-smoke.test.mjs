@@ -14,6 +14,7 @@ function setup() {
   const responses = {
     get_estimate_resource_prices:()=>({"resource-1":"2000"}),
     list_management_records: () => [],
+    list_persons:({role})=>role==="client"?[{id:"client-1",name:"Cliente demo",cuit:null,email:"",phone:"",address:"",code:"",role:"client",revision:1,supplier_record_id:null}]:[],
     list_organizations:()=>[{id:"org-1",name:"Mi organización",ownership:"own",is_default:true,company_id:null,revision:0,profile:{logo_png:[]}}],
     list_clients: () => [{ id: "client-1", name: "Cliente demo", cuit: null }],
     list_projects: () => [{ id: "project-1", name: "Nave industrial", client_id: "client-1", currency: "Ars" }],

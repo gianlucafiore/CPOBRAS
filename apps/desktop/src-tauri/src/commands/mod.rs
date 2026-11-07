@@ -19,3 +19,5 @@ pub(crate) mod price_determination;
 pub(crate) mod printing;
 
 pub(crate) mod organizations;
+
+pub(crate) mod persons;

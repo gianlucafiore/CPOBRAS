@@ -53,6 +53,7 @@ export function createViews({
                 "budget-printing": "Imprimir presupuesto",
                 projects: "Obras y presupuestos",
                 clients: "Directorio de clientes",
+                suppliers: "Directorio de proveedores",
                 resources: "Catálogo de insumos",
                 analyses: "Biblioteca de ACU",
               }[state.view]
@@ -86,6 +87,7 @@ export function createViews({
               .join("")}`
           : `<button class="menu-item ${state.view === "projects" ? "active" : ""}" aria-current="${state.view === "projects" ? "page" : "false"}" data-action="navigate" data-view="projects">Inicio / Obras</button>${[
               ["clients", "Clientes"],
+              ["suppliers", "Proveedores"],
               ["resources", "Insumos"],
               ["analyses", "ACU"],
             ]

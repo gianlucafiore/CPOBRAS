@@ -305,6 +305,31 @@ fn ipc_creates_budget_and_preserves_issued_snapshot() {
         json!({"organizationId":original_owner}),
     )
     .unwrap();
+    let party=call("save_person",json!({"id":null,"revision":0,"role":"supplier","person":{"name":"Persona compartida IPC","cuit":"30-12345678-9","email":"contacto@example.test"}})).unwrap();
+    let both_party = call(
+        "add_person_role",
+        json!({"id":party["id"],"revision":party["revision"],"role":"client"}),
+    )
+    .unwrap();
+    assert_eq!(both_party["id"], party["id"]);
+    assert_eq!(both_party["role"], "both");
+    let matches = call(
+        "find_similar_persons",
+        json!({"person":{"name":"Persona similar","cuit":"30123456789"},"excludeId":null}),
+    )
+    .unwrap();
+    assert_eq!(matches[0]["person"]["id"], party["id"]);
+    assert_eq!(matches[0]["score"], 100);
+    let party_project=call("update_project",json!({"projectId":new_project["id"],"projectName":"Obra vinculada a persona","clientId":party["id"],"currency":"ARS","organizationId":org_b["id"],"supplierIds":[party["id"]]})).unwrap();
+    assert_eq!(party_project["client_id"], party["id"]);
+    assert_eq!(party_project["supplier_ids"], json!([party["id"]]));
+    assert!(call("list_persons", json!({"role":"client"}))
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|p| p["id"] == party["id"]));
+    assert!(call("save_person",json!({"id":null,"revision":0,"role":"client","person":{"name":"Duplicado","cuit":"30123456789"}})).is_err());
     let backup = call("create_backup", json!({})).unwrap();
     let wh_id = uuid::Uuid::new_v4();
     call("create_warehouse",json!({"warehouse":{"id":wh_id,"project_id":project["id"],"name":"Depósito IPC","location":"A1"}})).unwrap();
@@ -348,6 +373,12 @@ fn ipc_creates_budget_and_preserves_issued_snapshot() {
     assert!(call("post_operation", json!({"operation":op})).is_err());
     call("verify_database", json!({})).unwrap();
     call("restore_backup", json!({"id":backup})).unwrap();
+    assert!(call("list_persons", json!({"role":"supplier"}))
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|p| p["id"] == party["id"]));
     assert_eq!(
         call("get_print_profile", json!({})).unwrap()["profile"]["company_name"],
         "Empresa pública IPC"
