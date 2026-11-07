@@ -9,8 +9,8 @@ Tauri 2 presenta la interfaz. Los importes se calculan con precisión decimal.
 Desde la carpeta del repositorio:
 
 ```bash
-git switch develop
-git pull --ff-only origin develop
+git switch main
+git pull --ff-only origin main
 cd apps/desktop
 npm ci
 npm run tauri dev
