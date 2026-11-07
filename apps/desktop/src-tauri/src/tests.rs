@@ -9,6 +9,9 @@ fn ipc_creates_budget_and_preserves_issued_snapshot() {
     let app = configure(tauri::test::mock_builder())
         .manage(Mutex::new(LocalStore::in_memory().unwrap()))
         .manage(BackupDirectory(temp.join("backups")))
+        .manage(Mutex::new(
+            backups::BackupManager::load(temp.join("backups")).unwrap(),
+        ))
         .build(tauri::generate_context!())
         .unwrap();
     let view = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
@@ -330,7 +333,26 @@ fn ipc_creates_budget_and_preserves_issued_snapshot() {
         .iter()
         .any(|p| p["id"] == party["id"]));
     assert!(call("save_person",json!({"id":null,"revision":0,"role":"client","person":{"name":"Duplicado","cuit":"30123456789"}})).is_err());
+    let cloud = temp.join("Nube sincronizada/Respaldos");
+    assert_eq!(
+        call("get_backup_settings", json!({})).unwrap()["enabled"],
+        false
+    );
+    let configured = call(
+        "save_backup_settings",
+        json!({"settings":{"directory":cloud,"enabled":true,"interval_minutes":15}}),
+    )
+    .unwrap();
+    assert_eq!(configured["directory"], cloud.to_string_lossy().as_ref());
     let backup = call("create_backup", json!({})).unwrap();
+    let copies = call("list_backups", json!({})).unwrap();
+    assert_eq!(copies.as_array().unwrap().len(), 1);
+    assert!(copies[0]["name"]
+        .as_str()
+        .unwrap()
+        .starts_with("cpobras-manual-"));
+    assert!(call("restore_backup", json!({"id":"../../cpobras"})).is_err());
+
     let wh_id = uuid::Uuid::new_v4();
     call("create_warehouse",json!({"warehouse":{"id":wh_id,"project_id":project["id"],"name":"Depósito IPC","location":"A1"}})).unwrap();
     assert_eq!(
@@ -373,6 +395,19 @@ fn ipc_creates_budget_and_preserves_issued_snapshot() {
     assert!(call("post_operation", json!({"operation":op})).is_err());
     call("verify_database", json!({})).unwrap();
     call("restore_backup", json!({"id":backup})).unwrap();
+    assert_eq!(
+        call("get_backup_settings", json!({})).unwrap()["directory"],
+        cloud.to_string_lossy().as_ref()
+    );
+    assert_eq!(
+        call("list_backups", json!({}))
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+
     assert!(call("list_persons", json!({"role":"supplier"}))
         .unwrap()
         .as_array()

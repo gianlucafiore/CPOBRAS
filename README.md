@@ -75,6 +75,19 @@ detallar gastos por grupos e ítems. Permite montos manuales, referencias,
 plantillas y exportación. Usá **Guardar determinación** para persistir la vista
 previa. Guía de cálculo y prueba: [docs/PRICE_DETERMINATION.md](docs/PRICE_DETERMINATION.md).
 
+## Respaldos automáticos en una carpeta sincronizada
+
+En **Inicio → Copias de seguridad**, escribí la ruta completa de una carpeta
+fija, activá **Crear copias automáticas** y guardá la configuración. Podés elegir
+cada 15 minutos, una hora, cuatro horas o un día. **Crear copia ahora** funciona
+también con la programación desactivada; **Abrir carpeta** muestra los archivos.
+
+Las copias se generan mientras CPOBRAS esté abierto. Al iniciar, se realiza la
+pendiente dentro de un minuto. Si elegís una carpeta sincronizada por Drive,
+OneDrive, Dropbox u otro cliente local, ese programa subirá los archivos a tu
+nube. CPOBRAS muestra el último respaldo local y los errores, sin requerir login.
+No comprueba la subida al proveedor. Guía: [docs/BACKUPS.md](docs/BACKUPS.md).
+
 ## Clientes y proveedores
 
 Se administran desde **Inicio → Clientes** e **Inicio → Proveedores**, en vistas
@@ -264,8 +277,9 @@ presenta una ventana en el escritorio del usuario.
    feriados, cargá tareas/hitos, dependencias y recursos. Podés arrastrar una barra
    del Gantt o cambiar su duración desde el extremo. Guardá una línea base,
    registrá avances y compará la curva S, las holguras y la ruta crítica.
-7. En **Copias de seguridad**, creá una copia, verificá la integridad y probá
-   restaurarla. La restauración crea antes una copia del estado actual.
+7. En **Copias de seguridad**, configurá una carpeta fija, activá la frecuencia
+   automática y guardá. Probá **Crear copia ahora**, **Abrir carpeta** y
+   **Actualizar estado**. Restaurar crea antes una copia del estado actual.
 
 Para ejecutar juntas las comprobaciones de desarrollo, desde la raíz:
 

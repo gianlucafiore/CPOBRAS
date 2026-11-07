@@ -34,7 +34,19 @@ export function createModalRenderer({
     ];
     if (kind === "backups") {
       title = "Copias de seguridad";
-      body = `<p>Se guardan en el directorio de datos de CPOBRAS. La restauración crea una copia de seguridad del estado actual antes de reemplazarlo.</p><button type="button" class="btn" data-action="create-backup">Crear copia</button><button type="button" class="btn" data-action="verify-database">Verificar integridad</button><ul>${state.backups.map((copy) => `<li>${e(new Date(copy.created_at * 1000).toLocaleString("es-AR"))} · ${e(copy.bytes)} bytes <button type="button" class="btn" data-action="restore-backup" data-id="${e(copy.id)}">Restaurar</button></li>`).join("") || "<li>No hay copias todavía.</li>"}</ul>`;
+      wide=true;
+      const settings=state.backupSettings||{}, when=(value)=>value?e(new Date(value*1000).toLocaleString("es-AR")):"Todavía no se hizo una copia";
+      body = `<p>Elegí una carpeta fija. Si está sincronizada con tu nube, tu programa de sincronización se encarga de subir las copias.</p>
+      ${field("Carpeta de respaldos (ruta completa)","backupDirectory",settings.directory||"",'required autocomplete="off" placeholder="/home/usuario/Nube/Respaldos CPOBRAS"')}
+      <label class="backup-enabled"><input type="checkbox" name="backupEnabled" ${settings.enabled?"checked":""}> Crear copias automáticas mientras CPOBRAS esté abierto</label>
+      ${select("Frecuencia","backupInterval",[[15,"Cada 15 minutos"],[60,"Cada hora"],[240,"Cada 4 horas"],[1440,"Cada día"]],settings.interval_minutes||60)}
+      <p class="modal-help">Guardá para aplicar. Al activar, se crea la primera copia dentro de un minuto si no hay una reciente. Al volver a abrir el programa se recupera la programación pendiente. No se borran copias anteriores.</p>
+      <button type="submit" class="btn primary">Guardar configuración</button>
+      <div class="backup-status"><strong>Última copia completada: ${when(settings.last_success)}</strong>${settings.last_file?`<p>${e(settings.last_file)}</p>`:""}${settings.last_error?`<p class="backup-error" role="status">Último intento: ${e(settings.last_error)}. Se volverá a intentar automáticamente si la programación está activa.</p>`:""}<p>La sincronización con la nube depende de tu aplicación externa. CPOBRAS confirma el archivo local, no su subida.</p></div>
+      <div class="backup-actions"><button type="button" class="btn" data-action="create-backup">Crear copia ahora</button><button type="button" class="btn" data-action="open-backup-folder">Abrir carpeta</button><button type="button" class="btn" data-action="refresh-backups">Actualizar estado</button><button type="button" class="btn" data-action="verify-database">Verificar integridad</button></div>
+      <h3>Copias disponibles</h3><p class="modal-help">Se muestran la carpeta elegida y las copias del directorio interno anterior. Restaurar guarda primero una copia preventiva. Si cambiás a otra carpeta externa, las copias anteriores quedan allí.</p>
+      ${state.backupListError?`<p class="backup-error" role="status">${e(state.backupListError)}</p>`:""}
+      <div class="backup-list">${state.backups.map(copy=>`<div><strong>${e(new Date(copy.created_at*1000).toLocaleString("es-AR"))}</strong> · ${e((copy.bytes/1024/1024).toFixed(2))} MB <button type="button" class="btn" data-action="restore-backup" data-id="${e(copy.id)}">Restaurar</button><small>${e(copy.name||copy.id)}<br>${e(copy.directory||settings.directory||"")}</small></div>`).join("")||"<p>No hay copias disponibles en estas carpetas.</p>"}</div>`;
     } else if (kind === "client") {
       title = "Nuevo cliente";
       body =

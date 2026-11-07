@@ -1,13 +1,23 @@
 use crate::{BackupDirectory, Db};
 use uuid::Uuid;
 
-#[derive(serde::Serialize)]
-pub(crate) struct BackupView {
-    pub id: String,
-    pub bytes: u64,
-    pub created_at: u64,
+use crate::backups::{BackupSettings, BackupStatus, BackupView, Backups};
+#[tauri::command]
+pub(crate) fn get_backup_settings(
+    backups: tauri::State<'_, Backups>,
+) -> Result<BackupStatus, String> {
+    Ok(backups.lock().map_err(|e| e.to_string())?.status())
 }
-
+#[tauri::command]
+pub(crate) fn save_backup_settings(
+    backups: tauri::State<'_, Backups>,
+    settings: BackupSettings,
+) -> Result<BackupStatus, String> {
+    backups
+        .lock()
+        .map_err(|e| e.to_string())?
+        .configure(settings)
+}
 #[tauri::command]
 pub(crate) fn verify_database(db: tauri::State<'_, Db>) -> Result<(), String> {
     db.lock()
@@ -15,76 +25,66 @@ pub(crate) fn verify_database(db: tauri::State<'_, Db>) -> Result<(), String> {
         .verify_integrity()
         .map_err(|e| e.to_string())
 }
-
 #[tauri::command]
 pub(crate) fn create_backup(
     db: tauri::State<'_, Db>,
-    directory: tauri::State<'_, BackupDirectory>,
+    backups: tauri::State<'_, Backups>,
 ) -> Result<String, String> {
-    let id = Uuid::new_v4();
-    db.lock()
+    backups
+        .lock()
         .map_err(|e| e.to_string())?
-        .backup_to(directory.0.join(format!("{id}.sqlite")))
-        .map_err(|e| e.to_string())?;
-    Ok(id.to_string())
+        .create(&db, "manual", crate::backups::now())
 }
-
 #[tauri::command]
-pub(crate) fn list_backups(
-    directory: tauri::State<'_, BackupDirectory>,
-) -> Result<Vec<BackupView>, String> {
-    let mut result = Vec::new();
-    for entry in std::fs::read_dir(&directory.0).map_err(|e| e.to_string())? {
-        let entry = entry.map_err(|e| e.to_string())?;
-        if !entry.file_type().map_err(|e| e.to_string())?.is_file() {
-            continue;
-        }
-        let path = entry.path();
-        if path.extension().and_then(|s| s.to_str()) != Some("sqlite") {
-            continue;
-        }
-        let Some(id) = path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .and_then(|s| Uuid::parse_str(s).ok())
-        else {
-            continue;
-        };
-        let metadata = entry.metadata().map_err(|e| e.to_string())?;
-        let created_at = metadata
-            .modified()
-            .map_err(|e| e.to_string())?
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_err(|e| e.to_string())?
-            .as_secs();
-        result.push(BackupView {
-            id: id.to_string(),
-            bytes: metadata.len(),
-            created_at,
-        });
-    }
-    result.sort_by_key(|entry| std::cmp::Reverse(entry.created_at));
-    Ok(result)
+pub(crate) fn list_backups(backups: tauri::State<'_, Backups>) -> Result<Vec<BackupView>, String> {
+    backups.lock().map_err(|e| e.to_string())?.list()
 }
-
 #[tauri::command]
 pub(crate) fn restore_backup(
     db: tauri::State<'_, Db>,
-    directory: tauri::State<'_, BackupDirectory>,
+    backups: tauri::State<'_, Backups>,
     id: String,
 ) -> Result<String, String> {
     let id = Uuid::parse_str(&id).map_err(|e| e.to_string())?;
-    let source = directory.0.join(format!("{id}.sqlite"));
-    if !source.is_file() || source.is_symlink() {
-        return Err("Copia inexistente".into());
-    }
+    let mut manager = backups.lock().map_err(|e| e.to_string())?;
+    let source = manager.source(id)?;
+    // Safety snapshot must succeed before the active database is changed.
     let mut store = db.lock().map_err(|e| e.to_string())?;
-    let safety = Uuid::new_v4();
-    store
-        .backup_to(directory.0.join(format!("{safety}.sqlite")))
-        .map_err(|e| e.to_string())?;
+    let safety = manager.create_from_store(&store, "antes-de-restaurar", crate::backups::now())?;
     store.restore_from(source).map_err(|e| e.to_string())?;
-    Ok(safety.to_string())
+    Ok(safety)
+}
+#[tauri::command]
+pub(crate) fn open_backup_folder(backups: tauri::State<'_, Backups>) -> Result<(), String> {
+    let folder = backups
+        .lock()
+        .map_err(|e| e.to_string())?
+        .folder()
+        .to_path_buf();
+    if !folder.is_dir() {
+        return Err("La carpeta de respaldo no está disponible".into());
+    }
+    #[cfg(target_os = "linux")]
+    let mut command = {
+        let mut c = std::process::Command::new("gio");
+        c.arg("open");
+        c
+    };
+    #[cfg(target_os = "macos")]
+    let mut command = std::process::Command::new("open");
+    #[cfg(target_os = "windows")]
+    let mut command = std::process::Command::new("explorer.exe");
+    let status = command
+        .arg(folder)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map_err(|e| format!("No se pudo abrir la carpeta: {e}"))?;
+    if !status.success() {
+        return Err("El sistema no pudo abrir la carpeta de respaldos".into());
+    }
+    Ok(())
 }
 
 #[tauri::command]

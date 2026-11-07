@@ -7,6 +7,8 @@ async function bridge(page, options={}) {
   const lines=[line]; if(fixture.twoLines)lines.push({...line,id:"10000000-0000-4000-8000-000000000003",description:"Revoque"});
   const sections=fixture.twoLines?[{id:"10000000-0000-4000-8000-000000000004",code:"01",title:"Preliminares",parent_id:null,position:0}]:[];
   const assignments=[];const lineDetails={};
+  let backupSettings={directory:'/data/CPOBRAS/backups',enabled:false,interval_minutes:60,last_success:null,last_file:null,last_error:null};const backupCopies=[];
+
   const estimate = { id: "estimate-1", title: "Presupuesto inicial", currency: "ARS", issued: Boolean(fixture.issued) };
   const totals = { direct: "200", general_expenses: "0", financial_expenses: "0", profit: "0", discount: "0", taxable_subtotal: "200", taxes: "0", total: "200" };
   const makePriceRow=(label,kind,role,percent='0')=>({id:crypto.randomUUID(),label,kind,role,enabled:true,subtract:false,percent,amount:'0',detail_mode:'reference',reference_percent:percent,items:[]});
@@ -64,6 +66,18 @@ async function bridge(page, options={}) {
    if(command==='save_budget_pattern'){const template={id:'template-'+(templates.length+1),name:args.name,document:patternPart(args.source.template_id?templates.find(t=>t.id===args.source.template_id).document:sourceDocument,args.selection)};if(!args.includePrices)for(const l of template.document.lines)l.unit_cost_snapshot='0';templates.push(template);return template;}
    if(command==='apply_budget_pattern'){const d=patternPart(args.source.template_id?templates.find(t=>t.id===args.source.template_id).document:sourceDocument,args.selection),mapping=new Map(d.sections.map(r=>[r.id,'new-'+r.id+'-'+calls.length])),ids=[];for(const r of d.sections)sections.push({...r,id:mapping.get(r.id),parent_id:r.parent_id?mapping.get(r.parent_id):args.parentId});for(const l of d.lines){const id='new-'+l.id+'-'+calls.length,price=args.includePrices?l.unit_cost_snapshot:'0';lines.push({id,description:l.description,unit:l.unit,quantity:l.quantity,unit_cost:price,total:String(Number(price)*Number(l.quantity)),analysis_id:null});ids.push(id);const assignment=d.assignments.find(([line])=>line===l.id);if(assignment)assignments.push({line_id:id,section_id:mapping.get(assignment[1])});}return {line_ids:ids,section_ids:[...mapping.values()],takeoff_count:d.takeoffs.length};}
    if (command === "list_estimate_lines") return fixture.context&&args.estimateId==='source-estimate'?[{...line,id:'other-line',description:'Partida obra modelo',total:'900'}]:lines;
+
+   if(command==='get_backup_settings')return structuredClone(backupSettings);
+   if(command==='save_backup_settings'){
+    if(!args.settings.directory.startsWith('/'))throw new Error('Elegí una ruta absoluta');
+    backupSettings={...backupSettings,...args.settings};return structuredClone(backupSettings);
+   }
+   if(command==='list_backups'){if(fixture.unavailableBackup)throw new Error('Carpeta de respaldo no disponible');return backupCopies;}
+   if(command==='create_backup'){
+    if(fixture.unavailableBackup)throw new Error('La carpeta de respaldo no está disponible');
+    const id=crypto.randomUUID();backupSettings.last_success=1794056400;backupSettings.last_file='cpobras-manual-2026-11-07-'+id+'.sqlite';backupCopies.unshift({id,name:backupSettings.last_file,directory:backupSettings.directory,created_at:1794056400,bytes:1048576});return id;
+   }
+   if(command==='open_backup_folder'||command==='verify_database')return null;
    if (command === "list_budget_sections") return sections;
    if (command === "list_line_sections") return assignments;
    if (command === "get_analysis_details") return lineDetails[args.analysisId];
@@ -432,4 +446,35 @@ test('project quick creation and importing contacts preserve the project form an
 test('editing a project can create and select a supplier while retaining its client and organization',async({page})=>{
  await bridge(page,{people:true});await page.getByRole('row').filter({hasText:'Obra de prueba'}).getByRole('button',{name:'Editar',exact:true}).click();await page.getByLabel('Nombre de la obra',{exact:true}).fill('Obra con proveedor nuevo');await page.getByRole('button',{name:'＋ Crear proveedor',exact:true}).click();const child=page.getByRole('dialog',{name:'Nuevo proveedor',exact:true});await child.getByLabel('Nombre / razón social',{exact:true}).fill('Proveedor nuevo de obra');await child.getByLabel('CUIT / identificación',{exact:true}).fill('30-55555555-5');await child.getByRole('button',{name:'Crear proveedor',exact:true}).click();await expect(page.getByRole('combobox',{name:'Cliente / comitente',exact:true})).toHaveValue('client-1');await expect(page.getByRole('combobox',{name:'Organización de la obra',exact:true})).toHaveValue('org-own');await expect(page.getByRole('checkbox',{name:'Proveedor nuevo de obra',exact:false})).toBeChecked();await expect(page.getByLabel('Nombre de la obra',{exact:true})).toHaveValue('Obra con proveedor nuevo');await page.getByRole('button',{name:'Guardar',exact:true}).click();expect(await page.evaluate(()=>window.__calls.filter(c=>c.command==='update_project').at(-1).args.supplierIds.length)).toBe(1);
  await page.getByRole('button',{name:'Clientes',exact:true}).click();await expect(page.getByRole('row').filter({hasText:'Proveedor nuevo de obra'})).toHaveCount(0);await page.getByRole('button',{name:'Proveedores',exact:true}).click();await expect(page.getByRole('row').filter({hasText:'Proveedor nuevo de obra'})).toBeVisible();await page.screenshot({path:'/workspace/cpobras-person-suppliers.png'});
+});
+
+
+test('backup settings persist a synchronized folder and manual backups show their destination',async({page})=>{
+ await bridge(page);await page.getByRole('button',{name:'Copias de seguridad',exact:true}).click();
+ const dialog=page.getByRole('dialog',{name:'Copias de seguridad'});
+ await dialog.getByLabel('Carpeta de respaldos').fill('/home/usuario/Nube/Respaldos CPOBRAS');
+ await dialog.getByLabel('Crear copias automáticas').check();await dialog.getByLabel('Frecuencia').selectOption('15');
+ await dialog.getByRole('button',{name:'Crear copia ahora'}).click();
+ await expect(dialog.locator('.modal-error')).toContainText('Guardá la configuración');
+ await expect(dialog.getByLabel('Carpeta de respaldos')).toHaveValue('/home/usuario/Nube/Respaldos CPOBRAS');
+ await dialog.getByRole('button',{name:'Guardar configuración'}).click();
+ await expect.poll(()=>page.evaluate(()=>window.__calls.filter(x=>x.command==='save_backup_settings').at(-1)?.args.settings)).toEqual({directory:'/home/usuario/Nube/Respaldos CPOBRAS',enabled:true,interval_minutes:15});
+ await dialog.getByRole('button',{name:'Crear copia ahora'}).click();
+ await expect(dialog.locator('.backup-list')).toContainText('1.00 MB');await expect(dialog.locator('.backup-list')).toContainText('/home/usuario/Nube/Respaldos CPOBRAS');
+ await dialog.getByRole('button',{name:'Abrir carpeta',exact:true}).click();
+ await expect.poll(()=>page.evaluate(()=>window.__calls.filter(x=>x.command==='open_backup_folder').length)).toBe(1);
+ await dialog.getByRole('button',{name:'Cerrar',exact:true}).last().click();await page.getByRole('button',{name:'Copias de seguridad',exact:true}).click();
+ await expect(dialog.getByLabel('Crear copias automáticas')).toBeChecked();await expect(dialog.getByLabel('Frecuencia')).toHaveValue('15');
+ await page.screenshot({path:'/workspace/cpobras-backup-settings.png'});
+});
+test('backup configuration stays editable when storage is unavailable and failed saves keep the draft',async({page})=>{
+ await bridge(page,{unavailableBackup:true});await page.getByRole('button',{name:'Copias de seguridad',exact:true}).click();
+ const dialog=page.getByRole('dialog',{name:'Copias de seguridad'});
+ await expect(dialog.locator('.backup-error')).toContainText('no disponible');
+ await dialog.getByLabel('Carpeta de respaldos').fill('ruta relativa');await dialog.getByRole('button',{name:'Guardar configuración'}).click();
+ await expect(dialog.locator('.modal-error')).toContainText('ruta absoluta');await expect(dialog.getByLabel('Carpeta de respaldos')).toHaveValue('ruta relativa');
+ await page.locator('.modal-overlay').click({position:{x:2,y:2}});await expect(dialog).toBeVisible();
+ await dialog.getByLabel('Carpeta de respaldos').fill('/home/usuario/Nueva nube');await dialog.getByRole('button',{name:'Guardar configuración'}).click();
+ await dialog.getByRole('button',{name:'Crear copia ahora'}).click();await expect(dialog.locator('.modal-error')).toContainText('no está disponible');
+ await expect(dialog.getByLabel('Carpeta de respaldos')).toHaveValue('/home/usuario/Nueva nube');
 });

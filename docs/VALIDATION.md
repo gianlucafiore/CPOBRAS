@@ -6,9 +6,9 @@ con Node 24.22.1 y Rust 1.99.1. `tools/check.sh` reúne los checks reproducibles
 | Comprobación | Evidencia |
 | --- | --- |
 | Rust, núcleo y almacenamiento | 91 tests: 22 de dominio y 69 de persistencia/regresión |
-| Escritorio Tauri | 4 tests nativos: IPC, GLib, rutas PDF y lector predeterminado en Linux |
+| Escritorio Tauri | 8 tests nativos: IPC, GLib, rutas PDF y lector predeterminado en Linux |
 | JavaScript | 27 tests, con aislamiento de procesos desactivado explícitamente en el runner |
-| Chromium | 38 recorridos de interfaz sobre DOM real y un puente IPC de prueba |
+| Chromium | 40 recorridos de interfaz sobre DOM real y un puente IPC de prueba |
 | Formato Rust | Workspace y aplicación Tauri |
 | Frontend de producción | Vite build, incluyendo los módulos de Excel y PDF |
 | Ejecutable Linux | Compilación con `custom-protocol` y arranque WebKitGTK en Xvfb |
@@ -20,6 +20,24 @@ integración nativa: el recorrido IPC usa Tauri con su configuración real y
 comprueba clientes, obras, ACU, presupuesto emitido, directorios, listas de
 precios, ACU anidados, importación, cronograma, línea base, copia/restauración,
 exportación, depósitos, documentos operativos, reportes de gestión y rechazo de ventanas/orígenes sin permisos.
+
+## Respaldos en carpeta configurable
+
+- Programación nativa independiente de la pantalla, frecuencia, pausa, copia
+  manual y recuperación al reiniciar mediante reloj controlado en pruebas.
+- Copias consistentes restaurables con nombres únicos, fecha UTC y permisos
+  privados en Linux; publicación del archivo final después de verificarlo.
+- Error y reintento al desconectar el destino, sin recrearlo ni usar otro;
+  compatibilidad con copias internas antiguas y exclusión de temporales/enlaces.
+- Configuración persistida atómicamente; entradas inválidas no la reemplazan y
+  una configuración dañada no impide abrir la aplicación.
+- Arranque del ejecutable Linux con programación activa genera una copia real;
+  se verifican el archivo SQLite y el resultado persistido.
+- IPC real guarda destino con espacios, genera y restaura respaldos sin cambiar
+  la configuración. Chromium cubre guardado, copia manual, carpeta, cierre,
+  errores de almacenamiento y conservación de borradores.
+
+Guía: [BACKUPS.md](BACKUPS.md). La subida la realiza el cliente de nube externo.
 
 ## Personas, clientes y proveedores
 
@@ -180,8 +198,9 @@ Guía, reglas económicas y límites: [OPERATIONS.md](OPERATIONS.md).
 - El PDF de ACU está rotulado como composición actual. El presupuesto conserva
   su precio unitario guardado; no se presenta una composición actual como si
   fuera una composición histórica certificada.
-- Las copias se guardan localmente. Para protección contra pérdida del equipo
-  se deben copiar también a un medio externo. Restaurar desde la interfaz crea
+- Las copias se guardan en la carpeta configurada, con programación mientras
+  CPOBRAS esté abierto. La subida corresponde al cliente externo de sincronización.
+  Restaurar desde la interfaz crea
   primero una copia de seguridad del estado actual. Las versiones futuras o
   estructuras inesperadas se rechazan.
 - No se ejecutaron instaladores, firma ni pruebas de Windows/macOS, carga con

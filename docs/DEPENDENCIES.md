@@ -17,6 +17,7 @@ usan versiones exactas. Rust 1.99.1 y Node 24.22.1 están fijados en
 | Rust: `thiserror` | 2.0.21 |
 | Escritorio: `tauri` | 2.12.5 |
 | Escritorio: `tauri-build` | 2.7.4 |
+| Escritorio: `tempfile` (configuración atómica) | 3.27.0 |
 | Escritorio: `glib` | 0.18.5+cpobras.1 |
 | npm: `@tauri-apps/api` | 2.12.4 |
 | npm: `fflate` | 0.8.3 |

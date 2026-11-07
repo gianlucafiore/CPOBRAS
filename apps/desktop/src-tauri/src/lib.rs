@@ -1,3 +1,4 @@
+mod backups;
 mod commands;
 
 use cpobras_storage::LocalStore;
@@ -16,8 +17,23 @@ pub fn run() {
                 .map_err(|e| -> Box<dyn std::error::Error> { Box::new(e) })?;
             let backups = directory.join("backups");
             std::fs::create_dir_all(&backups)?;
+            app.manage(Mutex::new(
+                backups::BackupManager::load(backups.clone()).map_err(std::io::Error::other)?,
+            ));
             app.manage(BackupDirectory(backups));
             app.manage(Mutex::new(store));
+            let handle = app.handle().clone();
+            std::thread::spawn(move || loop {
+                if let (Some(backups), Some(db)) = (
+                    handle.try_state::<backups::Backups>(),
+                    handle.try_state::<Db>(),
+                ) {
+                    if let Ok(mut manager) = backups.lock() {
+                        manager.tick(&db, backups::now());
+                    }
+                }
+                std::thread::sleep(std::time::Duration::from_secs(60));
+            });
             Ok(())
         })
         .run(tauri::generate_context!())
@@ -84,6 +100,9 @@ pub(crate) fn configure<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri:
         commands::planning::create_plan_baseline,
         commands::planning::list_plan_baselines,
         commands::planning::list_plan_revisions,
+        commands::maintenance::get_backup_settings,
+        commands::maintenance::save_backup_settings,
+        commands::maintenance::open_backup_folder,
         commands::maintenance::verify_database,
         commands::maintenance::write_export,
         commands::maintenance::create_backup,

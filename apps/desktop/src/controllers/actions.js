@@ -5,6 +5,10 @@ async function handleSubmit(form) {
   const data = new FormData(form), v = key => String(data.get(key) ?? "").trim();
   const item = state.modal?.record || {};
   const estimateId = state.estimateId;
+  if (kind === "backups") {
+    state.backupSettings=await invoke("save_backup_settings",{settings:{directory:v("backupDirectory"),enabled:data.get("backupEnabled")==="on",interval_minutes:Number(v("backupInterval"))}});
+    state.modalDirty=false; await refreshBackups(); state.message="Configuración de respaldos guardada"; render(); return;
+  }
   if (kind === "client") await invoke("create_client", { clientName: v("clientName"), cuit: v("cuit") || null });
   else if (kind === "project") {
     const args = { projectName: v("projectName"), clientId: v("clientId"), currency: v("currency"), organizationId:v("organizationId")||item.organization_id||null,supplierIds:data.getAll("supplierIds").map(String) };
@@ -93,14 +97,36 @@ async function handleSubmit(form) {
   render();
 }
 
+async function refreshBackups(){
+  state.backupSettings=await invoke("get_backup_settings");
+  try{state.backups=await invoke("list_backups");state.backupListError="";}
+  catch(error){state.backups=[];state.backupListError=String(error);}
+}
+
 async function act(button) {
   const action = button.dataset.action;
-  if (action === "backups") { state.backups = await invoke("list_backups"); openModal("backups"); return; }
-  if (action === "create-backup") { await invoke("create_backup"); state.backups = await invoke("list_backups"); state.message = "Copia creada"; render(); return; }
-  if (action === "verify-database") { await invoke("verify_database"); state.message = "Integridad y referencias verificadas"; render(); return; }
-  if (action === "restore-backup") {
-    if (!window.confirm("¿Restaurar esta copia? Se guardará antes una copia del estado actual. Los cambios posteriores a la copia elegida dejarán de estar activos.")) return;
-    await invoke("restore_backup", { id: button.dataset.id }); window.location.reload(); return;
+  if (["backups","create-backup","refresh-backups","open-backup-folder","verify-database","restore-backup"].includes(action)) {
+    if(state.busy)return;
+    if(action!=="backups"&&action!=="open-backup-folder"&&state.modalDirty){
+      const feedback=document.querySelector("#dialog-form .modal-error");if(feedback)feedback.textContent="Guardá la configuración antes de continuar. Tus cambios se conservan.";return;
+    }
+    state.busy=true;
+    const form=document.querySelector("#dialog-form");if(form)form.inert=true;
+    try {
+      if(action==="backups"){await refreshBackups();openModal("backups");return;}
+      if(action==="open-backup-folder"){await invoke("open_backup_folder");return;}
+      if(action==="create-backup"){await invoke("create_backup");state.message="Copia creada en la carpeta configurada";}
+      if(action==="verify-database"){await invoke("verify_database");state.message="Integridad y referencias verificadas";}
+      if(action==="restore-backup"){
+        if(!window.confirm("¿Restaurar esta copia? Se guardará antes una copia del estado actual. Los cambios posteriores a la copia elegida dejarán de estar activos."))return;
+        await invoke("restore_backup",{id:button.dataset.id});window.location.reload();return;
+      }
+      await refreshBackups();render();
+    }catch(error){
+      const feedback=document.querySelector("#dialog-form .modal-error");
+      if(feedback)feedback.textContent=String(error);else throw error;
+    }finally{state.busy=false;if(form?.isConnected)form.inert=false;}
+    return;
   }
   if (action === "retry-startup") { window.location.reload(); return; }
   if (state.busy && action !== "close-modal") return;

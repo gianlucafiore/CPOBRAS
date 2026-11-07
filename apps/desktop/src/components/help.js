@@ -66,7 +66,7 @@ const pages = {
   ],
   backups: [
     "Copias de seguridad",
-    "Creá una copia antes de cambios importantes. Restaurar recupera los datos guardados y conserva primero una copia del estado actual.",
+    "Elegí una carpeta fija y activá respaldos automáticos mientras el programa esté abierto. Una carpeta sincronizada permite que tu aplicación de nube los suba. Restaurar conserva antes una copia del estado actual.",
   ],
 };
 const panels = {
