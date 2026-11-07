@@ -1,5 +1,13 @@
 import { e } from "./helpers.js";
 const pages = {
+  "print-profile": [
+    "Datos públicos de impresión",
+    "Configurá la identidad de la empresa o profesional, el logotipo y los datos que querés publicar. Solo esta ficha se imprime automáticamente; los directorios internos se conservan por separado.",
+  ],
+  "budget-printing": [
+    "Imprimir presupuesto",
+    "Elegí presentación para cliente, interna o planilla de incidencias. El PDF se guarda y se solicita abrirlo en el lector predeterminado del sistema. Revisá condiciones públicas y versión antes de generar.",
+  ],
   "price-determination": [
     "Determinación de precio",
     "Activá y ordená conceptos para pasar del costo directo al precio final. Cada línea puede usar porcentaje, monto o detalle. Revisá la vista previa y guardá la determinación antes de salir.",

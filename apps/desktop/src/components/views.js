@@ -26,9 +26,12 @@ export function createViews({
     const active =
       state.modal?.kind === "backups"
         ? "backups"
-        : ["workspace", "budget-tools", "price-determination"].includes(
-              state.view,
-            )
+        : [
+              "workspace",
+              "budget-tools",
+              "budget-printing",
+              "price-determination",
+            ].includes(state.view)
           ? "projects"
           : state.view;
     return `<div class="app">
@@ -46,6 +49,8 @@ export function createViews({
                 planning: "Planificación",
                 costing: "Costos y precios",
                 "budget-tools": "Herramientas de presupuesto",
+                "print-profile": "Datos públicos de impresión",
+                "budget-printing": "Imprimir presupuesto",
                 projects: "Obras y presupuestos",
                 clients: "Directorio de clientes",
                 resources: "Catálogo de insumos",
@@ -76,7 +81,7 @@ export function createViews({
             ]
               .map(
                 ([action, label, view]) =>
-                  `<button class="menu-item ${state.view === view || (view === "workspace" && state.view === "budget-tools") ? "active" : ""}" aria-current="${state.view === view || (view === "workspace" && state.view === "budget-tools") ? "page" : "false"}" data-action="${action}" ${view === "price-determination" && !currentEstimate() ? "disabled" : ""}>${label}</button>`,
+                  `<button class="menu-item ${state.view === view || (view === "workspace" && ["budget-tools", "budget-printing"].includes(state.view)) ? "active" : ""}" aria-current="${state.view === view || (view === "workspace" && ["budget-tools", "budget-printing"].includes(state.view)) ? "page" : "false"}" data-action="${action}" ${view === "price-determination" && !currentEstimate() ? "disabled" : ""}>${label}</button>`,
               )
               .join("")}`
           : `<button class="menu-item ${state.view === "projects" ? "active" : ""}" aria-current="${state.view === "projects" ? "page" : "false"}" data-action="navigate" data-view="projects">Inicio / Obras</button>${[
@@ -90,7 +95,7 @@ export function createViews({
               )
               .join(
                 "",
-              )}<button class="menu-item ${active === "costing" ? "active" : ""}" aria-current="${active === "costing" ? "page" : "false"}" data-action="open-costing">Costos y precios</button><button class="menu-item ${active === "portfolio" ? "active" : ""}" aria-current="${active === "portfolio" ? "page" : "false"}" data-action="open-portfolio">Cartera de obras</button><button class="menu-item ${active === "management" ? "active" : ""}" aria-current="${active === "management" ? "page" : "false"}" data-action="open-management">Organización</button><button class="menu-item ${active === "backups" ? "active" : ""}" data-action="backups">Copias de seguridad</button>`
+              )}<button class="menu-item ${active === "costing" ? "active" : ""}" aria-current="${active === "costing" ? "page" : "false"}" data-action="open-costing">Costos y precios</button><button class="menu-item ${active === "portfolio" ? "active" : ""}" aria-current="${active === "portfolio" ? "page" : "false"}" data-action="open-portfolio">Cartera de obras</button><button class="menu-item ${active === "print-profile" ? "active" : ""}" aria-current="${active === "print-profile" ? "page" : "false"}" data-action="open-print-profile">Datos de impresión</button><button class="menu-item ${active === "management" ? "active" : ""}" aria-current="${active === "management" ? "page" : "false"}" data-action="open-management">Organización</button><button class="menu-item ${active === "backups" ? "active" : ""}" data-action="backups">Copias de seguridad</button>`
       }<span class="grow"></span><span class="kbd-hint">ESC cierra ventanas</span>
     </nav>
     ${work ? `<div class="project-context" role="region" aria-label="Contexto de la obra"><strong>Obra: ${e(currentProject()?.name)}</strong><label>Presupuesto activo <select name="estimate-picker" aria-label="Presupuesto activo">${state.estimates.map((est) => `<option value="${e(est.id)}" ${est.id === state.estimateId ? "selected" : ""}>${e(est.title)} · ${est.issued ? "Emitido" : "Borrador"}</option>`).join("") || '<option value="">Sin presupuestos</option>'}</select></label><span>${state.view === "planning" ? "Cronograma de la obra · los vínculos indican su presupuesto de origen" : state.view === "operations" ? "Documentos de esta obra · informe del presupuesto activo" : "Datos de la obra abierta"}</span></div>` : ""}
@@ -185,7 +190,7 @@ export function createViews({
       <button class="btn ghost" data-action="duplicate-estimate" ${est ? "" : "disabled"}>Duplicar</button><button class="btn ghost" data-action="refresh-draft-costs" ${locked()}>↻ Actualizar precios ACU</button>
       <button class="btn ghost" data-action="modal-comparison" ${state.estimates.length < 2 ? "disabled" : ""}>Comparar</button>
       <span class="grow"></span>
-      <button class="btn" data-action="open-patterns" ${est ? "" : "disabled"}>Patrones de cómputo</button><button class="btn" data-action="open-budget-tools" ${est ? "" : "disabled"}>Herramientas / exportar</button><button class="btn dark" data-action="issue" ${locked()}>Emitir</button>
+      <button class="btn" data-action="open-patterns" ${est ? "" : "disabled"}>Patrones de cómputo</button><button class="btn" data-action="open-budget-printing" ${est ? "" : "disabled"}>Imprimir presupuesto</button><button class="btn" data-action="open-budget-tools" ${est ? "" : "disabled"}>Herramientas / exportar</button><button class="btn dark" data-action="issue" ${locked()}>Emitir</button>
     </div>
     <div class="workspace-columns">
       <section class="grid-pane">

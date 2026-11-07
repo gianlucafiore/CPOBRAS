@@ -26,6 +26,10 @@ pub fn run() {
 
 pub(crate) fn configure<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
     builder.invoke_handler(tauri::generate_handler![
+        commands::printing::get_print_profile,
+        commands::printing::save_print_profile,
+        commands::printing::get_budget_print_data,
+        commands::printing::open_export_pdf,
         commands::price_determination::get_price_definition,
         commands::price_determination::calculate_price_definition,
         commands::price_determination::save_price_definition,

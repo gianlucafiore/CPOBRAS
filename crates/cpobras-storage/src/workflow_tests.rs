@@ -1329,7 +1329,8 @@ fn upgrades_populated_schema_fifteen_and_deletes_its_preexisting_linked_line() {
         assert!(name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'));
         old.execute_batch(&format!("DROP TRIGGER {name}")).unwrap();
     }
-    old.execute_batch("ALTER TABLE operation_links DROP COLUMN archived_line_id; DROP TABLE deleted_estimate_lines; DROP TABLE line_analysis_sources; DROP TABLE estimate_resource_prices; DROP TABLE estimate_price_definitions; DROP TABLE price_definition_templates; DELETE FROM schema_migrations WHERE version>=16; CREATE TRIGGER operation_links_no_update BEFORE UPDATE ON operation_links BEGIN SELECT RAISE(ABORT,'operation links are immutable'); END;").unwrap();
+    old.execute_batch("ALTER TABLE operation_links DROP COLUMN archived_line_id; DROP TABLE deleted_estimate_lines; DROP TABLE line_analysis_sources; DROP TABLE estimate_resource_prices; DROP TABLE estimate_price_definitions; DROP TABLE price_definition_templates;
+             DROP TABLE print_profiles; DELETE FROM schema_migrations WHERE version>=16; CREATE TRIGGER operation_links_no_update BEFORE UPDATE ON operation_links BEGIN SELECT RAISE(ABORT,'operation links are immutable'); END;").unwrap();
     drop(old);
     let mut upgraded = LocalStore::open(&path).unwrap();
     assert_eq!(
@@ -1338,7 +1339,7 @@ fn upgrades_populated_schema_fifteen_and_deletes_its_preexisting_linked_line() {
             .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| r
                 .get::<_, i64>(0))
             .unwrap(),
-        18
+        19
     );
     upgraded.delete_estimate_item(e.id, line.id).unwrap();
     assert!(upgraded.estimate_items(e.id).unwrap().is_empty());
@@ -2115,4 +2116,114 @@ fn certificates_prorate_custom_price_including_fixed_charges() {
     }];
     let cert = s.post_operation(&cert).unwrap();
     assert_eq!(cert.calculated["gross"], 125.into());
+}
+
+#[test]
+fn print_snapshots_reconcile_client_prices_and_incidence_without_mutating_costs() {
+    use cpobras_core::price_determination::{PriceDefinition, PriceKind};
+    let (mut s, _, e, l) = fixture();
+    s.edit_budget_lines(
+        e.id,
+        &[LineEdit {
+            id: l.id,
+            description: l.description.clone(),
+            unit: l.unit.clone(),
+            quantity: 1.into(),
+            unit_cost: 1.into(),
+        }],
+        &[],
+    )
+    .unwrap();
+    for position in 1..3 {
+        s.add_estimate_item(&EstimateItem {
+            id: Uuid::new_v4(),
+            position,
+            quantity: 1.into(),
+            unit_cost_snapshot: 1.into(),
+            ..l.clone()
+        })
+        .unwrap();
+    }
+    let mut definition = PriceDefinition::from_rates(PricingRates::default());
+    definition.rows[0].kind = PriceKind::Fixed;
+    definition.rows[0].amount = 1.into();
+    s.save_price_definition(e.id, 0, &definition).unwrap();
+    let before = s.export_budget(e.id).unwrap();
+    let data = s.budget_print_data(e.id).unwrap();
+    assert_eq!(data.final_total, 4.into());
+    assert_eq!(
+        data.lines.iter().map(|l| l.sale_total).collect::<Vec<_>>(),
+        vec![
+            Decimal::new(133, 2),
+            Decimal::new(134, 2),
+            Decimal::new(133, 2)
+        ]
+    );
+    assert_eq!(
+        data.lines
+            .iter()
+            .map(|l| l.incidence_percent)
+            .sum::<Decimal>(),
+        100.into()
+    );
+    assert_eq!(data.unallocated_total, 0.into());
+    assert_eq!(
+        serde_json::to_string(&before).unwrap(),
+        serde_json::to_string(&s.export_budget(e.id).unwrap()).unwrap()
+    );
+    s.issue_estimate(e.id).unwrap();
+    assert!(s.budget_print_data(e.id).unwrap().estimate.issued);
+}
+#[test]
+fn print_identity_revision_logo_validation_and_backup_restore() {
+    use crate::printing::PrintProfile;
+    let (mut s, _, e, _) = fixture();
+    let initial = s.get_print_profile().unwrap();
+    assert_eq!(initial.revision, 0);
+    let p = PrintProfile {
+        company_name: "Constructora pública".into(),
+        professional_name: "Profesional".into(),
+        tax_id: "30-123".into(),
+        ..Default::default()
+    };
+    let saved = s.save_print_profile(0, &p).unwrap();
+    assert_eq!(saved.revision, 1);
+    assert!(s.save_print_profile(0, &p).is_err());
+    let mut bad = p.clone();
+    bad.logo_png = b"no es PNG".to_vec();
+    assert!(s.save_print_profile(1, &bad).is_err());
+    assert!(s.save_print_profile(1, &PrintProfile::default()).is_err());
+    let path = std::env::temp_dir().join(format!("cpobras-print-{}.sqlite", Uuid::new_v4()));
+    s.backup_to(&path).unwrap();
+    let reopened = LocalStore::open(&path).unwrap();
+    assert_eq!(reopened.get_print_profile().unwrap().profile, p);
+    assert_eq!(reopened.budget_print_data(e.id).unwrap().profile, p);
+    drop(reopened);
+    std::fs::remove_file(path).unwrap();
+}
+#[test]
+fn zero_direct_cost_prints_fixed_price_as_explicit_unallocated_amount() {
+    use cpobras_core::price_determination::{PriceDefinition, PriceKind};
+    let (mut s, _, e, l) = fixture();
+    s.edit_budget_lines(
+        e.id,
+        &[LineEdit {
+            id: l.id,
+            description: l.description,
+            unit: l.unit,
+            quantity: 0.into(),
+            unit_cost: 100.into(),
+        }],
+        &[],
+    )
+    .unwrap();
+    let mut definition = PriceDefinition::from_rates(PricingRates::default());
+    definition.rows[0].kind = PriceKind::Fixed;
+    definition.rows[0].amount = 50.into();
+    s.save_price_definition(e.id, 0, &definition).unwrap();
+    let data = s.budget_print_data(e.id).unwrap();
+    assert_eq!(data.final_total, 50.into());
+    assert_eq!(data.unallocated_total, 50.into());
+    assert_eq!(data.lines[0].sale_total, 0.into());
+    assert_eq!(data.lines[0].incidence_percent, 0.into());
 }

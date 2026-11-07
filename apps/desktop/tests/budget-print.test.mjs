@@ -1,0 +1,19 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {budgetReportPdf,budgetReportExcel,printRows,printCells} from '../src/services/budget-print.js';
+export function fixture(){return {profile:{company_name:'Constructora Sur',professional_name:'Profesional público',tax_id:'30-12345678-9',email:'publico@example.test',footer:'Condiciones públicas de contratación.',logo_png:[]},estimate:{id:'estimate-print',currency:'ARS',issued:false},project:{name:'Edificio de prueba'},client:{name:'Cliente de prueba',cuit:'20-123'},document:{title:'Oferta 001',sections:[{id:'parent',parent_id:null,code:'01',title:'Estructura',position:0},{id:'child',parent_id:'parent',code:'01.01',title:'Hormigones',position:1}],assignments:[['l1','child']],lines:[{id:'l1',description:'Hormigón armado',quantity:'2',unit:'m³',unit_cost_snapshot:'100'}]},calculation:{breakdown:{direct:'200',total:'302.50'},rows:[{label:'Beneficio PRIVADO',amount:'102.50',enabled:true,kind:'fixed'}]},lines:[{id:'l1',direct_total:'200',sale_total:'302.50',sale_unit:'151.25',incidence_percent:'100',cumulative_percent:'100'}],final_total:'302.50',unallocated_total:'0'};}
+test('client PDF has public identity and final amounts while internal includes cost formation',async()=>{
+ const data=fixture();data.internalSecret='NO_PUBLICAR';const client=new TextDecoder().decode(await budgetReportPdf(data,{mode:'client',notes:'Validez: 15 días',date:'2026-11-06'}));assert.match(client,/Constructora Sur/);assert.match(client,/302,50/);assert.match(client,/151,25/);assert.doesNotMatch(client,/Beneficio PRIVADO|Costo directo|NO_PUBLICAR/);
+ const internal=new TextDecoder().decode(await budgetReportPdf(data,{mode:'internal'}));assert.match(internal,/Beneficio PRIVADO/);assert.match(internal,/Costo directo/);assert.match(internal,/USO INTERNO/);
+});
+test('incidences group nested sections without adding duplicate leaf items and retain exact Excel strings',async()=>{
+ const data=fixture(),rows=printRows(data,'incidences');assert.equal(rows.length,3);assert.equal(rows.filter(r=>r.kind==='line').length,1);assert.equal(rows[0].sale,'302.50');assert.equal(rows[1].incidence,'100');assert.equal(printCells(rows[2],'incidences')[3],'100');
+ const {default:read}=await import('read-excel-file/universal');const bytes=await budgetReportExcel(data,'incidences');const sheets=await read(new Blob([bytes]));assert.equal(sheets[0].data.at(-1)[2],'302.50');assert.equal(sheets[0].data.at(-1)[3],'100');
+ const publicBook=await read(new Blob([await budgetReportExcel(data,'client')]));assert.doesNotMatch(JSON.stringify(publicBook),/Beneficio PRIVADO|Costo directo/);
+});
+test('PDF repeats page headers, prints a logo, handles long rows and does not drop the final row',async()=>{
+ const data=fixture();data.profile.logo_png=[...Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP43qH1HwAGzAKpX36DZQAAAABJRU5ErkJggg==','base64')];data.document.sections=[];data.document.assignments=[];
+ const source=data.document.lines[0],value=data.lines[0];data.document.lines=Array.from({length:90},(_,i)=>({...source,id:'l'+i,description:i===89?'ULTIMA_PARTIDA_CLIENTE':('Descripción extensa '.repeat(30)+i)}));data.lines=data.document.lines.map(l=>({...value,id:l.id}));
+ const bytes=await budgetReportPdf(data,{mode:'client',landscape:false});const text=new TextDecoder().decode(bytes);assert.match(text,/ULTIMA_PARTIDA_CLIENTE/);const count=Number(/\/Count (\d+)/.exec(text)[1]);assert.ok(count>2);assert.match(text,/\/Subtype \/Image/);
+});
+test('zero direct cost report keeps explicitly unallocated final charges visible',()=>{const data=fixture();data.lines[0].sale_total='0';data.lines[0].sale_unit='0';data.lines[0].incidence_percent='0';data.unallocated_total='302.50';const rows=printRows(data,'incidences');assert.equal(rows.at(-1).kind,'unallocated');assert.equal(rows.at(-1).sale_total,'302.50');assert.equal(rows.at(-1).incidence_percent,'100');});

@@ -239,6 +239,22 @@ fn ipc_creates_budget_and_preserves_issued_snapshot() {
         json!({"estimateId":price_estimate["id"],"revision":1,"definition":definition})
     )
     .is_err());
+    let public_profile = call("get_print_profile", json!({})).unwrap();
+    assert_eq!(public_profile["revision"], 0);
+    let public_profile = call(
+        "save_print_profile",
+        json!({"revision":0,"profile":{"company_name":"Empresa pública IPC","logo_png":[]}}),
+    )
+    .unwrap();
+    assert_eq!(public_profile["revision"], 1);
+    let printable = call(
+        "get_budget_print_data",
+        json!({"estimateId":price_estimate["id"]}),
+    )
+    .unwrap();
+    assert_eq!(printable["profile"]["company_name"], "Empresa pública IPC");
+    assert!(printable["lines"].as_array().unwrap().len() > 0);
+    assert!(call("open_export_pdf", json!({"path":"/etc/passwd"})).is_err());
     let backup = call("create_backup", json!({})).unwrap();
     let wh_id = uuid::Uuid::new_v4();
     call("create_warehouse",json!({"warehouse":{"id":wh_id,"project_id":project["id"],"name":"Depósito IPC","location":"A1"}})).unwrap();
@@ -282,6 +298,10 @@ fn ipc_creates_budget_and_preserves_issued_snapshot() {
     assert!(call("post_operation", json!({"operation":op})).is_err());
     call("verify_database", json!({})).unwrap();
     call("restore_backup", json!({"id":backup})).unwrap();
+    assert_eq!(
+        call("get_print_profile", json!({})).unwrap()["profile"]["company_name"],
+        "Empresa pública IPC"
+    );
     assert_eq!(
         call("list_price_templates", json!({}))
             .unwrap()

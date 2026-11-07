@@ -75,6 +75,18 @@ detallar gastos por grupos e ítems. Permite montos manuales, referencias,
 plantillas y exportación. Usá **Guardar determinación** para persistir la vista
 previa. Guía de cálculo y prueba: [docs/PRICE_DETERMINATION.md](docs/PRICE_DETERMINATION.md).
 
+## Presupuesto para cliente, interno e incidencias
+
+Configurá el emisor y su logotipo en **Inicio → Datos de impresión**. Dentro de
+la obra, **Imprimir presupuesto** permite generar la presentación para cliente,
+la interna con costos y determinación de precio, o la planilla de incidencias
+sobre el total final. Se exportan a PDF y Excel.
+
+El PDF se guarda y se abre en el lector predeterminado del sistema; desde allí
+podés imprimirlo. La presentación para cliente muestra precios finales sin
+exponer el desglose de costos ni los márgenes internos. Guía y criterios de
+reparto: [docs/PRINTING.md](docs/PRINTING.md).
+
 ## Instalar dependencias
 
 Requisitos: Rust 1.99.1 con `rustfmt` (fijado en `rust-toolchain.toml`, instalable con rustup), Node.js 24 (versión fijada en `.nvmrc`) y npm. En Linux también
@@ -84,7 +96,7 @@ administrativos:
 ```bash
 sudo apt-get update
 sudo apt-get install -y build-essential pkg-config libwebkit2gtk-4.1-dev \
-  libxdo-dev libssl-dev librsvg2-dev libayatana-appindicator3-dev
+  libxdo-dev libssl-dev librsvg2-dev libayatana-appindicator3-dev libglib2.0-bin
 ```
 
 Desde la raíz del repositorio:

@@ -15,3 +15,5 @@ pub(crate) mod sections;
 pub(crate) mod operations;
 
 pub(crate) mod price_determination;
+
+pub(crate) mod printing;

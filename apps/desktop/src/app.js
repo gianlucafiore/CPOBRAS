@@ -1,3 +1,5 @@
+import { createPrintProfile } from "./components/print-profile.js";
+import { createBudgetPrinting } from "./components/budget-printing.js";
 import { createPriceDetermination } from "./components/price-determination.js";
 import { createBudgetPatterns } from "./components/budget-patterns.js";
 import { createUnitPicker } from "./components/unit-picker.js";
@@ -54,6 +56,8 @@ export function createWorkspaceApp({
   const patterns = createBudgetPatterns(context);
   const pricing = createPriceDetermination(context);
   const budgetTools = createBudgetTools(context);
+  const printProfile = createPrintProfile(context);
+  const printing = createBudgetPrinting(context);
   const { workspace, listViews, chrome, rightPanel } = createViews({
     ...context,
     modalMarkup,
@@ -95,21 +99,25 @@ export function createWorkspaceApp({
     const top = document.querySelector(".table-scroll");
     const position = top?.scrollTop || 0;
     root.innerHTML =
-      state.view === "price-determination"
-        ? chrome(pricing.markup())
-        : ["operations", "portfolio"].includes(state.view)
-          ? chrome(operations.markup())
-          : state.view === "budget-tools"
-            ? chrome(budgetTools.markup())
-            : state.view === "costing"
-              ? chrome(costing.markup())
-              : state.view === "planning"
-                ? chrome(planning.markup())
-                : state.view === "management"
-                  ? chrome(management.markup())
-                  : state.view === "workspace"
-                    ? workspace()
-                    : listViews();
+      state.view === "print-profile"
+        ? chrome(printProfile.markup())
+        : state.view === "budget-printing"
+          ? chrome(printing.markup())
+          : state.view === "price-determination"
+            ? chrome(pricing.markup())
+            : ["operations", "portfolio"].includes(state.view)
+              ? chrome(operations.markup())
+              : state.view === "budget-tools"
+                ? chrome(budgetTools.markup())
+                : state.view === "costing"
+                  ? chrome(costing.markup())
+                  : state.view === "planning"
+                    ? chrome(planning.markup())
+                    : state.view === "management"
+                      ? chrome(management.markup())
+                      : state.view === "workspace"
+                        ? workspace()
+                        : listViews();
     if (patterns.model.active) {
       root.innerHTML += patterns.markup();
       patterns.afterRender();
@@ -171,6 +179,8 @@ export function createWorkspaceApp({
     "open-costing": "costing",
     "open-price-determination": "price-determination",
     "open-budget-tools": "budget-tools",
+    "open-print-profile": "print-profile",
+    "open-budget-printing": "budget-printing",
   };
   function protectContext() {
     if (state.busy || state.navigating) return false;
@@ -202,9 +212,13 @@ export function createWorkspaceApp({
       return true;
     if (
       state.projectId &&
-      ["navigate", "open-costing", "open-project", "open-portfolio"].includes(
-        action,
-      )
+      [
+        "navigate",
+        "open-costing",
+        "open-project",
+        "open-portfolio",
+        "open-print-profile",
+      ].includes(action)
     )
       throw new Error(
         "Volvé a Inicio para administrar datos base o abrir otra obra",
@@ -217,6 +231,7 @@ export function createWorkspaceApp({
         "open-planning",
         "open-price-determination",
         "open-budget-tools",
+        "open-budget-printing",
       ].includes(action)
     )
       throw new Error("Abrí una obra desde Inicio");
@@ -258,6 +273,8 @@ export function createWorkspaceApp({
         await costing.act(button);
       } else if (action === "open-price-determination")
         await pricing.act(button);
+      else if (action === "open-print-profile") await printProfile.act(button);
+      else if (action === "open-budget-printing") await printing.act(button);
       else if (action === "open-budget-tools") await budgetTools.act(button);
       else await act(button);
     } finally {
@@ -300,6 +317,8 @@ export function createWorkspaceApp({
         await management.act({ dataset: { action: "open-management" } });
       else if (view === "price-determination")
         await pricing.act({ dataset: { action: "open-price-determination" } });
+      else if (view === "budget-printing")
+        await printing.act({ dataset: { action: "open-budget-printing" } });
       else if (view === "budget-tools")
         await budgetTools.act({ dataset: { action: "open-budget-tools" } });
     } catch (error) {
@@ -382,6 +401,14 @@ export function createWorkspaceApp({
     }
     try {
       if (await route(button)) return;
+      if (button.dataset.action.startsWith("print-profile-")) {
+        await printProfile.act(button);
+        return;
+      }
+      if (button.dataset.action.startsWith("printing-")) {
+        await printing.act(button);
+        return;
+      }
       if (
         button.dataset.action === "modal-rates" ||
         button.dataset.action.startsWith("price-")
@@ -438,6 +465,8 @@ export function createWorkspaceApp({
   });
   document.addEventListener("submit", async (evt) => {
     const groups = [
+      [printProfile, ["print-profile-form"]],
+      [printing, ["budget-print-form"]],
       [
         pricing,
         ["price-item-form", "price-template-form", "price-export-form"],
@@ -506,6 +535,8 @@ export function createWorkspaceApp({
       else await handleSubmit(form);
       if (
         [
+          "print-profile-form",
+          "budget-print-form",
           "management-form",
           "planning-task-form",
           "planning-settings",
@@ -535,7 +566,7 @@ export function createWorkspaceApp({
   document.addEventListener("change", async (evt) => {
     if (
       evt.target.closest?.(
-        "#management-form,#planning-task-form,#planning-settings,#budget-bulk-form,#nested-analysis-form,#price-list-form,#scoped-price-form",
+        "#print-profile-form,#budget-print-form,#management-form,#planning-task-form,#planning-settings,#budget-bulk-form,#nested-analysis-form,#price-list-form,#scoped-price-form",
       )
     )
       state.pageDirty = true;
@@ -553,6 +584,8 @@ export function createWorkspaceApp({
       await pricing.change(evt.target);
       await patterns.change(evt.target);
       await operations.change(evt.target);
+      await printProfile.change(evt.target);
+      await printing.change(evt.target);
       await management.change(evt.target);
       await planning.change(evt.target);
       await costing.change(evt.target);
@@ -592,10 +625,11 @@ export function createWorkspaceApp({
   document.addEventListener("input", (evt) => {
     if (
       evt.target.closest?.(
-        "#management-form,#planning-task-form,#planning-settings,#budget-bulk-form,#nested-analysis-form,#price-list-form,#scoped-price-form",
+        "#print-profile-form,#budget-print-form,#management-form,#planning-task-form,#planning-settings,#budget-bulk-form,#nested-analysis-form,#price-list-form,#scoped-price-form",
       )
     )
       state.pageDirty = true;
+    printing.input(evt.target);
     pricing.input(evt.target);
     patterns.input(evt.target);
     unitPicker.input(evt);

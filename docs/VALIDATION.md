@@ -5,10 +5,10 @@ con Node 24.22.1 y Rust 1.99.1. `tools/check.sh` reúne los checks reproducibles
 
 | Comprobación | Evidencia |
 | --- | --- |
-| Rust, núcleo y almacenamiento | 81 tests: 22 de dominio y 59 de persistencia/regresión |
-| Escritorio Tauri | 2 tests nativos: recorrido IPC y regresión GLib optimizada |
-| JavaScript | 23 tests, con aislamiento de procesos desactivado explícitamente en el runner |
-| Chromium | 29 recorridos de interfaz sobre DOM real y un puente IPC de prueba |
+| Rust, núcleo y almacenamiento | 84 tests: 22 de dominio y 62 de persistencia/regresión |
+| Escritorio Tauri | 4 tests nativos: IPC, GLib, rutas PDF y lector predeterminado en Linux |
+| JavaScript | 27 tests, con aislamiento de procesos desactivado explícitamente en el runner |
+| Chromium | 32 recorridos de interfaz sobre DOM real y un puente IPC de prueba |
 | Formato Rust | Workspace y aplicación Tauri |
 | Frontend de producción | Vite build, incluyendo los módulos de Excel y PDF |
 | Ejecutable Linux | Compilación con `custom-protocol` y arranque WebKitGTK en Xvfb |
@@ -20,6 +20,23 @@ integración nativa: el recorrido IPC usa Tauri con su configuración real y
 comprueba clientes, obras, ACU, presupuesto emitido, directorios, listas de
 precios, ACU anidados, importación, cronograma, línea base, copia/restauración,
 exportación, depósitos, documentos operativos, reportes de gestión y rechazo de ventanas/orígenes sin permisos.
+
+## Presentaciones e impresión
+
+- Perfil público independiente de Organización, revisión al guardar, validación
+  de logotipo, consulta consistente y conservación en copia/restauración.
+- Reparto exacto de centavos y porcentajes hasta 100%; tratamiento explícito de
+  cargos con costo directo cero; ausencia de mutación de costos al imprimir.
+- PDF para cliente sin desglose de costos ni beneficio, PDF interno con
+  determinación, rubros anidados, logo y múltiples páginas sin perder filas.
+- Excel con importes y porcentajes como cadenas decimales exactas.
+- IPC real de perfil y datos de impresión; apertura restringida a PDFs propios.
+  GIO entrega un PDF con espacios en el nombre a una aplicación predeterminada
+  de prueba, usando un perfil XDG temporal separado del escritorio del usuario.
+- Chromium cubre carga de PNG, guardado, vista pública, cambio de presentación
+  conservando condiciones, Excel y recuperación cuando falta asociación PDF.
+
+Guía: [PRINTING.md](PRINTING.md). Esquema SQLite actual: 19.
 
 ## Navegación y contexto de obra
 
@@ -52,7 +69,7 @@ exportación, depósitos, documentos operativos, reportes de gestión y rechazo 
 - Excel y PDF del presupuesto incluyen los conceptos personalizados; las
   exportaciones de determinación conservan los decimales exactos.
 
-Guía: [PRICE_DETERMINATION.md](PRICE_DETERMINATION.md). Esquema SQLite: 18.
+Guía: [PRICE_DETERMINATION.md](PRICE_DETERMINATION.md).
 
 ## Patrones y precios por presupuesto
 
