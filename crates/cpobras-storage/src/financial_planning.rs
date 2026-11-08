@@ -105,7 +105,10 @@ impl LocalStore {
         let (Some(saved), Some(eid)) = (self.project_plan(project_id)?, estimate_id) else {
             return Ok(None);
         };
-        let plan = saved.plan;
+        let mut plan = saved.plan;
+        let certificate_terms =
+            crate::construction_workflow::terms(&self.conn, estimate_id.unwrap())?;
+        crate::construction_workflow::apply_progress(&self.conn, project_id, &mut plan, true)?;
         let schedule = plan.schedule(as_of).map_err(StorageError::InvalidValue)?;
         let estimate = self
             .get_estimate(eid)?
@@ -152,6 +155,22 @@ impl LocalStore {
         }
         let sale = self.priced_estimate_total(eid)?.total;
         let direct = self.estimate_total(eid)?;
+        let price = self.get_price_definition(eid)?;
+        if price.definition.rows.iter().any(|r| {
+            r.enabled
+                && !r.subtract
+                && matches!(
+                    r.role,
+                    cpobras_core::price_determination::PriceRole::Overhead
+                        | cpobras_core::price_determination::PriceRole::Finance
+                        | cpobras_core::price_determination::PriceRole::Other
+                )
+                && r.kind != cpobras_core::price_determination::PriceKind::Subtotal
+                && r.items.iter().all(|i| i.periodic.is_none())
+        }) {
+            warnings.insert("Hay cargos de Determinación de precio sin calendario de egresos. Cargá sus contratos, facturas o detalle mensual; esos gastos aún no tienen fecha en esta previsión".into());
+        }
+
         let factor = if direct > D::ZERO {
             div(sale, direct)?
         } else {
@@ -262,6 +281,117 @@ impl LocalStore {
             )?
             .max(D::ZERO);
             if remaining > D::ZERO {
+                if let Some(t) = &o.contract_terms {
+                    let mut scheduled = BTreeMap::<String, D>::new();
+                    if ["fixed", "daily", "hourly"].contains(&t.method.as_str()) {
+                        let mut cursor = date(&t.start)?;
+                        let end = date(&t.end)?;
+                        while cursor <= end {
+                            let pay = crate::construction_workflow::pay_date(
+                                &cursor.to_string(),
+                                &t.frequency,
+                            )?;
+                            let amount = if t.method == "fixed" {
+                                t.rate
+                            } else {
+                                mul(t.rate, t.forecast_units)?
+                            };
+                            scheduled.insert(pay.clone(), amount);
+                            cursor = date(&pay)? + Duration::days(1);
+                        }
+                    } else {
+                        for l in &o.lines {
+                            let Some(id) = l.line_id else { continue };
+                            let tasks: Vec<_> = plan
+                                .tasks
+                                .iter()
+                                .filter(|t| t.estimate_line_id == Some(id))
+                                .collect();
+                            if tasks.is_empty() {
+                                continue;
+                            }
+                            let mut days = vec![];
+                            for task in tasks {
+                                if let Some(st) = schedule.tasks.iter().find(|x| x.id == task.id) {
+                                    let mut d = date(&st.start)?;
+                                    while d <= date(&st.finish)? {
+                                        if plan.calendar.working(d) {
+                                            days.push(d);
+                                        }
+                                        d += Duration::days(1);
+                                    }
+                                }
+                            }
+                            days.sort();
+                            days.dedup();
+                            if days.is_empty() {
+                                continue;
+                            }
+                            let unit = div(mul(l.quantity, l.unit_price)?, D::from(days.len()))?;
+                            for day in days {
+                                let pay = crate::construction_workflow::pay_date(
+                                    &day.to_string(),
+                                    &t.frequency,
+                                )?;
+                                let v = scheduled.entry(pay).or_default();
+                                *v = add(*v, unit)?;
+                            }
+                        }
+                    }
+                    let mut outstanding = remaining;
+                    if scheduled.is_empty() {
+                        warnings.insert(format!("{}: falta programación de las tareas contratadas; el saldo se prevé de inmediato",o.number));
+                        scheduled.insert(first.to_string(), remaining);
+                    }
+                    for (pay, amount) in scheduled {
+                        if outstanding <= D::ZERO {
+                            break;
+                        }
+                        let approved = sum(docs
+                            .iter()
+                            .filter(|d| {
+                                d.kind == "subcertificate"
+                                    && d.reference_id == Some(o.id)
+                                    && crate::construction_workflow::pay_date(
+                                        &d.period_end,
+                                        &t.frequency,
+                                    )
+                                    .ok()
+                                    .as_ref()
+                                        == Some(&pay)
+                            })
+                            .map(|d| d.calculated.get("gross").copied().unwrap_or(d.amount)))?;
+                        let amount = sub(amount, approved)?.max(D::ZERO).min(outstanding);
+                        if amount > D::ZERO {
+                            let due = (date(&pay)?
+                                + Duration::days(i64::from(t.payment_delay_days)))
+                            .to_string()
+                            .max(first.to_string());
+                            event(
+                                due,
+                                format!("Contrato {} · {}", o.number, t.scope),
+                                "commitment",
+                                D::ZERO,
+                                amount,
+                            );
+                            outstanding = sub(outstanding, amount)?;
+                        }
+                    }
+                    if outstanding > D::ZERO {
+                        warnings.insert(format!(
+                            "{}: saldo sin fecha contractual suficiente; se prevé al inicio",
+                            o.number
+                        ));
+                        event(
+                            first.to_string(),
+                            format!("Saldo por programar · {}", o.number),
+                            "commitment",
+                            D::ZERO,
+                            outstanding,
+                        );
+                    }
+                    continue;
+                }
                 let due = if o.due_date.is_empty() {
                     warnings.insert(format!(
                         "{} no tiene fecha de pago: se prevé al inicio del próximo período",
@@ -286,7 +416,7 @@ impl LocalStore {
         {
             event(
                 r.due_date.clone().max(first.to_string()),
-                format!("Alquiler · {} · {}", r.description, r.period_start),
+                format!("Gasto mensual · {} · {}", r.description, r.period_start),
                 "rental",
                 D::ZERO,
                 r.unbilled,
@@ -357,6 +487,16 @@ impl LocalStore {
         let mut wages = BTreeMap::<(String, Uuid, Uuid), D>::new();
         let mut crew_terms = BTreeMap::new();
         let mut planned_sale = BTreeMap::<String, D>::new();
+        // Accepted physical work still awaiting the client certificate remains billable,
+        // while its materials must not be bought a second time.
+        for progress in self.available_progress(project_id, eid)? {
+            if let Some(line) = lines.get(&progress.line_id) {
+                let value = mul(mul(progress.quantity, line.unit_cost_snapshot)?, factor)?;
+                let v = planned_sale.entry(first.to_string()).or_default();
+                *v = add(*v, value)?;
+            }
+        }
+
         for t in &plan.tasks {
             let Some(line) = t.estimate_line_id.and_then(|id| lines.get(&id)) else {
                 continue;
@@ -645,30 +785,21 @@ impl LocalStore {
                     None
                 }
             };
-            if let Some(a) = &adjustment {
-                gross = mul(gross, a.factor)?;
-            }
-            let actual_certified = sum(docs
-                .iter()
-                .filter(|o| {
-                    o.kind == "certificate"
-                        && o.estimate_id == Some(eid)
-                        && o.period_start >= start_iso
-                        && o.period_end <= cut
-                })
-                .map(|o| o.calculated.get("gross").copied().unwrap_or(o.amount)))?;
-            gross = sub(gross, actual_certified)?.max(D::ZERO);
-            let recovery = percent(gross, plan.finance.advance_recovery_percent)?.min(advance);
+            let base = gross;
+            let recovery = percent(base, certificate_terms.advance_recovery_percent)?.min(advance);
             advance = sub(advance, recovery)?;
-            let retention = percent(gross, plan.finance.retention_percent)?;
+            let factor = adjustment.as_ref().map_or(D::ONE, |a| a.factor);
+            gross = add(base, mul(sub(base, recovery)?, sub(factor, D::ONE)?)?)?;
+            let retention = percent(gross, certificate_terms.retention_percent)?;
             let net = sub(sub(gross, recovery)?, retention)?;
             if net < D::ZERO {
                 return Err(err(
                     "La recuperación y el reparo previstos superan el certificado",
                 ));
             }
-            let collection =
-                (end + Duration::days(i64::from(plan.finance.collection_delay_days))).to_string();
+            let collection = (end
+                + Duration::days(i64::from(certificate_terms.collection_delay_days)))
+            .to_string();
             event(
                 collection.clone(),
                 format!("Cobro estimado del corte {}", cut),

@@ -55,7 +55,7 @@ export function createGantt({ state, model, document, save, render }) {
   }
   function taskBar(task, scheduled) {
     const days = dayNumber(scheduled.finish) - dayNumber(scheduled.start) + 1;
-    return `<button class="gantt-bar ${scheduled.critical ? "critical" : ""} ${task.duration_days === 0 ? "gantt-milestone" : ""}" data-task-id="${e(task.id)}" data-action="plan-edit" data-id="${e(task.id)}" style="left:${left(scheduled.start)}px;width:${task.duration_days === 0 ? 16 : Math.max(16, days * CELL)}px" title="${e(task.name)} · ${task.duration_days} días"><span data-gantt-fill>${fills(scheduled.start, scheduled.finish)}</span><span class="gantt-bar-title">${e(task.name)}</span><i data-resize="true" aria-label="Cambiar duración">↔</i></button>`;
+    return `<button class="gantt-bar ${scheduled.critical ? "critical" : ""} ${task.duration_days === 0 ? "gantt-milestone" : ""}" data-task-id="${e(task.id)}" data-action="plan-edit" data-id="${e(task.id)}" style="left:${left(scheduled.start)}px;width:${task.duration_days === 0 ? 16 : Math.max(16, days * CELL)}px" title="${e(task.name)} · ${task.duration_days} días"><span data-gantt-fill>${fills(scheduled.start, scheduled.finish)}</span><span class="gantt-certified-fill" style="width:${Math.max(0,Math.min(100,Number(task.actual_progress)||0))}%" title="Avance certificado ${e(task.actual_progress)} %"></span><span class="gantt-bar-title">${e(task.name)}</span><i data-resize="true" aria-label="Cambiar duración">↔</i></button>`;
   }
   function visibleCount(width) {
     return (

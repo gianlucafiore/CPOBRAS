@@ -379,3 +379,12 @@ frontend y las comprobaciones de formato Rust son correctas.
   frente a versiones anteriores que no interpretan estas reglas.
 - No se generaron AppImage, etiquetas ni releases.
 - Flujo y limitaciones operativas: [guía de índices y certificados](INDEX_ADJUSTMENTS.md).
+
+## Certificados, cotizaciones y contratos (2026-11-08)
+
+- Esquema 28: borradores con revisión, emisión atómica y documentos de impresión inmutables, orígenes físicos y solicitudes de cotización.
+- Pruebas de certificados preliminares sin emisión, revisión obsoleta, cierre inmutable, anticipo antes del índice, contratos fijos y avances de contratistas consumidos una vez.
+- Pruebas de respuesta XLSX por identificadores estables, precio cero/vacío y ausencia de modificación del presupuesto. PDF completo con partidas sin avance y puntajes de índices.
+- Núcleo: 28; almacenamiento: 93; JavaScript: 42; navegador: 70; nativas Tauri: 13. Vite compila correctamente.
+- Se verificó la privacidad de condiciones financieras y conservación de cortes del Gantt para observadores autorizados solo a planificación.
+- Sin generación de AppImage ni publicación de release.

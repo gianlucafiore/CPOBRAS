@@ -10,6 +10,7 @@ pub mod budget_patterns;
 pub mod budget_pricing;
 pub mod budget_sections;
 pub mod budget_tools;
+pub mod construction_workflow;
 pub mod estimate_comparison;
 pub mod estimate_resource_prices;
 pub mod estimates;
@@ -23,6 +24,7 @@ pub mod persons;
 pub mod planning;
 pub mod price_determination;
 pub mod printing;
+pub mod quotation_workflow;
 pub mod resource_catalog;
 pub mod sharing;
 pub mod system_settings;
@@ -99,6 +101,7 @@ impl LocalStore {
             include_str!("../migrations/0025_calendar_exceptions.sql"),
             include_str!("../migrations/0026_financial_planning.sql"),
             include_str!("../migrations/0027_calendar_and_certificates.sql"),
+            include_str!("../migrations/0028_construction_workflow.sql"),
         ];
         let latest: i64 = conn.query_row(
             "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",

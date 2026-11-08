@@ -16,12 +16,24 @@ export function createAdjustmentAgreement({
     definition: null,
     points: [],
     enabled: false,
+    terms: {
+      advance_recovery_percent: "0",
+      retention_percent: "0",
+      collection_delay_days: 3,
+    },
   };
   const read = () => {
     const form = document.querySelector("#adjustment-agreement-form");
     if (!form) return;
     const data = new FormData(form);
     model.enabled = data.has("enabled");
+    model.terms = {
+      advance_recovery_percent: String(
+        data.get("advance_recovery_percent") || "0",
+      ),
+      retention_percent: String(data.get("retention_percent") || "0"),
+      collection_delay_days: Number(data.get("collection_delay_days") || 0),
+    };
     if (!model.enabled) return;
     model.definition = {
       base_month: String(data.get("base_month") ?? model.definition.base_month),
@@ -45,7 +57,7 @@ export function createAdjustmentAgreement({
     const a = model.definition,
       disabled =
         currentEstimate()?.issued || state.remoteProject ? "disabled" : "";
-    return `<div class="modal-overlay"><section class="dialog-shell" role="dialog" aria-modal="true" aria-label="Acuerdo de ajuste del presupuesto" style="width:min(760px,94vw)"><form id="adjustment-agreement-form"><div class="dialog-header"><h2>Acuerdo de ajuste del presupuesto</h2><button class="close-dialog" type="button" data-action="agreement-close" aria-label="Cerrar acuerdo">×</button></div><div class="compact-editor-body"><p>${currentEstimate()?.issued ? "Presupuesto emitido: el acuerdo es de solo lectura. Volvé a borrador o creá una nueva versión para cambiarlo. " : ""}Este acuerdo pertenece únicamente al presupuesto activo. Los puntajes mensuales se cargan en Inicio → Datos generales. Al emitir se conserva la fórmula y los valores utilizados.</p><label><input type="checkbox" name="enabled" ${model.enabled ? "checked" : ""} ${disabled}> Aplicar ajuste de índices</label><div class="form-grid">${field("Mes base del presupuesto", "base_month", a.base_month, 'type="month" required ' + disabled)}${field("Meses de desfase respecto del corte", "lag_months", a.lag_months, 'type="number" min="0" max="24" required ' + disabled)}</div><datalist id="agreement-series">${[...new Set(["CAC", "IPC", "INDEC", ...model.points.map((p) => p.series), ...a.weights.map((w) => w.series)])].map((s) => `<option value="${e(s)}"></option>`).join("")}</datalist>${a.weights.map((w, i) => `<div class="index-weight" data-agreement-weight>${field("Índice", "series", w.series, 'list="agreement-series" required maxlength="80" ' + disabled)}${field("Peso %", "weight", multiplyDecimals(w.weight, "100"), 'type="number" min="0.000001" max="100" step="any" required ' + disabled)}<button class="btn" type="button" data-action="agreement-remove" data-index="${i}" ${disabled}>Quitar índice</button></div>`).join("")}<button class="btn" type="button" data-action="agreement-add" ${disabled}>Agregar índice</button><p>Los pesos deben sumar 100 %. Si falta una publicación, se toma el último mes común disponible y queda un ajuste provisorio. Las diferencias posteriores se proponen para otro certificado.</p><p class="feature-error" role="alert"></p></div><div class="dialog-actions"><button class="btn" type="button" data-action="agreement-close">Cerrar</button><button class="btn primary" type="submit" ${disabled}>Guardar acuerdo</button></div></form></section></div>`;
+    return `<div class="modal-overlay"><section class="dialog-shell" role="dialog" aria-modal="true" aria-label="Acuerdo de ajuste del presupuesto" style="width:min(760px,94vw)"><form id="adjustment-agreement-form"><div class="dialog-header"><h2>Acuerdo de ajuste del presupuesto</h2><button class="close-dialog" type="button" data-action="agreement-close" aria-label="Cerrar acuerdo">×</button></div><div class="compact-editor-body"><p>${currentEstimate()?.issued ? "Presupuesto emitido: el acuerdo es de solo lectura. Volvé a borrador o creá una nueva versión para cambiarlo. " : ""}Este acuerdo pertenece únicamente al presupuesto activo. Los puntajes mensuales se cargan en Inicio → Datos generales. Al emitir se conserva la fórmula y los valores utilizados.</p><div class="form-grid">${field("Recuperación de anticipo % (antes del ajuste)", "advance_recovery_percent", model.terms.advance_recovery_percent, 'type="number" min="0" max="100" step="any" ' + disabled)}${field("Fondo de reparo %", "retention_percent", model.terms.retention_percent, 'type="number" min="0" max="100" step="any" ' + disabled)}${field("Días desde emisión hasta cobro", "collection_delay_days", model.terms.collection_delay_days, 'type="number" min="0" max="365" ' + disabled)}</div><label><input type="checkbox" name="enabled" ${model.enabled ? "checked" : ""} ${disabled}> Aplicar ajuste de índices</label><div class="form-grid">${field("Mes base del presupuesto", "base_month", a.base_month, 'type="month" required ' + disabled)}${field("Meses de desfase respecto del corte", "lag_months", a.lag_months, 'type="number" min="0" max="24" required ' + disabled)}</div><datalist id="agreement-series">${[...new Set(["CAC", "IPC", "INDEC", ...model.points.map((p) => p.series), ...a.weights.map((w) => w.series)])].map((s) => `<option value="${e(s)}"></option>`).join("")}</datalist>${a.weights.map((w, i) => `<div class="index-weight" data-agreement-weight>${field("Índice", "series", w.series, 'list="agreement-series" required maxlength="80" ' + disabled)}${field("Peso %", "weight", multiplyDecimals(w.weight, "100"), 'type="number" min="0.000001" max="100" step="any" required ' + disabled)}<button class="btn" type="button" data-action="agreement-remove" data-index="${i}" ${disabled}>Quitar índice</button></div>`).join("")}<button class="btn" type="button" data-action="agreement-add" ${disabled}>Agregar índice</button><p>Los pesos deben sumar 100 %. Si falta una publicación, se toma el último mes común disponible y queda un ajuste provisorio. Las diferencias posteriores se proponen para otro certificado.</p><p class="feature-error" role="alert"></p></div><div class="dialog-actions"><button class="btn" type="button" data-action="agreement-close">Cerrar</button><button class="btn primary" type="submit" ${disabled}>Guardar acuerdo</button></div></form></section></div>`;
   }
   async function act(button) {
     const a = button.dataset.action;
@@ -62,6 +74,11 @@ export function createAdjustmentAgreement({
         invoke("get_estimate_metadata", { estimateId: state.estimateId }),
       ]);
       model.revision = saved?.revision || 0;
+      model.terms = saved?.terms || {
+        advance_recovery_percent: "0",
+        retention_percent: "0",
+        collection_delay_days: 3,
+      };
       model.enabled = Boolean(saved?.definition);
       model.definition = saved?.definition || {
         base_month:
@@ -93,6 +110,7 @@ export function createAdjustmentAgreement({
       estimateId: state.estimateId,
       revision: model.revision,
       definition: model.enabled ? model.definition : null,
+      terms: model.terms,
     });
     model.revision = saved.revision;
     model.open = false;

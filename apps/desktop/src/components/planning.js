@@ -25,7 +25,7 @@ export function createPlanningWorkspace({
   FormData,
 }) {
   const model = {
-    tab: "gantt",
+    tab: "pert",
     calendarOpen: false,
     financeOpen: false,
     overview: [],
@@ -151,13 +151,7 @@ export function createPlanningWorkspace({
     );
     model.editing = null;
     model.dirty = false;
-    model.overview = state.estimateId
-      ? (await invoke("certification_overview", {
-          projectId: model.projectId,
-          estimateId: state.estimateId,
-          asOf: model.asOf,
-        })) || []
-      : [];
+    model.overview = [];
     model.schedule = await invoke("calculate_schedule", {
       plan: model.plan,
       asOf: model.asOf,
@@ -179,17 +173,7 @@ export function createPlanningWorkspace({
     model.history = await invoke("list_plan_revisions", {
       projectId: model.projectId,
     }).catch(() => model.history);
-    model.overview = state.estimateId
-      ? (await invoke("certification_overview", {
-          projectId: model.projectId,
-          estimateId: state.estimateId,
-          asOf: model.asOf,
-        }).catch((error) => {
-          state.message =
-            "Plan guardado; no se pudo actualizar la previsión: " + error;
-          return model.overview;
-        })) || []
-      : [];
+    model.overview = [];
     model.schedule = await invoke("calculate_schedule", {
       plan: model.plan,
       asOf: model.asOf,
@@ -344,7 +328,7 @@ export function createPlanningWorkspace({
       ...state.resources.map((resource) => [resource.id, resource.description]),
       ...model.crews.map((crew) => [crew.id, crew.name]),
     ];
-    return `<div class="modal-overlay task-editor-overlay"><section class="dialog-shell task-editor-dialog" role="dialog" aria-modal="true" aria-label="Editar tarea o hito"><form id="planning-task-form"><div class="dialog-header"><h2>Editar tarea / hito</h2><button class="close-dialog" type="button" data-action="plan-cancel" aria-label="Cerrar editor de tarea">×</button></div><div class="compact-editor-body"><div class="task-basic-grid">${field("Nombre", "name", task.name, "required")}${select("Tarea superior", "parent_id", [["", "Sin superior"], ...options(task.id)], task.parent_id)}${select("Partida presupuestaria", "estimate_line_id", [["", "Sin partida vinculada"], ...(model.lines || []).map((line) => [line.id, line.description])], task.estimate_line_id)}${field("Duración en días laborables (0 = hito)", "duration_days", task.duration_days, 'type="number" min="0" max="36500" required')}${field("No iniciar antes de", "not_before", task.not_before || "", 'type="date"')}${field("Fecha límite de finalización", "finish_by", task.finish_by || "", 'type="date"')}${field("Costo previsto (se toma de la partida cuando hay vínculo)", "budget", task.budget, 'type="number" min="0" step="any" required')}${field("Avance real %", "actual_progress", task.actual_progress, 'type="number" min="0" max="100" step="any" required')}
+    return `<div class="modal-overlay task-editor-overlay"><section class="dialog-shell task-editor-dialog" role="dialog" aria-modal="true" aria-label="Editar tarea o hito"><form id="planning-task-form"><div class="dialog-header"><h2>Editar tarea / hito</h2><button class="close-dialog" type="button" data-action="plan-cancel" aria-label="Cerrar editor de tarea">×</button></div><div class="compact-editor-body"><div class="task-basic-grid">${field("Nombre", "name", task.name, "required")}${select("Tarea superior", "parent_id", [["", "Sin superior"], ...options(task.id)], task.parent_id)}${select("Partida presupuestaria", "estimate_line_id", [["", "Sin partida vinculada"], ...(model.lines || []).map((line) => [line.id, line.description])], task.estimate_line_id)}${field("Duración en días laborables (0 = hito)", "duration_days", task.duration_days, 'type="number" min="0" max="36500" required')}${field("No iniciar antes de", "not_before", task.not_before || "", 'type="date"')}${field("Fecha límite de finalización", "finish_by", task.finish_by || "", 'type="date"')}${field("Costo previsto (se toma de la partida cuando hay vínculo)", "budget", task.budget, 'type="number" min="0" step="any" required')}${field("Avance real %", "actual_progress", task.actual_progress, 'type="number" min="0" max="100" step="any" readonly title="Se actualiza al emitir certificados en Gestión de obra"')}
 </div>${model.plan.segments?.[task.id] ? `<p class="segment-summary">Tramo: ${numeric(taskPercent(model.plan, task.id))} %${task.estimate_line_id ? " · Cantidad: " + numeric(percentageOf(model.lines.find((l) => l.id === task.estimate_line_id)?.quantity || "0", taskPercent(model.plan, task.id))) + " " + e(model.lines.find((l) => l.id === task.estimate_line_id)?.unit || "") : ""}. El costo se distribuye automáticamente.</p>` : ""}<details class="task-advanced" ${model.plan.presentation?.[task.id]?.estimates ? "open" : ""}><summary>Estimación PERT (opcional)</summary><fieldset class="pert-estimates"><legend>Estimación PERT (opcional)</legend><label><input type="checkbox" name="pert-estimated" ${task._pert || model.plan.presentation?.[task.id]?.estimates ? "checked" : ""}> Calcular duración con tres estimaciones</label><div class="form-grid">${["Optimista", "Probable", "Pesimista"].map((label, i) => field(label + " (días)", "pert-estimate-" + i, (task._pert || model.plan.presentation?.[task.id]?.estimates)?.[i] ?? task.duration_days, 'type="number" min="0" max="36500" step="1"')).join("")}</div><p>Duración = (optimista + 4 × probable + pesimista) / 6, redondeada hacia arriba a días laborables.</p></fieldset></details><details class="task-advanced" ${task.predecessors.length ? "open" : ""}><summary>Dependencias y desfases</summary>${task.predecessors
       .map(
         (dep, index) =>
@@ -392,22 +376,6 @@ export function createPlanningWorkspace({
     );
     return `<details class="planning-options"><summary>Cómo se calcula la duración · camino crítico</summary>${walk.simple ? `<p class="critical-walk"><strong>Un recorrido crítico:</strong> ${walk.tasks.map((t) => e(t.name) + " (" + t.duration_days + " d)").join(" → ")} = <strong>${model.schedule.duration_days} días laborables</strong>.</p>` : ""}<p>Las ramas en paralelo no se suman entre sí. El plazo incluye calendario, desfases y restricciones. Una tarea desconectada no retrasa a las demás salvo que termine después.</p><ul>${tasks.map((t) => `<li>${e(t.name)} · ${t.duration_days} días${t.predecessors.length ? " · depende de " + t.predecessors.map((d) => e(model.plan.tasks.find((p) => p.id === d.task_id)?.name || "") + " (" + e(d.kind) + (d.lag_days ? " " + d.lag_days + " d" : "") + ")").join(", ") : ""}</li>`).join("")}</ul><strong>Total del cronograma: ${model.schedule?.duration_days || 0} días laborables</strong></details>`;
   }
-  function financialSettings() {
-    const f = model.plan.finance || {};
-    return `<section class="certifications-card"><div class="feature-toolbar"><h2>Certificaciones programadas</h2><button class="btn" data-action="plan-finance-conditions">Configurar condiciones</button><button class="btn" data-action="agreement-open">Acuerdo de ajuste del presupuesto</button><button class="btn" data-action="plan-overview-refresh">Actualizar previsión</button></div><p>El cobro previsto incluye el ajuste disponible, anticipo y reparo. El resto es ese cobro menos los gastos previstos de la siguiente etapa; no incluye la caja inicial y no es la ganancia de la obra. Los importes previstos no son certificados emitidos. Emitido no significa cobrado: los cobros se registran en Finanzas.</p><table class="data-grid"><thead><tr><th>Corte / estado</th><th>Cobro</th><th>Gastos próxima etapa</th><th>Resto</th><th>Índice aplicado</th><th>Fecha prevista de cobro</th></tr></thead><tbody>${model.overview.map((p) => `<tr><td>${e(p.cut)} · ${e(p.state)}</td><td class="number">${money(p.amount)}</td><td class="number">${money(p.next_expenses)}</td><td class="number">${money(p.remainder)}</td><td>${e(p.index_status)}${p.factor ? " · coef. " + numeric(p.factor) : ""}</td><td>${e(p.collection_date)}</td></tr>`).join("") || '<tr><td colspan="6">Marcá cortes en el Gantt para programar las certificaciones.</td></tr>'}</tbody></table>${
-      model.financeOpen
-        ? `<div class="planning-options"><h3>Condiciones de certificación y caja</h3><p>Los cortes dividen el cronograma en períodos inclusivos. El cálculo financiero se consulta en Gestión de obra → Finanzas. Los ingresos son previsiones de avance planificado: para cobrar, registrá el certificado con las cantidades realmente ejecutadas.</p><form id="planning-finance" class="feature-toolbar"><fieldset><legend>Cortes de certificación (destildá para quitar)</legend>${(f.cut_dates || []).map((d) => `<label><input type="checkbox" name="cut_date" value="${e(d)}" checked> ${e(d)}</label>`).join("")}</fieldset>${field("Agregar fecha de corte", "new_cut", "", 'type="date"')}${field("Días desde corte hasta cobro", "collection_delay_days", f.collection_delay_days || 0, 'type="number" min="0" max="365" required')}${select(
-            "Moneda de la caja",
-            "cash_currency",
-            [
-              ["ARS", "ARS"],
-              ["USD", "USD"],
-            ],
-            f.cash_currency || "ARS",
-          )}${field("Caja disponible a la fecha de seguimiento", "opening_cash", f.opening_cash || "0", 'type="number" min="0" step="any" required')}${field("Reparo previsto %", "retention_percent", f.retention_percent || "0", 'type="number" min="0" max="100" step="any" required')}${field("Recuperación de anticipo del comitente %", "advance_recovery_percent", f.advance_recovery_percent || "0", 'type="number" min="0" max="100" step="any" required')}<button class="btn primary" type="submit">Guardar cortes y condiciones</button><p class="feature-error" role="alert"></p></form></div>`
-        : ""
-    }</section>`;
-  }
   function markup() {
     if (model.plan)
       calendarPicker.configure(
@@ -422,7 +390,7 @@ export function createPlanningWorkspace({
       !model.projectId
         ? "<p>Seleccioná una obra para planificar.</p>"
         : `
-      <nav class="planning-tabs" aria-label="Vistas de planificación"><button class="btn ${model.tab === "gantt" ? "active" : ""}" role="tab" aria-selected="${model.tab === "gantt"}" data-action="plan-view" data-view="gantt">Gantt</button><button class="btn ${model.tab === "pert" ? "active" : ""}" role="tab" aria-selected="${model.tab === "pert"}" data-action="plan-view" data-view="pert">PERT</button></nav><div class="planning-overview-row"><details class="planning-options planning-calendar" ${model.calendarOpen ? "open" : ""}><summary>Seguimiento y excepciones de esta obra</summary><form id="planning-settings" class="feature-toolbar">${field("Inicio del proyecto", "start_date", model.plan.calendar.start_date, 'type="date" required')}${field("Fecha de seguimiento", "as_of", model.asOf, 'type="date" required')}<p>Los feriados generales se administran en Inicio → Datos generales. Aquí solo modificás esta obra.</p><label><input type="checkbox" name="custom_week" ${model.plan.calendar_overrides?.nonworking_weekdays ? "checked" : ""}> Personalizar semana laborable de esta obra</label><fieldset><legend>Días laborables (si se personaliza la semana)</legend>${["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"].map((day, index) => `<label><input type="checkbox" name="workday" value="${index}" ${model.plan.calendar.nonworking_weekdays.includes(index) ? "" : "checked"}>${day}</label>`).join("")}</fieldset><details><summary>Feriados heredados del calendario general</summary>${
+      <nav class="planning-tabs" aria-label="Vistas de planificación"><button class="btn ${model.tab === "pert" ? "active" : ""}" role="tab" aria-selected="${model.tab === "pert"}" data-action="plan-view" data-view="pert">PERT</button><button class="btn ${model.tab === "gantt" ? "active" : ""}" role="tab" aria-selected="${model.tab === "gantt"}" data-action="plan-view" data-view="gantt">Gantt</button></nav><div class="planning-overview-row"><details class="planning-options planning-calendar" ${model.calendarOpen ? "open" : ""}><summary>Seguimiento y excepciones de esta obra</summary><form id="planning-settings" class="feature-toolbar">${field("Inicio del proyecto", "start_date", model.plan.calendar.start_date, 'type="date" required')}${field("Fecha de seguimiento", "as_of", model.asOf, 'type="date" required')}<p>Los feriados generales se administran en Inicio → Datos generales. Aquí solo modificás esta obra.</p><label><input type="checkbox" name="custom_week" ${model.plan.calendar_overrides?.nonworking_weekdays ? "checked" : ""}> Personalizar semana laborable de esta obra</label><fieldset><legend>Días laborables (si se personaliza la semana)</legend>${["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"].map((day, index) => `<label><input type="checkbox" name="workday" value="${index}" ${model.plan.calendar.nonworking_weekdays.includes(index) ? "" : "checked"}>${day}</label>`).join("")}</fieldset><details><summary>Feriados heredados del calendario general</summary>${
         Object.entries(model.generalCalendar.exceptions || {})
           .sort(([a], [b]) => a.localeCompare(b))
           .map(
@@ -432,7 +400,7 @@ export function createPlanningWorkspace({
           .join("") || "Sin feriados generales cargados."
       }</details><div data-calendar-picker>${calendarPicker.markup()}</div><button class="btn primary" type="submit">Guardar calendario</button><p class="feature-error" role="alert"></p></form></details>
       <div class="planning-metrics"><span>Duración <b>${model.schedule?.duration_days || 0} días laborables</b></span><span>Fin previsto <b>${e(model.schedule?.finish)}</b></span><span>Planificado <b>${numeric(model.schedule?.planned_progress)} %</b></span><span>Real <b>${numeric(model.schedule?.actual_progress)} %</b></span><span>${model.dirty ? "Cambios sin guardar" : "Revisión " + model.revision}</span></div></div>
-      ${model.schedule?.warnings.map((warning) => `<p class="feature-error">${e(warning)}</p>`).join("") || ""}${financialSettings()}${criticalExplanation()}${editor()}${splitEditor()}${model.tab === "pert" ? pert() : gantt()}<div class="feature-columns">${chart()}</div>`
+      ${model.schedule?.warnings.map((warning) => `<p class="feature-error">${e(warning)}</p>`).join("") || ""}${criticalExplanation()}${editor()}${splitEditor()}${model.tab === "pert" ? pert() : gantt()}<div class="feature-columns"></div>`
     }</main>`;
   }
   async function loadLines() {
@@ -468,7 +436,7 @@ export function createPlanningWorkspace({
       not_before: value("not_before") || null,
       finish_by: value("finish_by") || null,
       budget: value("budget"),
-      actual_progress: value("actual_progress"),
+      actual_progress: model.plan.tasks.find(t=>t.id===model.editing.id)?.actual_progress || "0",
     };
     task.predecessors = task.predecessors.map((_, index) => ({
       task_id: value("predecessor-" + index),
@@ -1179,13 +1147,6 @@ export function createPlanningWorkspace({
     drop,
     dragEnd,
     model,
-    refreshOverview: async () => {
-      model.overview =
-        (await invoke("certification_overview", {
-          projectId: model.projectId,
-          estimateId: state.estimateId,
-          asOf: model.asOf,
-        })) || [];
-    },
+    refreshOverview: async () => {},
   };
 }

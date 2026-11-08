@@ -22,7 +22,7 @@ impl LocalStore {
             .map(|id| self.person(id))
             .collect::<Result<Vec<_>>>()?;
         let budgets=self.list_project_estimates(project_id)?.into_iter().map(|estimate|{
-            Ok(json!({"document":self.export_budget(estimate.id)?,"pricing":self.get_price_definition(estimate.id)?,"report":self.operations_report(project_id,Some(estimate.id),as_of)?,"metadata":self.estimate_metadata(estimate.id)?,"measured_line_ids":self.measured_lines(estimate.id)?,"resource_prices":self.estimate_resource_prices(estimate.id)?,"print_data":self.budget_print_data(estimate.id).ok(),"estimate":estimate,"adjustment_agreement":self.adjustment_agreement(estimate.id)?,"certification_overview":self.certification_overview(project_id,estimate.id,as_of)?}))
+            Ok(json!({"document":self.export_budget(estimate.id)?,"pricing":self.get_price_definition(estimate.id)?,"report":self.operations_report(project_id,Some(estimate.id),as_of)?,"metadata":self.estimate_metadata(estimate.id)?,"measured_line_ids":self.measured_lines(estimate.id)?,"resource_prices":self.estimate_resource_prices(estimate.id)?,"print_data":self.budget_print_data(estimate.id).ok(),"estimate":estimate,"adjustment_agreement":self.adjustment_agreement(estimate.id)?,"certification_overview":self.certification_overview(project_id,estimate.id,as_of)?,"certificate_sheets":self.operation_documents(Some(project_id))?.iter().filter(|o|o.estimate_id==Some(estimate.id)&&["certificate","subcertificate"].contains(&o.kind.as_str())).map(|o|self.issued_certificate_sheet(o.id)).collect::<Result<Vec<_>>>()?}))
         }).collect::<Result<Vec<Value>>>()?;
         let plan = self.project_plan(project_id)?;
         let schedule = plan.as_ref().map(|p| p.plan.schedule(as_of));
@@ -205,13 +205,13 @@ pub fn restrict_shared_document(mut data: Value, p: &SharingPermissions) -> Valu
     }
     if !p.accounting {
         if let Some(plan) = data.get_mut("planning").and_then(|p| p.get_mut("plan")) {
-            plan["finance"] = json!({});
+            plan["finance"] = json!({"cut_dates":plan["finance"]["cut_dates"].as_array().cloned().unwrap_or_default()});
         }
         for field in ["baselines", "plan_revisions"] {
             if let Some(rows) = data.get_mut(field).and_then(Value::as_array_mut) {
                 for row in rows {
                     if let Some(plan) = row.get_mut("plan") {
-                        plan["finance"] = json!({});
+                        plan["finance"] = json!({"cut_dates":plan["finance"]["cut_dates"].as_array().cloned().unwrap_or_default()});
                     }
                 }
             }
@@ -270,11 +270,28 @@ pub fn restrict_shared_document(mut data: Value, p: &SharingPermissions) -> Valu
             }
         }
     }
+    if !(p.accounting && p.price && p.budget && p.resources) {
+        if let Some(ops) = data["operations"].as_array_mut() {
+            for op in ops {
+                op["contract_terms"] = Value::Null;
+                op["progress_sources"] = json!([]);
+                op["quotation_request"] = Value::Null;
+                op["advance_percent"] = Value::Null;
+                op["work_units"] = json!("0");
+            }
+        }
+    }
     if !p.operations && !p.accounting {
         data["parties"] = json!([]);
     }
     if let Some(budgets) = data["budgets"].as_array_mut() {
         for budget in budgets {
+            if !p.accounting {
+                budget["document"]["certificate_terms"] = Value::Null;
+                if let Some(agreement) = budget["adjustment_agreement"].as_object_mut() {
+                    agreement.remove("terms");
+                }
+            }
             let pricing = budget["pricing"].clone();
             budget["totals"] = json!({"direct":pricing["direct"],"total":pricing["calculation"]["breakdown"]["total"]});
             if !p.project_data {
@@ -283,6 +300,7 @@ pub fn restrict_shared_document(mut data: Value, p: &SharingPermissions) -> Valu
             if !p.price {
                 budget["adjustment_agreement"] = Value::Null;
                 budget["document"]["adjustment_agreement"] = Value::Null;
+                budget["document"]["certificate_terms"] = Value::Null;
                 budget["pricing"] = json!({"revision":pricing["revision"],"custom":false,"definition":{"rows":[]},"direct":pricing["direct"],"calculation":null,"calculation_error":null});
                 budget["document"]["price_definition"] = Value::Null;
                 budget["document"]["rates"] = json!({});
@@ -316,6 +334,7 @@ pub fn restrict_shared_document(mut data: Value, p: &SharingPermissions) -> Valu
             }
             if !(p.accounting && p.price && p.budget && p.resources && p.planning && p.operations) {
                 budget["certification_overview"] = json!([]);
+                budget["certificate_sheets"] = json!([]);
             }
             if let Some(report) = budget["report"].as_object_mut() {
                 if !p.accounting || !p.price {
@@ -332,6 +351,8 @@ pub fn restrict_shared_document(mut data: Value, p: &SharingPermissions) -> Valu
                 }
 
                 if !p.accounting {
+                    report.insert("certified_percent".into(), json!("0"));
+                    report.insert("approved_pending_percent".into(), json!("0"));
                     for field in [
                         "summaries",
                         "cash_flow",

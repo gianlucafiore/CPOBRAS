@@ -14,6 +14,7 @@ fn math<T>(r: std::result::Result<T, String>) -> Result<T> {
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SavedAgreement {
+    pub terms: crate::construction_workflow::CertificateTerms,
     pub revision: u32,
     pub definition: Option<AdjustmentAgreement>,
 }
@@ -44,10 +45,12 @@ pub(crate) fn agreement(conn: &Connection, id: Uuid) -> Result<SavedAgreement> {
     match v {
         Some((revision, json)) => Ok(SavedAgreement {
             revision,
+            terms: crate::construction_workflow::terms(conn, id)?,
             definition: serde_json::from_str(&json)?,
         }),
         None => Ok(SavedAgreement {
             revision: 0,
+            terms: crate::construction_workflow::terms(conn, id)?,
             definition: None,
         }),
     }
@@ -156,6 +159,18 @@ impl LocalStore {
         revision: u32,
         definition: Option<AdjustmentAgreement>,
     ) -> Result<SavedAgreement> {
+        self.save_adjustment_agreement_with_terms(id, revision, definition, None)
+    }
+    pub fn save_adjustment_agreement_with_terms(
+        &mut self,
+        id: Uuid,
+        revision: u32,
+        definition: Option<AdjustmentAgreement>,
+        terms: Option<crate::construction_workflow::CertificateTerms>,
+    ) -> Result<SavedAgreement> {
+        if let Some(t) = &terms {
+            t.validate()?;
+        }
         if let Some(a) = &definition {
             math(a.validate())?;
         }
@@ -179,10 +194,12 @@ impl LocalStore {
         let next = revision
             .checked_add(1)
             .ok_or_else(|| invalid("Revisión fuera de rango"))?;
-        tx.execute("INSERT INTO estimate_adjustment_agreements(estimate_id,revision,definition_json) VALUES(?1,?2,?3) ON CONFLICT(estimate_id) DO UPDATE SET revision=excluded.revision,definition_json=excluded.definition_json",params![id.to_string(),next,serde_json::to_string(&definition)?])?;
+        let terms = terms.unwrap_or(current.terms);
+        tx.execute("INSERT INTO estimate_adjustment_agreements(estimate_id,revision,definition_json,terms_json) VALUES(?1,?2,?3,?4) ON CONFLICT(estimate_id) DO UPDATE SET revision=excluded.revision,definition_json=excluded.definition_json,terms_json=excluded.terms_json",params![id.to_string(),next,serde_json::to_string(&definition)?,serde_json::to_string(&terms)?])?;
         tx.commit()?;
         Ok(SavedAgreement {
             revision: next,
+            terms,
             definition,
         })
     }
@@ -238,6 +255,7 @@ impl LocalStore {
         let report = self.operations_report(project, Some(estimate), as_of)?;
         let f = report.financial_projection;
         let docs = self.operation_documents(Some(project))?;
+        let terms = crate::construction_workflow::terms(&self.conn, estimate)?;
         let mut cuts = saved.plan.finance.cut_dates.clone();
         cuts.sort();
         let mut start = saved.plan.calendar.start_date.clone();
@@ -293,10 +311,7 @@ impl LocalStore {
                 .map(|p| p.collection_date.clone())
                 .unwrap_or_else(|| {
                     let d = chrono::NaiveDate::parse_from_str(cut, "%Y-%m-%d").unwrap();
-                    (d + chrono::Duration::days(i64::from(
-                        saved.plan.finance.collection_delay_days,
-                    )))
-                    .to_string()
+                    (d + chrono::Duration::days(i64::from(terms.collection_delay_days))).to_string()
                 });
             let (factor, status) = if let Some(last) = emitted.last() {
                 match &last.index_snapshot {

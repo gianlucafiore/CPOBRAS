@@ -86,6 +86,12 @@ pub struct RecurringExpense {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Operation {
+    pub work_units: D,
+    pub quotation_request: Option<crate::quotation_workflow::QuotationRequest>,
+    pub advance_before_index: bool,
+    pub advance_percent: Option<D>,
+    pub progress_sources: Vec<crate::construction_workflow::ProgressSource>,
+    pub contract_terms: Option<crate::construction_workflow::ContractTerms>,
     pub index_snapshot: Option<cpobras_core::adjustments::AdjustmentSnapshot>,
     pub extras: Vec<crate::adjustments::CertificateExtra>,
     pub reconcile_ids: Vec<Uuid>,
@@ -127,6 +133,12 @@ pub struct Operation {
 impl Default for Operation {
     fn default() -> Self {
         Self {
+            work_units: D::ZERO,
+            quotation_request: None,
+            advance_before_index: false,
+            advance_percent: None,
+            progress_sources: vec![],
+            contract_terms: None,
             index_snapshot: None,
             extras: vec![],
             reconcile_ids: vec![],
@@ -238,7 +250,10 @@ fn document(conn: &rusqlite::Connection, id: Uuid) -> Result<Option<Operation>> 
     json.map(|v| serde_json::from_str(&v).map_err(Into::into))
         .transpose()
 }
-fn documents(conn: &rusqlite::Connection, project: Option<Uuid>) -> Result<Vec<Operation>> {
+pub(crate) fn documents(
+    conn: &rusqlite::Connection,
+    project: Option<Uuid>,
+) -> Result<Vec<Operation>> {
     let rows=conn.prepare("SELECT payload FROM operation_documents WHERE (?1 IS NULL OR project_id=?1) ORDER BY date,created_at,rowid")?.query_map([project.map(|id|id.to_string())],|r|r.get::<_,String>(0))?.collect::<std::result::Result<Vec<_>,_>>()?;
     rows.iter()
         .map(|v| serde_json::from_str(v).map_err(Into::into))
@@ -328,6 +343,15 @@ impl LocalStore {
             .collect()
     }
     pub fn post_operation(&mut self, input: &Operation) -> Result<Operation> {
+        self.post_operation_mode(input, false, None, None)
+    }
+    pub(crate) fn post_operation_mode(
+        &mut self,
+        input: &Operation,
+        preview: bool,
+        draft: Option<(Uuid, u32)>,
+        known: Option<&str>,
+    ) -> Result<Operation> {
         let mut o = input.clone();
         o.calculated.clear();
         o.index_snapshot = None;
@@ -335,7 +359,16 @@ impl LocalStore {
         o.number = o.number.trim().into();
         if !KINDS.contains(&o.kind.as_str())
             || o.id.is_nil()
-            || (o.number.trim().is_empty() && o.kind != "stock_opening")
+            || (o.number.trim().is_empty()
+                && ![
+                    "stock_opening",
+                    "certificate",
+                    "subcertificate",
+                    "rfq",
+                    "quote",
+                    "subcontract",
+                ]
+                .contains(&o.kind.as_str()))
             || o.number.len() > 100
             || o.notes.len() > 20000
             || o.terms.len() > 20000
@@ -426,7 +459,135 @@ impl LocalStore {
         if o.kind == "stock_opening" && o.number.is_empty() {
             o.number = crate::project_dashboard::next_code(&tx, "stock_opening", "ACO-")?;
         }
+        if o.number.is_empty()
+            && [
+                "certificate",
+                "subcertificate",
+                "rfq",
+                "quote",
+                "subcontract",
+            ]
+            .contains(&o.kind.as_str())
+        {
+            let prefix = match o.kind.as_str() {
+                "certificate" => "CERT-",
+                "subcertificate" => "SUB-",
+                "rfq" => "SOL-",
+                "quote" => "COT-",
+                _ => "CONT-",
+            };
+            o.number = crate::project_dashboard::next_code(
+                &tx,
+                &format!("document:{}:{}", o.kind, o.project_id),
+                prefix,
+            )?;
+        }
+        if let Some((id, revision)) = draft {
+            let ok:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM certificate_drafts WHERE id=?1 AND project_id=?2 AND estimate_id=?3 AND revision=?4 AND issued_id IS NULL)",params![id.to_string(),o.project_id.to_string(),o.estimate_id.map(|id|id.to_string()),revision],|r|r.get(0))?;
+            if !ok {
+                return Err(err(
+                    "El borrador ya se emitió o cambió; recargá antes de emitir",
+                ));
+            }
+        }
+        if let Some(r) = &o.quotation_request {
+            if o.kind != "rfq"
+                || r.id != o.id
+                || r.project_id != o.project_id
+                || r.estimate_id != o.estimate_id
+            {
+                return Err(err("Solicitud ajena al documento"));
+            }
+            let mut r = crate::quotation_workflow::canonical(&tx, r)?;
+            r.number = o.number.clone();
+            o.quotation_request = Some(r);
+        }
         let prior = documents(&tx, Some(o.project_id))?;
+        if let Some(t) = &o.contract_terms {
+            if o.kind != "subcontract" {
+                return Err(err(
+                    "Las condiciones contractuales pertenecen a un subcontrato",
+                ));
+            }
+            t.validate()?;
+            for l in &o.lines {
+                if let Some(id) = l.line_id {
+                    if t.contributes_progress {
+                        let capacity: String = tx.query_row(
+                            "SELECT quantity FROM estimate_lines WHERE id=?1",
+                            [id.to_string()],
+                            |r| r.get(0),
+                        )?;
+                        let assigned = sum(prior
+                            .iter()
+                            .filter(|p| {
+                                p.kind == "subcontract"
+                                    && p.contract_terms
+                                        .as_ref()
+                                        .is_none_or(|t| t.contributes_progress)
+                            })
+                            .flat_map(|p| &p.lines)
+                            .filter(|x| x.line_id == Some(id))
+                            .map(|x| x.quantity))?;
+                        let current = sum(o
+                            .lines
+                            .iter()
+                            .filter(|x| x.line_id == Some(id))
+                            .map(|x| x.quantity))?;
+                        if add(assigned, current)?
+                            > capacity.parse().map_err(|_| err("Cantidad inválida"))?
+                        {
+                            return Err(err("Las asignaciones de contratistas superan la cantidad de la partida; reducí la porción o marcá un alcance que no genera avance físico"));
+                        }
+                    }
+                }
+            }
+        }
+        if !o.progress_sources.is_empty() {
+            if o.kind != "certificate" {
+                return Err(err(
+                    "Solo el certificado al comitente incorpora avances aprobados",
+                ));
+            }
+            let available = crate::construction_workflow::available(
+                &tx,
+                o.project_id,
+                o.estimate_id.ok_or_else(|| err("Falta presupuesto"))?,
+            )?;
+            let mut seen = BTreeSet::new();
+            let mut line_totals = BTreeMap::new();
+            for s in &o.progress_sources {
+                let source = available
+                    .iter()
+                    .find(|a| a.source_id == s.source_id && a.line_id == s.line_id)
+                    .ok_or_else(|| {
+                        err("Avance de subcontratista inexistente, ajeno o ya incorporado")
+                    })?;
+                if s.quantity <= D::ZERO
+                    || s.quantity > source.quantity
+                    || !seen.insert((s.source_id, s.line_id))
+                {
+                    return Err(err(
+                        "El avance aprobado ya se utilizó o la cantidad supera su saldo",
+                    ));
+                }
+                let v = line_totals.entry(s.line_id).or_default();
+                *v = add(*v, s.quantity)?;
+            }
+            for (id, q) in line_totals {
+                let entered = sum(o
+                    .lines
+                    .iter()
+                    .filter(|l| l.line_id == Some(id))
+                    .map(|l| l.quantity))?;
+                if q > entered {
+                    return Err(err(
+                        "El origen aprobado supera el avance ingresado en el certificado",
+                    ));
+                }
+            }
+        }
+
         if prior
             .iter()
             .any(|p| p.kind == o.kind && p.number == o.number && p.partner_id == o.partner_id)
@@ -525,6 +686,16 @@ impl LocalStore {
         ]
         .contains(&o.kind.as_str())
             && o.lines.is_empty()
+            && !(o.kind == "subcontract"
+                && o.contract_terms.as_ref().is_some_and(|t| {
+                    !t.contributes_progress
+                        && ["fixed", "daily", "hourly"].contains(&t.method.as_str())
+                }))
+            && !(o.kind == "subcertificate"
+                && o.reference_id
+                    .and_then(|id| prior.iter().find(|p| p.id == id))
+                    .and_then(|r| r.contract_terms.as_ref())
+                    .is_some_and(|t| ["fixed", "daily", "hourly"].contains(&t.method.as_str())))
             && !(o.kind == "certificate" && (!o.extras.is_empty() || !o.reconcile_ids.is_empty()))
         {
             return Err(err("Agregá al menos un renglón"));
@@ -577,7 +748,19 @@ impl LocalStore {
                     return Err(err("La contraparte no coincide con la cotización"));
                 }
             }
-            o.amount = total(&o)?;
+            o.amount = if o.kind == "subcontract" {
+                if let Some(t) = &o.contract_terms {
+                    if ["fixed", "daily", "hourly"].contains(&t.method.as_str()) {
+                        t.ceiling
+                    } else {
+                        total(&o)?
+                    }
+                } else {
+                    total(&o)?
+                }
+            } else {
+                total(&o)?
+            };
         }
         if o.kind == "stock_opening" {
             if o.reference_id.is_some() || o.lines.is_empty() {
@@ -596,6 +779,10 @@ impl LocalStore {
                 || o.partner_id != r.partner_id
             {
                 return Err(err("Recepción incompatible con la orden o contraparte"));
+            }
+            if o.kind == "service_receipt" && r.kind == "subcontract" && r.contract_terms.is_some()
+            {
+                return Err(err("Este contrato registra la aceptación y el costo mediante su certificado de subcontratista; no dupliques la recepción de servicio"));
             }
             for l in &mut o.lines {
                 let original = r
@@ -1056,6 +1243,91 @@ impl LocalStore {
                     mul(sub(cap, add(accumulated, l.quantity)?)?, l.unit_price)?,
                 )?;
             }
+            let base_work = if o.kind == "subcertificate" {
+                if let Some(t) = reference.as_ref().and_then(|r| r.contract_terms.as_ref()) {
+                    t.validate()?;
+                    if !t.start.is_empty() && (o.period_start < t.start || o.period_end > t.end) {
+                        return Err(err("El certificado está fuera del período contratado"));
+                    }
+                    let due = crate::construction_workflow::pay_date(&o.period_end, &t.frequency)?;
+                    o.due_date = (chrono::NaiveDate::parse_from_str(&due, "%Y-%m-%d")
+                        .map_err(|_| err("Fecha inválida"))?
+                        + chrono::Duration::days(i64::from(t.payment_delay_days)))
+                    .to_string();
+                    if t.method == "fixed" {
+                        if crate::construction_workflow::pay_date(&o.period_start, &t.frequency)?
+                            != due
+                            || prior
+                                .iter()
+                                .filter(|p| {
+                                    p.kind == "subcertificate" && p.reference_id == o.reference_id
+                                })
+                                .any(|p| {
+                                    crate::construction_workflow::pay_date(
+                                        &p.period_end,
+                                        &t.frequency,
+                                    )
+                                    .ok()
+                                    .as_deref()
+                                        == Some(due.as_str())
+                                })
+                        {
+                            return Err(err("El pago fijo de este período ya fue liquidado o el certificado abarca varios períodos"));
+                        }
+                        t.rate
+                    } else if ["daily", "hourly"].contains(&t.method.as_str()) {
+                        if o.work_units <= D::ZERO {
+                            return Err(err("Indicá las jornadas u horas efectivamente aprobadas"));
+                        }
+                        mul(t.rate, o.work_units)?
+                    } else {
+                        total(&o)?
+                    }
+                } else {
+                    total(&o)?
+                }
+            } else {
+                total(&o)?
+            };
+            if let Some(percent) = o.advance_percent {
+                if percent < D::ZERO || percent > D::from(100) {
+                    return Err(err("Recuperación de anticipo fuera de rango"));
+                }
+                let kind = if o.kind == "certificate" {
+                    "advance_received"
+                } else {
+                    "advance_paid"
+                };
+                let received = sum(prior
+                    .iter()
+                    .filter(|p| {
+                        p.kind == kind
+                            && p.currency == o.currency
+                            && p.partner_id == o.partner_id
+                            && p.date <= o.date
+                            && (o.kind == "certificate" || p.reference_id == o.reference_id)
+                    })
+                    .map(|p| p.amount))?;
+                let recovered = sum(prior
+                    .iter()
+                    .filter(|p| {
+                        p.kind == o.kind
+                            && p.currency == o.currency
+                            && p.partner_id == o.partner_id
+                            && (o.kind == "certificate" || p.reference_id == o.reference_id)
+                    })
+                    .map(|p| p.advance))?;
+                let eligible = add(
+                    base_work,
+                    sum(o
+                        .extras
+                        .iter()
+                        .filter(|e| e.recover_advance)
+                        .map(|e| e.amount))?,
+                )?;
+                o.advance = div(mul(eligible, percent)?, 100.into())?
+                    .min(add(received, -recovered)?.max(D::ZERO));
+            }
             if o.advance > D::ZERO {
                 let advance_kind = if o.kind == "certificate" {
                     "advance_received"
@@ -1084,38 +1356,96 @@ impl LocalStore {
                     return Err(err("El descuento de anticipo supera el anticipo registrado pendiente de recuperar"));
                 }
             }
-            let base_work = total(&o)?;
             if o.kind == "certificate" {
-                o.index_snapshot =
-                    crate::adjustments::snapshot(&tx, estimate, &o.period_end, &o.date)?;
+                o.index_snapshot = crate::adjustments::snapshot(
+                    &tx,
+                    estimate,
+                    &o.period_end,
+                    known.unwrap_or(&o.date),
+                )?;
             }
             let factor = o.index_snapshot.as_ref().map_or(D::ONE, |s| s.factor);
             if o.index_snapshot.is_none() && o.extras.iter().any(|x| x.adjustable) {
                 return Err(err("Un adicional ajustable requiere un acuerdo de índices en el presupuesto; configurá el acuerdo o declaralo de importe fijo"));
             }
-            let mut gross = mul(base_work, factor)?;
+            let eligible = add(
+                base_work,
+                sum(o
+                    .extras
+                    .iter()
+                    .filter(|e| e.recover_advance)
+                    .map(|e| e.amount))?,
+            )?;
+            let allocated = |amount: D, recover: bool| -> Result<D> {
+                if o.advance_before_index && recover && eligible > D::ZERO {
+                    div(mul(o.advance, amount)?, eligible)
+                } else {
+                    Ok(D::ZERO)
+                }
+            };
+            let remaining_work = add(base_work, -allocated(base_work, true)?)?;
+            let work_index_base = if o.advance_before_index {
+                remaining_work
+            } else {
+                base_work
+            };
+            let mut gross = add(base_work, mul(work_index_base, add(factor, -D::ONE)?)?)?;
             let mut retention_basis = gross;
-            let mut advance_basis = gross;
-            let mut adjustable_base = base_work;
-            let mut retention_adjustable_base = base_work;
+            let advance_basis = if o.advance_before_index {
+                eligible
+            } else {
+                add(
+                    mul(base_work, factor)?,
+                    sum(o
+                        .extras
+                        .iter()
+                        .filter(|e| e.recover_advance)
+                        .map(|e| mul(e.amount, if e.adjustable { factor } else { D::ONE }))
+                        .collect::<Result<Vec<_>>>()?
+                        .into_iter())?,
+                )?
+            };
+            let mut adjustable_base = work_index_base;
+            let mut retention_adjustable_base = work_index_base;
             let mut extras_total = D::ZERO;
             for extra in &o.extras {
-                let value = mul(extra.amount, if extra.adjustable { factor } else { D::ONE })?;
+                let index_base = if extra.adjustable {
+                    if o.advance_before_index {
+                        add(
+                            extra.amount,
+                            -allocated(extra.amount, extra.recover_advance)?,
+                        )?
+                    } else {
+                        extra.amount
+                    }
+                } else {
+                    D::ZERO
+                };
+                let value = add(extra.amount, mul(index_base, add(factor, -D::ONE)?)?)?;
                 extras_total = add(extras_total, value)?;
                 gross = add(gross, value)?;
                 if extra.retention {
                     retention_basis = add(retention_basis, value)?;
                 }
-                if extra.recover_advance {
-                    advance_basis = add(advance_basis, value)?;
-                }
                 if extra.adjustable {
-                    adjustable_base = add(adjustable_base, extra.amount)?;
+                    adjustable_base = add(adjustable_base, index_base)?;
                     if extra.retention {
-                        retention_adjustable_base = add(retention_adjustable_base, extra.amount)?;
+                        retention_adjustable_base = add(retention_adjustable_base, index_base)?;
                     }
                 }
             }
+            o.calculated.insert(
+                "index_adjustment".into(),
+                mul(adjustable_base, add(factor, -D::ONE)?)?,
+            );
+            o.calculated.insert(
+                "recovery_percent".into(),
+                if eligible > D::ZERO {
+                    mul(div(o.advance, eligible)?, 100.into())?
+                } else {
+                    D::ZERO
+                },
+            );
             let pending_differences = crate::adjustments::differences(&tx, &prior, &o.date)?;
             let mut unique = BTreeSet::new();
             let mut delta = D::ZERO;
@@ -1494,7 +1824,42 @@ impl LocalStore {
                 }
             }
         }
-        tx.commit()?;
+        if let Some(request) = &o.quotation_request {
+            tx.execute(
+                "INSERT INTO quotation_requests(id,request_json) VALUES(?1,?2)",
+                params![o.id.to_string(), serde_json::to_string(request)?],
+            )?;
+        }
+        for source in &o.progress_sources {
+            tx.execute("INSERT INTO certified_sources(document_id,source_id,line_id,quantity) VALUES(?1,?2,?3,?4)",params![o.id.to_string(),source.source_id.to_string(),source.line_id.to_string(),source.quantity.to_string()])?;
+        }
+        if ["certificate", "subcertificate"].contains(&o.kind.as_str()) {
+            let sheet = crate::construction_workflow::sheet(&tx, &o, false)?;
+            tx.execute(
+                "INSERT INTO certificate_sheets(operation_id,sheet_json) VALUES(?1,?2)",
+                params![o.id.to_string(), serde_json::to_string(&sheet)?],
+            )?;
+        }
+        if let Some((id, _)) = draft {
+            let json: String = tx.query_row(
+                "SELECT payload_json FROM certificate_drafts WHERE id=?1",
+                [id.to_string()],
+                |r| r.get(0),
+            )?;
+            let mut d: crate::construction_workflow::CertificateDraft =
+                serde_json::from_str(&json)?;
+            d.issued_id = Some(o.id);
+            d.operation = o.clone();
+            tx.execute(
+                "UPDATE certificate_drafts SET issued_id=?1,payload_json=?2 WHERE id=?3",
+                params![o.id.to_string(), serde_json::to_string(&d)?, id.to_string()],
+            )?;
+        }
+        if preview {
+            tx.rollback()?;
+        } else {
+            tx.commit()?;
+        }
         Ok(o)
     }
 }
@@ -1599,6 +1964,8 @@ pub struct ProjectOperationsReport {
     pub cash_flow: Vec<CashPeriod>,
     pub recurring_costs: Vec<RecurringExpense>,
     pub financial_projection: Option<crate::financial_planning::FinancialProjection>,
+    pub certified_percent: D,
+    pub approved_pending_percent: D,
     pub production: Vec<ProductionStatus>,
     pub costs: Vec<CostGroup>,
     pub section_results: Vec<SectionResult>,
@@ -1780,6 +2147,32 @@ impl LocalStore {
                     let key = (l.line_id, l.center_id, o.currency.clone());
                     let old = costs.get(&key).copied().unwrap_or_default();
                     costs.insert(key, add(old, mul(sign, cost)?)?);
+                }
+            }
+            if o.kind == "subcertificate"
+                && o.reference_id
+                    .and_then(|id| docs.iter().find(|r| r.id == id))
+                    .is_some_and(|c| c.contract_terms.is_some())
+            {
+                let gross = o.calculated.get("base_work").copied().unwrap_or(o.amount);
+                s.accrued = add(s.accrued, gross)?;
+                let physical = sum(o
+                    .lines
+                    .iter()
+                    .map(|l| mul(l.quantity, l.unit_price))
+                    .collect::<Result<Vec<_>>>()?
+                    .into_iter())?;
+                if physical > D::ZERO {
+                    for l in &o.lines {
+                        let amount = mul(div(mul(l.quantity, l.unit_price)?, physical)?, gross)?;
+                        let key = (l.line_id, l.center_id, o.currency.clone());
+                        let old = costs.get(&key).copied().unwrap_or_default();
+                        costs.insert(key, add(old, amount)?);
+                    }
+                } else {
+                    let key = (None, None, o.currency.clone());
+                    let old = costs.get(&key).copied().unwrap_or_default();
+                    costs.insert(key, add(old, gross)?);
                 }
             }
             if o.kind == "certificate" {
@@ -2216,6 +2609,37 @@ impl LocalStore {
             as_of,
             &recurring_costs,
         )?;
+        let mut certified_percent = D::ZERO;
+        let mut approved_pending_percent = D::ZERO;
+        if let Some(id) = estimate_id {
+            let items = self.estimate_items(id)?;
+            let total = sum(items
+                .iter()
+                .map(|l| mul(l.quantity, l.unit_cost_snapshot))
+                .collect::<Result<Vec<_>>>()?
+                .into_iter())?;
+            if total > D::ZERO {
+                let approved = self.available_progress(project_id, id)?;
+                let mut certified = D::ZERO;
+                let mut pending = D::ZERO;
+                for l in &items {
+                    let q = sum(docs
+                        .iter()
+                        .filter(|o| o.kind == "certificate" && o.estimate_id == Some(id))
+                        .flat_map(|o| &o.lines)
+                        .filter(|x| x.line_id == Some(l.id))
+                        .map(|x| x.quantity))?;
+                    certified = add(certified, mul(q, l.unit_cost_snapshot)?)?;
+                    let q = sum(approved
+                        .iter()
+                        .filter(|x| x.line_id == l.id)
+                        .map(|x| x.quantity))?;
+                    pending = add(pending, mul(q, l.unit_cost_snapshot)?)?;
+                }
+                certified_percent = mul(div(certified, total)?, 100.into())?;
+                approved_pending_percent = mul(div(pending, total)?, 100.into())?;
+            }
+        }
         Ok(ProjectOperationsReport {
             project_id,
             name: project.name,
@@ -2225,6 +2649,8 @@ impl LocalStore {
             cash_flow: cash.into_values().collect(),
             recurring_costs,
             financial_projection,
+            certified_percent,
+            approved_pending_percent,
             production,
             costs: groups,
             section_results: section_results.into_values().collect(),

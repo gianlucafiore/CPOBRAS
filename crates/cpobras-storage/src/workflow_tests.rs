@@ -213,7 +213,7 @@ fn saved_plan_resolves_budget_links_and_keeps_immutable_baselines() {
     assert_eq!(plan.revision, 3);
     assert!(plan.plan.tasks[0].estimate_line_id.is_none());
     assert_eq!(plan.plan.tasks[0].budget, Decimal::from(200));
-    assert_eq!(plan.plan.tasks[0].actual_progress, Decimal::from(25));
+    assert_eq!(plan.plan.tasks[0].actual_progress, Decimal::ZERO);
     assert_eq!(
         store.plan_baselines(project.id).unwrap()[0].plan.tasks[0].estimate_line_id,
         Some(line.id)
@@ -1345,7 +1345,7 @@ fn upgrades_populated_schema_fifteen_and_deletes_its_preexisting_linked_line() {
         old.execute_batch(&format!("DROP TRIGGER {name}")).unwrap();
     }
     undo_people_migration_for_fixture(&old);
-    old.execute_batch("ALTER TABLE operation_links DROP COLUMN archived_line_id; DROP TABLE deleted_estimate_lines; DROP TABLE line_analysis_sources; DROP TABLE estimate_resource_prices; DROP TABLE estimate_adjustment_agreements;DROP TABLE index_points;DROP TABLE system_calendar;DROP TABLE estimate_price_definitions; DROP TABLE price_definition_templates;
+    old.execute_batch("ALTER TABLE operation_links DROP COLUMN archived_line_id; DROP TABLE deleted_estimate_lines; DROP TABLE line_analysis_sources; DROP TABLE estimate_resource_prices; DROP TABLE certificate_drafts;DROP TABLE certificate_sheets;DROP TABLE certified_sources;DROP TABLE quotation_requests;DROP TABLE estimate_adjustment_agreements;DROP TABLE index_points;DROP TABLE system_calendar;DROP TABLE estimate_price_definitions; DROP TABLE price_definition_templates;
              DROP TABLE print_profiles; DROP TRIGGER new_project_organization; DROP TRIGGER external_company_readonly_update; DROP TRIGGER external_company_readonly_delete; DROP TRIGGER clear_measured_quantity; DROP TABLE automatic_codes; DROP TABLE measured_lines; DROP TABLE project_attachments; DROP TABLE project_organizations; DROP TABLE organization_preferences; DROP TABLE organizations; DELETE FROM schema_migrations WHERE version>=16; CREATE TRIGGER operation_links_no_update BEFORE UPDATE ON operation_links BEGIN SELECT RAISE(ABORT,'operation links are immutable'); END;").unwrap();
     drop(old);
     let mut upgraded = LocalStore::open(&path).unwrap();
@@ -1355,7 +1355,7 @@ fn upgrades_populated_schema_fifteen_and_deletes_its_preexisting_linked_line() {
             .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| r
                 .get::<_, i64>(0))
             .unwrap(),
-        27
+        28
     );
     upgraded.delete_estimate_item(e.id, line.id).unwrap();
     assert!(upgraded.estimate_items(e.id).unwrap().is_empty());
@@ -2048,7 +2048,7 @@ fn custom_price_definition_revision_copy_export_and_issue_are_consistent() {
         Decimal::new(3025, 1)
     );
     let document = store.export_budget(estimate.id).unwrap();
-    assert_eq!(document.format_version, 2);
+    assert_eq!(document.format_version, 4);
     let json = serde_json::to_string(&document).unwrap();
     let imported = store
         .import_budget(project.id, &serde_json::from_str(&json).unwrap())
@@ -3209,6 +3209,20 @@ fn declared_acopio_reduces_period_purchases_without_creating_a_payment() {
     assert_eq!(m.cost, 40.into());
     assert_eq!(f.additional_cash, 40.into());
     let mut updated = s.project_plan(p.id).unwrap().unwrap().plan;
+    // Only issued certification can change official progress.
+    s.issue_estimate(e.id).unwrap();
+    let mut cert = operation(p.id, "certificate");
+    cert.estimate_id = Some(e.id);
+    cert.date = "2026-11-09".into();
+    cert.period_start = "2026-11-01".into();
+    cert.period_end = "2026-11-09".into();
+    cert.lines = vec![crate::operations::OperationLine {
+        line_id: Some(l.id),
+        description: "Avance".into(),
+        quantity: l.quantity / Decimal::from(2),
+        ..Default::default()
+    }];
+    s.post_operation(&cert).unwrap();
     updated.tasks[0].actual_progress = 50.into();
     s.save_project_plan(p.id, 1, updated, "2026-11-09").unwrap();
     let f = s
@@ -3574,4 +3588,350 @@ fn shared_documents_redact_index_agreements_publications_and_certificate_extras_
     let allowed = restrict_shared_document(data, &SharingPermissions::default());
     assert!(allowed.to_string().contains("SECRET_PUBLICATION"));
     assert!(allowed.to_string().contains("SECRET_AGREEMENT"));
+}
+
+#[test]
+fn certificate_drafts_preliminary_emission_and_official_progress_are_separate() {
+    let (mut s, p, e, l) = fixture();
+    let mut second = l.clone();
+    second.id = Uuid::new_v4();
+    second.position = 1;
+    second.description = "Sin avance".into();
+    s.add_estimate_item(&second).unwrap();
+    let mut plan = financial_test_plan(l.id);
+    plan.tasks[0].actual_progress = 90.into();
+    s.save_project_plan(p.id, 0, plan, "2026-11-05").unwrap();
+    assert_eq!(
+        s.project_plan(p.id).unwrap().unwrap().plan.tasks[0].actual_progress,
+        Decimal::ZERO
+    );
+    s.issue_estimate(e.id).unwrap();
+    let mut d = s
+        .open_certificate_draft(p.id, e.id, None, "2026-11-01", "2026-11-05")
+        .unwrap();
+    assert_eq!(
+        d.id,
+        s.open_certificate_draft(p.id, e.id, None, "2026-11-06", "2026-11-10")
+            .unwrap()
+            .id
+    );
+    d.operation.date = "2026-11-05".into();
+    d.progress
+        .iter_mut()
+        .find(|r| r.line_id == l.id)
+        .unwrap()
+        .accumulated_percent = 50.into();
+    let stale = d.clone();
+    let d = s.save_certificate_draft(&d).unwrap();
+    assert!(s.save_certificate_draft(&stale).is_err());
+    let preview = s.preview_certificate_draft(d.id).unwrap();
+    assert!(preview.preliminary);
+    assert_eq!(preview.rows.len(), 2);
+    assert_eq!(preview.operation.amount, 100.into());
+    assert_eq!(s.operation_documents(Some(p.id)).unwrap().len(), 0);
+    assert_eq!(
+        s.project_plan(p.id).unwrap().unwrap().plan.tasks[0].actual_progress,
+        Decimal::ZERO
+    );
+    let issued = s
+        .issue_certificate_draft(d.id, d.revision, "2026-11-05")
+        .unwrap();
+    assert!(!issued.number.is_empty());
+    assert!(s
+        .issue_certificate_draft(d.id, d.revision, "2026-11-05")
+        .is_err());
+    assert!(s.save_certificate_draft(&d).is_err());
+    assert_eq!(
+        s.project_plan(p.id).unwrap().unwrap().plan.tasks[0].actual_progress,
+        50.into()
+    );
+    let frozen = s.issued_certificate_sheet(issued.id).unwrap();
+    assert!(!frozen.preliminary);
+    assert_eq!(frozen.rows[1].current, Decimal::ZERO);
+    assert!(s
+        .conn
+        .execute("UPDATE certificate_sheets SET sheet_json='{}'", [])
+        .is_err());
+    let next = s
+        .open_certificate_draft(p.id, e.id, None, "2026-11-06", "2026-11-10")
+        .unwrap();
+    assert_ne!(next.id, d.id);
+    assert_eq!(
+        next.progress
+            .iter()
+            .find(|r| r.line_id == l.id)
+            .unwrap()
+            .accumulated_percent,
+        50.into()
+    );
+}
+#[test]
+fn quotation_roundtrip_uses_stable_ids_partial_prices_and_never_reprices_budget() {
+    use crate::quotation_workflow::*;
+    let (mut s, p, e, l, supplier, res, _) = stock_fixture();
+    let req = QuotationRequest {
+        id: Uuid::new_v4(),
+        project_id: p.id,
+        estimate_id: None,
+        kind: "material".into(),
+        title: "Corralón".into(),
+        number: String::new(),
+        date: "2026-11-05".into(),
+        currency: "ARS".into(),
+        partner_id: None,
+        scope: "Provisión".into(),
+        delivery: "Obra".into(),
+        payment: "A acordar".into(),
+        validity: "15 días".into(),
+        taxes: "Sin IVA".into(),
+        items: vec![RequestItem {
+            id: Uuid::new_v4(),
+            source_id: res,
+            code: "No confiar".into(),
+            description: "No confiar".into(),
+            unit: "kg".into(),
+            quantity: 3.into(),
+        }],
+        profile: serde_json::json!({}),
+        project_name: String::new(),
+    };
+    let request = s.create_quotation_request(&req).unwrap();
+    assert_eq!(request.items[0].description, "Material");
+    assert!(!request.number.is_empty());
+    assert_eq!(s.quotation_requests(p.id).unwrap().len(), 1);
+    let price = QuotedPrice {
+        row_id: request.items[0].id,
+        unit_price: Some(7.into()),
+        notes: "Entrega incluida".into(),
+    };
+    let count = s.operation_documents(Some(p.id)).unwrap().len();
+    let preview = s
+        .preview_quotation_import(
+            request.id,
+            supplier,
+            &[price.clone()],
+            Uuid::new_v4(),
+            "2026-11-05",
+            "",
+        )
+        .unwrap();
+    assert_eq!(preview.amount, 21.into());
+    assert_eq!(s.operation_documents(Some(p.id)).unwrap().len(), count);
+    s.post_operation(&preview).unwrap();
+    assert_eq!(
+        s.estimate_total(e.id).unwrap(),
+        l.quantity * l.unit_cost_snapshot
+    );
+    let mut wrong = price;
+    wrong.row_id = Uuid::new_v4();
+    assert!(s
+        .preview_quotation_import(
+            request.id,
+            supplier,
+            &[wrong],
+            Uuid::new_v4(),
+            "2026-11-05",
+            ""
+        )
+        .is_err());
+}
+#[test]
+fn approved_contractor_work_is_consumed_once_on_client_emission_and_cost_once() {
+    use crate::construction_workflow::ContractTerms;
+    let (mut s, p, e, l) = fixture();
+    let partner = supplier(&mut s);
+    s.issue_estimate(e.id).unwrap();
+    let mut c = operation(p.id, "subcontract");
+    c.estimate_id = Some(e.id);
+    c.partner_id = Some(partner);
+    c.contract_terms = Some(ContractTerms::default());
+    c.lines = vec![crate::operations::OperationLine {
+        line_id: Some(l.id),
+        description: l.description.clone(),
+        quantity: 2.into(),
+        unit_price: 40.into(),
+        ..Default::default()
+    }];
+    let c = s.post_operation(&c).unwrap();
+    let mut d = s
+        .open_certificate_draft(p.id, e.id, Some(c.id), "2026-11-01", "2026-11-05")
+        .unwrap();
+    d.progress[0].accumulated_percent = 50.into();
+    d.operation.date = "2026-11-05".into();
+    let d = s.save_certificate_draft(&d).unwrap();
+    let sub = s
+        .issue_certificate_draft(d.id, d.revision, "2026-11-05")
+        .unwrap();
+    assert_eq!(sub.amount, 40.into());
+    assert_eq!(
+        s.available_progress(p.id, e.id).unwrap()[0].quantity,
+        1.into()
+    );
+    assert_eq!(
+        s.operations_report(p.id, Some(e.id), "2026-11-05")
+            .unwrap()
+            .summaries[0]
+            .accrued,
+        40.into()
+    );
+    let mut client = s
+        .open_certificate_draft(p.id, e.id, None, "2026-11-01", "2026-11-05")
+        .unwrap();
+    client.progress[0].accumulated_percent = 50.into();
+    client.operation.date = "2026-11-05".into();
+    let client = s.save_certificate_draft(&client).unwrap();
+    assert_eq!(client.operation.progress_sources[0].source_id, sub.id);
+    assert_eq!(s.available_progress(p.id, e.id).unwrap().len(), 1);
+    s.preview_certificate_draft(client.id).unwrap();
+    assert_eq!(s.available_progress(p.id, e.id).unwrap().len(), 1);
+    let issued = s
+        .issue_certificate_draft(client.id, client.revision, "2026-11-05")
+        .unwrap();
+    assert_eq!(issued.amount, 100.into());
+    assert!(s.available_progress(p.id, e.id).unwrap().is_empty());
+    assert_eq!(
+        s.operations_report(p.id, Some(e.id), "2026-11-05")
+            .unwrap()
+            .summaries[0]
+            .accrued,
+        40.into()
+    );
+}
+
+#[test]
+fn advance_is_recovered_before_index_and_new_terms_survive_exchange() {
+    use crate::construction_workflow::CertificateTerms;
+    use cpobras_core::adjustments::{AdjustmentAgreement, IndexPoint, IndexWeight};
+    let (mut s, p, e, l) = fixture();
+    let terms = CertificateTerms {
+        advance_recovery_percent: 20.into(),
+        retention_percent: Decimal::ZERO,
+        collection_delay_days: 3,
+    };
+    s.save_adjustment_agreement_with_terms(
+        e.id,
+        0,
+        Some(AdjustmentAgreement {
+            base_month: "2026-09".into(),
+            lag_months: 0,
+            weights: vec![IndexWeight {
+                series: "CAC".into(),
+                weight: Decimal::ONE,
+            }],
+        }),
+        Some(terms),
+    )
+    .unwrap();
+    for (month, value) in [("2026-09", 100), ("2026-10", 150)] {
+        s.save_index_point(&IndexPoint {
+            id: Uuid::new_v4(),
+            series: "CAC".into(),
+            period: month.into(),
+            value: value.into(),
+            publication_date: format!("{month}-28"),
+            source: "https://example.test/cac".into(),
+        })
+        .unwrap();
+    }
+    let exported = s.export_budget(e.id).unwrap();
+    assert_eq!(
+        exported.certificate_terms.unwrap().advance_recovery_percent,
+        20.into()
+    );
+    let copied = s.duplicate_estimate(e.id, "Mismo acuerdo").unwrap();
+    assert_eq!(
+        s.adjustment_agreement(copied.id)
+            .unwrap()
+            .terms
+            .advance_recovery_percent,
+        20.into()
+    );
+    s.issue_estimate(e.id).unwrap();
+    let mut adv = operation(p.id, "advance_received");
+    adv.amount = 100.into();
+    s.post_operation(&adv).unwrap();
+    let mut d = s
+        .open_certificate_draft(p.id, e.id, None, "2026-11-01", "2026-11-05")
+        .unwrap();
+    d.progress[0].accumulated_percent = 50.into();
+    d.operation.date = "2026-11-05".into();
+    let d = s.save_certificate_draft(&d).unwrap();
+    let preview = s.preview_certificate_draft(d.id).unwrap();
+    let o = s
+        .issue_certificate_draft(d.id, d.revision, "2026-11-05")
+        .unwrap();
+    assert_eq!(o.advance, 20.into());
+    assert_eq!(o.calculated["base_work"], 100.into());
+    assert_eq!(o.calculated["adjustable_base"], 80.into());
+    assert_eq!(o.amount, 120.into());
+    assert_eq!(preview.operation.amount, o.amount);
+    assert_eq!(o.due_date, "2026-11-08");
+    assert_eq!(
+        s.issued_certificate_sheet(o.id).unwrap().rows[0].quantity,
+        l.quantity
+    );
+}
+#[test]
+fn fixed_weekly_contract_certificate_accepts_no_physical_progress_and_does_not_double_bill() {
+    use crate::construction_workflow::ContractTerms;
+    let (mut s, p, e, _) = fixture();
+    let partner = supplier(&mut s);
+    s.issue_estimate(e.id).unwrap();
+    let mut contract = operation(p.id, "subcontract");
+    contract.estimate_id = Some(e.id);
+    contract.partner_id = Some(partner);
+    contract.contract_terms = Some(ContractTerms {
+        method: "fixed".into(),
+        frequency: "weekly".into(),
+        rate: 100.into(),
+        ceiling: 400.into(),
+        start: "2026-11-01".into(),
+        end: "2026-11-30".into(),
+        scope: "Apoyo de obra".into(),
+        contributes_progress: false,
+        ..Default::default()
+    });
+    // No physical rows are required for a support-only fixed contract.
+    let contract = s.post_operation(&contract).unwrap();
+    let mut d = s
+        .open_certificate_draft(p.id, e.id, Some(contract.id), "2026-11-02", "2026-11-06")
+        .unwrap();
+    d.operation.date = "2026-11-06".into();
+    let d = s.save_certificate_draft(&d).unwrap();
+    let o = s
+        .issue_certificate_draft(d.id, d.revision, "2026-11-06")
+        .unwrap();
+    assert_eq!(o.amount, 100.into());
+    assert_eq!(o.due_date, "2026-11-06");
+    assert!(s.available_progress(p.id, e.id).unwrap().is_empty());
+    assert_eq!(
+        s.operations_report(p.id, Some(e.id), "2026-11-06")
+            .unwrap()
+            .summaries[0]
+            .accrued,
+        100.into()
+    );
+    let mut duplicate = o;
+    duplicate.id = Uuid::new_v4();
+    duplicate.number = "OTHER".into();
+    assert!(s.post_operation(&duplicate).is_err());
+}
+
+#[test]
+fn planning_observer_keeps_cut_dates_but_never_receives_certificate_terms() {
+    use crate::sharing::{restrict_shared_document, SharingPermissions};
+    use serde_json::json;
+    let p = SharingPermissions {
+        accounting: false,
+        ..Default::default()
+    };
+    let value = restrict_shared_document(
+        json!({"planning":{"plan":{"finance":{"cut_dates":["2026-11-20"],"opening_cash":"SECRET"}}},"budgets":[{"document":{"certificate_terms":{"advance_recovery_percent":"SECRET"}},"adjustment_agreement":{"terms":{"advance_recovery_percent":"SECRET"},"definition":null},"report":{}}]}),
+        &p,
+    );
+    assert!(!value.to_string().contains("SECRET"));
+    assert_eq!(
+        value["planning"]["plan"]["finance"]["cut_dates"],
+        json!(["2026-11-20"])
+    );
 }

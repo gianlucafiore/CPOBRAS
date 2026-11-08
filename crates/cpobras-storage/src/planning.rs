@@ -32,6 +32,7 @@ impl LocalStore {
         row.map(|(revision, json)| {
             let mut plan: Plan = serde_json::from_str(&json)?;
             self.apply_general_calendar(&mut plan)?;
+            crate::construction_workflow::apply_progress(&self.conn, project_id, &mut plan, false)?;
             Ok(SavedPlan {
                 project_id,
                 revision,
@@ -51,6 +52,7 @@ impl LocalStore {
             return Err(StorageError::InvalidValue("Obra inexistente".into()));
         }
         self.apply_general_calendar(&mut plan)?;
+        crate::construction_workflow::apply_progress(&self.conn, project_id, &mut plan, false)?;
         let tx = self
             .conn
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;

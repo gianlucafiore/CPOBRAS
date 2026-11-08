@@ -1,3 +1,5 @@
+import { createCertificateWorkflow } from "./certificate-workflow.js";
+import { createQuotationWorkflow } from "./quotation-workflow.js";
 import { e, field, select, dateToday } from "./helpers.js";
 import { money, numeric, sumDecimals } from "../decimal.js";
 import { exportOperationalReport } from "../services/operations-export.js";
@@ -17,7 +19,8 @@ export const operationGroups = {
     "transfer",
   ],
   production: ["daily"],
-  certificates: ["certificate", "subcertificate", "index", "adjustment"],
+  certificates: ["adjustment"],
+  contracts: ["subcontract"],
   finance: [
     "payable",
     "receivable",
@@ -59,7 +62,8 @@ export const operationNames = {
   forecast: "Proyección de costo a terminar",
 };
 const guides = {
-  stock_opening: "Declaración de material que ya pertenece a la obra. Indicá depósito, cantidad disponible y valor de inventario. No genera una compra, deuda ni salida de caja; si todavía debés pagarlo, registrá la factura por separado.",
+  stock_opening:
+    "Declaración de material que ya pertenece a la obra. Indicá depósito, cantidad disponible y valor de inventario. No genera una compra, deuda ni salida de caja; si todavía debés pagarlo, registrá la factura por separado.",
   advance_paid:
     "Registrá el anticipo efectivamente pagado y vinculalo con el subcontrato. Luego se descuenta en sus certificados, hasta el saldo pendiente.",
   advance_received:
@@ -142,19 +146,57 @@ export function createOperationsWorkspace({
     warehouses: [],
     stock: [],
     report: null,
-    pendingDifferences:[],
-    indexPreview:null,
+    pendingDifferences: [],
+    indexPreview: null,
     portfolio: [],
     draft: null,
     dirty: false,
     detail: null,
     lastExport: "",
+    cashSettings: null,
   };
+  const certificates = createCertificateWorkflow({
+    invoke,
+    state,
+    model,
+    render,
+    document,
+    window,
+    FormData,
+    refresh,
+  });
+  const quotations = createQuotationWorkflow({
+    invoke,
+    state,
+    model,
+    render,
+    document,
+    window,
+    FormData,
+    refresh,
+  });
   function draft(kind) {
     return {
       id: window.crypto.randomUUID(),
       project_id: model.projectId,
       kind,
+      contract_terms:
+        kind === "subcontract"
+          ? {
+              method: "quantity",
+              frequency: "weekly",
+              rate: "0",
+              ceiling: "0",
+              forecast_units: "1",
+              start: "",
+              end: "",
+              scope: "Mano de obra",
+              contributes_progress: true,
+              payment_delay_days: 0,
+              advance_recovery_percent: "0",
+              retention_percent: "0",
+            }
+          : null,
       number: "",
       date: dateToday(),
       currency:
@@ -163,7 +205,10 @@ export function createOperationsWorkspace({
       partner_id: null,
       reference_id: null,
       price_cost: null,
-      extras:[],reconcile_ids:[],index_snapshot:null,reconciliations:[],
+      extras: [],
+      reconcile_ids: [],
+      index_snapshot: null,
+      reconciliations: [],
       warehouse_id: null,
       destination_id: null,
       estimate_id: model.estimateId || null,
@@ -220,7 +265,12 @@ export function createOperationsWorkspace({
       projectId: model.projectId || null,
     });
     model.warehouses = await invoke("list_warehouses");
-    model.stock = (await invoke("stock_balances", { asOf: model.asOf })).filter(b=>model.warehouses.some(w=>w.id===b.warehouse_id&&w.project_id===model.projectId));
+    model.stock = (await invoke("stock_balances", { asOf: model.asOf })).filter(
+      (b) =>
+        model.warehouses.some(
+          (w) => w.id === b.warehouse_id && w.project_id === model.projectId,
+        ),
+    );
 
     if (model.projectId) {
       model.estimates = await invoke("list_project_estimates", {
@@ -233,7 +283,11 @@ export function createOperationsWorkspace({
         asOf: model.asOf,
       });
       model.portfolio = [model.report];
-      model.pendingDifferences=await invoke("pending_adjustment_differences",{projectId:model.projectId,asOf:model.asOf})||[];
+      model.pendingDifferences =
+        (await invoke("pending_adjustment_differences", {
+          projectId: model.projectId,
+          asOf: model.asOf,
+        })) || [];
       model.lines = model.estimateId
         ? await invoke("list_estimate_lines", { estimateId: model.estimateId })
         : [];
@@ -269,13 +323,52 @@ export function createOperationsWorkspace({
       "target_period",
     ])
       o[k] ??= "";
+    if (o.kind === "subcontract") {
+      o.contract_terms ||= {};
+      for (const k of [
+        "method",
+        "frequency",
+        "rate",
+        "ceiling",
+        "forecast_units",
+        "start",
+        "end",
+        "scope",
+        "advance_recovery_percent",
+        "retention_percent",
+      ])
+        o.contract_terms[k] = String(
+          data.get("contract:" + k) || o.contract_terms[k] || "",
+        );
+      o.contract_terms.payment_delay_days = Number(
+        data.get("contract:payment_delay_days") || 0,
+      );
+      o.contract_terms.contributes_progress = data.has(
+        "contract:contributes_progress",
+      );
+    }
     const rental = String(data.get("rental-link") || "").split("|");
-    o.price_cost = o.kind === "payable" && rental.length === 3 ? {row_id:rental[0],item_id:rental[1],period_start:rental[2]} : null;
-    o.extras=[...form.querySelectorAll("[data-certificate-extra]")].map(row=>{
-      const val=n=>row.querySelector(`[name="${n}"]`)?.value||"",checked=n=>Boolean(row.querySelector(`[name="${n}"]`)?.checked);
-      return {id:row.dataset.certificateExtra,description:val("extra-description"),reason:val("extra-reason"),authorization:val("extra-authorization"),amount:val("extra-amount"),adjustable:checked("extra-adjustable"),retention:checked("extra-retention"),recover_advance:checked("extra-advance")};
-    });
-    o.reconcile_ids=data.getAll("certificate-difference").map(String);
+    o.price_cost =
+      o.kind === "payable" && rental.length === 3
+        ? { row_id: rental[0], item_id: rental[1], period_start: rental[2] }
+        : null;
+    o.extras = [...form.querySelectorAll("[data-certificate-extra]")].map(
+      (row) => {
+        const val = (n) => row.querySelector(`[name="${n}"]`)?.value || "",
+          checked = (n) => Boolean(row.querySelector(`[name="${n}"]`)?.checked);
+        return {
+          id: row.dataset.certificateExtra,
+          description: val("extra-description"),
+          reason: val("extra-reason"),
+          authorization: val("extra-authorization"),
+          amount: val("extra-amount"),
+          adjustable: checked("extra-adjustable"),
+          retention: checked("extra-retention"),
+          recover_advance: checked("extra-advance"),
+        };
+      },
+    );
+    o.reconcile_ids = data.getAll("certificate-difference").map(String);
     o.lines = [...form.querySelectorAll(".operation-line")].map((row) => {
       const value = (n) => row.querySelector(`[name="${n}"]`)?.value || "";
       return {
@@ -300,6 +393,7 @@ export function createOperationsWorkspace({
   }
   function protect() {
     read();
+    if (!certificates.protect() || !quotations.protect()) return false;
     if (!model.dirty) return true;
     if (
       !window.confirm(
@@ -350,14 +444,47 @@ export function createOperationsWorkspace({
       : "";
   }
   function certificateExtras(o) {
-    if(o.kind!=="certificate")return "";
-    const pending=model.pendingDifferences.filter(d=>d.estimate_id===o.estimate_id);
-    return `<fieldset class="certificate-extras"><legend>Ajuste y adicionales de este certificado</legend><p>El ajuste se calcula al registrar con el acuerdo del presupuesto y las publicaciones conocidas a la fecha de emisión. Los trabajos que amplían el alcance se cargan como partidas en un rubro de adicionales; los siguientes cargos puntuales se cobran completos, una sola vez. Si son ajustables, ingresá su importe a valores del mes base; si son fijos, ingresá el importe final pactado.</p><button type="button" class="btn" data-action="ops-preview-index">Consultar índice a aplicar</button>${model.indexPreview?`<p role="status">${e(model.indexPreview.message)}</p>`:""}<h4>Diferencias pendientes de certificados anteriores</h4>${pending.map(d=>`<label><input type="checkbox" name="certificate-difference" value="${d.source_id}" ${(o.reconcile_ids||[]).includes(d.source_id)?"checked":""}> Certificado ${e(d.source_number)} · diferencia ${money(d.delta)} · reparo ${money(d.retention_delta)} · coeficiente ${numeric(d.from_factor)} → ${numeric(d.snapshot.factor)} ${d.snapshot.provisional?"(aún provisorio)":"(definitivo)"}</label>`).join("")||"<p>No hay diferencias pendientes publicadas para este presupuesto.</p>"}${(o.extras||[]).map((x,i)=>`<fieldset data-certificate-extra="${x.id}"><legend>Adicional puntual ${i+1}</legend><div class="form-grid three">${field("Descripción del adicional", "extra-description",x.description,'required maxlength="500"')}${field("Motivo del adicional", "extra-reason",x.reason,'required maxlength="2000"')}${field("Autorización / referencia del comitente", "extra-authorization",x.authorization,'required maxlength="2000"')}${field("Importe completo del adicional", "extra-amount",x.amount,'type="number" min="0.000001" step="any" required')}</div><label><input type="checkbox" name="extra-adjustable" ${x.adjustable?"checked":""}> Aplicar ajuste de índices</label><label><input type="checkbox" name="extra-retention" ${x.retention?"checked":""}> Aplicar fondo de reparo</label><label><input type="checkbox" name="extra-advance" ${x.recover_advance?"checked":""}> Permitir recuperar anticipo</label><button type="button" class="btn" data-action="ops-remove-extra" data-index="${i}">Quitar adicional</button></fieldset>`).join("")}<button type="button" class="btn" data-action="ops-add-extra">Agregar adicional puntual</button></fieldset>`;
+    if (o.kind !== "certificate") return "";
+    const pending = model.pendingDifferences.filter(
+      (d) => d.estimate_id === o.estimate_id,
+    );
+    return `<fieldset class="certificate-extras"><legend>Ajuste y adicionales de este certificado</legend><p>El ajuste se calcula al registrar con el acuerdo del presupuesto y las publicaciones conocidas a la fecha de emisión. Los trabajos que amplían el alcance se cargan como partidas en un rubro de adicionales; los siguientes cargos puntuales se cobran completos, una sola vez. Si son ajustables, ingresá su importe a valores del mes base; si son fijos, ingresá el importe final pactado.</p><button type="button" class="btn" data-action="ops-preview-index">Consultar índice a aplicar</button>${model.indexPreview ? `<p role="status">${e(model.indexPreview.message)}</p>` : ""}<h4>Diferencias pendientes de certificados anteriores</h4>${pending.map((d) => `<label><input type="checkbox" name="certificate-difference" value="${d.source_id}" ${(o.reconcile_ids || []).includes(d.source_id) ? "checked" : ""}> Certificado ${e(d.source_number)} · diferencia ${money(d.delta)} · reparo ${money(d.retention_delta)} · coeficiente ${numeric(d.from_factor)} → ${numeric(d.snapshot.factor)} ${d.snapshot.provisional ? "(aún provisorio)" : "(definitivo)"}</label>`).join("") || "<p>No hay diferencias pendientes publicadas para este presupuesto.</p>"}${(o.extras || []).map((x, i) => `<fieldset data-certificate-extra="${x.id}"><legend>Adicional puntual ${i + 1}</legend><div class="form-grid three">${field("Descripción del adicional", "extra-description", x.description, 'required maxlength="500"')}${field("Motivo del adicional", "extra-reason", x.reason, 'required maxlength="2000"')}${field("Autorización / referencia del comitente", "extra-authorization", x.authorization, 'required maxlength="2000"')}${field("Importe completo del adicional", "extra-amount", x.amount, 'type="number" min="0.000001" step="any" required')}</div><label><input type="checkbox" name="extra-adjustable" ${x.adjustable ? "checked" : ""}> Aplicar ajuste de índices</label><label><input type="checkbox" name="extra-retention" ${x.retention ? "checked" : ""}> Aplicar fondo de reparo</label><label><input type="checkbox" name="extra-advance" ${x.recover_advance ? "checked" : ""}> Permitir recuperar anticipo</label><button type="button" class="btn" data-action="ops-remove-extra" data-index="${i}">Quitar adicional</button></fieldset>`).join("")}<button type="button" class="btn" data-action="ops-add-extra">Agregar adicional puntual</button></fieldset>`;
+  }
+  function contractTerms(o) {
+    const t = o.contract_terms || {};
+    return `<fieldset><legend>Asignación y acuerdo del contratista / cuadrilla</legend><p>Asigná partidas y cantidades en los renglones. El precio es el costo pactado con el contratista, separado del precio de venta al comitente. Al aprobar su certificado se reconoce el costo y se ofrece su avance al certificado del comitente; no registres otra recepción del mismo trabajo.</p><div class="workflow-grid">${field("Alcance: mano de obra / materiales / equipos", "contract:scope", t.scope || "Mano de obra", "required")}${select(
+      "Modalidad de liquidación",
+      "contract:method",
+      [
+        ["quantity", "Por cantidades ejecutadas"],
+        ["percent", "Por avance porcentual"],
+        ["fixed", "Importe fijo por período"],
+        ["daily", "Por jornada"],
+        ["hourly", "Por hora"],
+      ],
+      t.method || "quantity",
+    )}${select(
+      "Frecuencia de pago",
+      "contract:frequency",
+      [
+        ["weekly", "Semanal (viernes)"],
+        ["fortnight", "Quincenal (15 y fin de mes)"],
+        ["monthly", "Mensual"],
+        ["by_progress", "Al certificar avance"],
+      ],
+      t.frequency || "weekly",
+    )}${field("Tarifa por período / jornada / hora", "contract:rate", t.rate || "0", 'type="number" min="0" step="any"')}${field("Tope total para tarifa fija o por tiempo", "contract:ceiling", t.ceiling || "0", 'type="number" min="0" step="any"')}${field("Jornadas / horas estimadas por pago", "contract:forecast_units", t.forecast_units || "1", 'type="number" min="0" step="any"')}${field("Inicio contratado", "contract:start", t.start || "", 'type="date"')}${field("Fin contratado", "contract:end", t.end || "", 'type="date"')}${field("Demora de pago (días)", "contract:payment_delay_days", t.payment_delay_days || 0, 'type="number" min="0" max="365"')}${field("Recuperación de anticipo %", "contract:advance_recovery_percent", t.advance_recovery_percent || "0", 'type="number" min="0" max="100" step="any"')}${field("Fondo de reparo %", "contract:retention_percent", t.retention_percent || "0", 'type="number" min="0" max="100" step="any"')}</div><label><input name="contract:contributes_progress" type="checkbox" ${t.contributes_progress !== false ? "checked" : ""}> Este contrato aporta ejecución física (desmarcar apoyos, alquileres y servicios que no suman cantidades)</label></fieldset>`;
   }
   function formMarkup() {
     const o = model.draft;
     if (!o) return "";
-    const stockKinds = ["stock_opening", "receipt", "consumption", "return", "transfer"];
+    const stockKinds = [
+      "stock_opening",
+      "receipt",
+      "consumption",
+      "return",
+      "transfer",
+    ];
     const monetary = [
       "payable",
       "receivable",
@@ -398,7 +525,7 @@ export function createOperationsWorkspace({
         }[o.kind] || [];
       return allowed.includes(d.kind);
     });
-    return `<form id="operation-form" class="operations-form"><h3>${e(operationNames[o.kind])}</h3><p class="context-help">${e(guides[o.kind])} Los documentos registrados conservan su historial y no se sobrescriben.</p><div class="form-grid three">${field("Número / referencia", "o:number", o.number, o.kind === "stock_opening" ? 'readonly placeholder="Automático al registrar"' : 'required maxlength="100"')}${field("Fecha", "o:date", o.date, 'type="date" required')}${select(
+    return `<form id="operation-form" class="operations-form"><h3>${e(operationNames[o.kind])}</h3><p class="context-help">${e(guides[o.kind])} Los documentos registrados conservan su historial y no se sobrescriben.</p><div class="form-grid three">${field("Número / referencia", "o:number", o.number, ["stock_opening", "subcontract", "quote", "rfq"].includes(o.kind) ? 'readonly placeholder="Automático al registrar"' : 'required maxlength="100"')}${field("Fecha", "o:date", o.date, 'type="date" required')}${select(
       "Moneda",
       "o:currency",
       [
@@ -406,12 +533,13 @@ export function createOperationsWorkspace({
         ["USD", "USD"],
       ],
       o.currency,
-    )}${select("Contraparte", "o:partner_id", [["", "Comitente / sin contraparte"], ...model.partners.filter(p=>p.attributes?.person_primary!=="false"||p.id===o.partner_id).map((p) => [p.id, p.name+((state.projects.find(x=>x.id===state.projectId)?.supplier_ids||[]).includes(p.attributes?.person_id||p.id)?" · Vinculado a la obra":"")])], o.partner_id)}${available.length || ["rfq", "quote", "purchase_order", "service_order", "subcontract", "receipt", "service_receipt", "return", "subcertificate", "adjustment", "payable", "receivable", "payment", "collection", "advance_paid", "retention_payable", "retention_receivable"].includes(o.kind) ? select("Documento de origen", "o:reference_id", [["", "Sin origen"], ...available.map((d) => [d.id, `${operationNames[d.kind]} · ${d.number} · ${partnerName(d.partner_id)} · ${d.currency} ${money(d.amount)}`])], o.reference_id) : ""}${select("Presupuesto de referencia", "o:estimate_id", [["", "Sin vínculo"], ...model.estimates.filter(x=>x.id===model.estimateId||x.id===o.estimate_id).map((x) => [x.id, x.title + (x.issued ? " · Emitido" : " · Borrador")])], o.estimate_id)}</div>
- ${o.kind === "payable" ? select("Alquiler / gasto mensual previsto (opcional)", "rental-link", [["", "Sin vínculo"], ...(model.report?.recurring_costs || []).filter(r => r.currency === o.currency).map(r => [rentalKey(r), `${r.description} · ${r.period_start} → ${r.period_end}`])], o.price_cost ? rentalKey(o.price_cost) : "") + '<p class="modal-help">Para un gasto mensual elegí su período y dejá Documento de origen sin vínculo. La factura reemplaza la previsión; registrá su pago por separado.</p>' : ""}
+    )}${select("Contraparte", "o:partner_id", [["", "Comitente / sin contraparte"], ...model.partners.filter((p) => p.attributes?.person_primary !== "false" || p.id === o.partner_id).map((p) => [p.id, p.name + ((state.projects.find((x) => x.id === state.projectId)?.supplier_ids || []).includes(p.attributes?.person_id || p.id) ? " · Vinculado a la obra" : "")])], o.partner_id)}${available.length || ["rfq", "quote", "purchase_order", "service_order", "subcontract", "receipt", "service_receipt", "return", "subcertificate", "adjustment", "payable", "receivable", "payment", "collection", "advance_paid", "retention_payable", "retention_receivable"].includes(o.kind) ? select("Documento de origen", "o:reference_id", [["", "Sin origen"], ...available.map((d) => [d.id, `${operationNames[d.kind]} · ${d.number} · ${partnerName(d.partner_id)} · ${d.currency} ${money(d.amount)}`])], o.reference_id) : ""}${select("Presupuesto de referencia", "o:estimate_id", [["", "Sin vínculo"], ...model.estimates.filter((x) => x.id === model.estimateId || x.id === o.estimate_id).map((x) => [x.id, x.title + (x.issued ? " · Emitido" : " · Borrador")])], o.estimate_id)}</div>
+ ${o.kind === "payable" ? select("Alquiler / gasto mensual previsto (opcional)", "rental-link", [["", "Sin vínculo"], ...(model.report?.recurring_costs || []).filter((r) => r.currency === o.currency).map((r) => [rentalKey(r), `${r.description} · ${r.period_start} → ${r.period_end}`])], o.price_cost ? rentalKey(o.price_cost) : "") + '<p class="modal-help">Para un gasto mensual elegí su período y dejá Documento de origen sin vínculo. La factura reemplaza la previsión; registrá su pago por separado.</p>' : ""}
 
  ${stockKinds.includes(o.kind) ? `<div class="form-grid">${select("Depósito", "o:warehouse_id", opts(model.warehouses.filter((w) => w.project_id === model.projectId)), o.warehouse_id)}${o.kind === "transfer" ? select("Depósito de destino", "o:destination_id", [["", "Seleccionar…"], ...model.warehouses.map((w) => [w.id, whName(w.id)])], o.destination_id) : ""}</div>` : ""}
  ${cert ? `<div class="form-grid three">${field("Inicio del período", "o:period_start", o.period_start, 'type="date" required')}${field("Fin del período", "o:period_end", o.period_end, 'type="date" required')}${field("Anticipo a descontar", "o:advance", o.advance, 'type="number" min="0" step="any" required')}${field("Otros descuentos", "o:discount", o.discount, 'type="number" min="0" step="any" required')}${field("Fondo de reparo %", "o:retention_percent", o.retention_percent, 'type="number" min="0" max="100" step="any" required')}${field("Vencimiento", "o:due_date", o.due_date, 'type="date" required')}</div>` : ""}
- ${o.kind === "payable" && model.partners.find(p=>p.id===o.partner_id)?.kind === "crew" ? `<div class="form-grid three">${field("Inicio de la liquidación", "o:period_start",o.period_start,'type="date" required')}${field("Fin de la liquidación", "o:period_end",o.period_end,'type="date" required')}${field("Anticipo a descontar del importe bruto", "o:advance",o.advance || "0",'type="number" min="0" step="any" required')}</div><p>El importe ingresado es bruto; se descontará este anticipo para obtener el neto por pagar.</p>` : ""}
+ ${o.kind === "payable" && model.partners.find((p) => p.id === o.partner_id)?.kind === "crew" ? `<div class="form-grid three">${field("Inicio de la liquidación", "o:period_start", o.period_start, 'type="date" required')}${field("Fin de la liquidación", "o:period_end", o.period_end, 'type="date" required')}${field("Anticipo a descontar del importe bruto", "o:advance", o.advance || "0", 'type="number" min="0" step="any" required')}</div><p>El importe ingresado es bruto; se descontará este anticipo para obtener el neto por pagar.</p>` : ""}
+ ${o.kind === "subcontract" ? contractTerms(o) : ""}
  ${certificateExtras(o)}
  ${monetary.includes(o.kind) ? `<div class="form-grid">${field(o.kind === "forecast" ? "Costo restante estimado" : "Importe", "o:amount", o.amount, 'type="number" min="0" step="any" required')}${field(o.kind === "forecast" ? "Fin previsto" : "Vencimiento / fecha prevista", "o:due_date", o.due_date, 'type="date" required')}</div>` : ""}
  ${
@@ -461,6 +589,7 @@ export function createOperationsWorkspace({
                      "Tipo de registro",
                      "entry_type",
                      [
+                       ["contracts", "Contratistas y cuadrillas"],
                        ["production", "Producción"],
                        ["labor", "Asistencia / mano de obra"],
                        ["equipment", "Uso de equipo"],
@@ -478,7 +607,7 @@ export function createOperationsWorkspace({
                      l.attendance || "present",
                    )
                  : ""
-             }${select("Insumo (opcional)", "resource_id", opts(state.resources), l.resource_id)}${select("Partida (opcional)", "line_id", opts(model.lines.filter(line=>!line.archived||["receipt","service_receipt","return"].includes(o.kind))), l.line_id)}${select("Centro de costos", "center_id", opts(model.centers.filter((c) => !c.project_id || c.project_id === model.projectId)), l.center_id)}${field("Descripción del renglón", "description", l.description, 'required maxlength="1000"')}${field(o.kind === "daily" ? "Cantidad producida" : "Cantidad del período / movimiento", "quantity", l.quantity, 'type="number" min="0.000001" step="any" required')}${field(o.kind === "daily" ? "Costo por hora" : "Precio unitario", "unit_price", l.unit_price, 'type="number" min="0" step="any" required')}${o.kind === "daily" ? field("Horas trabajadas / equipo", "hours", l.hours, 'type="number" min="0" step="any" required') : ""}</div><button type="button" class="btn" data-action="ops-remove-line" data-index="${i}">Quitar renglón</button></fieldset>`,
+             }${select("Insumo (opcional)", "resource_id", opts(state.resources), l.resource_id)}${select("Partida (opcional)", "line_id", opts(model.lines.filter((line) => !line.archived || ["receipt", "service_receipt", "return"].includes(o.kind))), l.line_id)}${select("Centro de costos", "center_id", opts(model.centers.filter((c) => !c.project_id || c.project_id === model.projectId)), l.center_id)}${field("Descripción del renglón", "description", l.description, 'required maxlength="1000"')}${field(o.kind === "daily" ? "Cantidad producida" : "Cantidad del período / movimiento", "quantity", l.quantity, 'type="number" min="0.000001" step="any" required')}${field(o.kind === "daily" ? "Costo por hora" : "Precio unitario", "unit_price", l.unit_price, 'type="number" min="0" step="any" required')}${o.kind === "daily" ? field("Horas trabajadas / equipo", "hours", l.hours, 'type="number" min="0" step="any" required') : ""}</div><button type="button" class="btn" data-action="ops-remove-line" data-index="${i}">Quitar renglón</button></fieldset>`,
          )
          .join("")}`
      : ""
@@ -507,7 +636,10 @@ export function createOperationsWorkspace({
           e(operationNames[d.kind]),
           e(d.number),
           e(partnerName(d.partner_id)),
-          e(model.estimates.find(est=>est.id===d.estimate_id)?.title||"Sin vínculo"),
+          e(
+            model.estimates.find((est) => est.id === d.estimate_id)?.title ||
+              "Sin vínculo",
+          ),
           e(d.currency),
           money(d.amount),
           `<button class="btn" data-action="ops-detail" data-id="${d.id}">Ver / exportar</button>`,
@@ -608,16 +740,135 @@ export function createOperationsWorkspace({
   }
   const rentalKey = (r) => `${r.row_id}|${r.item_id}|${r.period_start}`;
   function rentals() {
-    return `<h3>Alquileres y gastos mensuales previstos</h3><p>Provienen del detalle guardado en Determinación de precio del presupuesto activo. Vinculá las facturas con su período para reemplazar la previsión. Una previsión no registra deuda ni un pago.</p>${table(["Concepto", "Período", "Vencimiento", "Moneda", "Presupuestado", "Facturado", "Sin facturar"], (model.report?.recurring_costs || []).map(r => [e(r.description),e(r.period_start + " → " + r.period_end),e(r.due_date),e(r.currency),money(r.amount),money(r.invoiced),money(r.unbilled)]))}`;
+    return `<h3>Alquileres y gastos mensuales previstos</h3><p>Provienen del detalle guardado en Determinación de precio del presupuesto activo. Vinculá las facturas con su período para reemplazar la previsión. Una previsión no registra deuda ni un pago.</p>${table(
+      [
+        "Concepto",
+        "Período",
+        "Vencimiento",
+        "Moneda",
+        "Presupuestado",
+        "Facturado",
+        "Sin facturar",
+      ],
+      (model.report?.recurring_costs || []).map((r) => [
+        e(r.description),
+        e(r.period_start + " → " + r.period_end),
+        e(r.due_date),
+        e(r.currency),
+        money(r.amount),
+        money(r.invoiced),
+        money(r.unbilled),
+      ]),
+    )}`;
   }
   function financialProjection() {
     const f = model.report?.financial_projection;
-    if (!f) return '<p>Guardá el cronograma en Planificación para consultar la previsión financiera.</p>';
-    return `<section class="financial-projection"><h2>Previsión financiera · ${e(f.currency)}</h2><p>Desde el día siguiente al corte de seguimiento (${e(f.as_of)}). Caja inicial declarada: <strong>${money(f.opening_cash)}</strong>. Capital adicional máximo previsto: <strong>${money(f.additional_cash)}</strong>.</p><p>Los cobros por certificación son estimaciones del cronograma, no certificados emitidos. Las compras se prevén para el día en que se necesitan; anticipá sus fechas si el proveedor requiere pago o entrega previa. No se convierten monedas. Los egresos se consideran antes que los cobros del mismo día.</p>${(f.warnings || []).map(w=>`<p class="context-help">${e(w)}</p>`).join("")}${f.periods.map(p=>`<details class="planning-options" open><summary>Período ${e(p.start)} → ${e(p.end)} · Egresos ${money(p.expenses)} · Caja adicional ${money(p.additional_cash)}</summary><p>Certificación prevista: bruto ${money(p.gross)} − anticipo ${money(p.advance)} − reparo ${money(p.retention)} = <strong>${money(p.net)}</strong>. Cobro previsto: ${e(p.collection_date)}. Ingresos durante el período: ${money(p.receipts)}.</p>${table(["Material", "Unidad", "Necesario", "Del acopio", "Comprado por recibir", "Comprar", "Costo de compra"],p.materials.map(m=>[e(m.description),e(m.unit),numeric(m.required),numeric(m.from_stock),numeric(m.pending_order),numeric(m.purchase),money(m.cost)]))}</details>`).join("")}<details class="planning-options"><summary>Calendario de ingresos, egresos y saldo previsto</summary>${table(["Fecha", "Concepto", "Ingreso", "Egreso", "Saldo"],f.events.map(x=>[e(x.date),e(x.description),money(x.income),money(x.expense),money(x.balance)]))}</details></section>`;
+    if (!f)
+      return "<p>Guardá el cronograma en Planificación para consultar la previsión financiera.</p>";
+    return `<section class="financial-projection"><h2>Previsión financiera · ${e(f.currency)}</h2><p>Desde el día siguiente al corte de seguimiento (${e(f.as_of)}). Caja inicial declarada: <strong>${money(f.opening_cash)}</strong>. Capital adicional máximo previsto: <strong>${money(f.additional_cash)}</strong>.</p><p>Los cobros por certificación son estimaciones del cronograma, no certificados emitidos. Las compras se prevén para el día en que se necesitan; anticipá sus fechas si el proveedor requiere pago o entrega previa. No se convierten monedas. Los egresos se consideran antes que los cobros del mismo día.</p>${(f.warnings || []).map((w) => `<p class="context-help">${e(w)}</p>`).join("")}${f.periods
+      .map(
+        (p) =>
+          `<details class="planning-options" open><summary>Período ${e(p.start)} → ${e(p.end)} · Egresos ${money(p.expenses)} · Caja adicional ${money(p.additional_cash)}</summary><p>Certificación prevista: bruto ${money(p.gross)} − anticipo ${money(p.advance)} − reparo ${money(p.retention)} = <strong>${money(p.net)}</strong>. Cobro previsto: ${e(p.collection_date)}. Ingresos durante el período: ${money(p.receipts)}.</p>${table(
+            [
+              "Material",
+              "Unidad",
+              "Necesario",
+              "Del acopio",
+              "Comprado por recibir",
+              "Comprar",
+              "Costo de compra",
+            ],
+            p.materials.map((m) => [
+              e(m.description),
+              e(m.unit),
+              numeric(m.required),
+              numeric(m.from_stock),
+              numeric(m.pending_order),
+              numeric(m.purchase),
+              money(m.cost),
+            ]),
+          )}</details>`,
+      )
+      .join(
+        "",
+      )}<details class="planning-options"><summary>Calendario de ingresos, egresos y saldo previsto</summary>${table(
+      ["Fecha", "Concepto", "Ingreso", "Egreso", "Saldo"],
+      f.events.map((x) => [
+        e(x.date),
+        e(x.description),
+        money(x.income),
+        money(x.expense),
+        money(x.balance),
+      ]),
+    )}</details></section>`;
+  }
+  function cashSettings() {
+    const p = model.cashSettings;
+    if (!p) return "";
+    return `<form id="workflow-cash-form" class="workflow-card"><h3>Caja disponible de esta obra</h3><p>Saldo disponible a la fecha de seguimiento. No modifica movimientos contables; sirve como punto de partida de la previsión.</p><div class="feature-toolbar">${field("Caja disponible", "opening_cash", p.plan.finance?.opening_cash || "0", 'type="number" min="0" step="any" required')}${select(
+      "Moneda de la caja",
+      "cash_currency",
+      [
+        ["ARS", "ARS"],
+        ["USD", "USD"],
+      ],
+      p.plan.finance?.cash_currency || "ARS",
+    )}<button class="btn primary" type="submit">Guardar caja</button><button class="btn" type="button" data-action="ops-cash-close">Cerrar</button></div></form>`;
+  }
+  function financeDashboard() {
+    const f = model.report?.financial_projection;
+    if (!f)
+      return (
+        cashSettings() +
+        '<button class="btn" data-action="ops-cash-open">Configurar caja disponible</button>'
+      );
+    const next = f.periods.find((p) => p.end >= model.asOf);
+    if (!next)
+      return (
+        cashSettings() +
+        '<section class="workflow-card"><button class="btn" data-action="ops-cash-open">Configurar caja disponible</button>No hay próximos cortes de certificación. Marcá las fechas en el Gantt.</section>'
+      );
+    const until = f.events.filter((x) => x.date <= next.collection_date),
+      expenses = sumDecimals(until.map((x) => x.expense)),
+      confirmed = sumDecimals(
+        until
+          .filter((x) => x.kind !== "planned_certificate")
+          .map((x) => x.income),
+      );
+    let balance = Number(f.opening_cash),
+      minimum = balance;
+    for (const x of until) {
+      balance += Number(x.income) - Number(x.expense);
+      minimum = Math.min(minimum, balance);
+    }
+    return (
+      cashSettings() +
+      `<section class="workflow-card"><button class="btn" data-action="ops-cash-open">Configurar caja disponible</button><h2>Próxima certificación · ${e(next.end)}</h2><p>Financiamiento hasta el cobro previsto (${e(next.collection_date)}), incluyendo días posteriores al corte. Moneda ${e(f.currency)}. Los gastos mensuales, acopio y obligaciones se concilian con la previsión detallada.</p><div class="workflow-summary">${[
+        ["Cobro posible del corte", next.net],
+        ["Gastos hasta el cobro", expenses],
+        ["Otros cobros confirmados", confirmed],
+        ["Caja disponible declarada", f.opening_cash],
+        ["Capital adicional estimado", String(Math.max(0, -minimum))],
+        ["Avance oficial certificado %", model.report.certified_percent || "0"],
+      ]
+        .map(([label, value]) => `<div>${label}<b>${money(value)}</b></div>`)
+        .join(
+          "",
+        )}</div><h3>Avances de contratistas aprobados pendientes de certificar</h3><p>${certificates.view.available.length} renglones disponibles. Incorporarlos al borrador del comitente los valoriza a sus precios de venta. El Gantt refleja únicamente certificados emitidos.</p>${table(
+        ["Certificado contratista", "Partida", "Cantidad pendiente"],
+        certificates.view.available.map((x) => [
+          e(x.number),
+          e(x.description),
+          numeric(x.quantity),
+        ]),
+      )}</section>`
+    );
   }
   function finances() {
     return (
-      summary(model.report) + financialProjection() + rentals() +
+      summary(model.report) +
+      financialProjection() +
+      rentals() +
       `<h3>Flujo de fondos por mes</h3>${table(
         [
           "Mes",
@@ -681,8 +932,9 @@ export function createOperationsWorkspace({
     );
   }
   function dashboard() {
-    if(state.remoteProject?.data.permissions?.accounting===false)return `<p class="context-help">El propietario no compartió información contable. Se muestra la producción autorizada de esta obra.</p>${production()}`;
-    return `<p class="context-help">${state.view==='portfolio'?"Cartera global: último presupuesto emitido de cada obra, o último borrador si no hay emitidos.":"Tablero de esta obra con el presupuesto activo indicado arriba."} Fecha de corte: ${e(model.asOf)}. Los importes se muestran por moneda. El costo real proviene de consumos netos, servicios aceptados y horas de partes, sin duplicar las facturas. El costo a terminar utiliza la última proyección o la proporción del costo presupuestado pendiente según producción.</p>${table(
+    if (state.remoteProject?.data.permissions?.accounting === false)
+      return `<p class="context-help">El propietario no compartió información contable. Se muestra la producción autorizada de esta obra.</p>${production()}`;
+    return `<p class="context-help">${state.view === "portfolio" ? "Cartera global: último presupuesto emitido de cada obra, o último borrador si no hay emitidos." : "Tablero de esta obra con el presupuesto activo indicado arriba."} Fecha de corte: ${e(model.asOf)}. Los importes se muestran por moneda. El costo real proviene de consumos netos, servicios aceptados y horas de partes, sin duplicar las facturas. El costo a terminar utiliza la última proyección o la proporción del costo presupuestado pendiente según producción.</p>${table(
       [
         "Obra",
         "Moneda",
@@ -714,13 +966,68 @@ export function createOperationsWorkspace({
     )}${model.projectId ? finances() + production() : ""}`;
   }
   function certificateAnnex(d) {
-    const snap=d.index_snapshot;
-    return `${snap?`<h4>Ajuste ${snap.provisional?"provisorio":"definitivo"} · coeficiente ${numeric(snap.factor)}</h4><p>Mes base ${e(snap.agreement.base_month)} · mes objetivo ${e(snap.target_month)} · mes aplicado ${e(snap.applied_month)}.</p>${table(["Índice", "Peso", "Puntaje base", "Puntaje aplicado", "Publicación"],snap.indices.map(x=>[e(x.series),numeric(x.weight),numeric(x.base.value),numeric(x.current.value),e(x.current.publication_date)]))}`:""}${(d.extras||[]).length?`<h4>Adicionales puntuales</h4>${table(["Descripción", "Motivo", "Autorización", "Importe base", "Ajustable"],d.extras.map(x=>[e(x.description),e(x.reason),e(x.authorization),money(x.amount),x.adjustable?"Sí":"No"]))}`:""}${(d.reconciliations||[]).length?`<h4>Diferencias de ajuste incluidas</h4>${table(["Certificado original", "Diferencia", "Reparo", "Nuevo coeficiente"],d.reconciliations.map(x=>[e(x.source_number),money(x.delta),money(x.retention_delta),numeric(x.snapshot.factor)]))}`:""}`;
+    const snap = d.index_snapshot;
+    return `${
+      snap
+        ? `<h4>Ajuste ${snap.provisional ? "provisorio" : "definitivo"} · coeficiente ${numeric(snap.factor)}</h4><p>Mes base ${e(snap.agreement.base_month)} · mes objetivo ${e(snap.target_month)} · mes aplicado ${e(snap.applied_month)}.</p>${table(
+            [
+              "Índice",
+              "Peso",
+              "Puntaje base",
+              "Puntaje aplicado",
+              "Publicación",
+            ],
+            snap.indices.map((x) => [
+              e(x.series),
+              numeric(x.weight),
+              numeric(x.base.value),
+              numeric(x.current.value),
+              e(x.current.publication_date),
+            ]),
+          )}`
+        : ""
+    }${
+      (d.extras || []).length
+        ? `<h4>Adicionales puntuales</h4>${table(
+            [
+              "Descripción",
+              "Motivo",
+              "Autorización",
+              "Importe base",
+              "Ajustable",
+            ],
+            d.extras.map((x) => [
+              e(x.description),
+              e(x.reason),
+              e(x.authorization),
+              money(x.amount),
+              x.adjustable ? "Sí" : "No",
+            ]),
+          )}`
+        : ""
+    }${
+      (d.reconciliations || []).length
+        ? `<h4>Diferencias de ajuste incluidas</h4>${table(
+            [
+              "Certificado original",
+              "Diferencia",
+              "Reparo",
+              "Nuevo coeficiente",
+            ],
+            d.reconciliations.map((x) => [
+              e(x.source_number),
+              money(x.delta),
+              money(x.retention_delta),
+              numeric(x.snapshot.factor),
+            ]),
+          )}`
+        : ""
+    }`;
   }
   function detail() {
     const d = model.detail;
     if (!d) return "";
-    return `<div class="modal-overlay"><section class="dialog-shell wide" role="dialog" aria-modal="true" aria-label="Documento registrado"><div class="dialog-header"><h2>${e(operationNames[d.kind])} · ${e(d.number)}</h2><button type="button" data-action="ops-close-detail" aria-label="Cerrar documento">×</button></div><div class="dialog-body"><p>Presupuesto del documento: <strong>${e(model.estimates.find(est=>est.id===d.estimate_id)?.title||"Sin vínculo")}</strong></p><p>${e(d.date)} · ${e(partnerName(d.partner_id))} · ${e(d.currency)} ${money(d.amount)}</p><p>${e(d.notes)}</p><p>${e(d.terms)}</p>${d.period_start ? `<p>Período: ${e(d.period_start)} a ${e(d.period_end)}</p>` : ""}${certificateAnnex(d)}${table(
+    return `<div class="modal-overlay"><section class="dialog-shell wide" role="dialog" aria-modal="true" aria-label="Documento registrado"><div class="dialog-header"><h2>${e(operationNames[d.kind])} · ${e(d.number)}</h2><button type="button" data-action="ops-close-detail" aria-label="Cerrar documento">×</button></div><div class="dialog-body"><p>Presupuesto del documento: <strong>${e(model.estimates.find((est) => est.id === d.estimate_id)?.title || "Sin vínculo")}</strong></p><p>${e(d.date)} · ${e(partnerName(d.partner_id))} · ${e(d.currency)} ${money(d.amount)}</p><p>${e(d.notes)}</p><p>${e(d.terms)}</p>${d.period_start ? `<p>Período: ${e(d.period_start)} a ${e(d.period_end)}</p>` : ""}${certificateAnnex(d)}${table(
       ["Descripción", "Cantidad", "Precio", "Horas"],
       d.lines.map((l) => [
         e(l.description),
@@ -733,35 +1040,54 @@ export function createOperationsWorkspace({
       Object.entries(d.calculated || {}).map(([k, v]) => [e(k), numeric(v)]),
     )}${d.kind === "index" ? `<p>${e(d.index_series)} · ${e(d.index_period)} · ${numeric(d.index_value)}</p><a href="${e(d.index_source)}" target="_blank" rel="noreferrer">${e(d.index_source)}</a>` : ""}<p>${e(d.incidents)}</p><div class="operation-photos">${d.photos.map((p, i) => `<img src="${e(p)}" alt="Foto ${i + 1}">`).join("")}</div><div class="dialog-actions"><button type="button" class="btn" data-action="ops-export-document" data-format="xlsx">Exportar Excel</button><button type="button" class="btn" data-action="ops-export-document" data-format="pdf">Exportar PDF</button><button type="button" class="btn" data-action="ops-close-detail">Cerrar</button></div></div></section></div>`;
   }
-  async function refreshPortfolio(){
-    model.portfolio=await invoke('operations_portfolio',{asOf:model.asOf});
+  async function refreshPortfolio() {
+    model.portfolio = await invoke("operations_portfolio", {
+      asOf: model.asOf,
+    });
   }
   function markup() {
-    if(state.view==='portfolio')return `<main class="feature-page"><div class="feature-toolbar"><h1>Cartera de obras</h1>${field('Fecha de corte','portfolio-asof',model.asOf,'type="date" required')}<button class="btn" data-action="ops-portfolio-refresh">Actualizar cartera</button><button class="btn" data-action="ops-export" data-format="xlsx">Informe Excel</button><button class="btn" data-action="ops-export" data-format="pdf">Informe PDF</button></div>${dashboard()}${model.lastExport?`<p role="status">Guardado en ${e(model.lastExport)}</p>`:''}</main>`;
-    return `<section class="feature-page operations-page"><div class="work-toolbar"><strong>${e(state.projects.find(p=>p.id===state.projectId)?.name)}</strong>${field("Fecha de corte", "ops-asof", model.asOf, 'type="date" required')}<button class="btn" data-action="ops-refresh">Actualizar</button></div><nav class="operations-tabs" aria-label="Etapas de gestión">${[
+    if (state.view === "portfolio")
+      return `<main class="feature-page"><div class="feature-toolbar"><h1>Cartera de obras</h1>${field("Fecha de corte", "portfolio-asof", model.asOf, 'type="date" required')}<button class="btn" data-action="ops-portfolio-refresh">Actualizar cartera</button><button class="btn" data-action="ops-export" data-format="xlsx">Informe Excel</button><button class="btn" data-action="ops-export" data-format="pdf">Informe PDF</button></div>${dashboard()}${model.lastExport ? `<p role="status">Guardado en ${e(model.lastExport)}</p>` : ""}</main>`;
+    return `<section class="feature-page operations-page"><div class="work-toolbar"><strong>${e(state.projects.find((p) => p.id === state.projectId)?.name)}</strong>${field("Fecha de corte", "ops-asof", model.asOf, 'type="date" required')}<button class="btn" data-action="ops-refresh">Actualizar</button></div><nav class="operations-tabs" aria-label="Etapas de gestión">${[
       ["purchases", "Compras y almacenes"],
+      ["contracts", "Contratistas y cuadrillas"],
       ["production", "Producción"],
       ["certificates", "Certificaciones"],
       ["finance", "Finanzas"],
       ["dashboard", "Tablero"],
     ]
+      .filter(
+        ([key]) =>
+          !state.remoteProject ||
+          state.remoteProject.data.permissions?.accounting !== false ||
+          !["finance", "certificates"].includes(key),
+      )
       .map(
         ([key, name]) =>
           `<button class="btn ${model.tab === key ? "primary" : ""}" aria-current="${model.tab === key ? "page" : "false"}" data-action="ops-tab" data-tab="${key}">${name}</button>`,
       )
       .join("")}</nav><div class="work-toolbar">${
-      model.tab !== "dashboard"
+      !["dashboard", "certificates"].includes(model.tab)
         ? select(
             "Tipo de documento",
             "ops-kind",
-            (operationGroups[model.tab] || []).filter(k=>k!=="index" && (k!=="adjustment" || model.docs.some(d=>d.kind==="certificate" && !d.index_snapshot && d.calculated?.index_factor===undefined))).map((k) => [
-              k,
-              operationNames[k],
-            ]),
+            (operationGroups[model.tab] || [])
+              .filter(
+                (k) =>
+                  k !== "index" &&
+                  (k !== "adjustment" ||
+                    model.docs.some(
+                      (d) =>
+                        d.kind === "certificate" &&
+                        !d.index_snapshot &&
+                        d.calculated?.index_factor === undefined,
+                    )),
+              )
+              .map((k) => [k, operationNames[k]]),
             model.draft?.kind,
           )
         : ""
-    }${model.tab !== "dashboard" ? '<button class="btn" data-action="ops-new">Nuevo documento</button>' : ""}${select(
+    }${!["dashboard", "certificates"].includes(model.tab) ? '<button class="btn" data-action="ops-new">Nuevo documento</button>' : ""}${select(
       "Contenido del informe",
       "ops-report-scope",
       [
@@ -774,25 +1100,48 @@ export function createOperationsWorkspace({
         ["costs", "Resultados por centro y partida"],
         ["sections", "Resultados por rubro"],
         ["documents", "Documentos"],
-
       ],
       model.exportScope || "summary",
-    )}<button class="btn" data-action="ops-export" data-format="xlsx">Informe Excel</button><button class="btn" data-action="ops-export" data-format="pdf">Informe PDF</button></div>${model.lastExport ? `<p role="status">Guardado en ${e(model.lastExport)}</p>` : ""}${model.report?.alerts.map((a) => `<p class="operations-alert">${e(a)}</p>`).join("") || ""}${model.tab === "dashboard" ? dashboard() : !model.projectId ? "<p>Seleccioná una obra para comenzar.</p>" : `${model.tab === "purchases" ? purchasing() : model.tab === "production" ? production() : model.tab === "finance" ? finances() : summary(model.report)}${state.remoteProject?"":formMarkup()}<h3>Historial de documentos de esta obra (todas las versiones)</h3>${documentRows()}`}${detail()}</section>`;
+    )}<button class="btn" data-action="ops-export" data-format="xlsx">Informe Excel</button><button class="btn" data-action="ops-export" data-format="pdf">Informe PDF</button></div>${model.lastExport ? `<p role="status">Guardado en ${e(model.lastExport)}</p>` : ""}${model.report?.alerts.map((a) => `<p class="operations-alert">${e(a)}</p>`).join("") || ""}${model.tab === "dashboard" ? dashboard() : !model.projectId ? "<p>Seleccioná una obra para comenzar.</p>" : `${model.tab === "purchases" ? quotations.markup() + purchasing() : model.tab === "production" ? production() : model.tab === "finance" ? financeDashboard() + certificates.overview() + finances() : model.tab === "certificates" ? certificates.markup() : summary(model.report)}${state.remoteProject || model.tab === "certificates" ? "" : formMarkup()}<h3>Historial de documentos de esta obra (todas las versiones)</h3>${documentRows()}`}${detail()}</section>`;
   }
   async function act(button) {
     const a = button.dataset.action;
-    if(a==='open-portfolio'){
-      if(state.projectId)throw new Error('La cartera global se consulta desde Inicio');
-      model.projectId='';model.estimateId='';model.draft=null;model.dirty=false;model.report=null;model.detail=null;model.lines=[];model.docs=[];model.lastExport='';model.exportScope='portfolio';model.portfolio=[];
-      await refreshPortfolio();state.view='portfolio';render();return;
+    if (a === "open-portfolio") {
+      if (state.projectId)
+        throw new Error("La cartera global se consulta desde Inicio");
+      model.projectId = "";
+      model.estimateId = "";
+      model.draft = null;
+      model.dirty = false;
+      model.report = null;
+      model.detail = null;
+      model.lines = [];
+      model.docs = [];
+      model.lastExport = "";
+      model.exportScope = "portfolio";
+      model.portfolio = [];
+      await refreshPortfolio();
+      state.view = "portfolio";
+      render();
+      return;
     }
-    if(a==='ops-portfolio-refresh'){await refreshPortfolio();render();return;}
+    if (a === "ops-portfolio-refresh") {
+      await refreshPortfolio();
+      render();
+      return;
+    }
+    if ((await certificates.act(button)) || (await quotations.act(button)))
+      return true;
     if (a === "open-operations") {
       if (state.view === "operations" && !protect()) return;
-      if(!state.projectId)throw new Error("Abrí una obra desde Inicio");
+      if (!state.projectId) throw new Error("Abrí una obra desde Inicio");
       model.projectId = state.projectId;
       model.estimateId = state.estimateId || "";
-      model.draft=null;model.detail=null;model.dirty=false;model.lastExport="";model.exportScope="summary";
+      model.draft = null;
+      model.detail = null;
+      model.dirty = false;
+      model.lastExport = "";
+      model.exportScope = "summary";
       [model.partners, model.centers] = await Promise.all([
         Promise.all(
           ["supplier", "subcontractor", "contact", "crew"].map((kind) =>
@@ -804,24 +1153,56 @@ export function createOperationsWorkspace({
           projectId: null,
         }),
       ]);
-      model.partners=model.partners.filter(p=>!p.project_id||p.project_id===model.projectId);
-      model.centers=model.centers.filter(c=>!c.project_id||c.project_id===model.projectId);
-      if(state.remoteProject){const p=state.remoteProject.data.permissions||{};model.tab=p.operations===false?'finance':'dashboard';model.asOf=state.remoteProject.data.as_of||model.asOf;model.draft=null;model.exportScope=p.accounting===false?'production':'summary';}
+      model.partners = model.partners.filter(
+        (p) => !p.project_id || p.project_id === model.projectId,
+      );
+      model.centers = model.centers.filter(
+        (c) => !c.project_id || c.project_id === model.projectId,
+      );
+      if (state.remoteProject) {
+        const p = state.remoteProject.data.permissions || {};
+        model.tab = p.operations === false ? "finance" : "dashboard";
+        model.asOf = state.remoteProject.data.as_of || model.asOf;
+        model.draft = null;
+        model.exportScope = p.accounting === false ? "production" : "summary";
+      }
       await refresh();
-      if (model.tab !== "dashboard")
+      await certificates.load();
+      if (!state.remoteProject) await quotations.load();
+      if (!["dashboard", "certificates"].includes(model.tab))
         model.draft ||= draft(operationGroups[model.tab][0]);
       state.view = "operations";
       render();
       return;
     }
     if (!a.startsWith("ops-")) return false;
+    if (a === "ops-cash-open") {
+      model.cashSettings = await invoke("get_project_plan", {
+        projectId: model.projectId,
+      });
+      if (!model.cashSettings)
+        throw new Error("Guardá primero la planificación de la obra");
+      render();
+      return true;
+    }
+    if (a === "ops-cash-close") {
+      model.cashSettings = null;
+      render();
+      return true;
+    }
     read();
     if (a === "ops-tab") {
       if (!protect()) return;
       model.tab = button.dataset.tab;
-      model.draft =
-        model.tab === "dashboard" ? null : draft(operationGroups[model.tab][0]);
+      model.draft = ["dashboard", "certificates"].includes(model.tab)
+        ? null
+        : draft(operationGroups[model.tab][0]);
       model.dirty = false;
+      if (!state.remoteProject) {
+        if (["certificates", "finance"].includes(model.tab))
+          await certificates.load();
+        if (model.tab === "purchases") await quotations.load();
+      }
     }
     if (a === "ops-new") {
       if (!protect()) return;
@@ -831,12 +1212,45 @@ export function createOperationsWorkspace({
       );
       model.dirty = false;
     }
-    if(a==="ops-add-extra"){model.draft.extras ||= [];model.draft.extras.push({id:window.crypto.randomUUID(),description:"",reason:"",authorization:"",amount:"0",adjustable:false,retention:false,recover_advance:false});model.dirty=true;}
-    if(a==="ops-remove-extra"){model.draft.extras.splice(Number(button.dataset.index),1);model.dirty=true;}
-    if(a==="ops-preview-index"){
-      const o=model.draft;
-      model.pendingDifferences=await invoke("pending_adjustment_differences",{projectId:model.projectId,asOf:o.date})||[];
-      try {const p=await invoke("certificate_index_preview",{estimateId:o.estimate_id,cut:o.period_end,asOf:o.date});model.indexPreview={message:p?`${p.provisional?"Provisorio":"Definitivo"}: mes ${p.applied_month}, corresponde ${p.target_month}; coeficiente ${numeric(p.factor)}.`:"Este presupuesto no tiene ajuste pactado."};}catch(error){model.indexPreview={message:String(error)};}
+    if (a === "ops-add-extra") {
+      model.draft.extras ||= [];
+      model.draft.extras.push({
+        id: window.crypto.randomUUID(),
+        description: "",
+        reason: "",
+        authorization: "",
+        amount: "0",
+        adjustable: false,
+        retention: false,
+        recover_advance: false,
+      });
+      model.dirty = true;
+    }
+    if (a === "ops-remove-extra") {
+      model.draft.extras.splice(Number(button.dataset.index), 1);
+      model.dirty = true;
+    }
+    if (a === "ops-preview-index") {
+      const o = model.draft;
+      model.pendingDifferences =
+        (await invoke("pending_adjustment_differences", {
+          projectId: model.projectId,
+          asOf: o.date,
+        })) || [];
+      try {
+        const p = await invoke("certificate_index_preview", {
+          estimateId: o.estimate_id,
+          cut: o.period_end,
+          asOf: o.date,
+        });
+        model.indexPreview = {
+          message: p
+            ? `${p.provisional ? "Provisorio" : "Definitivo"}: mes ${p.applied_month}, corresponde ${p.target_month}; coeficiente ${numeric(p.factor)}.`
+            : "Este presupuesto no tiene ajuste pactado.",
+        };
+      } catch (error) {
+        model.indexPreview = { message: String(error) };
+      }
     }
     if (a === "ops-add-line") {
       model.draft.lines.push(newLine());
@@ -880,7 +1294,12 @@ export function createOperationsWorkspace({
     return true;
   }
   async function change(target) {
-    if(state.view==='portfolio'&&target.name==='portfolio-asof'){model.asOf=target.value;await refreshPortfolio();render();return;}
+    if (state.view === "portfolio" && target.name === "portfolio-asof") {
+      model.asOf = target.value;
+      await refreshPortfolio();
+      render();
+      return;
+    }
     if (state.view !== "operations") return;
     const name = target.name;
     read();
@@ -894,7 +1313,8 @@ export function createOperationsWorkspace({
         render();
         return;
       }
-      model.draft = draft(target.value);model.indexPreview=null;
+      model.draft = draft(target.value);
+      model.indexPreview = null;
       model.dirty = false;
       render();
       return;
@@ -935,7 +1355,7 @@ export function createOperationsWorkspace({
               model.lines.push({
                 id: line.line_id,
                 description: "Partida eliminada · " + line.description,
-              archived: true,
+                archived: true,
               });
           }
         o.amount = r.amount;
@@ -987,7 +1407,10 @@ export function createOperationsWorkspace({
       render();
       return;
     }
-    if (name === "o:partner_id") { render(); return; }
+    if (name === "o:partner_id") {
+      render();
+      return;
+    }
     if (name === "o:estimate_id") {
       model.lines = target.value
         ? await invoke("list_estimate_lines", { estimateId: target.value })
@@ -1039,6 +1462,25 @@ export function createOperationsWorkspace({
     }
   }
   async function submit(form) {
+    if (form.id === "workflow-cash-form") {
+      const f = new FormData(form),
+        p = model.cashSettings;
+      p.plan.finance ||= {};
+      p.plan.finance.opening_cash = String(f.get("opening_cash"));
+      p.plan.finance.cash_currency = String(f.get("cash_currency"));
+      await invoke("save_project_plan", {
+        projectId: model.projectId,
+        revision: p.revision,
+        plan: p.plan,
+        asOf: model.asOf,
+      });
+      model.cashSettings = null;
+      await refresh();
+      render();
+      return;
+    }
+    if (form.id === "certificate-workflow-form") return certificates.submit();
+    if (form.id === "quotation-request-form") return quotations.submit();
     if (form.id === "warehouse-form") {
       const data = new FormData(form);
       await invoke("create_warehouse", {
@@ -1062,6 +1504,8 @@ export function createOperationsWorkspace({
     render();
   }
   function input(target) {
+    certificates.input(target);
+    quotations.input(target);
     if (state.view === "operations" && target.closest?.("#operation-form")) {
       read();
       model.dirty = true;

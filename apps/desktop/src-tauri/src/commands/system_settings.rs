@@ -55,10 +55,11 @@ pub(crate) fn save_adjustment_agreement(
     estimate_id: Uuid,
     revision: u32,
     definition: Option<AdjustmentAgreement>,
+    terms: Option<cpobras_storage::construction_workflow::CertificateTerms>,
 ) -> Result<SavedAgreement, String> {
     db.lock()
         .map_err(|e| e.to_string())?
-        .save_adjustment_agreement(estimate_id, revision, definition)
+        .save_adjustment_agreement_with_terms(estimate_id, revision, definition, terms)
         .map_err(|e| e.to_string())
 }
 #[tauri::command]

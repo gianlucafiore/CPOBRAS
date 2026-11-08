@@ -13,6 +13,8 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BudgetDocument {
     #[serde(default)]
+    pub certificate_terms: Option<crate::construction_workflow::CertificateTerms>,
+    #[serde(default)]
     pub adjustment_agreement: Option<cpobras_core::adjustments::AdjustmentAgreement>,
     #[serde(default)]
     pub measured_line_ids: Vec<Uuid>,
@@ -100,18 +102,13 @@ impl LocalStore {
             }
         }
         Ok(BudgetDocument {
+            certificate_terms: Some(crate::construction_workflow::terms(&self.conn, id)?),
             adjustment_agreement: self.adjustment_agreement(id)?.definition,
             measured_line_ids: self.measured_lines(id)?,
             price_definition: self.stored_price_definition(id)?,
             line_analyses,
             formulas,
-            format_version: if self.adjustment_agreement(id)?.definition.is_some() {
-                3
-            } else if self.stored_price_definition(id)?.is_some() {
-                2
-            } else {
-                1
-            },
+            format_version: 4,
             currency: estimate.currency,
             title: estimate.title,
             sections: self.list_budget_sections(id)?,
@@ -161,7 +158,7 @@ impl LocalStore {
         project_id: Uuid,
         document: &BudgetDocument,
     ) -> Result<Estimate> {
-        if ![1, 2, 3].contains(&document.format_version)
+        if ![1, 2, 3, 4].contains(&document.format_version)
             || document.title.trim().is_empty()
             || document.lines.len() > 10_000
             || document.sections.len() > 5000
@@ -360,9 +357,15 @@ impl LocalStore {
             )?;
         }
         crate::estimate_resource_prices::synchronize(&tx, estimate.id, &BTreeMap::new())?;
+        if let Some(t) = &document.certificate_terms {
+            t.validate()?;
+        }
         if let Some(a) = &document.adjustment_agreement {
             a.validate().map_err(StorageError::InvalidValue)?;
             tx.execute("INSERT INTO estimate_adjustment_agreements(estimate_id,revision,definition_json) VALUES(?1,1,?2)",params![estimate.id.to_string(),serde_json::to_string(&Some(a))?])?;
+        }
+        if let Some(t) = &document.certificate_terms {
+            tx.execute("INSERT INTO estimate_adjustment_agreements(estimate_id,revision,definition_json,terms_json) VALUES(?1,1,'null',?2) ON CONFLICT(estimate_id) DO UPDATE SET terms_json=excluded.terms_json",params![estimate.id.to_string(),serde_json::to_string(t)?])?;
         }
         if let Some(definition) = &document.price_definition {
             definition

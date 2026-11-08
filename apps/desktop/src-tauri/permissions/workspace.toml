@@ -28,6 +28,17 @@ commands.allow = [
 
   "list_operations",
   "post_operation",
+  "list_certificate_drafts",
+  "open_certificate_draft",
+  "save_certificate_draft",
+  "preview_certificate_draft",
+  "issue_certificate_draft",
+  "issued_certificate_sheet",
+  "available_progress",
+  "create_quotation_request",
+  "list_quotation_requests",
+  "preview_quotation_import",
+
   "list_warehouses",
   "create_warehouse",
   "stock_balances",

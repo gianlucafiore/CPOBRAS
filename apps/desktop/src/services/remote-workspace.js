@@ -43,6 +43,10 @@ export function createRemoteInvoke(nativeInvoke, state) {
         case "get_adjustment_agreement":requirePermission("price");return budget().adjustment_agreement||{revision:0,definition:null};
         case "certification_overview":return budget().certification_overview||[];
         case "pending_adjustment_differences":return [];
+        case "list_certificate_drafts":return [];
+        case "available_progress":return [];
+        case "list_quotation_requests":return [];
+        case "issued_certificate_sheet":{requirePermission("accounting");requirePermission("price");const sheet=d.budgets.flatMap(b=>b.certificate_sheets||[]).find(s=>s.operation.id===args.id);if(!sheet)throw new Error("El propietario no incluyó este certificado en la copia compartida");return sheet;}
         case "list_project_estimates":
           return d.budgets.map((b) => b.estimate);
         case "get_estimate_metadata":return p.budget?(budget().metadata||{}):{};

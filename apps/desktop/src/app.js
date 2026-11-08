@@ -564,7 +564,7 @@ export function createWorkspaceApp({
         pricing,
         ["price-item-form", "price-template-form", "price-export-form"],
       ],
-      [operations, ["operation-form", "warehouse-form"]],
+      [operations, ["operation-form", "warehouse-form", "certificate-workflow-form", "quotation-request-form", "workflow-cash-form"]],
       [
         budgetTools,
         [

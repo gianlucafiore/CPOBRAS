@@ -4,6 +4,7 @@ use serde::Serialize;
 use uuid::Uuid;
 pub(crate) fn next_code(conn: &Connection, scope: &str, prefix: &str) -> Result<String> {
     let values: Vec<String> = match scope {
+        s if s.starts_with("document:") => {let (kind,project)=s.trim_start_matches("document:").split_once(':').ok_or_else(||StorageError::InvalidValue("Ámbito de numeración inválido".into()))?;conn.prepare("SELECT json_extract(payload,'$.number') FROM operation_documents WHERE kind=?1 AND project_id=?2")?.query_map(params![kind,project],|r|r.get(0))?.collect::<std::result::Result<_,_>>()?},
         "stock_opening" => conn.prepare("SELECT json_extract(payload,'$.number') FROM operation_documents WHERE kind='stock_opening'")?.query_map([],|r|r.get(0))?.collect::<std::result::Result<_,_>>()?,
         "resource" => conn
             .prepare("SELECT code FROM resources")?

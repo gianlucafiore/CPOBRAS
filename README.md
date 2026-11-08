@@ -426,3 +426,5 @@ utilizan las mismas reglas. La descripción aparece al pasar el mouse.
 Al guardar el pin del mapa se completa la dirección aproximada cuando el servicio
 OpenStreetMap/Nominatim responde. Si no está disponible, la ubicación se guarda
 con un aviso para revisar su dirección. Esta función requiere Internet.
+
+- [Certificados preliminares y emitidos, cotizaciones y contratos](docs/CERTIFICATES_AND_QUOTES.md)
