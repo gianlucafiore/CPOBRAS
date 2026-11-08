@@ -95,6 +95,9 @@ async function bridge(page, options={}) {
    }
    if(command==='choose_backup_folder')return fixture.cancelFolder?null:'/home/usuario/Nube/Respaldos CPOBRAS';
    if(command==='open_backup_folder'||command==='verify_database')return null;
+   if(command==='reopen_estimate'){estimate.issued=false;return null;}
+   if(command==='issue_estimate'){estimate.issued=true;return null;}
+   if(command==='save_line_as_analysis')return null;
    if (command === "list_budget_sections") return sections;
    if (command === "list_line_sections") return assignments;
    if (command === "get_analysis_details") return lineDetails[args.analysisId];
@@ -554,4 +557,31 @@ test('external workspace disables unauthorized sections while preserving allowed
  await page.getByRole('button',{name:'Gestión de obra',exact:true}).click();await expect(page.getByRole('button',{name:'Finanzas',exact:true})).toBeHidden();
  await page.getByRole('button',{name:'Planificación',exact:true}).click();await expect(page.locator('main')).toContainText('Replanteo remoto');
  await page.screenshot({path:'/workspace/cpobras-external-workspace.png'});
+});
+
+
+test('issued budget can explicitly return to draft and be issued again',async({page})=>{
+ await bridge(page,{issued:true});await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();
+ await expect(page.locator('[data-action=modal-line]')).toBeDisabled();
+ page.on('dialog',d=>d.accept());
+ await page.getByRole('button',{name:'Volver a En elaboración',exact:true}).click();
+ await expect(page.locator('[data-action=modal-line]')).toBeEnabled();
+ await expect(page.locator('.status-pill')).toContainText('En elaboración');
+ await page.getByRole('button',{name:'Emitir',exact:true}).click();
+ await expect(page.locator('.status-pill')).toContainText('Emitido');
+ await expect(page.locator('[data-action=modal-line]')).toBeDisabled();
+});
+
+
+test('unit composition can be saved as an ACU pattern from the budget',async({page})=>{
+ await bridge(page);await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();
+ await expect(page.getByRole('button',{name:'＋ Partida ACU',exact:true})).toHaveCount(0);
+ await expect(page.locator('.work-toolbar [data-action=modal-from-acu] + [data-action=open-patterns]')).toHaveCount(1);
+ await expect(page.locator('.project-context label + [data-action=modal-estimate]')).toHaveCount(1);
+ await page.getByRole('tab',{name:'Insumos',exact:true}).click();await page.getByRole('button',{name:'Asignar',exact:true}).click();await page.getByRole('button',{name:'Guardar',exact:true}).click();await page.getByRole('tab',{name:'ACU',exact:true}).click();
+ await page.getByRole('button',{name:'Guardar como patrón de ACU',exact:true}).click();
+ await page.getByLabel('Código del patrón',{exact:true}).fill('ACU-001');await page.getByLabel('Descripción',{exact:true}).fill('Hormigón reutilizable');
+ await page.getByRole('button',{name:'Guardar',exact:true}).click();
+ const call=await page.evaluate(()=>window.__calls.find(c=>c.command==='save_line_as_analysis'));expect(call.args).toMatchObject({estimateId:'estimate-1',code:'ACU-001',description:'Hormigón reutilizable'});
+ await expect(page.locator('.line-row')).toContainText('Hormigón');
 });

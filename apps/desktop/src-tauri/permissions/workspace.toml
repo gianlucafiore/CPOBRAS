@@ -96,6 +96,8 @@ commands.allow = [
   "estimate_total",
   "duplicate_estimate",
   "issue_estimate",
+  "reopen_estimate",
+  "save_line_as_analysis",
   "list_resources",
   "create_resource",
   "list_analyses",

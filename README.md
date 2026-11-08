@@ -345,3 +345,19 @@ funcionalidades verificadas de trabajo todavía pendiente.
 - [Auditoría de dependencias](docs/DEPENDENCIES.md).
 
 Las obras externas vinculadas por P2P aparecen en Inicio y se abren en el entorno habitual de solo lectura. Cada invitación permite elegir los apartados visibles. Ver [guía P2P](docs/P2P.md). El icono y la cabecera usan el yacaré de CPOBRAS.
+
+### Biblioteca de ACU y estados del presupuesto
+
+Desde la pestaña **ACU** de una partida con insumos, **Guardar como patrón de ACU**
+crea una composición independiente en la biblioteca. Indicá código y descripción;
+se guardan los consumos por unidad y sus precios actuales, sin copiar la cantidad
+total de la partida ni modificarla. Luego podés usarla en **＋ Desde ACU**.
+La biblioteca usa precios en ARS; no convierte monedas automáticamente.
+**Patrones de cómputo**, junto a ese botón, permite traer rubros, partidas y
+cantidades desde otros presupuestos o patrones guardados.
+**＋ Presupuesto** está junto al selector del presupuesto activo.
+
+Un presupuesto propio puede pasar de **En elaboración** a **Emitido** y volver
+con **Volver a En elaboración**, previa confirmación. Se conservan cantidades,
+composiciones y precios; al reabrir se habilita la edición. Los PDF ya enviados
+no se actualizan. Las obras externas siguen siendo de solo lectura.

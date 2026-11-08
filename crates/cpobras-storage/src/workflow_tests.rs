@@ -1350,7 +1350,7 @@ fn upgrades_populated_schema_fifteen_and_deletes_its_preexisting_linked_line() {
             .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| r
                 .get::<_, i64>(0))
             .unwrap(),
-        21
+        22
     );
     upgraded.delete_estimate_item(e.id, line.id).unwrap();
     assert!(upgraded.estimate_items(e.id).unwrap().is_empty());
@@ -2706,4 +2706,75 @@ fn shared_permissions_remove_secrets_from_secondary_documents_and_keep_the_allow
         ..p
     };
     assert!(no_access.validate().is_err());
+}
+
+#[test]
+fn reopening_an_issued_budget_preserves_prices_then_allows_edits_and_reissue() {
+    let (mut s, _, e, line) = fixture();
+    s.issue_estimate(e.id).unwrap();
+    assert!(s.update_estimate_item(&line).is_err());
+    assert!(s
+        .conn
+        .execute(
+            "UPDATE estimates SET status='draft',title='Altered',issued_at=NULL WHERE id=?1",
+            [e.id.to_string()]
+        )
+        .is_err());
+    let before = s.export_budget(e.id).unwrap();
+    s.reopen_estimate(e.id).unwrap();
+    assert!(!s.get_estimate(e.id).unwrap().unwrap().issued);
+    assert_eq!(
+        serde_json::to_value(before).unwrap(),
+        serde_json::to_value(s.export_budget(e.id).unwrap()).unwrap()
+    );
+    assert!(s.reopen_estimate(e.id).is_err());
+    let mut edited = line;
+    edited.quantity = Decimal::from(4);
+    s.update_estimate_item(&edited).unwrap();
+    s.issue_estimate(e.id).unwrap();
+    assert!(s.update_estimate_item(&edited).is_err());
+}
+#[test]
+fn saving_an_acu_pattern_copies_unit_composition_without_changing_the_source() {
+    use crate::{line_workflows::LineResourceInput, resource_catalog::Resource};
+    let (mut s, _, e, line) = fixture();
+    let r = Resource {
+        id: Uuid::new_v4(),
+        code: "R".into(),
+        description: "Operario".into(),
+        unit: "h".into(),
+        kind: cpobras_core::ResourceKind::Labor,
+        active: true,
+    };
+    s.save_resource(&r).unwrap();
+    let snapshot = s
+        .save_line_resources(
+            e.id,
+            line.id,
+            &[LineResourceInput {
+                resource_id: r.id,
+                quantity: Decimal::from(3),
+                unit_price: Decimal::from(100),
+            }],
+        )
+        .unwrap();
+    s.issue_estimate(e.id).unwrap();
+    let before = s.estimate_total(e.id).unwrap();
+    let pattern = s
+        .save_line_as_analysis(e.id, line.id, "ACU-TEST", "Trabajo reutilizable")
+        .unwrap();
+    assert_ne!(snapshot, pattern.id);
+    assert!(!s.is_line_analysis(pattern.id).unwrap());
+    assert_eq!(pattern.components[0].quantity_per_unit, Decimal::from(3));
+    assert_eq!(pattern.components[0].unit_price, Decimal::from(100));
+    assert_eq!(s.list_analyses().unwrap().len(), 1);
+    assert_eq!(s.estimate_total(e.id).unwrap(), before);
+    assert_eq!(
+        s.estimate_items(e.id).unwrap()[0].analysis_id,
+        Some(snapshot)
+    );
+    assert!(s
+        .save_line_as_analysis(Uuid::new_v4(), line.id, "BAD", "Bad")
+        .is_err());
+    assert!(s.save_line_as_analysis(e.id, line.id, "", "Bad").is_err());
 }

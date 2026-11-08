@@ -32,7 +32,10 @@ export function createModalRenderer({
       ["", "Sin rubro"],
       ...state.sections.map((s) => [s.id, s.code + " · " + s.title]),
     ];
-    if (kind === "backups") {
+    if (kind === "acu-pattern") {
+      title="Guardar como patrón de ACU";
+      body=`<p class="modal-help">Guardá esta composición en la biblioteca de ACU para usarla desde «＋ Desde ACU» en cualquier presupuesto. Conserva los insumos y rendimientos por unidad; no incluye la cantidad total de esta partida. La partida original se conserva.</p>${field("Código del patrón","code","",'required maxlength="100"')}${field("Descripción","description",item.description,'required maxlength="500"')}<p>Unidad: ${e(item.unit)}</p>`;
+    } else if (kind === "backups") {
       title = "Copias de seguridad";
       wide=true;
       const settings=state.backupSettings||{}, when=(value)=>value?e(new Date(value*1000).toLocaleString("es-AR")):"Todavía no se hizo una copia";

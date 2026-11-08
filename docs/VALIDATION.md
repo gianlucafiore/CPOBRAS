@@ -258,3 +258,13 @@ no hay cambios. La compilación del frontend y las comprobaciones de formato Rus
 El AppImage 0.1.2 se compiló en Ubuntu 22.04 y abrió su ventana en el contenedor
 limpio de prueba, sin FUSE, Node, Rust ni WebKit instalado en el sistema anfitrión.
 Se comprobó visualmente el yacaré en su cabecera.
+
+## Patrones de ACU y reapertura de presupuestos
+
+- 22 pruebas del núcleo y 73 de almacenamiento: migración a esquema 22,
+  preservación de precios al reabrir, edición posterior y nueva emisión,
+  protección de contenidos mientras está emitido y copia independiente del ACU.
+- 29 pruebas JavaScript y compilación del frontend correctas.
+- 48 flujos completos de navegador correctos; verificación adicional de los
+  dos flujos nuevos: reapertura/emisión y guardado del patrón desde la partida.
+- No se generó un AppImage para este cambio, según lo solicitado.

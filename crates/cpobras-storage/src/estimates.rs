@@ -618,6 +618,60 @@ impl LocalStore {
         })
     }
 
+    /// Reopening preserves every quantity and price; only the editing state changes.
+    pub fn reopen_estimate(&mut self, id: Uuid) -> Result<()> {
+        let changed = self.conn.execute(
+            "UPDATE estimates SET status='draft',issued_at=NULL WHERE id=?1 AND status='issued'",
+            [id.to_string()],
+        )?;
+        if changed != 1 {
+            return Err(StorageError::InvalidValue(
+                "El presupuesto no existe o ya está en elaboración".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Save an independent reusable ACU; never alter the source line or its prices.
+    pub fn save_line_as_analysis(
+        &mut self,
+        estimate_id: Uuid,
+        line_id: Uuid,
+        code: &str,
+        description: &str,
+    ) -> Result<cpobras_core::UnitCostAnalysis> {
+        let estimate = self
+            .get_estimate(estimate_id)?
+            .ok_or_else(|| StorageError::InvalidValue("Presupuesto inexistente".into()))?;
+        if estimate.currency != Currency::Ars {
+            return Err(StorageError::InvalidValue("La biblioteca de ACU usa precios en ARS; no se convierten automáticamente otras monedas".into()));
+        }
+        let line = self
+            .estimate_items(estimate_id)?
+            .into_iter()
+            .find(|l| l.id == line_id)
+            .ok_or_else(|| {
+                StorageError::InvalidValue("Partida inexistente en este presupuesto".into())
+            })?;
+        let id = line.analysis_id.ok_or_else(|| {
+            StorageError::InvalidValue("La partida todavía no tiene insumos".into())
+        })?;
+        let mut analysis = self
+            .get_analysis(id)?
+            .ok_or_else(|| StorageError::InvalidValue("Composición inexistente".into()))?;
+        if analysis.components.is_empty() {
+            return Err(StorageError::InvalidValue(
+                "Agregá insumos antes de guardar el patrón".into(),
+            ));
+        }
+        analysis.id = Uuid::new_v4();
+        analysis.code = code.trim().into();
+        analysis.description = description.trim().into();
+        analysis.unit = line.unit;
+        self.save_analysis(&analysis)?;
+        Ok(analysis)
+    }
+
     pub fn issue_estimate(&mut self, id: Uuid) -> Result<()> {
         let tx = self
             .conn

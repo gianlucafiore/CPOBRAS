@@ -468,3 +468,30 @@ pub(crate) fn create_estimate(
         .map_err(|e| e.to_string())?;
     Ok(EstimateView::from(estimate))
 }
+
+#[tauri::command]
+pub(crate) fn reopen_estimate(db: tauri::State<'_, Db>, estimate_id: String) -> Result<(), String> {
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .reopen_estimate(Uuid::parse_str(&estimate_id).map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())
+}
+#[tauri::command]
+pub(crate) fn save_line_as_analysis(
+    db: tauri::State<'_, Db>,
+    estimate_id: String,
+    line_id: String,
+    code: String,
+    description: String,
+) -> Result<(), String> {
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .save_line_as_analysis(
+            Uuid::parse_str(&estimate_id).map_err(|e| e.to_string())?,
+            Uuid::parse_str(&line_id).map_err(|e| e.to_string())?,
+            &code,
+            &description,
+        )
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}

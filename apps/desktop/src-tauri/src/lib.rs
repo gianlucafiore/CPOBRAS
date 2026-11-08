@@ -139,6 +139,8 @@ pub(crate) fn configure<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri:
             commands::budgets::estimate_total,
             commands::budgets::duplicate_estimate,
             commands::budgets::issue_estimate,
+            commands::budgets::reopen_estimate,
+            commands::budgets::save_line_as_analysis,
             commands::resources::list_resources,
             commands::resources::create_resource,
             commands::analyses::list_analyses,

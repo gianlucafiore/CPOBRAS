@@ -9,7 +9,9 @@ async function handleSubmit(form) {
     state.backupSettings=await invoke("save_backup_settings",{settings:{directory:v("backupDirectory"),enabled:data.get("backupEnabled")==="on",interval_minutes:Number(v("backupInterval"))}});
     state.modalDirty=false; await refreshBackups(); state.message="Configuración de respaldos guardada"; render(); return;
   }
-  if (kind === "client") await invoke("create_client", { clientName: v("clientName"), cuit: v("cuit") || null });
+  if (kind === "acu-pattern") {
+    await invoke("save_line_as_analysis",{estimateId,lineId:item.id,code:v("code"),description:v("description")});
+  } else if (kind === "client") await invoke("create_client", { clientName: v("clientName"), cuit: v("cuit") || null });
   else if (kind === "project") {
     const args = { projectName: v("projectName"), clientId: v("clientId"), currency: v("currency"), organizationId:v("organizationId")||item.organization_id||null,supplierIds:data.getAll("supplierIds").map(String) };
     await invoke(item.id ? "update_project" : "create_project", item.id ? { ...args, projectId: item.id } : args);
@@ -263,9 +265,19 @@ async function act(button) {
     const copy = await invoke("duplicate_estimate", { estimateId: est.id, title: title.trim() });
     await loadEstimates(); await openEstimate(copy.id); return;
   }
+  if(action === "save-acu-pattern") {
+    if(state.remoteProject || !currentLine()?.analysis_id)return;
+    return openModal("acu-pattern",currentLine());
+  }
+  if(action === "reopen-estimate") {
+    if(state.remoteProject || !currentEstimate()?.issued)return;
+    if(!window.confirm("¿Volver a En elaboración? Se habilitará la edición conservando las cantidades y precios actuales. Los documentos que ya enviaste no se actualizarán."))return;
+    await invoke("reopen_estimate",{estimateId:state.estimateId});
+    await loadEstimates();await loadEstimate();return;
+  }
   if (action === "issue") {
     if (!editable() || !state.lines.length) return;
-    if (!window.confirm("¿Emitir el presupuesto? Después no podrás modificar sus partidas, rubros, porcentajes ni mediciones.")) return;
+    if (!window.confirm("¿Emitir el presupuesto? Quedará bloqueado para edición. Podrás volver a En elaboración cuando necesites modificarlo.")) return;
     await invoke("issue_estimate", { estimateId: state.estimateId });
     await loadEstimates(); await loadEstimate();
   }

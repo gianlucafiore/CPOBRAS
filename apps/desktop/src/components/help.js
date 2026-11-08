@@ -85,7 +85,7 @@ const panels = {
   ],
   summary: [
     "Resumen económico",
-    "Revisá costo directo, gastos, beneficio e impuestos. Los cambios solo se permiten en borrador; al emitir el presupuesto queda bloqueado.",
+    "Revisá costo directo, gastos, beneficio e impuestos. Los cambios solo se permiten en borrador; al emitir el presupuesto queda bloqueado. Para corregirlo, usá «Volver a En elaboración» en Presupuesto.",
   ],
 };
 export function helpBox(key, panel = false) {
