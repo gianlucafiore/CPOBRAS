@@ -255,3 +255,6 @@ filtrado de información secundaria (impresiones, informes e historial de planes
 Las 13 pruebas nativas también verifican la réplica cifrada, la revocación,
 la edición de permisos y la conservación de la copia sin reescribirla cuando
 no hay cambios. La compilación del frontend y las comprobaciones de formato Rust pasan.
+El AppImage 0.1.2 se compiló en Ubuntu 22.04 y abrió su ventana en el contenedor
+limpio de prueba, sin FUSE, Node, Rust ni WebKit instalado en el sistema anfitrión.
+Se comprobó visualmente el yacaré en su cabecera.
