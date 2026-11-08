@@ -33,3 +33,10 @@ test("three-point PERT duration validates ordering and rounds to working days", 
   assert.throws(() => expectedPertDuration(1, 2, 36501));
   assert.throws(() => expectedPertDuration(1, 2.5, 4));
 });
+
+test('critical explanation selects one parallel branch rather than adding both',async()=>{
+ const {criticalWalk}=await import('../src/services/pert.js');
+ const p={tasks:[{id:'a',name:'Inicio',duration_days:1,predecessors:[]},{id:'b',name:'Rama B',duration_days:1,predecessors:[{task_id:'a',kind:'FS',lag_days:0}]},{id:'c',name:'Rama C',duration_days:1,predecessors:[{task_id:'a',kind:'FS',lag_days:0}]},{id:'d',name:'Fin',duration_days:2,predecessors:[{task_id:'b',kind:'FS',lag_days:0},{task_id:'c',kind:'FS',lag_days:0}]}]};
+ const schedule={duration_days:4,tasks:[{id:'a',start_day:0,finish_day:1,critical:true},{id:'b',start_day:1,finish_day:2,critical:true},{id:'c',start_day:1,finish_day:2,critical:true},{id:'d',start_day:2,finish_day:4,critical:true}]};
+ const walk=criticalWalk(p,schedule);assert.equal(walk.simple,true);assert.deepEqual(walk.tasks.map(t=>t.id),['a','b','d']);
+});

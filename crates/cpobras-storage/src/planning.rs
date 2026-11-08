@@ -51,21 +51,19 @@ impl LocalStore {
         let tx = self
             .conn
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        let mut linked = std::collections::BTreeSet::new();
+        let mut allocated = std::collections::BTreeMap::<
+            (bool, Uuid),
+            (rust_decimal::Decimal, rust_decimal::Decimal),
+        >::new();
         for task in &mut plan.tasks {
             if let Some(line_id) = task.estimate_line_id {
-                if !linked.insert(line_id) {
-                    return Err(StorageError::InvalidValue(
-                        "Una partida solo puede valorizar una tarea del mismo plan".into(),
-                    ));
-                }
                 let values:Option<(String,String)>=tx.query_row("SELECT l.quantity,l.unit_cost_snapshot FROM estimate_lines l JOIN estimates e ON e.id=l.estimate_id WHERE l.id=?1 AND e.project_id=?2",params![line_id.to_string(),project_id.to_string()],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
                 let (quantity, cost) = values.ok_or_else(|| {
                     StorageError::InvalidValue(
                         "La partida vinculada no pertenece a esta obra".into(),
                     )
                 })?;
-                task.budget = quantity
+                let full_budget = quantity
                     .parse::<rust_decimal::Decimal>()
                     .map_err(|e| StorageError::InvalidValue(e.to_string()))?
                     .checked_mul(
@@ -77,6 +75,46 @@ impl LocalStore {
                             "El costo de la tarea excede el rango decimal".into(),
                         )
                     })?;
+                let percent = plan
+                    .segments
+                    .get(&task.id)
+                    .map_or(rust_decimal::Decimal::from(100), |p| p.percent);
+                if let Some(part) = plan.segments.get_mut(&task.id) {
+                    part.base_budget = full_budget;
+                }
+                let accumulated = allocated.entry((true, line_id)).or_default();
+                accumulated.0 = accumulated.0.checked_add(percent).ok_or_else(|| {
+                    StorageError::InvalidValue("Porcentaje fuera de rango".into())
+                })?;
+                task.budget = if accumulated.0 == rust_decimal::Decimal::from(100) {
+                    full_budget.checked_sub(accumulated.1)
+                } else {
+                    full_budget
+                        .checked_mul(percent)
+                        .and_then(|v| v.checked_div(rust_decimal::Decimal::from(100)))
+                }
+                .ok_or_else(|| StorageError::InvalidValue("Costo fuera de rango".into()))?;
+                accumulated.1 = accumulated
+                    .1
+                    .checked_add(task.budget)
+                    .ok_or_else(|| StorageError::InvalidValue("Costo fuera de rango".into()))?;
+            } else if let Some(part) = plan.segments.get(&task.id) {
+                let accumulated = allocated.entry((false, part.group_id)).or_default();
+                accumulated.0 = accumulated.0.checked_add(part.percent).ok_or_else(|| {
+                    StorageError::InvalidValue("Porcentaje fuera de rango".into())
+                })?;
+                task.budget = if accumulated.0 == rust_decimal::Decimal::from(100) {
+                    part.base_budget.checked_sub(accumulated.1)
+                } else {
+                    part.base_budget
+                        .checked_mul(part.percent)
+                        .and_then(|v| v.checked_div(rust_decimal::Decimal::from(100)))
+                }
+                .ok_or_else(|| StorageError::InvalidValue("Costo fuera de rango".into()))?;
+                accumulated.1 = accumulated
+                    .1
+                    .checked_add(task.budget)
+                    .ok_or_else(|| StorageError::InvalidValue("Costo fuera de rango".into()))?;
             }
             for assignment in &task.assignments {
                 let query=match assignment.kind.as_str(){

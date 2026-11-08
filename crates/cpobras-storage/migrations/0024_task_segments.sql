@@ -1,0 +1,2 @@
+-- Plan JSON now supports task segments with bounded allocations.
+-- Older applications must not reinterpret partial tasks as full budget lines.

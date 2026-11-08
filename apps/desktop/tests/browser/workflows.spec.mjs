@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 
 async function bridge(page, options={}) {
+ await page.route("https://tile.openstreetmap.org/**",route=>route.fulfill({contentType:"image/svg+xml",body:'<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"><rect width="256" height="256" fill="#e2ecd9"/><path d="M0 120 L256 100 M120 0 L130 256" stroke="#fff" stroke-width="8"/></svg>'}));
  await page.addInitScript((fixture) => {
   const project = { id: "10000000-0000-4000-8000-000000000001", name: "Obra de prueba", client_id: "client-1", currency: "Ars", organization_id:"org-own",organization_name:"Mi organización",organization_locked:true,read_only:false };
   const line = { id: "10000000-0000-4000-8000-000000000002", description: "Hormigón", unit: "m³", quantity: "2", unit_cost: "100", total: "200", analysis_id: null };
@@ -168,7 +169,7 @@ test("planner saves a task, progress and resource assignment and renders Gantt",
  await expect(page.locator(".gantt-label")).toContainText("Excavación");
  const saved = await page.evaluate(() => window.__calls.filter(call => call.command === "save_project_plan").at(-1).args);
  expect(saved.plan.tasks[0].duration_days).toBe(3); expect(saved.plan.tasks[0].actual_progress).toBe("25");
- await page.locator(".gantt-label").click(); await page.getByRole("button", { name: "Asignar recurso", exact: true }).click();
+ await page.locator(".gantt-label").click(); await page.getByText("Cuadrillas, equipos y recursos",{exact:true}).click();await page.getByRole("button", { name: "Asignar recurso", exact: true }).click();
  await page.getByLabel("Unidades por día").fill("2"); await page.getByRole("button", { name: "Guardar tarea y recalcular", exact: true }).click();
  const last = await page.evaluate(() => window.__calls.filter(call => call.command === "save_project_plan").at(-1).args);
  expect(last.plan.tasks[0].assignments[0].units_per_day).toBe("2");
@@ -410,8 +411,8 @@ test('budget switching confirms the version, preserves rejected drafts and updat
 
 test('planning and project data protect their pending edits before leaving the project',async({page})=>{
  await bridge(page);await page.getByRole('button',{name:'Abrir ›',exact:true}).click();await page.getByRole('button',{name:'Planificación',exact:true}).click();await page.getByRole('button',{name:'Nueva tarea / hito',exact:true}).click();await page.getByLabel('Nombre',{exact:true}).fill('Pendiente');
- page.once('dialog',d=>d.dismiss());await page.getByRole('button',{name:'← Inicio',exact:true}).click();await expect(page.getByLabel('Nombre',{exact:true})).toHaveValue('Pendiente');
- page.once('dialog',d=>d.accept());await page.getByRole('button',{name:'Datos de obra',exact:true}).click();await page.getByRole('button',{name:'Nuevo registro',exact:true}).click();await page.getByLabel('Nombre',{exact:true}).fill('Ficha pendiente');
+ page.once('dialog',d=>d.dismiss());await page.getByRole('button',{name:'Cerrar editor de tarea',exact:true}).click();await expect(page.getByLabel('Nombre',{exact:true})).toHaveValue('Pendiente');
+ page.once('dialog',d=>d.accept());await page.getByRole('button',{name:'Cerrar editor de tarea',exact:true}).click();await page.getByRole('button',{name:'Datos de obra',exact:true}).click();await page.getByRole('button',{name:'Nuevo registro',exact:true}).click();await page.getByLabel('Nombre',{exact:true}).fill('Ficha pendiente');
  page.once('dialog',d=>d.dismiss());await page.getByRole('button',{name:'Presupuesto',exact:true}).click();await expect(page.getByLabel('Nombre',{exact:true})).toHaveValue('Ficha pendiente');await expect(page.getByRole('combobox',{name:'Obra relacionada',exact:true})).toHaveCount(0);
 });
 
@@ -594,7 +595,7 @@ test('PERT creates budget tasks, connects precedences, preserves node movement a
  await bridge(page);await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.getByRole('button',{name:'Planificación',exact:true}).click();
  await page.getByRole('tab',{name:'PERT',exact:true}).click();
  await page.getByRole('button',{name:'Añadir',exact:true}).first().click();await expect(page.locator('.pert-node')).toHaveCount(1);
- await page.getByRole('button',{name:'Ver / editar tarea',exact:true}).click();await page.getByLabel('Nombre',{exact:true}).fill('Excavación');await page.getByLabel('Calcular duración con tres estimaciones').check();
+ await page.getByRole('button',{name:'Ver / editar tarea',exact:true}).click();await page.getByLabel('Nombre',{exact:true}).fill('Excavación');await page.getByText('Estimación PERT (opcional)',{exact:true}).first().click();await page.getByLabel('Calcular duración con tres estimaciones').check();
  await page.getByLabel('Optimista (días)',{exact:true}).fill('1');await page.getByLabel('Probable (días)',{exact:true}).fill('2');await page.getByLabel('Pesimista (días)',{exact:true}).fill('6');await page.getByRole('button',{name:'Guardar tarea y recalcular',exact:true}).click();
  await expect(page.locator('.pert-node')).toContainText('3 días');
  await page.getByRole('button',{name:'Nueva tarea / hito',exact:true}).click();await page.getByLabel('Nombre',{exact:true}).fill('Fundación');await page.getByRole('button',{name:'Guardar tarea y recalcular',exact:true}).click();
@@ -614,7 +615,7 @@ test('project dashboard edits physical data, expands its map and lists active bu
  await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.getByRole('button',{name:'Datos de obra',exact:true}).click();
  await expect(page.getByRole('region',{name:'Tablero general de la obra'})).toBeVisible();
  await expect(page.locator('.dashboard-budget').first()).toContainText('Activo');
- await page.getByRole('button',{name:'Editar datos de obra',exact:true}).first().click();await page.getByLabel('Nombre',{exact:true}).fill('Vivienda familiar');await page.getByLabel('Tipo de edificio',{exact:true}).fill('Vivienda');await page.getByLabel('Superficie estimada (m²)',{exact:true}).fill('120');await page.getByLabel('Memoria descriptiva',{exact:true}).fill('Construcción de una vivienda de dos plantas.');await page.getByLabel('Latitud',{exact:true}).fill('-34.60');await page.getByLabel('Longitud',{exact:true}).fill('-58.38');await page.getByRole('button',{name:'Guardar ficha',exact:true}).click();
+ await page.getByRole('button',{name:'Editar datos de obra',exact:true}).first().click();await page.getByLabel('Nombre',{exact:true}).fill('Vivienda familiar');await page.getByLabel('Tipo de edificio',{exact:true}).fill('Vivienda');await page.getByLabel('Superficie estimada (m²)',{exact:true}).fill('120');await page.getByLabel('Memoria descriptiva',{exact:true}).fill('Construcción de una vivienda de dos plantas.');await page.getByText('Datos adicionales y parámetros económicos',{exact:true}).click();await page.getByLabel('Latitud',{exact:true}).fill('-34.60');await page.getByLabel('Longitud',{exact:true}).fill('-58.38');await page.getByRole('button',{name:'Guardar ficha',exact:true}).click();
  await expect(page.locator('.project-dashboard')).toContainText('120 m²');await expect(page.locator('.project-dashboard')).toContainText('dos plantas');
  await page.getByRole('button',{name:'Ampliar mapa',exact:true}).click();await expect(page.getByRole('dialog',{name:'Mapa de ubicación de la obra'})).toBeVisible();await page.locator('.modal-overlay').click({position:{x:2,y:2}});await expect(page.getByRole('dialog',{name:'Mapa de ubicación de la obra'})).toBeVisible();await page.getByRole('button',{name:'Cerrar mapa',exact:true}).click();
  await page.screenshot({path:'/workspace/cpobras-project-dashboard.png',fullPage:true});
@@ -631,4 +632,32 @@ test('reordering previews its insertion position and cancelling a file picker pr
  await expect(page.locator('[data-price-row].drop-before')).toHaveCount(1);expect(await page.locator('[data-price-row].drop-before').evaluate(el=>getComputedStyle(el).animationName)).toBe('drop-target');
  await page.evaluate(()=>document.dispatchEvent(new DragEvent('dragend',{bubbles:true,dataTransfer:window.__dragTransfer})));await expect(page.locator('[data-price-row].drop-before')).toHaveCount(0);
  await page.getByRole('button',{name:'Datos de obra',exact:true}).click();await page.getByLabel('Descripción del archivo',{exact:true}).fill('Plano para adjuntar');await page.getByRole('button',{name:'Agregar archivo…',exact:true}).click();await expect(page.getByLabel('Descripción del archivo',{exact:true})).toHaveValue('Plano para adjuntar');
+});
+
+test('PERT camera pans freely, zooms and keeps page focus after a node is saved',async({page})=>{
+ await bridge(page);await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.getByRole('button',{name:'Planificación',exact:true}).click();await page.getByRole('tab',{name:'PERT',exact:true}).click();
+ const viewport=page.locator('[data-pert-viewport]');const before=await viewport.boundingBox();await page.getByRole('button',{name:'Añadir',exact:true}).first().click();await expect(page.locator('.pert-node')).toHaveCount(1);expect((await viewport.boundingBox()).height).toBe(before.height);
+ await page.getByRole('button',{name:'Alejar PERT',exact:true}).click();await expect(page.locator('[data-pert-zoom]')).toHaveText('80 %');
+ await viewport.scrollIntoViewIfNeeded();const b=await viewport.boundingBox();await page.mouse.move(b.x+b.width-60,b.y+b.height-80);await page.mouse.down();await page.mouse.move(b.x+b.width-120,b.y+b.height-130,{steps:5});await page.mouse.up();
+ const camera=await page.locator('[data-pert-canvas]').getAttribute('style');await page.getByRole('button',{name:'Centrar / ver todo',exact:true}).click();await expect(page.locator('[data-pert-canvas]')).not.toHaveAttribute('style',camera);
+ const focus=await page.locator('.feature-page').evaluate(el=>({top:el.scrollTop,left:el.scrollLeft})),transform=await page.locator('[data-pert-canvas]').evaluate(el=>el.style.transform);const handle=await page.locator('[data-pert-handle]').boundingBox();await page.mouse.move(handle.x+40,handle.y+10);await page.mouse.down();await page.mouse.move(handle.x+90,handle.y+30,{steps:6});await page.mouse.up();
+ await expect.poll(()=>page.evaluate(()=>window.__calls.filter(c=>c.command==='save_project_plan').length)).toBe(2);expect(await page.locator('[data-pert-canvas]').evaluate(el=>el.style.transform)).toBe(transform);
+ expect(await page.locator('.feature-page').evaluate(el=>({top:el.scrollTop,left:el.scrollLeft}))).toEqual(focus);
+ await page.screenshot({path:'/workspace/cpobras-pert-camera.png',fullPage:true});
+});
+
+test('task segments conserve their source and expose separate durations and progress',async({page})=>{
+ await bridge(page);await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.getByRole('button',{name:'Planificación',exact:true}).click();await page.getByRole('tab',{name:'PERT',exact:true}).click();await page.getByRole('button',{name:'Añadir',exact:true}).first().click();
+ await page.getByRole('button',{name:'Ver / editar tarea',exact:true}).click();await page.getByRole('button',{name:'Dividir en tramos',exact:true}).click();await page.getByLabel('Porcentaje para el primer tramo',{exact:true}).fill('30');await page.getByLabel('Duración del primer tramo',{exact:true}).fill('2');await page.getByLabel('Duración del segundo tramo',{exact:true}).fill('3');await page.getByRole('button',{name:'Dividir tarea',exact:true}).click();
+ await expect(page.locator('.pert-node')).toHaveCount(2);await expect(page.locator('.pert-node').first()).toContainText('30 %');await expect(page.locator('.pert-node').nth(1)).toContainText('70 %');
+ const saved=await page.evaluate(()=>window.__calls.filter(c=>c.command==='save_project_plan').at(-1).args.plan);expect(saved.tasks[0].estimate_line_id).toBe(saved.tasks[1].estimate_line_id);expect(saved.tasks.map(t=>t.duration_days)).toEqual([2,3]);expect(saved.tasks[1].predecessors[0].task_id).toBe(saved.tasks[0].id);
+ await page.locator('.pert-node').nth(1).getByRole('button',{name:'Ver / editar tarea',exact:true}).click();await page.getByLabel('Avance real %',{exact:true}).fill('60');await page.getByRole('button',{name:'Guardar tarea y recalcular',exact:true}).click();
+ await page.getByRole('tab',{name:'Gantt',exact:true}).click();await expect(page.locator('.gantt-bar')).toHaveCount(2);
+});
+
+test('map opens over Argentina, selects a pin visually and saves coordinates to the current work',async({page})=>{
+ await bridge(page);await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.getByRole('button',{name:'Datos de obra',exact:true}).click();await expect(page.locator('[data-work-map] .map-tile').first()).toHaveAttribute('src',/tile.openstreetmap.org\/4\//);
+ await page.getByRole('button',{name:'📍 Elegir ubicación',exact:true}).click();const map=page.locator('[data-work-map]');await map.click({position:{x:120,y:150}});const pin=await page.locator('[data-map-pin]').boundingBox();await page.mouse.move(pin.x+pin.width/2,pin.y+pin.height/2);await page.mouse.down();await page.mouse.move(pin.x+pin.width/2+25,pin.y+pin.height/2-20,{steps:6});await page.mouse.up();await page.getByRole('button',{name:'Guardar ubicación',exact:true}).click();
+ const saved=await page.evaluate(()=>window.__calls.filter(c=>c.command==='save_management_record').at(-1).args.record);expect(saved.kind).toBe('project_profile');expect(Number(saved.attributes.latitude)).toBeLessThan(0);expect(Number(saved.attributes.longitude)).toBeLessThan(0);await expect(page.getByRole('button',{name:'📍 Elegir ubicación',exact:true})).toBeVisible();await expect(page.locator('[data-map-pin]')).toHaveCount(1);
+ await page.getByRole('button',{name:'Editar datos de obra',exact:true}).first().click();await expect(page.locator('table')).toHaveCount(0);const form=await page.locator('#management-form').boundingBox();expect(form.width).toBeGreaterThan(800);await page.screenshot({path:'/workspace/cpobras-compact-work-profile.png',fullPage:true});
 });

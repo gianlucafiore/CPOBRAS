@@ -288,3 +288,21 @@ Se comprobó visualmente el yacaré en su cabecera.
 - No se generó un AppImage ni se creó una etiqueta de publicación.
 Las 13 pruebas nativas también pasan con el esquema 23 y los comandos de
 metadatos, mediciones y adjuntos registrados.
+
+## Paneo PERT, mapa interactivo y tareas parciales
+
+- 24 pruebas del núcleo, 78 de almacenamiento y 34 de JavaScript correctas.
+- 56 flujos completos de navegador correctos: cámara PERT, foco tras guardar un
+  nodo, pin sobre mapa, formularios compactos y división de una tarea en tramos.
+- La prueba del plazo reproduce ramas paralelas de 8 días; agregar una
+  precedencia lo cambia a 9, y una fecha mínima adicional a 10. No se alteró
+  el cálculo correcto para sumar tareas que se ejecutan en paralelo.
+- La base migra al esquema 24 para que versiones anteriores no interpreten
+  una tarea parcial como otra asignación completa de la misma partida.
+- Costos y asignaciones de tramos se validan en Rust; superar el 100 % se rechaza
+  sin modificar la revisión guardada. El monto base de los tramos no se transmite
+  cuando el observador no tiene permiso de presupuesto.
+- La cartografía OpenStreetMap se sustituye por imágenes de prueba durante los
+  tests de navegador; el mapa real requiere Internet en el equipo del usuario.
+- No se compiló un AppImage ni se creó una etiqueta de publicación.
+Las 13 pruebas nativas pasan con la configuración del mapa y el esquema 24.

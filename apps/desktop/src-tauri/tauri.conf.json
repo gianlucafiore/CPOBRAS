@@ -17,12 +17,13 @@
         "width": 1120,
         "height": 740,
         "minWidth": 760,
-        "minHeight": 540
+        "minHeight": 540,
+        "userAgent": "CPOBRAS/0.1.2 (+https://github.com/gianlucafiore/CPOBRAS)"
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost data:; connect-src ipc: http://ipc.localhost https://ipc.localhost; object-src 'none'; base-uri 'none'; frame-src https://www.openstreetmap.org",
-      "devCsp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost https://ipc.localhost http://127.0.0.1:1420 ws://127.0.0.1:1420; object-src 'none'; base-uri 'none'; frame-src https://www.openstreetmap.org"
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost data: https://tile.openstreetmap.org; connect-src ipc: http://ipc.localhost https://ipc.localhost; object-src 'none'; base-uri 'none'; frame-src 'none'",
+      "devCsp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://tile.openstreetmap.org; connect-src ipc: http://ipc.localhost https://ipc.localhost http://127.0.0.1:1420 ws://127.0.0.1:1420; object-src 'none'; base-uri 'none'; frame-src 'none'"
     }
   },
   "bundle": {

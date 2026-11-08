@@ -58,3 +58,9 @@ export function multiplyDecimals(left, right) {
   const scale = a.scale + b.scale, magnitude = (product < 0n ? -product : product).toString().padStart(scale + 1, "0");
   return (product < 0n ? "-" : "") + (scale ? magnitude.slice(0, -scale) + "." + magnitude.slice(-scale) : magnitude);
 }
+
+export function percentageOf(value,percent){
+ const p=parse(multiplyDecimals(value,percent)),scale=p.scale+2;
+ const digits=(p.coefficient<0n?-p.coefficient:p.coefficient).toString().padStart(scale+1,'0');
+ return ((p.coefficient<0n?'-':'')+digits.slice(0,-scale)+'.'+digits.slice(-scale)).replace(/0+$/,'').replace(/\.$/,'');
+}

@@ -61,3 +61,62 @@ export function expectedPertDuration(o, m, p) {
     );
   return Math.ceil((o + 4 * m + p) / 6);
 }
+
+export function fitViewport(positions, width, height) {
+  const list = Object.values(positions);
+  if (!list.length) return { x: 40, y: 40, zoom: 1 };
+  const minX = Math.min(...list.map((p) => p.x)),
+    minY = Math.min(...list.map((p) => p.y)),
+    maxX = Math.max(...list.map((p) => p.x + 230)),
+    maxY = Math.max(...list.map((p) => p.y + 120));
+  const zoom = Math.max(
+    0.1,
+    Math.min(
+      1,
+      (width - 80) / (maxX - minX || 1),
+      (height - 80) / (maxY - minY || 1),
+    ),
+  );
+  return {
+    x: width / 2 - ((minX + maxX) / 2) * zoom,
+    y: height / 2 - ((minY + maxY) / 2) * zoom,
+    zoom,
+  };
+}
+export function worldPoint(view, rect, x, y) {
+  return {
+    x: (x - rect.left - view.x) / view.zoom,
+    y: (y - rect.top - view.y) / view.zoom,
+  };
+}
+
+export function criticalWalk(plan, schedule) {
+  if (!schedule) return { tasks: [], simple: false };
+  const scheduled = new Map(schedule.tasks.map((s) => [s.id, s])),
+    byId = new Map(plan.tasks.map((t) => [t.id, t]));
+  let current = schedule.tasks.find(
+    (s) => s.critical && s.finish_day === schedule.duration_days,
+  );
+  const result = [],
+    seen = new Set();
+  let simple = true;
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id);
+    const task = byId.get(current.id);
+    if (!task) break;
+    result.push(task);
+    const next = task.predecessors
+      .filter((d) => d.kind === "FS" && d.lag_days === 0)
+      .map((d) => scheduled.get(d.task_id))
+      .find((s) => s?.critical && s.finish_day === current.start_day);
+    if (!next && current.start_day > 0) simple = false;
+    current = next;
+  }
+  const tasks = result.reverse();
+  if (
+    tasks.reduce((sum, t) => sum + t.duration_days, 0) !==
+    schedule.duration_days
+  )
+    simple = false;
+  return { tasks, simple };
+}

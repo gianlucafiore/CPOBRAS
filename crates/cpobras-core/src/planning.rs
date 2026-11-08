@@ -52,7 +52,15 @@ pub struct PertPresentation {
     pub estimates: Option<[u32; 3]>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskSegment {
+    pub group_id: Uuid,
+    pub percent: Decimal,
+    pub base_budget: Decimal,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Plan {
+    #[serde(default)]
+    pub segments: BTreeMap<Uuid, TaskSegment>,
     #[serde(default)]
     pub presentation: BTreeMap<Uuid, PertPresentation>,
     pub calendar: Calendar,
@@ -136,13 +144,60 @@ fn offset(kind: DependencyKind, predecessor_duration: i32, duration: i32, lag: i
 
 impl Plan {
     pub fn schedule(&self, as_of: &str) -> Result<Schedule, String> {
+        let mut line_allocations = BTreeMap::<Uuid, Decimal>::new();
+        let mut groups = BTreeMap::<Uuid, (Option<Uuid>, Decimal, Decimal)>::new();
+        for task in &self.tasks {
+            let part = self.segments.get(&task.id);
+            let percent = part.map_or(Decimal::from(100), |p| p.percent);
+            if percent <= Decimal::ZERO || percent > Decimal::from(100) {
+                return Err(
+                    "El porcentaje de un tramo debe ser mayor que 0 y no superar 100".into(),
+                );
+            }
+            if let Some(line) = task.estimate_line_id {
+                let sum = line_allocations.entry(line).or_default();
+                *sum = sum
+                    .checked_add(percent)
+                    .ok_or("Porcentaje fuera de rango")?;
+                if *sum > Decimal::from(100) {
+                    return Err("Los tramos superan el 100 % de la partida".into());
+                }
+            }
+            if let Some(p) = part {
+                if p.base_budget < Decimal::ZERO {
+                    return Err("Costo de origen inválido".into());
+                }
+                let group = groups.entry(p.group_id).or_insert((
+                    task.estimate_line_id,
+                    p.base_budget,
+                    Decimal::ZERO,
+                ));
+                if group.0 != task.estimate_line_id || group.1 != p.base_budget {
+                    return Err(
+                        "Los tramos deben conservar la misma partida y costo de origen".into(),
+                    );
+                }
+                group.2 = group
+                    .2
+                    .checked_add(percent)
+                    .ok_or("Porcentaje fuera de rango")?;
+                if group.2 > Decimal::from(100) {
+                    return Err("Los tramos superan el 100 % de su tarea original".into());
+                }
+            }
+        }
+        if self
+            .segments
+            .keys()
+            .any(|id| !self.tasks.iter().any(|t| t.id == *id))
+        {
+            return Err("Tramo de tarea inexistente".into());
+        }
         for (id, node) in &self.presentation {
             if !node.x.is_finite()
                 || !node.y.is_finite()
-                || node.x < 0.0
-                || node.y < 0.0
-                || node.x > 100000.0
-                || node.y > 100000.0
+                || node.x.abs() > 10000000.0
+                || node.y.abs() > 10000000.0
                 || !self.tasks.iter().any(|t| t.id == *id)
             {
                 return Err("Posición PERT inválida".into());
@@ -408,6 +463,7 @@ mod tests {
     }
     fn plan(tasks: Vec<Task>) -> Plan {
         Plan {
+            segments: BTreeMap::new(),
             presentation: BTreeMap::new(),
             calendar: Calendar {
                 start_date: "2026-11-06".into(),
@@ -451,6 +507,44 @@ mod tests {
         p.presentation.get_mut(&id).unwrap().estimates = None;
         p.presentation.get_mut(&id).unwrap().x = f64::NAN;
         assert!(p.schedule("2026-11-06").is_err());
+    }
+    #[test]
+    fn parallel_branches_take_the_longest_path_instead_of_summing_all_red_tasks() {
+        let a = task("Limpieza", 1);
+        let mut b = task("Nivelación", 1);
+        let mut c = task("Perforación", 1);
+        let mut d = task("Cercado", 1);
+        let mut e = task("Replanteo", 1);
+        let mut f = task("Obrador", 2);
+        let mut g = task("Excavación", 4);
+        let dep = |id| Dependency {
+            task_id: id,
+            kind: DependencyKind::FS,
+            lag_days: 0,
+        };
+        b.predecessors.push(dep(a.id));
+        c.predecessors.push(dep(a.id));
+        d.predecessors = vec![dep(b.id), dep(c.id)];
+        e.predecessors.push(dep(d.id));
+        f.predecessors.push(dep(d.id));
+        g.predecessors.push(dep(e.id));
+        let gid = g.id;
+        let fid = f.id;
+        let mut p = plan(vec![a, b, c, d, e, f, g]);
+        p.calendar.start_date = "2026-11-09".into();
+        p.calendar.holidays.clear();
+        let s = p.schedule("2026-11-09").unwrap();
+        assert_eq!(s.duration_days, 8);
+        assert_eq!(s.finish, "2026-11-18");
+        p.tasks
+            .iter_mut()
+            .find(|t| t.id == gid)
+            .unwrap()
+            .predecessors
+            .push(dep(fid));
+        assert_eq!(p.schedule("2026-11-09").unwrap().duration_days, 9);
+        p.tasks.iter_mut().find(|t| t.id == fid).unwrap().not_before = Some("2026-11-13".into());
+        assert_eq!(p.schedule("2026-11-09").unwrap().duration_days, 10);
     }
     #[test]
     fn cpm_skips_weekends_holidays_and_computes_float() {

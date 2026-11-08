@@ -1,3 +1,4 @@
+import { createWorkMap } from "./work-map.js";
 import { e, field } from "./helpers.js";
 import { money } from "../decimal.js";
 export function createProjectDashboard({
@@ -8,6 +9,7 @@ export function createProjectDashboard({
   window,
   FormData,
   editProfile,
+  onLocationSaved,
 }) {
   const model = {
     projectId: null,
@@ -57,21 +59,35 @@ export function createProjectDashboard({
       metadata: Object.fromEntries(metadata),
     });
   }
-  const mapUrl = (a) => {
-    if (!String(a.latitude ?? "").trim() || !String(a.longitude ?? "").trim())
-      return null;
-    const lat = Number(a.latitude),
-      lon = Number(a.longitude);
-    if (
-      !Number.isFinite(lat) ||
-      !Number.isFinite(lon) ||
-      Math.abs(lat) > 85 ||
-      Math.abs(lon) > 180
-    )
-      return null;
-    const bbox = [lon - 0.012, lat - 0.008, lon + 0.012, lat + 0.008].join(",");
-    return `https://www.openstreetmap.org/export/embed.html?bbox=${encodeURIComponent(bbox)}&layer=mapnik&marker=${lat}%2C${lon}`;
-  };
+  const map = createWorkMap({
+    document,
+    state,
+    onSave: async (point) => {
+      const project = state.projects.find((p) => p.id === state.projectId),
+        organization = state.organizations.find(
+          (o) => o.id === project.organization_id,
+        );
+      const previous = model.profile;
+      const record = previous
+        ? structuredClone(previous)
+        : {
+            id: window.crypto.randomUUID(),
+            kind: "project_profile",
+            name: project.name,
+            code: "",
+            company_id: organization?.company_id || null,
+            parent_id: null,
+            project_id: project.id,
+            client_id: project.client_id,
+            attributes: {},
+            revision: 0,
+          };
+      record.attributes.latitude = String(point.lat);
+      record.attributes.longitude = String(point.lon);
+      model.profile = await invoke("save_management_record", { record });
+      await onLocationSaved();
+    },
+  });
   function markup(catalogs) {
     const project = state.projects.find((p) => p.id === state.projectId) || {},
       profile = (catalogs.project_profile || []).find(
@@ -109,9 +125,10 @@ export function createProjectDashboard({
       (r) =>
         String(r.kind).toLowerCase() === "equipment" && equipmentIds.has(r.id),
     );
-    const url = mapUrl(a),
-      card = (title, body) =>
-        `<section class="project-card"><h2>${title}</h2>${body}</section>`,
+    model.profile = profile;
+    map.configure(state.projectId, a);
+    const card = (title, body) =>
+        `<section class="project-card ${{ "Ficha de la obra": "card-profile", Ubicación: "card-map", "Cuadrillas involucradas": "card-crews", "Subcontratistas solicitados": "card-subcontractors", "Equipos necesarios": "card-equipment", "Presupuestos de la obra": "card-budgets", "Archivos y legajos": "card-files" }[title] || ""}"><h2>${title}</h2>${body}</section>`,
       list = (rows, empty) =>
         rows.length
           ? `<ul class="dashboard-list">${rows.map((r) => `<li>${e(r.name || r.description)}${crewIds.has(r.id) ? "<small>Asignada en planificación</small>" : ""}</li>`).join("")}</ul>`
@@ -121,13 +138,25 @@ export function createProjectDashboard({
         Number(y.id === state.estimateId) - Number(x.id === state.estimateId) ||
         Number(!y.issued) - Number(!x.issued),
     );
-    return `<section class="project-dashboard" role="region" aria-label="Tablero general de la obra">${card("Ficha de la obra", `<h3>${e(profile?.name || project.name)}</h3><dl class="project-facts"><dt>Comitente</dt><dd>${e(client?.name || "Sin comitente")}</dd><dt>Organización</dt><dd>${e(project.organization_name || "—")}</dd><dt>Ubicación</dt><dd>${e([a.address, a.locality, a.province].filter(Boolean).join(", ") || "Sin completar")}</dd><dt>Tipo de edificio</dt><dd>${e(a.building_type || "Sin completar")}</dd><dt>Superficie estimada</dt><dd>${a.estimated_area ? e(a.estimated_area) + " m²" : "Sin completar"}</dd><dt>Dimensiones estimadas</dt><dd>${e(a.estimated_dimensions || "Sin completar")}</dd></dl><h4>Memoria descriptiva</h4><p class="project-description">${e(a.description || "Agregá una descripción de los trabajos previstos.")}</p><button class="btn" data-action="manage-dashboard-profile">${state.remoteProject ? "Consultar ficha" : "Editar datos de obra"}</button>`)}${card("Ubicación", url ? `<iframe sandbox="allow-scripts allow-same-origin allow-popups" class="project-map" title="Ubicación de la obra en OpenStreetMap" src="${e(url)}" loading="lazy" referrerpolicy="no-referrer"></iframe><button class="btn" data-action="manage-map-expand">Ampliar mapa</button><small>© OpenStreetMap contributors · Requiere conexión a Internet</small>` : `<p>Completá la latitud y longitud de la ficha para mostrar el mapa.</p><button class="btn" data-action="manage-dashboard-profile">Configurar ubicación</button>`)}${card("Cuadrillas involucradas", list(crews, "Todavía no hay cuadrillas vinculadas a esta obra."))}${card("Subcontratistas solicitados", list(subcontractors, "Todavía no hay subcontratistas vinculados ni solicitudes registradas."))}${card("Equipos necesarios", list(equipment, "Asigná equipos en planificación o gestión para verlos aquí."))}${card("Presupuestos de la obra", `<div class="dashboard-budget-list">${estimates.map((b) => `<article class="dashboard-budget ${b.id === state.estimateId ? "active" : ""}"><strong>${e(b.title)}</strong><span class="dashboard-badge">${b.id === state.estimateId ? "Activo · " : ""}${b.issued ? "Emitido" : "En elaboración"}</span><small>Creado: ${e(displayDate(model.metadata[b.id]?.created_at))}${model.metadata[b.id]?.issued_at ? " · Emitido: " + e(displayDate(model.metadata[b.id].issued_at)) : ""}</small><span>${e(b.currency)} ${model.totals[b.id]?.total == null ? "—" : money(model.totals[b.id].total)}</span><button class="btn tiny" data-action="manage-dashboard-budget" data-id="${e(b.id)}">${b.id === state.estimateId ? "Ver presupuesto" : "Seleccionar presupuesto"}</button></article>`).join("") || "<p>No hay presupuestos.</p>"}</div>`)}${card("Archivos y legajos", `<p>Copias guardadas con la obra e incluidas en los respaldos de la base de datos. Máximo 20 MB por archivo. Los adjuntos no se envían por P2P en esta versión.</p>${!state.remoteProject ? `<form id="project-attachment-form">${field("Descripción del archivo", "attachment-description", model.attachmentDescription, 'maxlength="2000"')}<button class="btn primary" type="submit">Agregar archivo…</button><p class="feature-error" role="alert"></p></form>` : "<p>Los archivos del propietario no están disponibles en esta copia.</p>"}<ul class="dashboard-files">${model.attachments.map((f) => `<li><strong>${e(f.name)}</strong><small>${e(f.description)} · ${(f.bytes / 1024).toFixed(0)} KB · ${e(displayDate(f.created_at))}</small><button class="btn tiny" data-action="manage-attachment-open" data-id="${e(f.id)}">Abrir</button><button class="btn tiny" data-action="manage-attachment-remove" data-id="${e(f.id)}">Quitar</button></li>`).join("")}</ul>`)}${model.mapExpanded && url ? `<div class="modal-overlay"><section class="dialog-shell wide map-dialog" role="dialog" aria-modal="true" aria-label="Mapa de ubicación de la obra"><div class="dialog-header"><h2>Ubicación de la obra</h2><button class="close-dialog" data-action="manage-map-close" aria-label="Cerrar mapa">×</button></div><iframe sandbox="allow-scripts allow-same-origin allow-popups" title="Mapa ampliado de la obra en OpenStreetMap" src="${e(url)}" referrerpolicy="no-referrer"></iframe><p>Podés desplazar el mapa y acercar o alejar dentro de esta ventana. © OpenStreetMap contributors</p></section></div>` : ""}</section>`;
+    return `<section class="project-dashboard" role="region" aria-label="Tablero general de la obra">${card("Ficha de la obra", `<h3>${e(profile?.name || project.name)}</h3><dl class="project-facts"><dt>Comitente</dt><dd>${e(client?.name || "Sin comitente")}</dd><dt>Organización</dt><dd>${e(project.organization_name || "—")}</dd><dt>Ubicación</dt><dd>${e([a.address, a.locality, a.province].filter(Boolean).join(", ") || "Sin completar")}</dd><dt>Tipo de edificio</dt><dd>${e(a.building_type || "Sin completar")}</dd><dt>Superficie estimada</dt><dd>${a.estimated_area ? e(a.estimated_area) + " m²" : "Sin completar"}</dd><dt>Dimensiones estimadas</dt><dd>${e(a.estimated_dimensions || "Sin completar")}</dd></dl><h4>Memoria descriptiva</h4><p class="project-description">${e(a.description || "Agregá una descripción de los trabajos previstos.")}</p><button class="btn" data-action="manage-dashboard-profile">${state.remoteProject ? "Consultar ficha" : "Editar datos de obra"}</button>`)}${card("Ubicación", map.markup())}${card("Cuadrillas involucradas", list(crews, "Todavía no hay cuadrillas vinculadas a esta obra."))}${card("Subcontratistas solicitados", list(subcontractors, "Todavía no hay subcontratistas vinculados ni solicitudes registradas."))}${card("Equipos necesarios", list(equipment, "Asigná equipos en planificación o gestión para verlos aquí."))}${card("Presupuestos de la obra", `<div class="dashboard-budget-list">${estimates.map((b) => `<article class="dashboard-budget ${b.id === state.estimateId ? "active" : ""}"><strong>${e(b.title)}</strong><span class="dashboard-badge">${b.id === state.estimateId ? "Activo · " : ""}${b.issued ? "Emitido" : "En elaboración"}</span><small>Creado: ${e(displayDate(model.metadata[b.id]?.created_at))}${model.metadata[b.id]?.issued_at ? " · Emitido: " + e(displayDate(model.metadata[b.id].issued_at)) : ""}</small><span>${e(b.currency)} ${model.totals[b.id]?.total == null ? "—" : money(model.totals[b.id].total)}</span><button class="btn tiny" data-action="manage-dashboard-budget" data-id="${e(b.id)}">${b.id === state.estimateId ? "Ver presupuesto" : "Seleccionar presupuesto"}</button></article>`).join("") || "<p>No hay presupuestos.</p>"}</div>`)}${card("Archivos y legajos", `<p>Copias guardadas con la obra e incluidas en los respaldos de la base de datos. Máximo 20 MB por archivo. Los adjuntos no se envían por P2P en esta versión.</p>${!state.remoteProject ? `<form id="project-attachment-form">${field("Descripción del archivo", "attachment-description", model.attachmentDescription, 'maxlength="2000"')}<button class="btn primary" type="submit">Agregar archivo…</button><p class="feature-error" role="alert"></p></form>` : "<p>Los archivos del propietario no están disponibles en esta copia.</p>"}<ul class="dashboard-files">${model.attachments.map((f) => `<li><strong>${e(f.name)}</strong><small>${e(f.description)} · ${(f.bytes / 1024).toFixed(0)} KB · ${e(displayDate(f.created_at))}</small><button class="btn tiny" data-action="manage-attachment-open" data-id="${e(f.id)}">Abrir</button><button class="btn tiny" data-action="manage-attachment-remove" data-id="${e(f.id)}">Quitar</button></li>`).join("")}</ul>`)}${model.mapExpanded ? `<div class="modal-overlay"><section class="dialog-shell wide map-dialog" role="dialog" aria-modal="true" aria-label="Mapa de ubicación de la obra"><div class="dialog-header"><h2>Ubicación de la obra</h2><button class="close-dialog" data-action="manage-map-close" aria-label="Cerrar mapa">×</button></div>${map.markup(true)}</section></div>` : ""}</section>`;
   }
   async function act(button) {
     const a = button.dataset.action;
+    if (a.startsWith("manage-map-")) await map.act(a);
     if (a === "manage-map-expand") model.mapExpanded = true;
     if (a === "manage-map-close") model.mapExpanded = false;
-    if (a === "manage-dashboard-profile") editProfile();
+    if (a === "manage-dashboard-profile") {
+      if (map.model.editing) {
+        if (
+          !window.confirm(
+            "¿Descartar la ubicación sin guardar antes de editar la ficha?",
+          )
+        )
+          return;
+        await map.act("manage-map-cancel");
+      }
+      editProfile();
+    }
     if (a === "manage-dashboard-budget") {
       if (button.dataset.id === state.estimateId) {
         document.querySelector("[data-action=open-workspace]")?.click();
@@ -177,5 +206,17 @@ export function createProjectDashboard({
     await refresh();
     render();
   }
-  return { markup, act, submit, refresh, model };
+  return {
+    markup,
+    act,
+    submit,
+    refresh,
+    model,
+    resetTransient: map.resetTransient,
+    afterRender: map.draw,
+    pointerDown: map.pointerDown,
+    pointerMove: map.pointerMove,
+    pointerUp: map.pointerUp,
+    cancelPointer: map.cancel,
+  };
 }

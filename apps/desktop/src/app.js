@@ -105,6 +105,7 @@ export function createWorkspaceApp({
       );
     detail.innerHTML = helpBox(state.panel, true) + rightPanel();
   }
+  let renderedContext='';
   function render() {
     if (state.navigating) {
       root.innerHTML = chrome(
@@ -112,6 +113,9 @@ export function createWorkspaceApp({
       );
       return;
     }
+    const contextKey=[state.view,state.projectId,state.estimateId].join(':');
+    const scrollSelectors=['.feature-page','.table-scroll','.gantt-scroll','.pert-source-list','.app'];
+    const offsets=renderedContext===contextKey?scrollSelectors.flatMap(selector=>Array.from(root.querySelectorAll(selector)).map((el,index)=>({selector,index,top:el.scrollTop,left:el.scrollLeft}))):[];
     const top = document.querySelector(".table-scroll");
     const position = top?.scrollTop || 0;
     root.innerHTML = ["clients", "suppliers"].includes(state.view)
@@ -141,6 +145,10 @@ export function createWorkspaceApp({
       patterns.afterRender();
     }
     if (state.view === "price-determination") pricing.afterRender();
+    if(state.view==='planning')planning.afterRender();
+    if(state.view==='management')management.afterRender();
+    for(const item of offsets){const el=root.querySelectorAll(item.selector)[item.index];if(el){el.scrollTop=item.top;el.scrollLeft=item.left;}}
+    renderedContext=contextKey;
     protectRemoteControls(root,state);
     const restored = document.querySelector(".table-scroll");
     if (restored) restored.scrollTop = position;
@@ -568,7 +576,7 @@ export function createWorkspaceApp({
           "copy-base-analysis-form",
         ],
       ],
-      [planning, ["planning-task-form", "planning-settings"]],
+      [planning, ["planning-task-form", "planning-settings","planning-split-form"]],
       [management, ["management-form","project-attachment-form"]],
     ];
     if (evt.target.id === "unit-create-form") {
@@ -613,6 +621,7 @@ export function createWorkspaceApp({
           "management-form",
           "project-attachment-form",
           "planning-task-form",
+          "planning-split-form",
           "planning-settings",
           "budget-bulk-form",
           "nested-analysis-form",
@@ -640,7 +649,7 @@ export function createWorkspaceApp({
   document.addEventListener("change", async (evt) => {
     if (
       evt.target.closest?.(
-        "#p2p-invite-form,#p2p-join-form,#p2p-access-form,#organization-create-form,#print-profile-form,#budget-print-form,#management-form,#project-attachment-form,#planning-task-form,#planning-settings,#budget-bulk-form,#nested-analysis-form,#price-list-form,#scoped-price-form",
+        "#p2p-invite-form,#p2p-join-form,#p2p-access-form,#organization-create-form,#print-profile-form,#budget-print-form,#management-form,#project-attachment-form,#planning-task-form,#planning-split-form,#planning-settings,#budget-bulk-form,#nested-analysis-form,#price-list-form,#scoped-price-form",
       )
     )
       state.pageDirty = true;
@@ -699,7 +708,7 @@ export function createWorkspaceApp({
   document.addEventListener("input", (evt) => {
     if (
       evt.target.closest?.(
-        "#p2p-invite-form,#p2p-join-form,#p2p-access-form,#organization-create-form,#print-profile-form,#budget-print-form,#management-form,#project-attachment-form,#planning-task-form,#planning-settings,#budget-bulk-form,#nested-analysis-form,#price-list-form,#scoped-price-form",
+        "#p2p-invite-form,#p2p-join-form,#p2p-access-form,#organization-create-form,#print-profile-form,#budget-print-form,#management-form,#project-attachment-form,#planning-task-form,#planning-split-form,#planning-settings,#budget-bulk-form,#nested-analysis-form,#price-list-form,#scoped-price-form",
       )
     )
       state.pageDirty = true;
@@ -758,18 +767,19 @@ export function createWorkspaceApp({
       render();
     });
   });
-  document.addEventListener("pointerdown", (evt) => {if(!state.remoteProject)planning.pointerDown(evt);});
-  document.addEventListener("pointermove",evt=>planning.pointerMove(evt));
-  document.addEventListener("pointercancel",()=>{planning.cancelPointer();});
+  document.addEventListener("pointerdown", (evt) => {if(!management.pointerDown(evt))planning.pointerDown(evt);});
+  document.addEventListener("pointermove",evt=>{if(!management.pointerMove(evt))planning.pointerMove(evt);});
+  document.addEventListener("pointercancel",()=>{planning.cancelPointer();management.cancelPointer();});
   document.addEventListener("pointerup", async (evt) => {
     try {
-      await planning.pointerUp(evt);
+      if(!management.pointerUp(evt))await planning.pointerUp(evt);
     } catch (error) {
       state.message = String(error);
       render();
     }
   });
   document.addEventListener("keydown", (evt) => {
+    if(evt.key==='Escape'&&state.view==='planning'&&(document.querySelector('#planning-task-form')||document.querySelector('#planning-split-form'))){evt.preventDefault();const action=document.querySelector('#planning-split-form')?'plan-split-cancel':'plan-cancel';planning.act({dataset:{action}}).catch(error=>{state.message=String(error);render();});return;}
     if (people.keyDown(evt)) return;
     if (patterns.keyDown(evt)) return;
     if (unitPicker.keyDown(evt)) return;

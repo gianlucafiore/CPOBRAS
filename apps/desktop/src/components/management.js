@@ -176,6 +176,7 @@ export function createManagementWorkspace({
     document,
     window,
     FormData,
+    onLocationSaved: refresh,
     editProfile: () => {
       model.kind = "project_profile";
       model.records = visibleRecords();
@@ -217,8 +218,52 @@ export function createManagementWorkspace({
       .filter(belongs)
       .map((record) => [record.id, record.name]),
   ];
+  function profileEditor(item) {
+    const attrs = item.attributes || {},
+      main = [
+        "building_type",
+        "estimated_area",
+        "estimated_dimensions",
+        "address",
+        "locality",
+        "province",
+        "start_date",
+        "end_date",
+      ];
+    const input = ([key, label, type]) =>
+      type === "textarea"
+        ? `<label class="field profile-description"><span>${e(label)}</span><textarea name="attr-${e(key)}" rows="3" maxlength="20000">${e(attrs[key] || "")}</textarea></label>`
+        : Array.isArray(type)
+          ? select(label, "attr-" + key, type, attrs[key])
+          : field(
+              label,
+              "attr-" + key,
+              attrs[key] || "",
+              type === "date" ? 'type="date"' : "",
+            );
+    return `<main class="feature-page physical-profile-page"><div class="feature-toolbar"><button class="btn" data-action="manage-dashboard">← Tablero de obra</button><h1>Ficha de la obra</h1></div><form id="management-form" class="physical-profile-editor"><div class="profile-main-grid">${field("Nombre", "name", item.name || "", 'required maxlength="500"')}${fields.project_profile
+      .filter(([key]) => main.includes(key))
+      .map(input)
+      .join(
+        "",
+      )}</div>${input(["description", "Memoria descriptiva", "textarea"])}<details><summary>Datos adicionales y parámetros económicos</summary><div class="profile-main-grid">${fields.project_profile
+      .filter(([key]) => !main.includes(key) && key !== "description")
+      .map(input)
+      .join(
+        "",
+      )}${field("Código", "code", item.code || "")}</div></details><input type="hidden" name="company_id" value="${e(item.company_id || "")}"><input type="hidden" name="parent_id" value="${e(item.parent_id || "")}"><input type="hidden" name="client_id" value="${e(item.client_id || state.projects.find((p) => p.id === state.projectId)?.client_id || "")}"><div class="compact-editor-actions"><button class="btn primary" type="submit">Guardar ficha</button><button class="btn" type="button" data-action="manage-cancel">Cancelar</button></div><p class="feature-error" role="alert"></p></form></main>`;
+  }
   function markup() {
     const item = model.editing;
+    if (scoped() && model.kind === "project_profile" && item)
+      return profileEditor(item);
+    if (
+      scoped() &&
+      model.kind === "project_profile" &&
+      !item &&
+      model.mode === "directories"
+    )
+      model.mode = "dashboard";
     if (scoped() && model.mode === "dashboard")
       return `<main class="feature-page"><div class="feature-toolbar"><h1>Datos de la obra</h1><button class="btn" data-action="manage-directories">Directorios y fichas</button><button class="btn primary" data-action="manage-dashboard-profile">${state.remoteProject ? "Consultar ficha" : "Editar datos de obra"}</button>${select(
         "Directorio",
@@ -274,6 +319,19 @@ export function createManagementWorkspace({
   async function act(button) {
     const action = button.dataset.action;
     if (
+      ["manage-dashboard", "manage-directories"].includes(action) &&
+      state.pageDirty
+    ) {
+      if (
+        !window.confirm(
+          "¿Descartar los cambios sin guardar antes de cambiar de vista?",
+        )
+      )
+        return;
+      state.pageDirty = false;
+      dashboard.resetTransient();
+    }
+    if (
       action.startsWith("manage-map-") ||
       action.startsWith("manage-attachment-") ||
       action.startsWith("manage-dashboard-")
@@ -288,6 +346,7 @@ export function createManagementWorkspace({
     }
     if (action === "manage-directories") model.mode = "directories";
     if (action === "open-management") {
+      dashboard.resetTransient();
       state.view =
         state.organizationId && !state.projectId
           ? "organizations"
@@ -302,6 +361,7 @@ export function createManagementWorkspace({
       await refresh();
     }
     if (action === "manage-new") {
+      dashboard.resetTransient();
       model.mode = "directories";
       model.editing = {
         attributes: {},
@@ -313,7 +373,16 @@ export function createManagementWorkspace({
       model.editing = structuredClone(
         model.records.find((record) => record.id === button.dataset.id),
       );
-    if (action === "manage-cancel") model.editing = null;
+    if (action === "manage-cancel") {
+      if (
+        state.pageDirty &&
+        !window.confirm("¿Descartar los cambios de la ficha?")
+      )
+        return;
+      model.editing = null;
+      state.pageDirty = false;
+      if (scoped()) model.mode = "dashboard";
+    }
     if (action === "manage-audit" && !state.organizationId)
       model.events = await invoke("list_change_events", { after: 0 });
     render();
@@ -366,5 +435,16 @@ export function createManagementWorkspace({
     state.message = "Ficha guardada";
     render();
   }
-  return { markup, act, change, submit, model };
+  return {
+    markup,
+    act,
+    change,
+    submit,
+    model,
+    afterRender: dashboard.afterRender,
+    pointerDown: dashboard.pointerDown,
+    pointerMove: dashboard.pointerMove,
+    pointerUp: dashboard.pointerUp,
+    cancelPointer: dashboard.cancelPointer,
+  };
 }

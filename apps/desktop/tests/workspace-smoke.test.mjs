@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createWorkspaceApp } from "../src/app.js";
 
 function setup() {
-  const root = { innerHTML: "" };
+  const root = { innerHTML: "",querySelectorAll:()=>[] };
   const listeners = {};
   const line = {
     id: "line-1", description: "Montaje de estructura", unit: "kg",

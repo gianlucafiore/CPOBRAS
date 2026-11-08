@@ -203,6 +203,27 @@ pub fn restrict_shared_document(mut data: Value, p: &SharingPermissions) -> Valu
             }
         }
     }
+    if !p.budget {
+        fn scrub_segment_bases(plan: &mut Value) {
+            if let Some(parts) = plan.get_mut("segments").and_then(Value::as_object_mut) {
+                for part in parts.values_mut() {
+                    part["base_budget"] = json!("0");
+                }
+            }
+        }
+        if let Some(plan) = data.get_mut("planning").and_then(|p| p.get_mut("plan")) {
+            scrub_segment_bases(plan);
+        }
+        for field in ["baselines", "plan_revisions"] {
+            if let Some(rows) = data.get_mut(field).and_then(Value::as_array_mut) {
+                for row in rows {
+                    if let Some(plan) = row.get_mut("plan") {
+                        scrub_segment_bases(plan);
+                    }
+                }
+            }
+        }
+    }
     if !p.operations && !p.accounting {
         data["parties"] = json!([]);
     }

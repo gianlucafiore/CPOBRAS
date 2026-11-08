@@ -164,6 +164,7 @@ fn saved_plan_resolves_budget_links_and_keeps_immutable_baselines() {
         actual_progress: Decimal::from(25),
     };
     let plan = Plan {
+        segments: BTreeMap::new(),
         presentation: BTreeMap::new(),
         calendar: Calendar {
             start_date: "2026-11-05".into(),
@@ -1351,7 +1352,7 @@ fn upgrades_populated_schema_fifteen_and_deletes_its_preexisting_linked_line() {
             .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| r
                 .get::<_, i64>(0))
             .unwrap(),
-        23
+        24
     );
     upgraded.delete_estimate_item(e.id, line.id).unwrap();
     assert!(upgraded.estimate_items(e.id).unwrap().is_empty());
@@ -2896,6 +2897,7 @@ fn pert_presentation_round_trips_with_revisions_baselines_and_legacy_plans() {
     let (mut s, p, _, line) = fixture();
     let id = Uuid::new_v4();
     let plan = Plan {
+        segments: BTreeMap::new(),
         calendar: Calendar {
             start_date: "2026-11-09".into(),
             nonworking_weekdays: vec![5, 6],
@@ -2944,4 +2946,79 @@ fn pert_presentation_round_trips_with_revisions_baselines_and_legacy_plans() {
         .unwrap()
         .presentation
         .is_empty());
+}
+
+#[test]
+fn partial_tasks_allocate_each_budget_line_once_and_preserve_history() {
+    use cpobras_core::planning::TaskSegment;
+    let (mut s, p, e, line) = fixture();
+    let a = Uuid::new_v4();
+    let b = Uuid::new_v4();
+    let task = |id, name: &str| Task {
+        id,
+        parent_id: None,
+        estimate_line_id: Some(line.id),
+        name: name.into(),
+        duration_days: 2,
+        predecessors: vec![],
+        not_before: None,
+        finish_by: None,
+        assignments: vec![],
+        budget: Decimal::ZERO,
+        actual_progress: Decimal::from(25),
+    };
+    let mut plan = Plan {
+        calendar: Calendar {
+            start_date: "2026-11-09".into(),
+            nonworking_weekdays: vec![5, 6],
+            holidays: vec![],
+        },
+        presentation: BTreeMap::new(),
+        segments: BTreeMap::from([
+            (
+                a,
+                TaskSegment {
+                    group_id: a,
+                    percent: Decimal::from(30),
+                    base_budget: Decimal::ZERO,
+                },
+            ),
+            (
+                b,
+                TaskSegment {
+                    group_id: a,
+                    percent: Decimal::from(70),
+                    base_budget: Decimal::ZERO,
+                },
+            ),
+        ]),
+        tasks: vec![task(a, "Etapa 1"), task(b, "Etapa 2")],
+    };
+    let saved = s
+        .save_project_plan(p.id, 0, plan.clone(), "2026-11-09")
+        .unwrap();
+    assert_eq!(
+        saved.plan.tasks.iter().map(|t| t.budget).sum::<Decimal>(),
+        s.estimate_total(e.id).unwrap()
+    );
+    assert_eq!(s.estimate_items(e.id).unwrap()[0].quantity, line.quantity);
+    let restricted = crate::sharing::restrict_shared_document(
+        s.shared_project_document(p.id, "2026-11-09").unwrap(),
+        &crate::sharing::SharingPermissions {
+            budget: false,
+            ..Default::default()
+        },
+    );
+    assert_eq!(
+        restricted["planning"]["plan"]["segments"][a.to_string()]["base_budget"],
+        "0"
+    );
+    assert!(s.project_plan(p.id).unwrap().unwrap().plan.segments[&a].base_budget > Decimal::ZERO);
+    plan.segments.get_mut(&b).unwrap().percent = Decimal::from(80);
+    assert!(s.save_project_plan(p.id, 1, plan, "2026-11-09").is_err());
+    assert_eq!(s.project_plan(p.id).unwrap().unwrap().revision, 1);
+    assert_eq!(
+        s.plan_revisions(p.id).unwrap()[0].plan.segments[&a].percent,
+        Decimal::from(30)
+    );
 }

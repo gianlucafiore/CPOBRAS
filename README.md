@@ -382,3 +382,16 @@ legajos: [guía del tablero](docs/PROJECT-DASHBOARD.md).
 
 Para probar estos cambios compilando localmente, seguí los comandos de
 compilación y arranque de este README. No es necesario generar un AppImage.
+
+### Navegación PERT y etapas de trabajo
+
+El fondo del PERT se puede arrastrar para panear. Los botones **+**, **−** y
+**Centrar / ver todo** controlan la vista; mover un nodo conserva el foco y el
+zoom. Desde el editor compacto, **Dividir en tramos** distribuye una tarea entre
+etapas con duraciones, dependencias y avances propios, conservando el total de
+la partida. Ver [planificación](docs/PLANNING.md).
+
+El mapa de Datos de obra abre en Argentina si no hay un punto guardado.
+**Elegir ubicación** permite colocar o mover el pin y guardar sin escribir
+coordenadas. La ficha física se edita en un formulario amplio, sin la tabla
+vacía de directorio. Ver [tablero de obra](docs/PROJECT-DASHBOARD.md).
