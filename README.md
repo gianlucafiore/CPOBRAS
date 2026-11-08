@@ -395,3 +395,15 @@ El mapa de Datos de obra abre en Argentina si no hay un punto guardado.
 **Elegir ubicación** permite colocar o mover el pin y guardar sin escribir
 coordenadas. La ficha física se edita en un formulario amplio, sin la tabla
 vacía de directorio. Ver [tablero de obra](docs/PROJECT-DASHBOARD.md).
+
+### Calendario del Gantt y dirección del mapa
+
+El Gantt permite panear por fechas reales, con encabezados de año, mes, semana ISO
+y día y con fines de semana resaltados. **Calendario y seguimiento** permite
+seleccionar varias fechas, describirlas y marcar si se trabaja o no. Al guardar,
+Gantt y PERT se recalculan con las mismas reglas. El calendario y el resumen
+ocupan dos columnas en pantallas amplias.
+
+Al guardar el pin del mapa se completa la dirección aproximada cuando el servicio
+OpenStreetMap/Nominatim responde. Si no está disponible, la ubicación se guarda
+con un aviso para revisar su dirección. Esta función requiere Internet.

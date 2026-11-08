@@ -93,6 +93,7 @@ impl LocalStore {
             include_str!("../migrations/0022_reopen_estimates.sql"),
             include_str!("../migrations/0023_project_dashboard.sql"),
             include_str!("../migrations/0024_task_segments.sql"),
+            include_str!("../migrations/0025_calendar_exceptions.sql"),
         ];
         let latest: i64 = conn.query_row(
             "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",

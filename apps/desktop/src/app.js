@@ -652,7 +652,7 @@ export function createWorkspaceApp({
         "#p2p-invite-form,#p2p-join-form,#p2p-access-form,#organization-create-form,#print-profile-form,#budget-print-form,#management-form,#project-attachment-form,#planning-task-form,#planning-split-form,#planning-settings,#budget-bulk-form,#nested-analysis-form,#price-list-form,#scoped-price-form",
       )
     )
-      state.pageDirty = true;
+      if(evt.target.name!=="calendar-month")state.pageDirty = true;
     if (state.modal && evt.target.closest?.("#dialog-form"))
       state.modalDirty = true;
     if (evt.target.name === "library-trade") {
@@ -711,7 +711,7 @@ export function createWorkspaceApp({
         "#p2p-invite-form,#p2p-join-form,#p2p-access-form,#organization-create-form,#print-profile-form,#budget-print-form,#management-form,#project-attachment-form,#planning-task-form,#planning-split-form,#planning-settings,#budget-bulk-form,#nested-analysis-form,#price-list-form,#scoped-price-form",
       )
     )
-      state.pageDirty = true;
+      if(evt.target.name!=="calendar-month")state.pageDirty = true;
     people.input(evt.target);
     printing.input(evt.target);
     pricing.input(evt.target);
@@ -768,6 +768,7 @@ export function createWorkspaceApp({
     });
   });
   document.addEventListener("pointerdown", (evt) => {if(!management.pointerDown(evt))planning.pointerDown(evt);});
+  document.addEventListener("wheel",event=>planning.wheel(event),{passive:false});
   document.addEventListener("pointermove",evt=>{if(!management.pointerMove(evt))planning.pointerMove(evt);});
   document.addEventListener("pointercancel",()=>{planning.cancelPointer();management.cancelPointer();});
   document.addEventListener("pointerup", async (evt) => {

@@ -15,6 +15,7 @@ export function createWorkMap({ document, state, onSave }) {
       draft: null,
       editing: false,
       error: false,
+      saving: false,
     };
   let drag = null;
   function configure(key, attributes) {
@@ -32,7 +33,7 @@ export function createWorkMap({ document, state, onSave }) {
     }
   }
   function markup(expanded = false) {
-    return `<div class="work-map" data-work-map aria-label="Mapa de ubicación de la obra" role="application" tabindex="0" style="height:${expanded ? "min(62vh,650px)" : "260px"}"></div><div class="map-controls"><button class="btn" data-action="manage-map-zoom-out" aria-label="Alejar mapa">−</button><button class="btn" data-action="manage-map-zoom-in" aria-label="Acercar mapa">+</button><button class="btn" data-action="manage-map-center">${model.point ? "Ver ubicación" : "Ver Argentina"}</button>${!expanded ? '<button class="btn" data-action="manage-map-expand">Ampliar mapa</button>' : ""}${!state.remoteProject ? (model.editing ? '<button class="btn primary" data-action="manage-map-save">Guardar ubicación</button><button class="btn" data-action="manage-map-cancel">Cancelar ubicación</button>' : '<button class="btn" data-action="manage-map-edit">📍 Elegir ubicación</button>') : ""}</div><p class="map-help" role="status">${model.editing ? "Hacé clic para colocar el marcador o arrastrá el pin. Guardá para confirmar." : model.point ? "Ubicación guardada. Arrastrá el fondo para navegar." : "Vista aproximada de Argentina. Activá «Elegir ubicación» para colocar el marcador."}</p><small>© OpenStreetMap contributors · Requiere Internet</small>`;
+    return `<div class="work-map" data-work-map aria-label="Mapa de ubicación de la obra" role="application" tabindex="0" style="height:${expanded ? "min(62vh,650px)" : "260px"}"></div><div class="map-controls"><button class="btn" data-action="manage-map-zoom-out" aria-label="Alejar mapa">−</button><button class="btn" data-action="manage-map-zoom-in" aria-label="Acercar mapa">+</button><button class="btn" data-action="manage-map-center">${model.point ? "Ver ubicación" : "Ver Argentina"}</button>${!expanded ? '<button class="btn" data-action="manage-map-expand">Ampliar mapa</button>' : ""}${!state.remoteProject ? (model.editing ? `<button class="btn primary" data-action="manage-map-save" ${model.saving ? "disabled" : ""}>${model.saving ? "Buscando dirección…" : "Guardar ubicación"}</button><button class="btn" data-action="manage-map-cancel" ${model.saving ? "disabled" : ""}>Cancelar ubicación</button>` : '<button class="btn" data-action="manage-map-edit">📍 Elegir ubicación</button>') : ""}</div><p class="map-help" role="status">${model.editing ? "Hacé clic para colocar el marcador o arrastrá el pin. Guardá para confirmar." : model.point ? "Ubicación guardada. Arrastrá el fondo para navegar." : "Vista aproximada de Argentina. Activá «Elegir ubicación» para colocar el marcador."}</p><small>© OpenStreetMap contributors · Requiere Internet</small>`;
   }
   function draw() {
     for (const host of document.querySelectorAll("[data-work-map]")) {
@@ -136,6 +137,10 @@ export function createWorkMap({ document, state, onSave }) {
   function pointerDown(event) {
     const host = event.target.closest?.("[data-work-map]");
     if (!host || event.button !== 0) return false;
+    if (model.saving) {
+      event.preventDefault();
+      return true;
+    }
     event.preventDefault();
     drag = {
       host,
@@ -195,9 +200,30 @@ export function createWorkMap({ document, state, onSave }) {
     if (action === "manage-map-save") {
       if (state.remoteProject || !model.editing || !model.draft)
         throw new Error("Seleccioná una ubicación para guardar");
-      await onSave(model.draft);
-      model.editing = false;
-      state.pageDirty = model.previousDirty || false;
+      if (model.saving) return;
+      model.saving = true;
+      const previousBusy = state.busy;
+      state.busy = true;
+      const buttons = Array.from(
+        document.querySelectorAll("[data-action=manage-map-save]"),
+      );
+      for (const button of buttons) {
+        button.disabled = true;
+        button.textContent = "Buscando dirección…";
+      }
+      try {
+        await onSave(model.draft);
+        model.editing = false;
+        state.pageDirty = model.previousDirty || false;
+      } finally {
+        model.saving = false;
+        state.busy = previousBusy;
+        for (const button of buttons)
+          if (button.isConnected) {
+            button.disabled = false;
+            button.textContent = "Guardar ubicación";
+          }
+      }
     }
   }
   return {

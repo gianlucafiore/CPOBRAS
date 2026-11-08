@@ -167,6 +167,7 @@ fn saved_plan_resolves_budget_links_and_keeps_immutable_baselines() {
         segments: BTreeMap::new(),
         presentation: BTreeMap::new(),
         calendar: Calendar {
+            exceptions: BTreeMap::new(),
             start_date: "2026-11-05".into(),
             nonworking_weekdays: vec![5, 6],
             holidays: vec![],
@@ -1352,7 +1353,7 @@ fn upgrades_populated_schema_fifteen_and_deletes_its_preexisting_linked_line() {
             .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| r
                 .get::<_, i64>(0))
             .unwrap(),
-        24
+        25
     );
     upgraded.delete_estimate_item(e.id, line.id).unwrap();
     assert!(upgraded.estimate_items(e.id).unwrap().is_empty());
@@ -2896,9 +2897,10 @@ fn pert_presentation_round_trips_with_revisions_baselines_and_legacy_plans() {
     use cpobras_core::planning::PertPresentation;
     let (mut s, p, _, line) = fixture();
     let id = Uuid::new_v4();
-    let plan = Plan {
+    let mut plan = Plan {
         segments: BTreeMap::new(),
         calendar: Calendar {
+            exceptions: BTreeMap::new(),
             start_date: "2026-11-09".into(),
             nonworking_weekdays: vec![5, 6],
             holidays: vec![],
@@ -2925,6 +2927,13 @@ fn pert_presentation_round_trips_with_revisions_baselines_and_legacy_plans() {
             actual_progress: Decimal::ZERO,
         }],
     };
+    plan.calendar.exceptions.insert(
+        "2026-11-10".into(),
+        cpobras_core::planning::CalendarException {
+            description: "Feriado local".into(),
+            working: false,
+        },
+    );
     let saved = s.save_project_plan(p.id, 0, plan, "2026-11-09").unwrap();
     s.create_plan_baseline(p.id, "Antes de mover", "2026-11-09")
         .unwrap();
@@ -2940,6 +2949,10 @@ fn pert_presentation_round_trips_with_revisions_baselines_and_legacy_plans() {
         20.0
     );
     assert_eq!(s.plan_revisions(p.id).unwrap().len(), 2);
+    assert_eq!(
+        s.plan_baselines(p.id).unwrap()[0].plan.calendar.exceptions["2026-11-10"].description,
+        "Feriado local"
+    );
     let mut legacy = serde_json::to_value(s.project_plan(p.id).unwrap().unwrap().plan).unwrap();
     legacy.as_object_mut().unwrap().remove("presentation");
     assert!(serde_json::from_value::<Plan>(legacy)
@@ -2969,6 +2982,7 @@ fn partial_tasks_allocate_each_budget_line_once_and_preserve_history() {
     };
     let mut plan = Plan {
         calendar: Calendar {
+            exceptions: BTreeMap::new(),
             start_date: "2026-11-09".into(),
             nonworking_weekdays: vec![5, 6],
             holidays: vec![],

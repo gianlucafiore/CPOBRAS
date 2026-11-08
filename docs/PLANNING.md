@@ -86,3 +86,45 @@ calendario también pueden cambiar el plazo: conectar una tarea adicional no
 implica necesariamente agregar solo su duración.
 
 Para compartir planes con tramos, actualizá ambos equipos a la misma versión.
+
+## Gantt con fechas reales
+
+El encabezado se divide en **año → mes → semana ISO → día**. Cada columna
+representa un día calendario y muestra su día de la semana. El número de semana
+incluye su año ISO, que puede diferir del año calendario cerca de Año Nuevo.
+
+Arrastrá el fondo para panear horizontalmente hacia fechas anteriores o futuras.
+También podés usar el desplazamiento horizontal del panel táctil, Mayús + rueda,
+las flechas de cuatro semanas, **Inicio de obra** y **Hoy**. Estos movimientos
+cambian la vista; no modifican fechas ni guardan revisiones.
+
+Los fines de semana se resaltan. Los feriados no laborables aparecen en otro
+color y las jornadas excepcionales laborables se distinguen en verde. Una barra
+puede abarcar un fin de semana, pero sus segmentos de trabajo y su duración
+cuentan únicamente las fechas laborables. Las líneas base conservan sus fechas
+originales para comparar con el calendario actual.
+
+Al arrastrar una barra se fija una fecha mínima de comienzo, respetando el inicio
+de la obra y las precedencias. Si cae en un día no laborable, se ajusta al siguiente
+laborable. Al cambiar el extremo de la barra se cuenta el trabajo efectivo,
+sin sumar fines de semana o feriados que se atraviesen.
+
+## Feriados y jornadas especiales
+
+**Calendario y seguimiento** y el resumen de duración/avance se muestran en dos
+columnas de una misma fila cuando hay ancho suficiente.
+
+1. Desplegá **Calendario y seguimiento** y configurá los días habituales.
+2. Seleccioná todas las fechas necesarias en el calendario mensual. Permanece
+   abierto y conserva la selección al cambiar de mes.
+3. A la derecha, indicá una descripción para cada fecha. Por defecto se trata
+   de un día **no laborable**. Activá **Laborable** para habilitarlo, incluso
+   si es sábado, domingo o un feriado anterior.
+4. **Guardar calendario** aplica los cambios a Gantt y PERT. Las selecciones
+   sin guardar no cambian el cronograma. Se conservan en revisiones, líneas base
+   y respaldos junto con la obra.
+
+Una excepción por fecha tiene prioridad sobre los días habituales y los feriados
+anteriores. Quitarla restaura la regla semanal. Los feriados de versiones previas
+se conservan como fechas no laborables editables. Actualizá ambos equipos si
+compartís por P2P un plan que utiliza jornadas laborables excepcionales.

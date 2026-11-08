@@ -6,7 +6,14 @@ use std::collections::{BTreeMap, BTreeSet};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CalendarException {
+    pub description: String,
+    pub working: bool,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Calendar {
+    #[serde(default)]
+    pub exceptions: BTreeMap<String, CalendarException>,
     pub start_date: String,
     pub nonworking_weekdays: Vec<u32>,
     pub holidays: Vec<String>,
@@ -104,12 +111,25 @@ impl Calendar {
         if weekdays.len() == 7 || weekdays.iter().any(|day| *day > 6) {
             return Err("El calendario debe tener días laborables".into());
         }
+        if self.exceptions.len() > 10000 {
+            return Err("Máximo 10.000 fechas especiales por calendario".into());
+        }
+        for (day, exception) in &self.exceptions {
+            date(day)?;
+            if exception.description.chars().count() > 500 {
+                return Err("Descripción de fecha demasiado larga".into());
+            }
+        }
         for holiday in &self.holidays {
             date(holiday)?;
         }
         Ok(())
     }
     fn working(&self, day: NaiveDate) -> bool {
+        if let Some(exception) = self.exceptions.get(&day.to_string()) {
+            return exception.working;
+        }
+
         !self
             .nonworking_weekdays
             .contains(&day.weekday().num_days_from_monday())
@@ -466,6 +486,7 @@ mod tests {
             segments: BTreeMap::new(),
             presentation: BTreeMap::new(),
             calendar: Calendar {
+                exceptions: BTreeMap::new(),
                 start_date: "2026-11-06".into(),
                 nonworking_weekdays: vec![5, 6],
                 holidays: vec!["2026-11-09".into()],
@@ -545,6 +566,48 @@ mod tests {
         assert_eq!(p.schedule("2026-11-09").unwrap().duration_days, 9);
         p.tasks.iter_mut().find(|t| t.id == fid).unwrap().not_before = Some("2026-11-13".into());
         assert_eq!(p.schedule("2026-11-09").unwrap().duration_days, 10);
+    }
+    #[test]
+    fn described_working_dates_override_weekends_and_legacy_holidays() {
+        let mut p = plan(vec![task("Calendario especial", 6)]);
+        p.calendar.start_date = "2026-11-09".into();
+        p.calendar.holidays = vec!["2026-11-10".into()];
+        p.calendar.exceptions = BTreeMap::from([
+            (
+                "2026-11-10".into(),
+                CalendarException {
+                    description: "Día laborable".into(),
+                    working: true,
+                },
+            ),
+            (
+                "2026-11-13".into(),
+                CalendarException {
+                    description: "Feriado de obra".into(),
+                    working: false,
+                },
+            ),
+            (
+                "2026-11-14".into(),
+                CalendarException {
+                    description: "Sábado habilitado".into(),
+                    working: true,
+                },
+            ),
+        ]);
+        let s = p.schedule("2026-11-09").unwrap();
+        assert_eq!(s.finish, "2026-11-16");
+        assert_eq!(s.duration_days, 6);
+        assert!(s.curve.iter().any(|r| r.date == "2026-11-14"));
+        assert!(!s.curve.iter().any(|r| r.date == "2026-11-13"));
+        p.calendar.exceptions.insert(
+            "2026-02-30".into(),
+            CalendarException {
+                description: "Inválido".into(),
+                working: false,
+            },
+        );
+        assert!(p.schedule("2026-11-09").is_err());
     }
     #[test]
     fn cpm_skips_weekends_holidays_and_computes_float() {

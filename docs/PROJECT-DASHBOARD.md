@@ -45,3 +45,16 @@ distribución se adapta al ancho disponible.
 **Editar datos de obra** abre una ficha amplia con campos agrupados en columnas,
 memoria descriptiva y datos avanzados desplegables. Esa vista no incluye la tabla
 vacía de Código/Nombre: se edita la ficha de la obra abierta directamente.
+
+## Dirección aproximada desde el mapa
+
+Al confirmar **Guardar ubicación**, CPOBRAS consulta Nominatim de OpenStreetMap
+con las coordenadas del pin e intenta completar **Ubicación**, **Localidad** y
+**Provincia**. El resultado queda identificado como aproximado y se puede
+corregir desde la ficha de la obra.
+
+La búsqueda se realiza solo al guardar el punto, con caché por ubicación y sin
+consultas durante el arrastre. Requiere Internet y disponibilidad del servicio.
+Si falla, el punto se guarda igualmente y la ficha indica que su dirección está
+pendiente de verificar. Una dirección existente se conserva con esa advertencia.
+Editar manualmente la dirección retira su identificación automática.

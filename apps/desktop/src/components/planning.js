@@ -6,6 +6,8 @@ import {
   withDependency,
   expectedPertDuration,
 } from "../services/pert.js";
+import { createGantt } from "./gantt.js";
+import { createCalendarPicker } from "./calendar-picker.js";
 import { e, field, select, dateToday } from "./helpers.js";
 import {
   splitTask,
@@ -24,6 +26,7 @@ export function createPlanningWorkspace({
 }) {
   const model = {
     tab: "gantt",
+    calendarOpen: false,
     viewport: { x: 40, y: 40, zoom: 1 },
     splitting: null,
     connectFrom: null,
@@ -48,6 +51,7 @@ export function createPlanningWorkspace({
       start_date: dateToday(),
       nonworking_weekdays: [5, 6],
       holidays: [],
+      exceptions: {},
     },
     segments: {},
     presentation: {},
@@ -121,21 +125,16 @@ export function createPlanningWorkspace({
       .join(" ");
     return `<section class="curve-panel"><h2>Curva S · Costo planificado acumulado</h2><svg viewBox="0 0 1000 220" role="img" aria-label="Curva de costos acumulados"><path d="${path}" fill="none" stroke="#1976a3" stroke-width="3"/><path d="M0,200 L1000,200" stroke="#bbb"/></svg><div class="curve-dates"><span>${e(curve[0].date)}</span><b>${money(model.schedule.budget)}</b><span>${e(curve.at(-1).date)}</span></div><details><summary>Flujo previsto por día laborable</summary><table class="data-grid"><thead><tr><th>Fecha</th><th>Período</th><th>Acumulado</th></tr></thead><tbody>${curve.map((point) => `<tr><td>${e(point.date)}</td><td>${money(point.period_cost)}</td><td>${money(point.cumulative_cost)}</td></tr>`).join("")}</tbody></table></details></section>`;
   }
+  const calendarPicker = createCalendarPicker({ state, document });
+  const ganttView = createGantt({
+    state,
+    model,
+    document,
+    save: () => save(),
+    render,
+  });
   function gantt() {
-    if (!model.schedule) return "";
-    const baseline = model.baselines.find(
-      (item) => item.id === model.baselineId,
-    );
-    const width = Math.max(700, (model.schedule.duration_days + 5) * 24);
-    return `<section class="gantt-scroll"><div class="gantt" style="width:${width + 280}px"><div class="gantt-heading"><span>Tareas · Arrastrá la barra para reprogramar; el extremo cambia la duración</span><span>Rojo: ruta crítica</span></div>${model.plan.tasks
-      .map((task) => {
-        const scheduled = model.schedule.tasks.find(
-            (row) => row.id === task.id,
-          ),
-          previous = baseline?.schedule.tasks.find((row) => row.id === task.id);
-        return `<div class="gantt-row"><button class="gantt-label" data-action="plan-edit" data-id="${e(task.id)}">${e(task.parent_id ? "↳ " : "")}${e(task.name)}<small>${e(scheduled.start)} → ${e(scheduled.finish)} · holgura ${scheduled.float_days} d</small></button><div class="gantt-track" style="width:${width}px">${previous ? `<span class="gantt-baseline" style="left:${previous.start_day * 24}px;width:${Math.max(8, (previous.finish_day - previous.start_day) * 24)}px"></span>` : ""}<button class="gantt-bar ${scheduled.critical ? "critical" : ""}" data-task-id="${e(task.id)}" data-action="plan-edit" data-id="${e(task.id)}" style="left:${scheduled.start_day * 24}px;width:${Math.max(10, task.duration_days * 24)}px" title="${e(task.name)} · ${task.duration_days} días"><span>${e(task.name)}</span><i data-resize="true" aria-label="Cambiar duración">↔</i></button></div></div>`;
-      })
-      .join("")}</div></section>`;
+    return ganttView.markup();
   }
 
   const positions = () => {
@@ -304,12 +303,17 @@ export function createPlanningWorkspace({
     return `<details class="planning-options"><summary>Cómo se calcula la duración · camino crítico</summary>${walk.simple ? `<p class="critical-walk"><strong>Un recorrido crítico:</strong> ${walk.tasks.map((t) => e(t.name) + " (" + t.duration_days + " d)").join(" → ")} = <strong>${model.schedule.duration_days} días laborables</strong>.</p>` : ""}<p>Las ramas en paralelo no se suman entre sí. El plazo incluye calendario, desfases y restricciones. Una tarea desconectada no retrasa a las demás salvo que termine después.</p><ul>${tasks.map((t) => `<li>${e(t.name)} · ${t.duration_days} días${t.predecessors.length ? " · depende de " + t.predecessors.map((d) => e(model.plan.tasks.find((p) => p.id === d.task_id)?.name || "") + " (" + e(d.kind) + (d.lag_days ? " " + d.lag_days + " d" : "") + ")").join(", ") : ""}</li>`).join("")}</ul><strong>Total del cronograma: ${model.schedule?.duration_days || 0} días laborables</strong></details>`;
   }
   function markup() {
+    if (model.plan)
+      calendarPicker.configure(
+        model.plan.calendar,
+        model.projectId + ":" + model.revision,
+      );
     return `<main class="feature-page"><div class="feature-toolbar"><h1>Planificación de obras</h1><span class="scope-label">${e(state.projects.find((p) => p.id === state.projectId)?.name)}</span>${model.projectId ? '<button class="btn primary" data-action="plan-new">Nueva tarea / hito</button><button class="btn" data-action="plan-baseline">Guardar línea base</button>' : ""}</div>${
       !model.projectId
         ? "<p>Seleccioná una obra para planificar.</p>"
         : `
-      <nav class="planning-tabs" aria-label="Vistas de planificación"><button class="btn ${model.tab === "gantt" ? "active" : ""}" role="tab" aria-selected="${model.tab === "gantt"}" data-action="plan-view" data-view="gantt">Gantt</button><button class="btn ${model.tab === "pert" ? "active" : ""}" role="tab" aria-selected="${model.tab === "pert"}" data-action="plan-view" data-view="pert">PERT</button></nav><details class="planning-options"><summary>Calendario y seguimiento</summary><form id="planning-settings" class="feature-toolbar">${field("Inicio del proyecto", "start_date", model.plan.calendar.start_date, 'type="date" required')}${field("Fecha de seguimiento", "as_of", model.asOf, 'type="date" required')}${field("Feriados (fechas separadas por comas)", "holidays", model.plan.calendar.holidays.join(", "))}<fieldset><legend>Días laborables</legend>${["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"].map((day, index) => `<label><input type="checkbox" name="workday" value="${index}" ${model.plan.calendar.nonworking_weekdays.includes(index) ? "" : "checked"}>${day}</label>`).join("")}</fieldset><button class="btn primary" type="submit">Guardar calendario</button><p class="feature-error" role="alert"></p></form></details>
-      <div class="planning-metrics"><span>Duración <b>${model.schedule?.duration_days || 0} días laborables</b></span><span>Fin previsto <b>${e(model.schedule?.finish)}</b></span><span>Planificado <b>${numeric(model.schedule?.planned_progress)} %</b></span><span>Real <b>${numeric(model.schedule?.actual_progress)} %</b></span><span>${model.dirty ? "Cambios sin guardar" : "Revisión " + model.revision}</span></div>
+      <nav class="planning-tabs" aria-label="Vistas de planificación"><button class="btn ${model.tab === "gantt" ? "active" : ""}" role="tab" aria-selected="${model.tab === "gantt"}" data-action="plan-view" data-view="gantt">Gantt</button><button class="btn ${model.tab === "pert" ? "active" : ""}" role="tab" aria-selected="${model.tab === "pert"}" data-action="plan-view" data-view="pert">PERT</button></nav><div class="planning-overview-row"><details class="planning-options planning-calendar" ${model.calendarOpen ? "open" : ""}><summary>Calendario y seguimiento</summary><form id="planning-settings" class="feature-toolbar">${field("Inicio del proyecto", "start_date", model.plan.calendar.start_date, 'type="date" required')}${field("Fecha de seguimiento", "as_of", model.asOf, 'type="date" required')}<fieldset><legend>Días laborables</legend>${["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"].map((day, index) => `<label><input type="checkbox" name="workday" value="${index}" ${model.plan.calendar.nonworking_weekdays.includes(index) ? "" : "checked"}>${day}</label>`).join("")}</fieldset><div data-calendar-picker>${calendarPicker.markup()}</div><button class="btn primary" type="submit">Guardar calendario</button><p class="feature-error" role="alert"></p></form></details>
+      <div class="planning-metrics"><span>Duración <b>${model.schedule?.duration_days || 0} días laborables</b></span><span>Fin previsto <b>${e(model.schedule?.finish)}</b></span><span>Planificado <b>${numeric(model.schedule?.planned_progress)} %</b></span><span>Real <b>${numeric(model.schedule?.actual_progress)} %</b></span><span>${model.dirty ? "Cambios sin guardar" : "Revisión " + model.revision}</span></div></div>
       ${model.schedule?.warnings.map((warning) => `<p class="feature-error">${e(warning)}</p>`).join("") || ""}<details class="planning-options"><summary>Líneas base e historial de revisiones</summary>${select("Comparar línea base", "planning-baseline", [["", "Sin superposición"], ...model.baselines.map((baseline) => [baseline.id, baseline.name + " · revisión " + baseline.revision])], model.baselineId)}<div class="feature-toolbar">${select("Historial de reprogramaciones", "planning-history", [["", "Seleccionar revisión"], ...model.history.map((saved) => [String(saved.revision), "Revisión " + saved.revision + " · " + saved.plan.tasks.length + " tareas"])], model.historyRevision)}<button class="btn" data-action="plan-recover">Recuperar como nueva revisión</button></div></details>${criticalExplanation()}${editor()}${splitEditor()}${model.tab === "pert" ? pert() : gantt()}<div class="feature-columns">${chart()}</div>`
     }</main>`;
   }
@@ -367,6 +371,15 @@ export function createPlanningWorkspace({
   }
   async function act(button) {
     const action = button.dataset.action;
+    if (action.startsWith("plan-calendar-")) {
+      model.calendarOpen = true;
+      calendarPicker.act(button);
+      return;
+    }
+    if (action.startsWith("plan-gantt-")) {
+      ganttView.act(action);
+      return;
+    }
     if (["plan-zoom-in", "plan-zoom-out", "plan-center"].includes(action)) {
       const viewport = document.querySelector("[data-pert-viewport]");
       if (!viewport) return;
@@ -494,6 +507,7 @@ export function createPlanningWorkspace({
       if (form) model.editing = readTask(form);
     }
     if (action === "open-planning") {
+      calendarPicker.reset();
       state.view = "planning";
       if (!state.projectId) throw new Error("Abrí una obra desde Inicio");
       if (model.projectId !== state.projectId)
@@ -629,6 +643,7 @@ export function createPlanningWorkspace({
     render();
   }
   async function change(target) {
+    if (calendarPicker.change(target)) return;
     if (target.name === "pert-query") {
       model.pertQuery = target.value;
       render();
@@ -666,15 +681,29 @@ export function createPlanningWorkspace({
       return;
     }
     if (form.id === "planning-settings") {
+      const previous = structuredClone(model.plan),
+        previousAsOf = model.asOf;
+      model.calendarOpen = Boolean(form.closest("details")?.open);
       model.plan.calendar.start_date = value("start_date");
-      model.plan.calendar.holidays = value("holidays")
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
+      const exceptions = calendarPicker.value();
+      model.plan.calendar.exceptions = exceptions;
+      model.plan.calendar.holidays = Object.entries(exceptions)
+        .filter(([, v]) => !v.working)
+        .map(([date]) => date)
+        .sort();
       model.plan.calendar.nonworking_weekdays = [0, 1, 2, 3, 4, 5, 6].filter(
         (day) => !data.getAll("workday").includes(String(day)),
       );
       model.asOf = value("as_of");
+      try {
+        await save();
+      } catch (error) {
+        model.plan = previous;
+        model.asOf = previousAsOf;
+        model.dirty = false;
+        throw error;
+      }
+      return;
     } else {
       const task = readTask(form);
       const previous = structuredClone(model.plan);
@@ -705,24 +734,8 @@ export function createPlanningWorkspace({
     }
     await save();
   }
-  function dateForDay(index) {
-    const date = new Date(model.plan.calendar.start_date + "T12:00:00Z");
-    let count = 0;
-    for (let checked = 0; checked < 365000; checked++) {
-      const iso = date.toISOString().slice(0, 10),
-        weekday = (date.getUTCDay() + 6) % 7;
-      if (
-        !model.plan.calendar.nonworking_weekdays.includes(weekday) &&
-        !model.plan.calendar.holidays.includes(iso)
-      ) {
-        if (count === index) return iso;
-        count++;
-      }
-      date.setUTCDate(date.getUTCDate() + 1);
-    }
-    throw new Error("Fecha fuera del calendario admitido");
-  }
   function pointerDown(event) {
+    if (ganttView.pointerDown(event)) return;
     if (event.button !== 0) return;
     const background = event.target.closest?.("[data-pert-viewport]");
     if (background && !event.target.closest?.("[data-pert-node]")) {
@@ -764,21 +777,9 @@ export function createPlanningWorkspace({
       };
       return;
     }
-    if (state.remoteProject) return;
-    const bar = event.target.closest?.(".gantt-bar");
-    if (!bar) return;
-    const task = model.plan.tasks.find(
-      (item) => item.id === bar.dataset.taskId,
-    );
-    drag = {
-      id: task.id,
-      x: event.clientX,
-      resize: Boolean(event.target.dataset.resize),
-      start: model.schedule.tasks.find((row) => row.id === task.id).start_day,
-      duration: task.duration_days,
-    };
   }
   function pointerMove(event) {
+    if (ganttView.pointerMove(event)) return;
     if (!drag) return;
     if (drag.type === "pan") {
       model.viewport = {
@@ -816,16 +817,9 @@ export function createPlanningWorkspace({
       if (layer) layer.innerHTML = pertEdges(drag.positions);
       return;
     }
-    const bar = document.querySelector(`[data-task-id="${drag.id}"]`);
-    if (bar) {
-      const delta = Math.round((event.clientX - drag.x) / 24);
-      if (drag.resize)
-        bar.style.width = Math.max(10, (drag.duration + delta) * 24) + "px";
-      else bar.style.left = Math.max(0, drag.start + delta) * 24 + "px";
-      bar.classList.add("drag-preview");
-    }
   }
   async function pointerUp(event) {
+    if (await ganttView.pointerUp(event)) return;
     if (!drag) return;
     if (drag.type === "pan") {
       drag = null;
@@ -866,24 +860,6 @@ export function createPlanningWorkspace({
         throw error;
       }
       return;
-    }
-    const item = drag;
-    drag = null;
-    const delta = Math.round((event.clientX - item.x) / 24);
-    if (!delta) return;
-    const previous = structuredClone(model.plan);
-    const task = model.plan.tasks.find((task) => task.id === item.id);
-    if (item.resize && model.plan.presentation?.[task.id])
-      model.plan.presentation[task.id].estimates = null;
-    if (item.resize)
-      task.duration_days = Math.max(0, Math.min(36500, item.duration + delta));
-    else task.not_before = dateForDay(Math.max(0, item.start + delta));
-    try {
-      await save();
-    } catch (error) {
-      model.plan = previous;
-      render();
-      throw error;
     }
   }
   function dragStart(event) {
@@ -940,8 +916,12 @@ export function createPlanningWorkspace({
     const label = document.querySelector("[data-pert-zoom]");
     if (label) label.textContent = Math.round(v.zoom * 100) + " %";
   }
-  const afterRender = () => syncViewport();
+  const afterRender = () => {
+    syncViewport();
+    ganttView.afterRender();
+  };
   const cancelPointer = () => {
+    ganttView.cancel();
     if (drag) {
       drag = null;
       render();
@@ -957,6 +937,7 @@ export function createPlanningWorkspace({
     change,
     submit,
     afterRender,
+    wheel: ganttView.wheel,
     pointerDown,
     cancelPointer,
     pointerMove,

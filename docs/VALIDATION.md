@@ -306,3 +306,23 @@ metadatos, mediciones y adjuntos registrados.
   tests de navegador; el mapa real requiere Internet en el equipo del usuario.
 - No se compiló un AppImage ni se creó una etiqueta de publicación.
 Las 13 pruebas nativas pasan con la configuración del mapa y el esquema 24.
+
+## Gantt calendario, excepciones laborables y dirección del mapa
+
+- Pruebas del núcleo: 25; almacenamiento: 78; JavaScript: 37.
+- La duración del Gantt usa fechas calendario reales; los cálculos conservan
+  días laborables. Se prueba el resize que atraviesa un sábado y el ajuste del
+  comienzo al siguiente laborable.
+- Los tests incluyen semanas ISO que cruzan de año, jornadas laborables sobre
+  fines de semana y feriados previos, y fechas explícitamente no laborables.
+- Se verifica selección múltiple entre meses, descripciones persistentes,
+  conservación del mes al guardar y la distribución de calendario/resumen.
+- Las direcciones se prueban con respuestas simuladas de Nominatim: caché por
+  punto, carga de calle/localidad/provincia y conservación de coordenadas ante
+  una falla del servicio. No se consultan direcciones durante el arrastre.
+- La migración al esquema 25 evita que programas anteriores ignoren las jornadas
+  laborables excepcionales. Revisiones y líneas base conservan sus descripciones.
+- No se generó AppImage ni etiqueta de publicación.
+La batería completa de navegador pasa con 59 casos y las 13 pruebas nativas
+pasan con la configuración de Nominatim y el esquema 25. La compilación del
+frontend y las comprobaciones de formato Rust son correctas.

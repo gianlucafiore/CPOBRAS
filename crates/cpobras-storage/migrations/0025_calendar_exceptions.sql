@@ -1,0 +1,2 @@
+-- Calendars now include per-date working/nonworking exceptions and descriptions.
+-- Prevent older applications from silently ignoring exceptional workdays.

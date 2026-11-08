@@ -413,9 +413,21 @@ export function createManagementWorkspace({
     if (form.id === "project-attachment-form") return dashboard.submit(form);
     const data = new FormData(form),
       value = (key) => String(data.get(key) || "").trim();
-    const attributes = Object.fromEntries(
-      (fields[model.kind] || []).map(([key]) => [key, value("attr-" + key)]),
-    );
+    const attributes = {
+      ...(model.editing.attributes || {}),
+      ...Object.fromEntries(
+        (fields[model.kind] || []).map(([key]) => [key, value("attr-" + key)]),
+      ),
+    };
+    if (
+      model.kind === "project_profile" &&
+      ["address", "locality", "province"].some(
+        (key) => attributes[key] !== model.editing.attributes?.[key],
+      )
+    ) {
+      delete attributes.address_lookup_status;
+      delete attributes.address_lookup_point;
+    }
     const record = {
       id: model.editing.id || window.crypto.randomUUID(),
       kind: model.kind,

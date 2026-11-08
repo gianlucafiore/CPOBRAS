@@ -223,6 +223,12 @@ const viewActions = new Set([
   "price-close-modal",
   "plan-edit",
   "plan-view",
+  "plan-gantt-prev",
+  "plan-gantt-next",
+  "plan-gantt-start",
+  "plan-gantt-today",
+  "plan-calendar-prev",
+  "plan-calendar-next",
     "plan-center",
     "plan-zoom-in",
     "plan-zoom-out",
@@ -297,6 +303,7 @@ export function protectRemoteControls(root, state) {
       field.matches("[data-search]") ||
       [
         "planning-baseline",
+        "calendar-month",
         "pert-query",
         "planning-history",
         "management-kind",
