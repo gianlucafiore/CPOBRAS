@@ -115,7 +115,7 @@ export function createModalRenderer({
         field(
           "Código",
           "code",
-          item.code || String(state.sections.length + 1).padStart(2, "0"),
+          item.code || "",
           "required",
         ) +
         field("Nombre del rubro", "title", item.title, "required") +

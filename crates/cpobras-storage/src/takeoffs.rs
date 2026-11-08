@@ -132,13 +132,27 @@ impl LocalStore {
         if quantity < Decimal::ZERO {
             return Err(StorageError::InvalidValue("negative net takeoff".into()));
         }
-        let mut line = self
-            .estimate_items(estimate_id)?
-            .into_iter()
-            .find(|entry| entry.id == line_id)
-            .ok_or_else(|| StorageError::InvalidValue("estimate line not found".into()))?;
-        line.quantity = quantity;
-        self.update_estimate_item(&line)?;
+        let tx = rusqlite::Transaction::new_unchecked(
+            &self.conn,
+            rusqlite::TransactionBehavior::Immediate,
+        )?;
+        let changed = tx.execute(
+            "UPDATE estimate_lines SET quantity=?1 WHERE id=?2 AND estimate_id=?3",
+            params![
+                quantity.to_string(),
+                line_id.to_string(),
+                estimate_id.to_string()
+            ],
+        )?;
+        if changed != 1 {
+            return Err(StorageError::InvalidValue("Partida inexistente".into()));
+        }
+        crate::estimates::checked_budget_total(&tx, estimate_id)?;
+        tx.execute(
+            "INSERT OR REPLACE INTO measured_lines(line_id,source) VALUES(?1,'takeoff')",
+            [line_id.to_string()],
+        )?;
+        tx.commit()?;
         Ok(quantity)
     }
 

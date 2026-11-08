@@ -91,6 +91,7 @@ impl LocalStore {
             include_str!("../migrations/0020_organizations.sql"),
             include_str!("../migrations/0021_persons.sql"),
             include_str!("../migrations/0022_reopen_estimates.sql"),
+            include_str!("../migrations/0023_project_dashboard.sql"),
         ];
         let latest: i64 = conn.query_row(
             "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
@@ -480,3 +481,5 @@ mod tests {
 
 #[cfg(test)]
 mod workflow_tests;
+
+pub mod project_dashboard;

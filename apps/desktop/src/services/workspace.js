@@ -51,7 +51,7 @@ export function createWorkspaceService({ invoke,globalInvoke=invoke, state, curr
       return;
     }
     const id = state.estimateId;
-    const [lines, sections, assignments, rates, totals] = await Promise.all([
+    const [lines, sections, assignments, rates, totals, measured] = await Promise.all([
       invoke("list_estimate_lines", { estimateId: id }),
       invoke("list_budget_sections", { estimateId: id }),
       invoke("list_line_sections", { estimateId: id }),
@@ -60,9 +60,11 @@ export function createWorkspaceService({ invoke,globalInvoke=invoke, state, curr
         pricing_error: String(error),
         total: null,
       })),
+      invoke("list_measured_lines",{estimateId:id}),
     ]);
     if (state.estimateId !== id) return;
     state.lines = lines;
+    state.measuredLineIds=measured;
     state.sections = sections;
     state.assignments = Object.fromEntries(
       assignments.map((item) => [item.line_id, item.section_id]),

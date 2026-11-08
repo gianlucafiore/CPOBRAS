@@ -96,6 +96,7 @@ fn selected_document(
     d.lines.retain(|l| selected_lines.contains(&l.id));
     d.assignments.retain(|(l, _)| selected_lines.contains(l));
     d.takeoffs.retain(|r| selected_lines.contains(&r.line_id));
+    d.measured_line_ids.retain(|id| selected_lines.contains(id));
     d.formulas.retain(|r| selected_lines.contains(&r.line_id));
     let analyses: BTreeSet<_> = d.lines.iter().filter_map(|l| l.analysis_id).collect();
     d.line_analyses.retain(|a| analyses.contains(&a.id));
@@ -328,6 +329,22 @@ impl LocalStore {
         for row in &d.takeoffs {
             row.measured_quantity()?;
             tx.execute("INSERT INTO takeoff_rows(id,estimate_id,line_id,note,factor,length,width,height,sign,position) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",params![Uuid::new_v4().to_string(),destination.to_string(),lines[&row.line_id].to_string(),row.note,row.factor.to_string(),row.length.to_string(),row.width.to_string(),row.height.to_string(),row.sign,row.position])?;
+        }
+        for source in &d.measured_line_ids {
+            let target = lines
+                .get(source)
+                .ok_or_else(|| invalid("Origen de metrado fuera de la selección"))?;
+            tx.execute(
+                "INSERT INTO measured_lines(line_id,source) VALUES(?1,?2)",
+                params![
+                    target.to_string(),
+                    if d.formulas.iter().any(|f| f.line_id == *source) {
+                        "formula"
+                    } else {
+                        "takeoff"
+                    }
+                ],
+            )?;
         }
         crate::estimate_resource_prices::synchronize(&tx, destination, &BTreeMap::new())?;
         crate::estimates::checked_budget_total(&tx, destination)?;

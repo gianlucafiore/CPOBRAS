@@ -96,6 +96,13 @@ commands.allow = [
   "estimate_total",
   "duplicate_estimate",
   "issue_estimate",
+  "list_measured_lines",
+  "get_estimate_metadata",
+  "list_project_attachments",
+  "add_project_attachment",
+  "remove_project_attachment",
+  "open_project_attachment",
+
   "reopen_estimate",
   "save_line_as_analysis",
   "list_resources",

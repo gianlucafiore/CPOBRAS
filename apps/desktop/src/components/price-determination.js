@@ -668,13 +668,16 @@ export function createPriceDetermination({
   }
   function dragOver(evt) {
     if (!m.drag) return false;
-    if (evt.target.closest?.("[data-price-row]")) evt.preventDefault();
+    document.querySelectorAll("[data-price-row].drop-before,[data-price-row].drop-after").forEach(r=>r.classList.remove("drop-before","drop-after"));
+    const target=evt.target.closest?.("[data-price-row]");
+    if(target){evt.preventDefault();const box=target.getBoundingClientRect();target.classList.add(evt.clientY>box.top+box.height/2?"drop-after":"drop-before");}
     return true;
   }
   async function drop(evt) {
     if (!m.drag) return false;
     evt.preventDefault();
     const id = m.drag;
+    document.querySelectorAll("[data-price-row].drop-before,[data-price-row].drop-after").forEach(r=>r.classList.remove("drop-before","drop-after"));
     m.drag = null;
     const target = evt.target.closest?.("[data-price-row]");
     if (target && id !== target.dataset.priceRow && editable()) {
@@ -709,7 +712,7 @@ export function createPriceDetermination({
     dragStart,
     dragOver,
     drop,
-    dragEnd: () => (m.drag = null),
+    dragEnd: () => {m.drag=null;document.querySelectorAll("[data-price-row].drop-before,[data-price-row].drop-after").forEach(r=>r.classList.remove("drop-before","drop-after"));},
     leave,
     afterRender,
     model: m,

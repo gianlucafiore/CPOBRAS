@@ -1,3 +1,8 @@
+import {
+  automaticPositions,
+  withDependency,
+  expectedPertDuration,
+} from "../services/pert.js";
 import { e, field, select, dateToday } from "./helpers.js";
 import { money, numeric } from "../decimal.js";
 
@@ -10,6 +15,9 @@ export function createPlanningWorkspace({
   FormData,
 }) {
   const model = {
+    tab: "gantt",
+    connectFrom: null,
+    pertQuery: "",
     revision: 0,
     history: [],
     historyRevision: "",
@@ -31,6 +39,7 @@ export function createPlanningWorkspace({
       nonworking_weekdays: [5, 6],
       holidays: [],
     },
+    presentation: {},
     tasks: [],
   });
   async function refresh() {
@@ -46,6 +55,7 @@ export function createPlanningWorkspace({
       invoke("list_plan_revisions", { projectId: model.projectId }),
     ]);
     model.plan = saved?.plan || empty();
+    model.plan.presentation ||= {};
     model.revision = saved?.revision || 0;
     model.baselines = baselines;
     model.history = history;
@@ -70,12 +80,16 @@ export function createPlanningWorkspace({
     model.plan = saved.plan;
     model.revision = saved.revision;
     model.dirty = false;
+    state.message = "";
     model.history = await invoke("list_plan_revisions", {
       projectId: model.projectId,
-    });
+    }).catch(() => model.history);
     model.schedule = await invoke("calculate_schedule", {
       plan: model.plan,
       asOf: model.asOf,
+    }).catch((error) => {
+      state.message = "Plan guardado. No se pudo actualizar la vista: " + error;
+      return null;
     });
     render();
   }
@@ -111,6 +125,106 @@ export function createPlanningWorkspace({
       })
       .join("")}</div></section>`;
   }
+
+  const positions = () => {
+    const defaults = automaticPositions(model.plan.tasks);
+    return Object.fromEntries(
+      model.plan.tasks.map((t) => [
+        t.id,
+        { ...defaults[t.id], ...model.plan.presentation?.[t.id] },
+      ]),
+    );
+  };
+  function pertEdges(pos) {
+    return model.plan.tasks
+      .flatMap((t) =>
+        t.predecessors.map((d) => {
+          if (!pos[d.task_id] || !pos[t.id]) return "";
+          const a = pos[d.task_id],
+            b = pos[t.id],
+            x = a.x + 230,
+            y = a.y + 48,
+            tx = b.x,
+            ty = b.y + 48,
+            curve = Math.max(55, Math.abs(tx - x) / 2);
+          const critical =
+            model.schedule?.tasks.find((v) => v.id === t.id)?.critical &&
+            model.schedule?.tasks.find((v) => v.id === d.task_id)?.critical;
+          return `<g class="pert-edge ${critical ? "critical" : ""}"><path d="M${x},${y} C${x + curve},${y} ${tx - curve},${ty} ${tx},${ty}" marker-end="url(#pert-arrow)"/><text x="${(x + tx) / 2}" y="${(y + ty) / 2 - 7}">${e(d.kind)}${d.lag_days ? " " + d.lag_days + " d" : ""}</text></g>`;
+        }),
+      )
+      .join("");
+  }
+  function pert() {
+    const pos = positions(),
+      width = Math.max(1100, ...Object.values(pos).map((p) => p.x + 300)),
+      height = Math.max(530, ...Object.values(pos).map((p) => p.y + 150));
+    const available = (model.lines || []).filter(
+      (l) =>
+        !model.plan.tasks.some((t) => t.estimate_line_id === l.id) &&
+        l.description.toLowerCase().includes(model.pertQuery.toLowerCase()),
+    );
+    return `<section class="pert-workspace"><aside class="pert-palette"><h2>Partidas del presupuesto</h2><p>Arrastrá una partida al lienzo o usá «Añadir». Cada partida se vincula a una sola tarea.</p>${field("Buscar partida para PERT", "pert-query", model.pertQuery, 'type="search"')}<div class="pert-source-list">${
+      available
+        .slice(0, 200)
+        .map(
+          (l) =>
+            `<div class="pert-source" draggable="${!state.remoteProject}" data-pert-line="${e(l.id)}"><span>${e(l.description)}</span><button class="btn tiny" data-action="plan-add-line" data-id="${e(l.id)}">Añadir</button></div>`,
+        )
+        .join("") || "<p>No hay partidas disponibles.</p>"
+    }</div><p>${available.length} partidas disponibles</p></aside><section><div class="feature-toolbar"><p id="pert-instructions" role="status">${model.connectFrom ? "Elegí la entrada de la tarea sucesora, o cancelá la conexión." : "Mové los nodos desde su cabecera. Arrastrá una salida hacia una entrada para conectar tareas (fin → inicio)."}</p><button class="btn" data-action="plan-connect-cancel">Cancelar conexión</button><button class="btn" data-action="plan-arrange">Organizar nodos</button></div><div class="pert-scroll"><div class="pert-canvas" data-pert-canvas style="width:${width}px;height:${height}px"><svg class="pert-connections" width="${width}" height="${height}" aria-label="Conexiones de precedencia"><defs><marker id="pert-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#547387"/></marker></defs><g class="pert-edge-layer">${pertEdges(pos)}</g><path class="pert-wire-preview" hidden fill="none" stroke="#fb8a27" stroke-width="3"/></svg>${model.plan.tasks
+      .map((t) => {
+        const p = pos[t.id],
+          scheduled = model.schedule?.tasks.find((v) => v.id === t.id);
+        return `<article class="pert-node ${scheduled?.critical ? "critical" : ""}" data-pert-node="${e(t.id)}" style="left:${p.x}px;top:${p.y}px"><header data-pert-handle="${e(t.id)}" tabindex="0" aria-label="Mover nodo ${e(t.name)}">⋮⋮ ${e(t.name)}</header><div><span>${t.duration_days} días ${p.estimates ? "· estimación PERT" : ""}</span><small>${e(scheduled?.start || "")} → ${e(scheduled?.finish || "")}</small><button class="btn tiny" data-action="plan-edit" data-id="${e(t.id)}">Ver / editar tarea</button></div><button class="pert-port in" data-action="plan-connect-to" data-id="${e(t.id)}" data-pert-in="${e(t.id)}" aria-label="Entrada de ${e(t.name)}" title="Entrada: conectar predecesora">●</button><button class="pert-port out" data-action="plan-connect-from" data-id="${e(t.id)}" data-pert-out="${e(t.id)}" aria-label="Salida de ${e(t.name)}" title="Salida: conectar sucesora">●</button></article>`;
+      })
+      .join("")}</div></div></section></section>`;
+  }
+  async function connect(from, to) {
+    const previous = structuredClone(model.plan);
+    model.connectFrom = null;
+    model.plan = withDependency(model.plan, from, to);
+    try {
+      await save();
+    } catch (error) {
+      model.plan = previous;
+      render();
+      throw error;
+    }
+  }
+  async function addLine(id, x = 35, y = 35) {
+    if (state.remoteProject) return;
+    const line = model.lines.find((l) => l.id === id);
+    if (!line || model.plan.tasks.some((t) => t.estimate_line_id === id))
+      throw new Error("La partida no está disponible o ya tiene una tarea.");
+    const previous = structuredClone(model.plan),
+      task = {
+        id: uuid(),
+        name: line.name || line.description,
+        parent_id: null,
+        estimate_line_id: id,
+        duration_days: 1,
+        predecessors: [],
+        assignments: [],
+        not_before: null,
+        finish_by: null,
+        budget: line.total || "0",
+        actual_progress: "0",
+      };
+    model.plan.tasks.push(task);
+    model.plan.presentation ||= {};
+    model.plan.presentation[task.id] = {
+      x: Math.max(10, x),
+      y: Math.max(10, y),
+    };
+    try {
+      await save();
+    } catch (error) {
+      model.plan = previous;
+      render();
+      throw error;
+    }
+  }
   function editor() {
     const task = model.editing;
     if (!task) return "";
@@ -119,7 +233,7 @@ export function createPlanningWorkspace({
       ...model.crews.map((crew) => [crew.id, crew.name]),
     ];
     return `<form id="planning-task-form" class="feature-editor"><h2>Editar tarea / hito</h2>${field("Nombre", "name", task.name, "required")}${select("Tarea superior", "parent_id", [["", "Sin superior"], ...options(task.id)], task.parent_id)}${select("Partida presupuestaria", "estimate_line_id", [["", "Sin partida vinculada"], ...(model.lines || []).map((line) => [line.id, line.description])], task.estimate_line_id)}${field("Duración en días laborables (0 = hito)", "duration_days", task.duration_days, 'type="number" min="0" max="36500" required')}${field("No iniciar antes de", "not_before", task.not_before || "", 'type="date"')}${field("Fecha límite de finalización", "finish_by", task.finish_by || "", 'type="date"')}${field("Costo previsto (se toma de la partida cuando hay vínculo)", "budget", task.budget, 'type="number" min="0" step="any" required')}${field("Avance real %", "actual_progress", task.actual_progress, 'type="number" min="0" max="100" step="any" required')}
-      <h3>Dependencias</h3>${task.predecessors
+      <fieldset class="pert-estimates"><legend>Estimación PERT (opcional)</legend><label><input type="checkbox" name="pert-estimated" ${task._pert || model.plan.presentation?.[task.id]?.estimates ? "checked" : ""}> Calcular duración con tres estimaciones</label><div class="form-grid">${["Optimista", "Probable", "Pesimista"].map((label, i) => field(label + " (días)", "pert-estimate-" + i, (task._pert || model.plan.presentation?.[task.id]?.estimates)?.[i] ?? task.duration_days, 'type="number" min="0" max="36500" step="1"')).join("")}</div><p>Duración = (optimista + 4 × probable + pesimista) / 6, redondeada hacia arriba a días laborables.</p></fieldset><h3>Dependencias</h3>${task.predecessors
         .map(
           (dep, index) =>
             `<div class="dependency-row">${select("Tarea", "predecessor-" + index, options(task.id), dep.task_id)}${select(
@@ -160,9 +274,9 @@ export function createPlanningWorkspace({
       !model.projectId
         ? "<p>Seleccioná una obra para planificar.</p>"
         : `
-      <form id="planning-settings" class="feature-toolbar">${field("Inicio del proyecto", "start_date", model.plan.calendar.start_date, 'type="date" required')}${field("Fecha de seguimiento", "as_of", model.asOf, 'type="date" required')}${field("Feriados (fechas separadas por comas)", "holidays", model.plan.calendar.holidays.join(", "))}<fieldset><legend>Días laborables</legend>${["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"].map((day, index) => `<label><input type="checkbox" name="workday" value="${index}" ${model.plan.calendar.nonworking_weekdays.includes(index) ? "" : "checked"}>${day}</label>`).join("")}</fieldset><button class="btn primary" type="submit">Guardar calendario</button><p class="feature-error" role="alert"></p></form>
+      <nav class="planning-tabs" aria-label="Vistas de planificación"><button class="btn ${model.tab === "gantt" ? "active" : ""}" role="tab" aria-selected="${model.tab === "gantt"}" data-action="plan-view" data-view="gantt">Gantt</button><button class="btn ${model.tab === "pert" ? "active" : ""}" role="tab" aria-selected="${model.tab === "pert"}" data-action="plan-view" data-view="pert">PERT</button></nav><details class="planning-options"><summary>Calendario y seguimiento</summary><form id="planning-settings" class="feature-toolbar">${field("Inicio del proyecto", "start_date", model.plan.calendar.start_date, 'type="date" required')}${field("Fecha de seguimiento", "as_of", model.asOf, 'type="date" required')}${field("Feriados (fechas separadas por comas)", "holidays", model.plan.calendar.holidays.join(", "))}<fieldset><legend>Días laborables</legend>${["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"].map((day, index) => `<label><input type="checkbox" name="workday" value="${index}" ${model.plan.calendar.nonworking_weekdays.includes(index) ? "" : "checked"}>${day}</label>`).join("")}</fieldset><button class="btn primary" type="submit">Guardar calendario</button><p class="feature-error" role="alert"></p></form></details>
       <div class="planning-metrics"><span>Duración <b>${model.schedule?.duration_days || 0} días laborables</b></span><span>Fin previsto <b>${e(model.schedule?.finish)}</b></span><span>Planificado <b>${numeric(model.schedule?.planned_progress)} %</b></span><span>Real <b>${numeric(model.schedule?.actual_progress)} %</b></span><span>${model.dirty ? "Cambios sin guardar" : "Revisión " + model.revision}</span></div>
-      ${model.schedule?.warnings.map((warning) => `<p class="feature-error">${e(warning)}</p>`).join("") || ""}${select("Comparar línea base", "planning-baseline", [["", "Sin superposición"], ...model.baselines.map((baseline) => [baseline.id, baseline.name + " · revisión " + baseline.revision])], model.baselineId)}<div class="feature-toolbar">${select("Historial de reprogramaciones", "planning-history", [["", "Seleccionar revisión"], ...model.history.map((saved) => [String(saved.revision), "Revisión " + saved.revision + " · " + saved.plan.tasks.length + " tareas"])], model.historyRevision)}<button class="btn" data-action="plan-recover">Recuperar como nueva revisión</button></div>${gantt()}<div class="feature-columns">${chart()}${editor()}</div>`
+      ${model.schedule?.warnings.map((warning) => `<p class="feature-error">${e(warning)}</p>`).join("") || ""}<details class="planning-options"><summary>Líneas base e historial de revisiones</summary>${select("Comparar línea base", "planning-baseline", [["", "Sin superposición"], ...model.baselines.map((baseline) => [baseline.id, baseline.name + " · revisión " + baseline.revision])], model.baselineId)}<div class="feature-toolbar">${select("Historial de reprogramaciones", "planning-history", [["", "Seleccionar revisión"], ...model.history.map((saved) => [String(saved.revision), "Revisión " + saved.revision + " · " + saved.plan.tasks.length + " tareas"])], model.historyRevision)}<button class="btn" data-action="plan-recover">Recuperar como nueva revisión</button></div></details>${editor()}${model.tab === "pert" ? pert() : gantt()}<div class="feature-columns">${chart()}</div>`
     }</main>`;
   }
   async function loadLines() {
@@ -174,6 +288,7 @@ export function createPlanningWorkspace({
         (await invoke("list_estimate_lines", { estimateId: estimate.id })).map(
           (line) => ({
             ...line,
+            name: line.description,
             description:
               line.description +
               " · " +
@@ -210,10 +325,81 @@ export function createPlanningWorkspace({
       units_per_day: value("units-" + index),
     }));
 
+    if (data.get("pert-estimated")) {
+      task._pert = [0, 1, 2].map((i) => Number(value("pert-estimate-" + i)));
+      task.duration_days = expectedPertDuration(...task._pert);
+    } else task._pert = null;
     return task;
   }
   async function act(button) {
     const action = button.dataset.action;
+    if (
+      state.pageDirty &&
+      [
+        "plan-add-line",
+        "plan-arrange",
+        "plan-connect-from",
+        "plan-connect-to",
+      ].includes(action)
+    ) {
+      if (
+        !window.confirm(
+          "¿Descartar los cambios de la tarea antes de modificar el diagrama?",
+        )
+      )
+        return;
+      model.editing = null;
+      state.pageDirty = false;
+    }
+    if (
+      state.remoteProject &&
+      ![
+        "open-planning",
+        "plan-view",
+        "plan-edit",
+        "plan-cancel",
+        "plan-connect-cancel",
+      ].includes(action)
+    )
+      throw new Error("La obra externa es de solo lectura.");
+    if (action === "plan-view") {
+      if (
+        state.pageDirty &&
+        !window.confirm(
+          "¿Descartar los cambios de la tarea antes de cambiar de vista?",
+        )
+      )
+        return;
+      model.tab = button.dataset.view;
+      model.editing = null;
+      state.pageDirty = false;
+      model.connectFrom = null;
+    }
+    if (action === "plan-add-line") {
+      await addLine(button.dataset.id, 35, 35 + model.plan.tasks.length * 145);
+      return;
+    }
+    if (action === "plan-arrange") {
+      const auto = automaticPositions(model.plan.tasks);
+      for (const t of model.plan.tasks) {
+        model.plan.presentation[t.id] = {
+          ...model.plan.presentation[t.id],
+          ...auto[t.id],
+        };
+      }
+      await save();
+      return;
+    }
+    if (action === "plan-connect-from") {
+      model.connectFrom = button.dataset.id;
+    }
+    if (action === "plan-connect-to") {
+      if (model.connectFrom) {
+        await connect(model.connectFrom, button.dataset.id);
+        return;
+      }
+    }
+    if (action === "plan-connect-cancel") model.connectFrom = null;
     if (
       (action.startsWith("plan-add-") || action.startsWith("plan-remove-")) &&
       model.editing
@@ -234,6 +420,7 @@ export function createPlanningWorkspace({
       model.lines = [];
       model.editing = null;
       await refresh();
+      await loadLines();
     }
     if (action === "plan-new") {
       await loadLines();
@@ -274,6 +461,7 @@ export function createPlanningWorkspace({
       )
         return;
       const previous = structuredClone(model.plan);
+      delete model.plan.presentation?.[model.editing.id];
       model.plan.tasks = model.plan.tasks.filter(
         (task) => task.id !== model.editing.id,
       );
@@ -343,6 +531,11 @@ export function createPlanningWorkspace({
     render();
   }
   async function change(target) {
+    if (target.name === "pert-query") {
+      model.pertQuery = target.value;
+      render();
+      return;
+    }
     if (target.name === "planning-history")
       model.historyRevision = target.value;
     if (target.name === "planning-baseline") {
@@ -366,6 +559,16 @@ export function createPlanningWorkspace({
     } else {
       const task = readTask(form);
       const previous = structuredClone(model.plan);
+      model.plan.presentation ||= {};
+      model.plan.presentation[task.id] = {
+        ...(positions()[task.id] || {
+          x: 35,
+          y:
+            Math.max(-110, ...Object.values(positions()).map((p) => p.y)) + 145,
+        }),
+        estimates: task._pert,
+      };
+      delete task._pert;
       const index = model.plan.tasks.findIndex((old) => old.id === task.id);
       if (index < 0) model.plan.tasks.push(task);
       else model.plan.tasks[index] = task;
@@ -401,7 +604,36 @@ export function createPlanningWorkspace({
     throw new Error("Fecha fuera del calendario admitido");
   }
   function pointerDown(event) {
-    if(state.remoteProject)return;
+    if (state.remoteProject || event.button !== 0 || state.pageDirty) return;
+    const out = event.target.closest?.("[data-pert-out]");
+    if (out) {
+      const canvas = out.closest("[data-pert-canvas]");
+      drag = {
+        type: "wire",
+        id: out.dataset.pertOut,
+        x: event.clientX,
+        y: event.clientY,
+        canvas,
+      };
+      return;
+    }
+    const handle = event.target.closest?.("[data-pert-handle]");
+    if (handle) {
+      event.preventDefault();
+      const id = handle.dataset.pertHandle,
+        p = positions()[id];
+      drag = {
+        type: "node",
+        id,
+        x: event.clientX,
+        y: event.clientY,
+        start: p,
+        positions: positions(),
+        node: handle.closest("[data-pert-node]"),
+      };
+      return;
+    }
+    if (state.remoteProject) return;
     const bar = event.target.closest?.(".gantt-bar");
     if (!bar) return;
     const task = model.plan.tasks.find(
@@ -415,17 +647,168 @@ export function createPlanningWorkspace({
       duration: task.duration_days,
     };
   }
+  function pointerMove(event) {
+    if (!drag) return;
+    if (drag.type === "wire") {
+      const rect = drag.canvas.getBoundingClientRect(),
+        p = positions()[drag.id],
+        path = drag.canvas.querySelector(".pert-wire-preview");
+      if (path) {
+        path.hidden = false;
+        path.removeAttribute("hidden");
+        path.setAttribute(
+          "d",
+          `M${p.x + 230},${p.y + 48} L${event.clientX - rect.left},${event.clientY - rect.top}`,
+        );
+      }
+      return;
+    }
+    if (drag.type === "node") {
+      const x = Math.max(
+          10,
+          Math.min(100000, drag.start.x + event.clientX - drag.x),
+        ),
+        y = Math.max(
+          10,
+          Math.min(100000, drag.start.y + event.clientY - drag.y),
+        );
+      drag.position = { x, y };
+      drag.node.style.left = x + "px";
+      drag.node.style.top = y + "px";
+      drag.positions[drag.id] = { ...drag.start, x, y };
+      const layer = document.querySelector(".pert-edge-layer");
+      if (layer) layer.innerHTML = pertEdges(drag.positions);
+      return;
+    }
+    const bar = document.querySelector(`[data-task-id="${drag.id}"]`);
+    if (bar) {
+      const delta = Math.round((event.clientX - drag.x) / 24);
+      if (drag.resize)
+        bar.style.width = Math.max(10, (drag.duration + delta) * 24) + "px";
+      else bar.style.left = Math.max(0, drag.start + delta) * 24 + "px";
+      bar.classList.add("drag-preview");
+    }
+  }
   async function pointerUp(event) {
     if (!drag) return;
+    if (drag.type === "wire") {
+      const item = drag;
+      drag = null;
+      const target = event.target.closest?.("[data-pert-in]");
+      const preview = document.querySelector(".pert-wire-preview");
+      if (preview) preview.setAttribute("hidden", "");
+      if (
+        target &&
+        Math.hypot(event.clientX - item.x, event.clientY - item.y) > 3
+      ) {
+        await connect(item.id, target.dataset.pertIn);
+      }
+      return;
+    }
+    if (drag.type === "node") {
+      const item = drag;
+      drag = null;
+      if (
+        !item.position ||
+        Math.hypot(event.clientX - item.x, event.clientY - item.y) < 3
+      ) {
+        render();
+        return;
+      }
+      const previous = structuredClone(model.plan);
+      model.plan.presentation ||= {};
+      model.plan.presentation[item.id] = { ...item.start, ...item.position };
+      try {
+        await save();
+      } catch (error) {
+        model.plan = previous;
+        render();
+        throw error;
+      }
+      return;
+    }
     const item = drag;
     drag = null;
     const delta = Math.round((event.clientX - item.x) / 24);
     if (!delta) return;
+    const previous = structuredClone(model.plan);
     const task = model.plan.tasks.find((task) => task.id === item.id);
+    if (item.resize && model.plan.presentation?.[task.id])
+      model.plan.presentation[task.id].estimates = null;
     if (item.resize)
       task.duration_days = Math.max(0, Math.min(36500, item.duration + delta));
     else task.not_before = dateForDay(Math.max(0, item.start + delta));
-    await save();
+    try {
+      await save();
+    } catch (error) {
+      model.plan = previous;
+      render();
+      throw error;
+    }
   }
-  return { markup, act, change, submit, pointerDown, pointerUp, model };
+  function dragStart(event) {
+    const source = event.target.closest?.("[data-pert-line]");
+    if (!source) return false;
+    if (state.remoteProject) {
+      event.preventDefault();
+      return true;
+    }
+    event.dataTransfer.setData(
+      "application/x-cpobras-pert-line",
+      source.dataset.pertLine,
+    );
+    event.dataTransfer.effectAllowed = "copy";
+    return true;
+  }
+  function dragOver(event) {
+    if (!event.dataTransfer?.types.includes("application/x-cpobras-pert-line"))
+      return false;
+    const canvas = event.target.closest?.("[data-pert-canvas]");
+    if (canvas && !state.remoteProject) {
+      event.preventDefault();
+      canvas.classList.add("drop-section");
+    }
+    return true;
+  }
+  async function drop(event) {
+    if (!event.dataTransfer?.types.includes("application/x-cpobras-pert-line"))
+      return false;
+    event.preventDefault();
+    const canvas = event.target.closest?.("[data-pert-canvas]");
+    if (canvas && !state.remoteProject) {
+      canvas.classList.remove("drop-section");
+      const rect = canvas.getBoundingClientRect();
+      await addLine(
+        event.dataTransfer.getData("application/x-cpobras-pert-line"),
+        event.clientX - rect.left,
+        event.clientY - rect.top,
+      );
+    }
+    return true;
+  }
+  const cancelPointer = () => {
+    if (drag) {
+      drag = null;
+      render();
+    }
+  };
+  const dragEnd = () =>
+    document
+      .querySelectorAll("[data-pert-canvas].drop-section")
+      .forEach((c) => c.classList.remove("drop-section"));
+  return {
+    markup,
+    act,
+    change,
+    submit,
+    pointerDown,
+    cancelPointer,
+    pointerMove,
+    pointerUp,
+    dragStart,
+    dragOver,
+    drop,
+    dragEnd,
+    model,
+  };
 }

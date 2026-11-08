@@ -54,10 +54,15 @@ pub(crate) fn list_nested_analyses(
 #[tauri::command]
 pub(crate) fn save_nested_analysis(
     db: tauri::State<'_, Db>,
-    analysis: NestedAnalysis,
+    mut analysis: NestedAnalysis,
 ) -> Result<(), String> {
-    db.lock()
-        .map_err(|e| e.to_string())?
+    let mut store = db.lock().map_err(|e| e.to_string())?;
+    if analysis.code.trim().is_empty() {
+        analysis.code = store
+            .automatic_code("analysis")
+            .map_err(|e| e.to_string())?;
+    }
+    store
         .save_nested_analysis(&analysis)
         .map_err(|e| e.to_string())
 }

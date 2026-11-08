@@ -53,7 +53,7 @@ async function bridge(page, options={}) {
    if (command === "list_clients") return persons.filter(p=>p.role!=="supplier").map(p=>({id:p.id,name:p.name,cuit:p.cuit}));
    if (command === "list_projects") return projectList;
    if (command === "list_resources") return resources;
-   if(command==='create_resource'){const r={id:'resource-'+(resources.length+1),...args};resources.push(r);return r;}
+   if(command==='create_resource'){const r={id:'resource-'+(resources.length+1),...args,code:args.code||'INS-'+String(resources.length+1).padStart(4,'0')};resources.push(r);return r;}
    if(command==='list_operations')return operations;
    if(command==='list_warehouses')return warehouses;
    if(command==='create_warehouse'){warehouses.push(args.warehouse);return args.warehouse;}
@@ -98,6 +98,10 @@ async function bridge(page, options={}) {
    if(command==='reopen_estimate'){estimate.issued=false;return null;}
    if(command==='issue_estimate'){estimate.issued=true;return null;}
    if(command==='save_line_as_analysis')return null;
+   if(command==='list_measured_lines')return fixture.measured?[line.id]:[];
+   if(command==='get_estimate_metadata')return {created_at:'2026-11-01 10:00:00',issued_at:null};
+   if(command==='list_project_attachments')return [];
+   if(command==='add_project_attachment'||command==='open_project_attachment'||command==='remove_project_attachment')return null;
    if (command === "list_budget_sections") return sections;
    if (command === "list_line_sections") return assignments;
    if (command === "get_analysis_details") return lineDetails[args.analysisId];
@@ -173,10 +177,10 @@ test("planner saves a task, progress and resource assignment and renders Gantt",
 test("nested ACU preserves fields when components are added and calculates a scenario", async ({ page }) => {
  await bridge(page); await page.getByRole("button", { name: "Costos y precios", exact: true }).click();
  await page.getByRole("button", { name: "Nuevo ACU compuesto", exact: true }).click();
- await page.getByLabel("Código", { exact: true }).fill("ACU-C");
+ await expect(page.getByLabel("Código", { exact: true })).toHaveAttribute("readonly","");
  await page.getByLabel("Descripción", { exact: true }).fill("Estructura compuesta");
  await page.getByRole("button", { name: "Agregar componente", exact: true }).click();
- await expect(page.getByLabel("Código", { exact: true })).toHaveValue("ACU-C");
+ await expect(page.getByLabel("Código", { exact: true })).toHaveValue("");
  await page.getByLabel("Consumo o fórmula").fill("largo * ancho");
  await page.getByLabel("Variables (por ejemplo largo=3; ancho=2)").fill("largo=3; ancho=2");
  await page.getByRole("button", { name: "Guardar análisis", exact: true }).click();
@@ -266,10 +270,10 @@ test('fuzzy resource search creates a resource in a child popup and preserves co
  await page.getByRole('button',{name:'＋ Agregar insumo',exact:true}).click();
  const search=page.getByRole('combobox',{name:'Buscar insumo 1'});await search.fill('acreo');await expect(page.getByRole('option',{name:'MAT-1 · Acero (kg)'})).toBeVisible();
  await search.fill('Cemento especial');await page.getByRole('option',{name:'＋ Agregar «Cemento especial»'}).click();
- const child=page.getByRole('dialog',{name:'Crear insumo sin salir'});await child.getByLabel('Código',{exact:true}).fill('MAT-2');await child.getByLabel('Precio inicial ARS',{exact:true}).fill('250');
+ const child=page.getByRole('dialog',{name:'Crear insumo sin salir'});await expect(child.getByLabel('Código',{exact:true})).toHaveAttribute('readonly','');await child.getByLabel('Precio inicial ARS',{exact:true}).fill('250');
  await page.locator('.quick-resource-overlay').click({position:{x:2,y:2}});await expect(child).toBeVisible();
  page.once('dialog',d=>d.dismiss());await page.keyboard.press('Escape');await expect(child).toBeVisible();
- await child.getByRole('button',{name:'Guardar y seleccionar',exact:true}).click();await expect(child).toHaveCount(0);await expect(search).toHaveValue('MAT-2 · Cemento especial');
+ await child.getByRole('button',{name:'Guardar y seleccionar',exact:true}).click();await expect(child).toHaveCount(0);await expect(search).toHaveValue('INS-0002 · Cemento especial');
  await expect(page.locator('.component-row')).toHaveCount(1);await page.getByRole('button',{name:'Guardar',exact:true}).click();const saved=await page.evaluate(()=>window.__calls.filter(c=>c.command==='save_line_resources').at(-1).args);expect(saved.components[1].resourceId).toBe('resource-2');expect(saved.components[1].unitPrice).toBe('250');expect(saved.components[0].quantity).toBe('3');
 });
 
@@ -580,8 +584,51 @@ test('unit composition can be saved as an ACU pattern from the budget',async({pa
  await expect(page.locator('.project-context label + [data-action=modal-estimate]')).toHaveCount(1);
  await page.getByRole('tab',{name:'Insumos',exact:true}).click();await page.getByRole('button',{name:'Asignar',exact:true}).click();await page.getByRole('button',{name:'Guardar',exact:true}).click();await page.getByRole('tab',{name:'ACU',exact:true}).click();
  await page.getByRole('button',{name:'Guardar como patrón de ACU',exact:true}).click();
- await page.getByLabel('Código del patrón',{exact:true}).fill('ACU-001');await page.getByLabel('Descripción',{exact:true}).fill('Hormigón reutilizable');
+ await expect(page.getByLabel('Código del patrón',{exact:true})).toHaveAttribute('readonly','');await page.getByLabel('Descripción',{exact:true}).fill('Hormigón reutilizable');
  await page.getByRole('button',{name:'Guardar',exact:true}).click();
- const call=await page.evaluate(()=>window.__calls.find(c=>c.command==='save_line_as_analysis'));expect(call.args).toMatchObject({estimateId:'estimate-1',code:'ACU-001',description:'Hormigón reutilizable'});
+ const call=await page.evaluate(()=>window.__calls.find(c=>c.command==='save_line_as_analysis'));expect(call.args).toMatchObject({estimateId:'estimate-1',code:'',description:'Hormigón reutilizable'});
  await expect(page.locator('.line-row')).toContainText('Hormigón');
+});
+
+test('PERT creates budget tasks, connects precedences, preserves node movement and shares durations with Gantt',async({page})=>{
+ await bridge(page);await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.getByRole('button',{name:'Planificación',exact:true}).click();
+ await page.getByRole('tab',{name:'PERT',exact:true}).click();
+ await page.getByRole('button',{name:'Añadir',exact:true}).first().click();await expect(page.locator('.pert-node')).toHaveCount(1);
+ await page.getByRole('button',{name:'Ver / editar tarea',exact:true}).click();await page.getByLabel('Nombre',{exact:true}).fill('Excavación');await page.getByLabel('Calcular duración con tres estimaciones').check();
+ await page.getByLabel('Optimista (días)',{exact:true}).fill('1');await page.getByLabel('Probable (días)',{exact:true}).fill('2');await page.getByLabel('Pesimista (días)',{exact:true}).fill('6');await page.getByRole('button',{name:'Guardar tarea y recalcular',exact:true}).click();
+ await expect(page.locator('.pert-node')).toContainText('3 días');
+ await page.getByRole('button',{name:'Nueva tarea / hito',exact:true}).click();await page.getByLabel('Nombre',{exact:true}).fill('Fundación');await page.getByRole('button',{name:'Guardar tarea y recalcular',exact:true}).click();
+ await page.locator('.pert-node').last().scrollIntoViewIfNeeded();
+ const out=await page.getByRole('button',{name:'Salida de Excavación',exact:true}).boundingBox(),input=await page.getByRole('button',{name:'Entrada de Fundación',exact:true}).boundingBox();await page.mouse.move(out.x+out.width/2,out.y+out.height/2);await page.mouse.down();await page.mouse.move(input.x+input.width/2,input.y+input.height/2,{steps:10});await page.mouse.up();
+ await expect(page.locator('.pert-edge path')).toHaveCount(1);
+ const before=await page.evaluate(()=>window.__calls.filter(c=>c.command==='save_project_plan').at(-1).args.plan);expect(before.tasks[1].predecessors[0].task_id).toBe(before.tasks[0].id);
+ await page.getByRole('button',{name:'Salida de Fundación',exact:true}).click();await page.getByRole('button',{name:'Entrada de Excavación',exact:true}).click();await expect(page.locator('.toast')).toContainText('ciclo');await expect(page.locator('.pert-edge path')).toHaveCount(1);
+ const handle=page.locator('[data-pert-handle]').first(),box=await handle.boundingBox();await page.mouse.move(box.x+40,box.y+10);await page.mouse.down();await page.mouse.move(box.x+130,box.y+80,{steps:7});await page.mouse.up();
+ await expect.poll(()=>page.evaluate(()=>{const p=window.__calls.filter(c=>c.command==='save_project_plan').at(-1).args.plan;return Object.values(p.presentation)[0].x;})).toBeGreaterThan(35);
+ const after=await page.evaluate(()=>window.__calls.filter(c=>c.command==='save_project_plan').at(-1).args.plan);expect(after.tasks[0].duration_days).toBe(3);expect(after.presentation[after.tasks[0].id].estimates).toEqual([1,2,6]);
+ await page.screenshot({path:'/workspace/cpobras-pert.png',fullPage:true});await page.getByRole('tab',{name:'Gantt',exact:true}).click();await expect(page.locator('.gantt-bar')).toHaveCount(2);await expect(page.locator('.gantt-bar').first()).toHaveAttribute('title',/3 días/);
+});
+
+test('project dashboard edits physical data, expands its map and lists active budgets first',async({page})=>{
+ await bridge(page,{context:true});await page.route('https://www.openstreetmap.org/**',route=>route.fulfill({contentType:'text/html',body:'<p>Mapa de prueba</p>'}));
+ await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.getByRole('button',{name:'Datos de obra',exact:true}).click();
+ await expect(page.getByRole('region',{name:'Tablero general de la obra'})).toBeVisible();
+ await expect(page.locator('.dashboard-budget').first()).toContainText('Activo');
+ await page.getByRole('button',{name:'Editar datos de obra',exact:true}).first().click();await page.getByLabel('Nombre',{exact:true}).fill('Vivienda familiar');await page.getByLabel('Tipo de edificio',{exact:true}).fill('Vivienda');await page.getByLabel('Superficie estimada (m²)',{exact:true}).fill('120');await page.getByLabel('Memoria descriptiva',{exact:true}).fill('Construcción de una vivienda de dos plantas.');await page.getByLabel('Latitud',{exact:true}).fill('-34.60');await page.getByLabel('Longitud',{exact:true}).fill('-58.38');await page.getByRole('button',{name:'Guardar ficha',exact:true}).click();
+ await expect(page.locator('.project-dashboard')).toContainText('120 m²');await expect(page.locator('.project-dashboard')).toContainText('dos plantas');
+ await page.getByRole('button',{name:'Ampliar mapa',exact:true}).click();await expect(page.getByRole('dialog',{name:'Mapa de ubicación de la obra'})).toBeVisible();await page.locator('.modal-overlay').click({position:{x:2,y:2}});await expect(page.getByRole('dialog',{name:'Mapa de ubicación de la obra'})).toBeVisible();await page.getByRole('button',{name:'Cerrar mapa',exact:true}).click();
+ await page.screenshot({path:'/workspace/cpobras-project-dashboard.png',fullPage:true});
+});
+
+test('measured quantities have a badge while manually entered quantities do not',async({page})=>{
+ await bridge(page,{measured:true});await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await expect(page.locator('.line-row .metrado-tag')).toHaveText('Metrado');
+ const tabs=await page.locator('.menu-bar [data-action]').evaluateAll(nodes=>nodes.map(n=>n.dataset.action));expect(tabs.indexOf('open-planning')).toBeLessThan(tabs.indexOf('open-operations'));
+});
+
+test('reordering previews its insertion position and cancelling a file picker preserves the description',async({page})=>{
+ await bridge(page);await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.getByRole('button',{name:'Determinación de precio',exact:true}).click();
+ await page.evaluate(()=>{const handle=document.querySelector('[data-price-drag]'),target=document.querySelectorAll('[data-price-row]')[1],transfer=new DataTransfer(),rect=target.getBoundingClientRect();window.__dragTransfer=transfer;handle.dispatchEvent(new DragEvent('dragstart',{bubbles:true,dataTransfer:transfer}));target.dispatchEvent(new DragEvent('dragover',{bubbles:true,dataTransfer:transfer,clientY:rect.top+2}));});
+ await expect(page.locator('[data-price-row].drop-before')).toHaveCount(1);expect(await page.locator('[data-price-row].drop-before').evaluate(el=>getComputedStyle(el).animationName)).toBe('drop-target');
+ await page.evaluate(()=>document.dispatchEvent(new DragEvent('dragend',{bubbles:true,dataTransfer:window.__dragTransfer})));await expect(page.locator('[data-price-row].drop-before')).toHaveCount(0);
+ await page.getByRole('button',{name:'Datos de obra',exact:true}).click();await page.getByLabel('Descripción del archivo',{exact:true}).fill('Plano para adjuntar');await page.getByRole('button',{name:'Agregar archivo…',exact:true}).click();await expect(page.getByLabel('Descripción del archivo',{exact:true})).toHaveValue('Plano para adjuntar');
 });

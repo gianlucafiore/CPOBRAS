@@ -61,6 +61,14 @@ pub(crate) fn save_budget_section(
     title: String,
     position: i64,
 ) -> Result<BudgetSectionView, String> {
+    let mut store = db.lock().map_err(|e| e.to_string())?;
+    let code = if code.trim().is_empty() {
+        store
+            .automatic_code(&format!("section:{estimate_id}"))
+            .map_err(|e| e.to_string())?
+    } else {
+        code
+    };
     let section = BudgetSection {
         id: match id {
             Some(id) => Uuid::parse_str(&id).map_err(|e| e.to_string())?,
@@ -75,8 +83,7 @@ pub(crate) fn save_budget_section(
         title,
         position,
     };
-    db.lock()
-        .map_err(|e| e.to_string())?
+    store
         .save_budget_section(&section)
         .map_err(|e| e.to_string())?;
     Ok(BudgetSectionView::from(section))

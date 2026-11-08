@@ -45,7 +45,16 @@ pub struct Task {
     pub actual_progress: Decimal,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PertPresentation {
+    pub x: f64,
+    pub y: f64,
+    #[serde(default)]
+    pub estimates: Option<[u32; 3]>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Plan {
+    #[serde(default)]
+    pub presentation: BTreeMap<Uuid, PertPresentation>,
     pub calendar: Calendar,
     pub tasks: Vec<Task>,
 }
@@ -127,6 +136,34 @@ fn offset(kind: DependencyKind, predecessor_duration: i32, duration: i32, lag: i
 
 impl Plan {
     pub fn schedule(&self, as_of: &str) -> Result<Schedule, String> {
+        for (id, node) in &self.presentation {
+            if !node.x.is_finite()
+                || !node.y.is_finite()
+                || node.x < 0.0
+                || node.y < 0.0
+                || node.x > 100000.0
+                || node.y > 100000.0
+                || !self.tasks.iter().any(|t| t.id == *id)
+            {
+                return Err("Posición PERT inválida".into());
+            }
+            if let Some([o, m, p]) = node.estimates {
+                if o > m || m > p || p > 36500 {
+                    return Err("PERT requiere optimista ≤ probable ≤ pesimista".into());
+                }
+                let expected = (o + 4 * m + p).div_ceil(6);
+                if self
+                    .tasks
+                    .iter()
+                    .find(|t| t.id == *id)
+                    .unwrap()
+                    .duration_days
+                    != expected
+                {
+                    return Err("La duración no coincide con la estimación PERT".into());
+                }
+            }
+        }
         let today = date(as_of)?;
         if self.tasks.len() > 10_000 {
             return Err("Máximo 10.000 tareas por cronograma".into());
@@ -371,6 +408,7 @@ mod tests {
     }
     fn plan(tasks: Vec<Task>) -> Plan {
         Plan {
+            presentation: BTreeMap::new(),
             calendar: Calendar {
                 start_date: "2026-11-06".into(),
                 nonworking_weekdays: vec![5, 6],
@@ -378,6 +416,41 @@ mod tests {
             },
             tasks,
         }
+    }
+    #[test]
+    fn pert_positions_do_not_change_schedule_and_estimates_are_validated() {
+        let mut a = task("PERT", 3);
+        a.duration_days = 3;
+        let id = a.id;
+        let mut p = plan(vec![a]);
+        let snapshot = |p: &Plan| {
+            let s = p.schedule("2026-11-06").unwrap();
+            (
+                s.duration_days,
+                s.finish,
+                s.tasks
+                    .into_iter()
+                    .map(|t| (t.id, t.start, t.finish, t.float_days, t.critical))
+                    .collect::<Vec<_>>(),
+            )
+        };
+        let before = snapshot(&p);
+        p.presentation.insert(
+            id,
+            PertPresentation {
+                x: 30.0,
+                y: 80.0,
+                estimates: Some([1, 2, 6]),
+            },
+        );
+        assert_eq!(snapshot(&p), before);
+        p.presentation.get_mut(&id).unwrap().x = 900.0;
+        assert_eq!(snapshot(&p), before);
+        p.presentation.get_mut(&id).unwrap().estimates = Some([4, 2, 6]);
+        assert!(p.schedule("2026-11-06").is_err());
+        p.presentation.get_mut(&id).unwrap().estimates = None;
+        p.presentation.get_mut(&id).unwrap().x = f64::NAN;
+        assert!(p.schedule("2026-11-06").is_err());
     }
     #[test]
     fn cpm_skips_weekends_holidays_and_computes_float() {

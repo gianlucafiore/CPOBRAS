@@ -1,3 +1,4 @@
+import { createProjectDashboard } from "./project-dashboard.js";
 import { e, field, select } from "./helpers.js";
 
 export const directoryKinds = {
@@ -46,6 +47,10 @@ const fields = {
   subcontractor: [["cuit", "CUIT"], ...commonContact],
   contact: [["position", "Cargo"], ...commonContact],
   project_profile: [
+    ["building_type", "Tipo de edificio"],
+    ["estimated_area", "Superficie estimada (m²)"],
+    ["estimated_dimensions", "Dimensiones estimadas"],
+    ["description", "Memoria descriptiva", "textarea"],
     ["address", "Ubicación"],
     ["province", "Provincia"],
     ["locality", "Localidad"],
@@ -135,6 +140,7 @@ export function createManagementWorkspace({
     "cost_center",
     "document",
     "crew",
+    "subcontractor",
   ];
   const scoped = () => Boolean(state.projectId);
   const organization = () =>
@@ -156,12 +162,35 @@ export function createManagementWorkspace({
           (!r.project_id && (!r.company_id || r.company_id === company())),
     );
   const model = {
+    mode: "dashboard",
     kind: "company",
     records: [],
     catalogs: {},
     editing: null,
     events: [],
   };
+  const dashboard = createProjectDashboard({
+    invoke,
+    state,
+    render,
+    document,
+    window,
+    FormData,
+    editProfile: () => {
+      model.kind = "project_profile";
+      model.records = visibleRecords();
+      model.mode = "directories";
+      model.editing = structuredClone(
+        model.records[0] || {
+          name:
+            state.projects.find((p) => p.id === state.projectId)?.name || "",
+          attributes: {},
+          revision: 0,
+          project_id: state.projectId,
+        },
+      );
+    },
+  });
   async function refresh() {
     const kinds = Object.keys(directoryKinds);
     const values = await Promise.all(
@@ -175,6 +204,7 @@ export function createManagementWorkspace({
     model.records = visibleRecords();
     state.units = model.catalogs.unit;
     state.trades = model.catalogs.trade;
+    if (scoped()) await dashboard.refresh();
   }
   const belongs = (r) =>
     !organization() ||
@@ -189,7 +219,16 @@ export function createManagementWorkspace({
   ];
   function markup() {
     const item = model.editing;
-    return `<main class="feature-page"><div class="feature-toolbar"><h1>${scoped() ? "Datos de la obra" : organization() ? "Directorios de " + e(organization().name) : "Directorios"}</h1>${select(
+    if (scoped() && model.mode === "dashboard")
+      return `<main class="feature-page"><div class="feature-toolbar"><h1>Datos de la obra</h1><button class="btn" data-action="manage-directories">Directorios y fichas</button><button class="btn primary" data-action="manage-dashboard-profile">${state.remoteProject ? "Consultar ficha" : "Editar datos de obra"}</button>${select(
+        "Directorio",
+        "management-kind",
+        Object.entries(directoryKinds).filter(([k]) =>
+          projectKinds.includes(k),
+        ),
+        model.kind,
+      )}<button class="btn" data-action="manage-new">Nuevo registro</button></div>${dashboard.markup(model.catalogs)}</main>`;
+    return `<main class="feature-page"><div class="feature-toolbar">${scoped() ? '<button class="btn" data-action="manage-dashboard">← Tablero de obra</button>' : ""}<h1>${scoped() ? "Datos de la obra" : organization() ? "Directorios de " + e(organization().name) : "Directorios"}</h1>${select(
       "Directorio",
       "management-kind",
       Object.entries(directoryKinds).filter(([kind]) =>
@@ -225,7 +264,7 @@ export function createManagementWorkspace({
           ],
           item.parent_id,
         )}
-        ${(fields[model.kind] || []).map(([key, label, type]) => (Array.isArray(type) ? select(label, "attr-" + key, type, item.attributes[key]) : ["user", "establishment", "category"].includes(type) ? select(label, "attr-" + key, options(type), item.attributes[key]) : field(label, "attr-" + key, item.attributes[key] || "", type === "date" ? 'type="date"' : ""))).join("")}
+        ${(fields[model.kind] || []).map(([key, label, type]) => (Array.isArray(type) ? select(label, "attr-" + key, type, item.attributes[key]) : ["user", "establishment", "category"].includes(type) ? select(label, "attr-" + key, options(type), item.attributes[key]) : type === "textarea" ? `<label class="field"><span>${e(label)}</span><textarea name="attr-${e(key)}" rows="5" maxlength="20000">${e(item.attributes[key] || "")}</textarea></label>` : field(label, "attr-" + key, item.attributes[key] || "", type === "date" ? 'type="date"' : ""))).join("")}
         <button class="btn primary" type="submit">Guardar ficha</button><button class="btn" type="button" data-action="manage-cancel">Cancelar</button><p class="feature-error" role="alert"></p>
       </form>`
           : `<aside class="feature-editor"><h2>${scoped() ? "Datos de esta obra" : "Directorio central"}</h2><p>${scoped() ? "Las fichas mostradas pertenecen a la obra abierta. Administrá clientes y catálogos generales desde Inicio." : "Se muestran registros de esta organización y registros generales sin empresa asignada. Los datos públicos y el logotipo se editan desde su ficha."}</p></aside>`
@@ -234,11 +273,27 @@ export function createManagementWorkspace({
   }
   async function act(button) {
     const action = button.dataset.action;
+    if (
+      action.startsWith("manage-map-") ||
+      action.startsWith("manage-attachment-") ||
+      action.startsWith("manage-dashboard-")
+    ) {
+      await dashboard.act(button);
+      return;
+    }
+    if (action === "manage-dashboard") {
+      model.mode = "dashboard";
+      model.editing = null;
+      await dashboard.refresh();
+    }
+    if (action === "manage-directories") model.mode = "directories";
     if (action === "open-management") {
       state.view =
         state.organizationId && !state.projectId
           ? "organizations"
           : "management";
+      model.mode = "dashboard";
+      dashboard.model.mapExpanded = false;
       model.kind = scoped() ? "project_profile" : "establishment";
       model.editing = null;
       model.events = [];
@@ -246,12 +301,14 @@ export function createManagementWorkspace({
       model.catalogs = {};
       await refresh();
     }
-    if (action === "manage-new")
+    if (action === "manage-new") {
+      model.mode = "directories";
       model.editing = {
         attributes: {},
         revision: 0,
         project_id: state.projectId,
       };
+    }
     if (action === "manage-edit")
       model.editing = structuredClone(
         model.records.find((record) => record.id === button.dataset.id),
@@ -262,6 +319,10 @@ export function createManagementWorkspace({
     render();
   }
   async function change(target) {
+    if (target.name === "attachment-description") {
+      dashboard.model.attachmentDescription = target.value;
+      return;
+    }
     if (target.name !== "management-kind") return;
     if (
       state.pageDirty &&
@@ -273,12 +334,14 @@ export function createManagementWorkspace({
       return;
     }
     state.pageDirty = false;
+    model.mode = "directories";
     model.kind = target.value;
     model.editing = null;
     model.records = visibleRecords();
     render();
   }
   async function submit(form) {
+    if (form.id === "project-attachment-form") return dashboard.submit(form);
     const data = new FormData(form),
       value = (key) => String(data.get(key) || "").trim();
     const attributes = Object.fromEntries(
@@ -299,6 +362,7 @@ export function createManagementWorkspace({
     await invoke("save_management_record", { record });
     await refresh();
     model.editing = null;
+    if (scoped()) model.mode = "dashboard";
     state.message = "Ficha guardada";
     render();
   }

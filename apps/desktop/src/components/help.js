@@ -54,11 +54,11 @@ const pages = {
   ],
   planning: [
     "Planificación de la obra",
-    "El cronograma pertenece a la obra abierta. Configurá calendario y feriados y agregá tareas. Vinculalas con partidas, asigná recursos y guardá una línea base para comparar fechas, costos y avances.",
+    "Gantt y PERT son dos vistas del mismo cronograma. En PERT arrastrá partidas al lienzo y conectá salida con entrada para definir precedencias. Mover un nodo solo cambia su posición visual. Configurá el calendario y guardá líneas base para comparar avances.",
   ],
   "project-data": [
     "Datos de la obra",
-    "Estas fichas, contratos, centros de costos, documentación y cuadrillas pertenecen a la obra abierta. Los clientes y demás datos base se administran desde Inicio.",
+    "El tablero reúne los datos físicos, ubicación, cuadrillas, equipos, presupuestos y legajos de esta obra. Los directorios y fichas siguen disponibles desde el botón superior. Los clientes y datos base se administran desde Inicio.",
   ],
   management: [
     "Organización y directorios",

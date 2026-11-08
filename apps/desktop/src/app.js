@@ -569,7 +569,7 @@ export function createWorkspaceApp({
         ],
       ],
       [planning, ["planning-task-form", "planning-settings"]],
-      [management, ["management-form"]],
+      [management, ["management-form","project-attachment-form"]],
     ];
     if (evt.target.id === "unit-create-form") {
       evt.preventDefault();
@@ -611,6 +611,7 @@ export function createWorkspaceApp({
           "print-profile-form",
           "budget-print-form",
           "management-form",
+          "project-attachment-form",
           "planning-task-form",
           "planning-settings",
           "budget-bulk-form",
@@ -639,7 +640,7 @@ export function createWorkspaceApp({
   document.addEventListener("change", async (evt) => {
     if (
       evt.target.closest?.(
-        "#p2p-invite-form,#p2p-join-form,#p2p-access-form,#organization-create-form,#print-profile-form,#budget-print-form,#management-form,#planning-task-form,#planning-settings,#budget-bulk-form,#nested-analysis-form,#price-list-form,#scoped-price-form",
+        "#p2p-invite-form,#p2p-join-form,#p2p-access-form,#organization-create-form,#print-profile-form,#budget-print-form,#management-form,#project-attachment-form,#planning-task-form,#planning-settings,#budget-bulk-form,#nested-analysis-form,#price-list-form,#scoped-price-form",
       )
     )
       state.pageDirty = true;
@@ -698,7 +699,7 @@ export function createWorkspaceApp({
   document.addEventListener("input", (evt) => {
     if (
       evt.target.closest?.(
-        "#p2p-invite-form,#p2p-join-form,#p2p-access-form,#organization-create-form,#print-profile-form,#budget-print-form,#management-form,#planning-task-form,#planning-settings,#budget-bulk-form,#nested-analysis-form,#price-list-form,#scoped-price-form",
+        "#p2p-invite-form,#p2p-join-form,#p2p-access-form,#organization-create-form,#print-profile-form,#budget-print-form,#management-form,#project-attachment-form,#planning-task-form,#planning-settings,#budget-bulk-form,#nested-analysis-form,#price-list-form,#scoped-price-form",
       )
     )
       state.pageDirty = true;
@@ -735,17 +736,21 @@ export function createWorkspaceApp({
     });
   });
   document.addEventListener("dragstart", (evt) => {
+    if(planning.dragStart(evt))return;
     if (!pricing.dragStart(evt)) interactions.dragStart(evt);
   });
   document.addEventListener("dragover", (evt) => {
+    if(planning.dragOver(evt))return;
     if (!pricing.dragOver(evt)) interactions.dragOver(evt);
   });
   document.addEventListener("dragend", () => {
+    planning.dragEnd();
     pricing.dragEnd();
     interactions.dragEnd();
   });
   document.addEventListener("drop", (evt) => {
     (async () => {
+      if(await planning.drop(evt))return;
       if (await pricing.drop(evt)) return;
       await interactions.drop(evt);
     })().catch((error) => {
@@ -754,6 +759,8 @@ export function createWorkspaceApp({
     });
   });
   document.addEventListener("pointerdown", (evt) => {if(!state.remoteProject)planning.pointerDown(evt);});
+  document.addEventListener("pointermove",evt=>planning.pointerMove(evt));
+  document.addEventListener("pointercancel",()=>{planning.cancelPointer();});
   document.addEventListener("pointerup", async (evt) => {
     try {
       await planning.pointerUp(evt);

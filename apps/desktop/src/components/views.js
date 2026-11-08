@@ -78,8 +78,8 @@ export function createViews({
                 "Determinación de precio",
                 "price-determination",
               ],
-              ["open-operations", "Gestión de obra", "operations"],
               ["open-planning", "Planificación", "planning"],
+              ["open-operations", "Gestión de obra", "operations"],
               ["open-management", "Datos de obra", "management"],
             ]
               .map(
@@ -139,7 +139,7 @@ export function createViews({
       line,
       code = "",
     ) => `<tr class="line-row ${line.id === state.selectedLineId ? "selected" : ""}" data-drop-line="true" data-action="select-line" data-id="${e(line.id)}" data-searchable="${e((line.description + " " + line.unit).toLowerCase())}" tabindex="0">
-    <td class="col-code muted"><button type="button" class="line-drag-handle" draggable="${editable()}" aria-label="Arrastrar partida ${e(line.description)}" title="Arrastrar para mover" ${locked()}>⋮⋮</button>${e(code)}</td><td class="col-desc">${e(line.description)} ${line.analysis_id ? '<span class="acu-tag">ACU</span>' : ""}</td>
+    <td class="col-code muted"><button type="button" class="line-drag-handle" draggable="${editable()}" aria-label="Arrastrar partida ${e(line.description)}" title="Arrastrar para mover" ${locked()}>⋮⋮</button>${e(code)}</td><td class="col-desc">${e(line.description)} ${line.analysis_id ? '<span class="acu-tag">ACU</span>' : ""} ${(state.measuredLineIds||[]).includes(line.id)?'<span class="metrado-tag" title="Cantidad calculada y aplicada desde un metrado">Metrado</span>':""}</td>
     <td class="col-unit">${e(line.unit)}</td><td class="number">${numeric(line.quantity)}</td>
     <td class="number">${money(line.unit_cost)}</td><td class="number partial">${money(line.total)}</td></tr>`;
     const sectionSum = (id) => {

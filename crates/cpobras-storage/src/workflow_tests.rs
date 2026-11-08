@@ -164,6 +164,7 @@ fn saved_plan_resolves_budget_links_and_keeps_immutable_baselines() {
         actual_progress: Decimal::from(25),
     };
     let plan = Plan {
+        presentation: BTreeMap::new(),
         calendar: Calendar {
             start_date: "2026-11-05".into(),
             nonworking_weekdays: vec![5, 6],
@@ -1341,7 +1342,7 @@ fn upgrades_populated_schema_fifteen_and_deletes_its_preexisting_linked_line() {
     }
     undo_people_migration_for_fixture(&old);
     old.execute_batch("ALTER TABLE operation_links DROP COLUMN archived_line_id; DROP TABLE deleted_estimate_lines; DROP TABLE line_analysis_sources; DROP TABLE estimate_resource_prices; DROP TABLE estimate_price_definitions; DROP TABLE price_definition_templates;
-             DROP TABLE print_profiles; DROP TRIGGER new_project_organization; DROP TRIGGER external_company_readonly_update; DROP TRIGGER external_company_readonly_delete; DROP TABLE project_organizations; DROP TABLE organization_preferences; DROP TABLE organizations; DELETE FROM schema_migrations WHERE version>=16; CREATE TRIGGER operation_links_no_update BEFORE UPDATE ON operation_links BEGIN SELECT RAISE(ABORT,'operation links are immutable'); END;").unwrap();
+             DROP TABLE print_profiles; DROP TRIGGER new_project_organization; DROP TRIGGER external_company_readonly_update; DROP TRIGGER external_company_readonly_delete; DROP TRIGGER clear_measured_quantity; DROP TABLE automatic_codes; DROP TABLE measured_lines; DROP TABLE project_attachments; DROP TABLE project_organizations; DROP TABLE organization_preferences; DROP TABLE organizations; DELETE FROM schema_migrations WHERE version>=16; CREATE TRIGGER operation_links_no_update BEFORE UPDATE ON operation_links BEGIN SELECT RAISE(ABORT,'operation links are immutable'); END;").unwrap();
     drop(old);
     let mut upgraded = LocalStore::open(&path).unwrap();
     assert_eq!(
@@ -1350,7 +1351,7 @@ fn upgrades_populated_schema_fifteen_and_deletes_its_preexisting_linked_line() {
             .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| r
                 .get::<_, i64>(0))
             .unwrap(),
-        22
+        23
     );
     upgraded.delete_estimate_item(e.id, line.id).unwrap();
     assert!(upgraded.estimate_items(e.id).unwrap().is_empty());
@@ -2776,5 +2777,171 @@ fn saving_an_acu_pattern_copies_unit_composition_without_changing_the_source() {
     assert!(s
         .save_line_as_analysis(Uuid::new_v4(), line.id, "BAD", "Bad")
         .is_err());
-    assert!(s.save_line_as_analysis(e.id, line.id, "", "Bad").is_err());
+    assert!(s
+        .save_line_as_analysis(e.id, line.id, "", "Automático")
+        .unwrap()
+        .code
+        .starts_with("ACU-"));
+}
+
+#[test]
+fn automatic_codes_reserve_monotonically_and_skip_existing_identifiers() {
+    let (mut s, _, e, line) = fixture();
+    assert_eq!(s.automatic_code("analysis").unwrap(), "ACU-0001");
+    assert_eq!(s.automatic_code("analysis").unwrap(), "ACU-0002");
+    s.conn
+        .execute(
+            "INSERT INTO automatic_codes(scope,last_value) VALUES('resource',40)",
+            [],
+        )
+        .unwrap();
+    assert_eq!(s.automatic_code("resource").unwrap(), "INS-0041");
+    assert!(s
+        .save_line_as_analysis(e.id, line.id, "", "Sin insumos")
+        .is_err());
+}
+#[test]
+fn measured_badge_tracks_applied_quantity_and_manual_changes_clear_it() {
+    use crate::takeoffs::TakeoffRow;
+    let (mut s, _, e, line) = fixture();
+    let row = TakeoffRow {
+        id: Uuid::new_v4(),
+        estimate_id: e.id,
+        line_id: line.id,
+        note: "Medición".into(),
+        factor: Decimal::ONE,
+        length: Decimal::from(3),
+        width: Decimal::from(2),
+        height: Decimal::ONE,
+        sign: 1,
+        position: 0,
+    };
+    s.save_takeoff_row(&row).unwrap();
+    assert!(s.measured_lines(e.id).unwrap().is_empty());
+    s.apply_takeoff_to_line(e.id, line.id).unwrap();
+    assert_eq!(s.measured_lines(e.id).unwrap(), vec![line.id]);
+    let copy = s.duplicate_estimate(e.id, "Copia medida").unwrap();
+    assert_eq!(s.measured_lines(copy.id).unwrap().len(), 1);
+    let json = s.export_budget(e.id).unwrap();
+    let imported = s.import_budget(e.project_id, &json).unwrap();
+    assert_eq!(s.measured_lines(imported.id).unwrap().len(), 1);
+    let applied = s
+        .apply_budget_pattern(
+            imported.id,
+            &crate::budget_patterns::PatternSource {
+                estimate_id: Some(e.id),
+                template_id: None,
+            },
+            &crate::budget_patterns::PatternSelection {
+                line_ids: vec![line.id],
+                section_ids: vec![],
+            },
+            false,
+            None,
+        )
+        .unwrap();
+    assert!(s
+        .measured_lines(imported.id)
+        .unwrap()
+        .contains(&applied.line_ids[0]));
+    let mut edited = s.estimate_items(e.id).unwrap().remove(0);
+    edited.description = "Misma medición".into();
+    s.update_estimate_item(&edited).unwrap();
+    assert_eq!(s.measured_lines(e.id).unwrap().len(), 1);
+    edited.quantity = Decimal::from(9);
+    s.update_estimate_item(&edited).unwrap();
+    assert!(s.measured_lines(e.id).unwrap().is_empty());
+    s.set_line_formula(
+        e.id,
+        line.id,
+        "largo*ancho",
+        &BTreeMap::from([
+            ("largo".into(), Decimal::from(4)),
+            ("ancho".into(), Decimal::from(2)),
+        ]),
+    )
+    .unwrap();
+    assert_eq!(s.measured_lines(e.id).unwrap().len(), 1);
+}
+#[test]
+fn project_files_are_copied_scoped_and_audited_without_blob_contents() {
+    let (s, p, _, _) = fixture();
+    let bytes = b"%PDF-1.4 test copied document";
+    let id = s
+        .attach_project_file(p.id, "plano.pdf", "Plano de obra", bytes)
+        .unwrap();
+    assert_eq!(
+        s.project_attachments(p.id).unwrap()[0].bytes,
+        bytes.len() as i64
+    );
+    assert_eq!(s.project_attachment_content(p.id, id).unwrap().1, bytes);
+    assert!(s.project_attachment_content(Uuid::new_v4(), id).is_err());
+    assert!(s
+        .attach_project_file(p.id, "../archivo.pdf", "", bytes)
+        .is_err());
+    assert!(s.attach_project_file(p.id, "script.sh", "", bytes).is_err());
+    assert!(s
+        .attach_project_file(p.id, "plano.pdf", "", &vec![0; 20 * 1024 * 1024 + 1])
+        .is_err());
+    assert!(!serde_json::to_string(&s.change_events(0).unwrap())
+        .unwrap()
+        .contains("test copied document"));
+    s.remove_project_attachment(p.id, id).unwrap();
+    assert!(s.project_attachments(p.id).unwrap().is_empty());
+}
+
+#[test]
+fn pert_presentation_round_trips_with_revisions_baselines_and_legacy_plans() {
+    use cpobras_core::planning::PertPresentation;
+    let (mut s, p, _, line) = fixture();
+    let id = Uuid::new_v4();
+    let plan = Plan {
+        calendar: Calendar {
+            start_date: "2026-11-09".into(),
+            nonworking_weekdays: vec![5, 6],
+            holidays: vec![],
+        },
+        presentation: BTreeMap::from([(
+            id,
+            PertPresentation {
+                x: 20.0,
+                y: 30.0,
+                estimates: Some([1, 2, 6]),
+            },
+        )]),
+        tasks: vec![Task {
+            id,
+            parent_id: None,
+            estimate_line_id: Some(line.id),
+            name: "Tarea".into(),
+            duration_days: 3,
+            predecessors: vec![],
+            not_before: None,
+            finish_by: None,
+            assignments: vec![],
+            budget: Decimal::ZERO,
+            actual_progress: Decimal::ZERO,
+        }],
+    };
+    let saved = s.save_project_plan(p.id, 0, plan, "2026-11-09").unwrap();
+    s.create_plan_baseline(p.id, "Antes de mover", "2026-11-09")
+        .unwrap();
+    let mut moved = saved.plan;
+    moved.presentation.get_mut(&id).unwrap().x = 400.0;
+    s.save_project_plan(p.id, 1, moved, "2026-11-09").unwrap();
+    assert_eq!(
+        s.project_plan(p.id).unwrap().unwrap().plan.presentation[&id].x,
+        400.0
+    );
+    assert_eq!(
+        s.plan_baselines(p.id).unwrap()[0].plan.presentation[&id].x,
+        20.0
+    );
+    assert_eq!(s.plan_revisions(p.id).unwrap().len(), 2);
+    let mut legacy = serde_json::to_value(s.project_plan(p.id).unwrap().unwrap().plan).unwrap();
+    legacy.as_object_mut().unwrap().remove("presentation");
+    assert!(serde_json::from_value::<Plan>(legacy)
+        .unwrap()
+        .presentation
+        .is_empty());
 }

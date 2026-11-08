@@ -24,7 +24,9 @@ export const kindBadge = (type) =>
     type
   ] || type;
 export const field = (label, name, value = "", options = "") =>
-  name === "unit"
+  ["code","person-code"].includes(name)
+    ? `<label class="field"><span>${e(label)}</span><input name="${name}" value="${e(value)}" readonly placeholder="Automático al guardar" title="Código generado automáticamente"></label>`
+    : name === "unit"
     ? unitField(label, name, value, options)
     : `<label class="field"><span>${e(label)}</span><input name="${name}" value="${e(value)}" ${options}></label>`;
 export const select = (label, name, options, selected = "") =>

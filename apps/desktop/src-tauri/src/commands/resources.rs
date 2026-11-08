@@ -147,6 +147,14 @@ pub(crate) fn create_resource(
     if amount < Decimal::ZERO {
         return Err("El precio no puede ser negativo".into());
     }
+    let mut store = db.lock().map_err(|e| e.to_string())?;
+    let code = if code.trim().is_empty() {
+        store
+            .automatic_code("resource")
+            .map_err(|e| e.to_string())?
+    } else {
+        code
+    };
     let resource = Resource {
         id: Uuid::new_v4(),
         code: code.trim().to_owned(),
@@ -155,7 +163,6 @@ pub(crate) fn create_resource(
         kind,
         active: true,
     };
-    let mut store = db.lock().map_err(|e| e.to_string())?;
     let price_entry = ResourcePrice {
         id: Uuid::new_v4(),
         resource_id: resource.id,

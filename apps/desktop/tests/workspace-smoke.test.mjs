@@ -22,6 +22,7 @@ function setup() {
     list_resources: () => [{ id: "resource-1", code: "MAT-01", description: "Acero", kind: "material", unit: "kg", price: "1800" }],
     list_analyses: () => [{ id: "acu-1", code: "ACU-01", description: "Montaje", unit: "kg", unit_cost: "2000" }],
     list_project_estimates: () => [{ id: "estimate-1", title: "Cotización inicial", currency: "ARS", issued: false }],
+    list_measured_lines:()=>[],
     list_estimate_lines: () => [...lines],
     list_budget_sections: () => [{ id: "section-1", estimate_id: "estimate-1", parent_id: null, code: "01", title: "ESTRUCTURA", position: 0 }],
     list_line_sections: () => [{ line_id: "line-1", section_id: "section-1" }],

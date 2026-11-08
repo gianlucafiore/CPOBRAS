@@ -22,7 +22,7 @@ impl LocalStore {
             .map(|id| self.person(id))
             .collect::<Result<Vec<_>>>()?;
         let budgets=self.list_project_estimates(project_id)?.into_iter().map(|estimate|{
-            Ok(json!({"document":self.export_budget(estimate.id)?,"pricing":self.get_price_definition(estimate.id)?,"report":self.operations_report(project_id,Some(estimate.id),as_of)?,"resource_prices":self.estimate_resource_prices(estimate.id)?,"print_data":self.budget_print_data(estimate.id).ok(),"estimate":estimate}))
+            Ok(json!({"document":self.export_budget(estimate.id)?,"pricing":self.get_price_definition(estimate.id)?,"report":self.operations_report(project_id,Some(estimate.id),as_of)?,"metadata":self.estimate_metadata(estimate.id)?,"measured_line_ids":self.measured_lines(estimate.id)?,"resource_prices":self.estimate_resource_prices(estimate.id)?,"print_data":self.budget_print_data(estimate.id).ok(),"estimate":estimate}))
         }).collect::<Result<Vec<Value>>>()?;
         let plan = self.project_plan(project_id)?;
         let schedule = plan.as_ref().map(|p| p.plan.schedule(as_of));
@@ -225,7 +225,10 @@ pub fn restrict_shared_document(mut data: Value, p: &SharingPermissions) -> Valu
                 budget["print_data"] = Value::Null;
             }
             if !p.budget {
+                budget["metadata"] = Value::Null;
+                budget["measured_line_ids"] = json!([]);
                 for field in [
+                    "measured_line_ids",
                     "lines",
                     "sections",
                     "assignments",

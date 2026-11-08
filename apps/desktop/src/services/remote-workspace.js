@@ -40,6 +40,9 @@ export function createRemoteInvoke(nativeInvoke, state) {
       switch (command) {
         case "list_project_estimates":
           return d.budgets.map((b) => b.estimate);
+        case "get_estimate_metadata":return p.budget?(budget().metadata||{}):{};
+        case "list_measured_lines":return p.budget?(budget().measured_line_ids||[]):[];
+        case "list_project_attachments":return [];
         case "list_estimate_lines":
           return budget().document.lines.map((l) => ({
             ...l,
@@ -219,8 +222,15 @@ const viewActions = new Set([
   "price-export",
   "price-close-modal",
   "plan-edit",
+  "plan-view",
   "plan-cancel",
   "manage-edit",
+  "manage-dashboard",
+  "manage-directories",
+  "manage-dashboard-profile",
+  "manage-dashboard-budget",
+  "manage-map-expand",
+  "manage-map-close",
   "ops-tab",
   "ops-detail",
   "ops-open-detail",
@@ -281,6 +291,7 @@ export function protectRemoteControls(root, state) {
       field.matches("[data-search]") ||
       [
         "planning-baseline",
+        "pert-query",
         "planning-history",
         "management-kind",
         "ops-report-scope",

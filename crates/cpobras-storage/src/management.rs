@@ -306,6 +306,9 @@ impl LocalStore {
         }
         let mut saved = record.clone();
         saved.name = saved.name.trim().into();
+        if existing.is_none() && saved.code.trim().is_empty() && saved.kind != "unit" {
+            saved.code = self.automatic_code(&format!("management:{}", saved.kind))?;
+        }
         saved.revision = existing.as_ref().map_or(1, |old| old.revision + 1);
         let args = params![
             saved.id.to_string(),
@@ -330,7 +333,7 @@ impl LocalStore {
     }
     pub(crate) fn install_audit_triggers(&self) -> Result<()> {
         let transaction = self.conn.unchecked_transaction()?;
-        let tables: Vec<String> = self.conn.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('schema_migrations','change_events')")?
+        let tables: Vec<String> = self.conn.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('schema_migrations','change_events','automatic_codes')")?
             .query_map([], |r|r.get(0))?.collect::<std::result::Result<_,_>>()?;
         for table in tables {
             if !table.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
@@ -354,7 +357,11 @@ impl LocalStore {
                     "json_object({})",
                     fields
                         .iter()
-                        .map(|f| format!("'{f}',{alias}.\"{f}\""))
+                        .map(|f| if f == "content" {
+                            format!("'content_bytes',length({alias}.\"{f}\")")
+                        } else {
+                            format!("'{f}',{alias}.\"{f}\"")
+                        })
                         .collect::<Vec<_>>()
                         .join(",")
                 )

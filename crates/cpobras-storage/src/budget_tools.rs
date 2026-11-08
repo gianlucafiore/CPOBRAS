@@ -13,6 +13,8 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BudgetDocument {
     #[serde(default)]
+    pub measured_line_ids: Vec<Uuid>,
+    #[serde(default)]
     pub price_definition: Option<cpobras_core::price_determination::PriceDefinition>,
     #[serde(default)]
     pub line_analyses: Vec<cpobras_core::UnitCostAnalysis>,
@@ -96,6 +98,7 @@ impl LocalStore {
             }
         }
         Ok(BudgetDocument {
+            measured_line_ids: self.measured_lines(id)?,
             price_definition: self.stored_price_definition(id)?,
             line_analyses,
             formulas,
@@ -335,6 +338,22 @@ impl LocalStore {
                 .ok_or_else(|| invalid("Medición de partida inexistente"))?;
             tx.execute("INSERT INTO takeoff_rows(id,estimate_id,line_id,note,factor,length,width,height,sign,position) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",params![Uuid::new_v4().to_string(),estimate.id.to_string(),line.to_string(),row.note,row.factor.to_string(),row.length.to_string(),row.width.to_string(),row.height.to_string(),row.sign,row.position])?;
         }
+        for source in &document.measured_line_ids {
+            let target = lines
+                .get(source)
+                .ok_or_else(|| invalid("Origen de metrado fuera del documento"))?;
+            tx.execute(
+                "INSERT INTO measured_lines(line_id,source) VALUES(?1,?2)",
+                params![
+                    target.to_string(),
+                    if document.formulas.iter().any(|f| f.line_id == *source) {
+                        "formula"
+                    } else {
+                        "takeoff"
+                    }
+                ],
+            )?;
+        }
         crate::estimate_resource_prices::synchronize(&tx, estimate.id, &BTreeMap::new())?;
         if let Some(definition) = &document.price_definition {
             definition
@@ -455,6 +474,10 @@ impl LocalStore {
         if updated != 1 {
             return Err(invalid("Partida inexistente"));
         }
+        tx.execute(
+            "INSERT OR REPLACE INTO measured_lines(line_id,source) VALUES(?1,'formula')",
+            [line.to_string()],
+        )?;
         tx.execute("INSERT INTO line_formulas(line_id,expression,variables_json) VALUES (?1,?2,?3) ON CONFLICT(line_id) DO UPDATE SET expression=excluded.expression,variables_json=excluded.variables_json",params![line.to_string(),expression,serde_json::to_string(variables)?])?;
         crate::estimate_resource_prices::synchronize(&tx, estimate, &BTreeMap::new())?;
         crate::estimates::checked_budget_total(&tx, estimate)?;
@@ -484,6 +507,7 @@ impl LocalStore {
         tx.execute("INSERT INTO estimate_line_sections(line_id,section_id) SELECT ?1,section_id FROM estimate_line_sections WHERE line_id=?2",params![id.to_string(),line_id.to_string()])?;
         tx.execute("INSERT INTO line_analysis_sources(line_id,analysis_id) SELECT ?1,analysis_id FROM line_analysis_sources WHERE line_id=?2",params![id.to_string(),line_id.to_string()])?;
         tx.execute("INSERT INTO line_formulas(line_id,expression,variables_json) SELECT ?1,expression,variables_json FROM line_formulas WHERE line_id=?2",params![id.to_string(),line_id.to_string()])?;
+        tx.execute("INSERT INTO measured_lines(line_id,source) SELECT ?1,source FROM measured_lines WHERE line_id=?2",params![id.to_string(),line_id.to_string()])?;
         for row in rows {
             tx.execute("INSERT INTO takeoff_rows(id,estimate_id,line_id,note,factor,length,width,height,sign,position) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",params![Uuid::new_v4().to_string(),estimate.to_string(),id.to_string(),row.note,row.factor.to_string(),row.length.to_string(),row.width.to_string(),row.height.to_string(),row.sign,row.position])?;
         }

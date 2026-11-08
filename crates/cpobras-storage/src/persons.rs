@@ -373,7 +373,11 @@ impl LocalStore {
         let next = revision
             .checked_add(1)
             .ok_or_else(|| invalid("Revisión fuera de rango"))?;
-        write_person(&tx, id, &role, next, data)?;
+        let mut data = data.clone();
+        if old.is_none() && data.code.trim().is_empty() {
+            data.code = crate::project_dashboard::next_code(&tx, "person", "PER-")?;
+        }
+        write_person(&tx, id, &role, next, &data)?;
         let created = if has(&role, "supplier") {
             ensure_supplier(&tx, id)?
         } else {

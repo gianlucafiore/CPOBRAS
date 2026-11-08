@@ -23,3 +23,5 @@ pub(crate) mod organizations;
 pub(crate) mod persons;
 
 pub(crate) mod p2p;
+
+pub(crate) mod project_dashboard;

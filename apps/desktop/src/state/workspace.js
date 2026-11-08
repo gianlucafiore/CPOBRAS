@@ -1,6 +1,7 @@
 export function createState() {
   return {
     view: "projects",
+    measuredLineIds: [],
     organizations: [],
     externalProjects: [],
     remoteProject:null,

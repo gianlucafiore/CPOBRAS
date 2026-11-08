@@ -361,3 +361,24 @@ Un presupuesto propio puede pasar de **En elaboración** a **Emitido** y volver
 con **Volver a En elaboración**, previa confirmación. Se conservan cantidades,
 composiciones y precios; al reabrir se habilita la edición. Los PDF ya enviados
 no se actualizan. Las obras externas siguen siendo de solo lectura.
+
+### Mejoras de carga y planificación
+
+Los códigos internos nuevos se asignan automáticamente al guardar (insumos,
+ACU, patrones de ACU, contactos y fichas). Los códigos existentes se conservan.
+Los símbolos de unidad, CUIT y referencias externas no son códigos internos.
+
+El badge **Metrado** identifica cantidades calculadas y aplicadas mediante
+mediciones o fórmulas del sistema. Crear mediciones sin aplicarlas no cambia el
+origen de la cantidad. Al cambiar manualmente cantidad o unidad, desaparece el
+badge; las copias conservan el origen cuando corresponde. Para metrados de
+versiones anteriores, volvé a aplicarlos una vez: no se infiere el origen de
+cantidades históricas.
+
+**Planificación** aparece antes de **Gestión de obra**. Las pestañas **Gantt** y
+**PERT** comparten tareas, duraciones y dependencias. Ver [guía de planificación](docs/PLANNING.md).
+**Datos de obra** reúne la ficha física, mapa, participantes, presupuestos y
+legajos: [guía del tablero](docs/PROJECT-DASHBOARD.md).
+
+Para probar estos cambios compilando localmente, seguí los comandos de
+compilación y arranque de este README. No es necesario generar un AppImage.

@@ -268,3 +268,23 @@ Se comprobó visualmente el yacaré en su cabecera.
 - 48 flujos completos de navegador correctos; verificación adicional de los
   dos flujos nuevos: reapertura/emisión y guardado del patrón desde la partida.
 - No se generó un AppImage para este cambio, según lo solicitado.
+
+## Tablero de obra, códigos automáticos y PERT
+
+- 23 pruebas del núcleo, 77 de almacenamiento y 31 de JavaScript correctas.
+- 52 flujos de navegador completos correctos; verificaciones posteriores de
+  PERT, tablero, P2P, inserción animada y cancelación del explorador también
+  correctas (53 casos distintos en total).
+- Compilación del frontend y formato de Rust correctos.
+- Cobertura de persistencia de posiciones PERT con revisiones y líneas base,
+  compatibilidad con planes anteriores, duraciones de tres estimaciones,
+  conexiones circulares y sincronización con Gantt.
+- El origen Metrado se prueba al aplicar mediciones/fórmulas, al cambiar una
+  cantidad manualmente y al duplicar, importar o incorporar patrones.
+- Los archivos se prueban como copias en la base de datos, con aislamiento por
+  obra, límites de tamaño/extensión y auditoría sin contenido binario.
+- El mapa embebido se verifica con una respuesta simulada de OpenStreetMap;
+  la descarga de cartografía real depende de Internet en el equipo del usuario.
+- No se generó un AppImage ni se creó una etiqueta de publicación.
+Las 13 pruebas nativas también pasan con el esquema 23 y los comandos de
+metadatos, mediciones y adjuntos registrados.

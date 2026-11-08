@@ -223,14 +223,17 @@ pub(crate) fn create_analysis(
     unit: String,
     components: Vec<AnalysisComponentInput>,
 ) -> Result<AnalysisView, String> {
-    if code.trim().is_empty()
-        || description.trim().is_empty()
-        || unit.trim().is_empty()
-        || components.is_empty()
-    {
+    if description.trim().is_empty() || unit.trim().is_empty() || components.is_empty() {
         return Err("Completá los datos y al menos un componente".into());
     }
     let mut store = db.lock().map_err(|e| e.to_string())?;
+    let code = if code.trim().is_empty() {
+        store
+            .automatic_code("analysis")
+            .map_err(|e| e.to_string())?
+    } else {
+        code
+    };
     let mut snapshots = Vec::new();
     for component in components {
         let id = Uuid::parse_str(&component.resource_id).map_err(|e| e.to_string())?;
