@@ -19,8 +19,10 @@ pub(crate) async fn p2p_invite<R: tauri::Runtime>(
     p2p: tauri::State<'_, P2p>,
     project_id: Uuid,
     label: String,
+    permissions: Option<cpobras_storage::sharing::SharingPermissions>,
 ) -> Result<Value, String> {
-    p2p.invite(&app, project_id, label).await
+    p2p.invite(&app, project_id, label, permissions.unwrap_or_default())
+        .await
 }
 #[tauri::command]
 pub(crate) async fn p2p_join<R: tauri::Runtime>(
@@ -48,4 +50,17 @@ pub(crate) fn p2p_forget(p2p: tauri::State<'_, P2p>, id: Uuid) -> Result<Value, 
 #[tauri::command]
 pub(crate) fn p2p_read(p2p: tauri::State<'_, P2p>, id: Uuid) -> Result<Value, String> {
     p2p.read(id)
+}
+
+#[tauri::command]
+pub(crate) fn p2p_projects(p2p: tauri::State<'_, P2p>) -> Result<Value, String> {
+    p2p.projects()
+}
+#[tauri::command]
+pub(crate) fn p2p_set_permissions(
+    p2p: tauri::State<'_, P2p>,
+    id: Uuid,
+    permissions: cpobras_storage::sharing::SharingPermissions,
+) -> Result<Value, String> {
+    p2p.set_permissions(id, permissions)
 }

@@ -100,7 +100,8 @@ impl PriceDefinition {
         let mut rows = vec![];
         let mut row = |label: &str, kind, role, value, subtract| {
             rows.push(PriceRow {
-                id: Uuid::new_v4(),
+                // Legacy rows need stable identities across reads and P2P snapshots.
+                id: Uuid::from_u128(rows.len() as u128 + 1),
                 label: label.into(),
                 enabled: true,
                 kind,
@@ -159,7 +160,7 @@ impl PriceDefinition {
             rows.insert(
                 rows.len() - 1,
                 PriceRow {
-                    id: Uuid::new_v4(),
+                    id: Uuid::from_u128(rows.len() as u128 + 1),
                     label: name.into(),
                     enabled: false,
                     kind: PriceKind::Detailed,

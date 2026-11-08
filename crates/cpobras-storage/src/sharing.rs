@@ -22,7 +22,7 @@ impl LocalStore {
             .map(|id| self.person(id))
             .collect::<Result<Vec<_>>>()?;
         let budgets=self.list_project_estimates(project_id)?.into_iter().map(|estimate|{
-            Ok(json!({"document":self.export_budget(estimate.id)?,"pricing":self.get_price_definition(estimate.id)?,"estimate":estimate}))
+            Ok(json!({"document":self.export_budget(estimate.id)?,"pricing":self.get_price_definition(estimate.id)?,"report":self.operations_report(project_id,Some(estimate.id),as_of)?,"resource_prices":self.estimate_resource_prices(estimate.id)?,"print_data":self.budget_print_data(estimate.id).ok(),"estimate":estimate}))
         }).collect::<Result<Vec<Value>>>()?;
         let plan = self.project_plan(project_id)?;
         let schedule = plan.as_ref().map(|p| p.plan.schedule(as_of));
@@ -74,10 +74,198 @@ impl LocalStore {
         }
         let resources = resource_ids
             .into_iter()
-            .map(|id| self.get_resource(id).map(|r|r.map(|r|json!({"id":r.id,"description":r.description,"unit":r.unit,"code":r.code}))))
+            .map(|id| self.get_resource(id).map(|r|r.map(|r|json!({"id":r.id,"description":r.description,"unit":r.unit,"code":r.code,"kind":r.kind,"active":r.active}))))
             .collect::<Result<Vec<_>>>()?;
-        let result = json!({"version":1,"project":project,"organization":organization,"client":client,"suppliers":suppliers,"budgets":budgets,"planning":plan,"schedule":schedule,"baselines":self.plan_baselines(project_id)?,"records":records,"operations":operations,"parties":parties,"warehouses":warehouses,"stock":stock,"resources":resources});
+        let result = json!({"version":1,"as_of":as_of,"project":project,"organization":organization,"client":client,"suppliers":suppliers,"budgets":budgets,"planning":plan,"schedule":schedule,"baselines":self.plan_baselines(project_id)?,"plan_revisions":self.plan_revisions(project_id)?,"records":records,"operations":operations,"parties":parties,"warehouses":warehouses,"stock":stock,"resources":resources});
         tx.commit()?;
         Ok(result)
     }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[serde(default, deny_unknown_fields)]
+pub struct SharingPermissions {
+    pub budget: bool,
+    pub price: bool,
+    pub resources: bool,
+    pub operations: bool,
+    pub accounting: bool,
+    pub planning: bool,
+    pub project_data: bool,
+}
+impl Default for SharingPermissions {
+    fn default() -> Self {
+        Self {
+            budget: true,
+            price: true,
+            resources: true,
+            operations: true,
+            accounting: true,
+            planning: true,
+            project_data: true,
+        }
+    }
+}
+impl SharingPermissions {
+    pub fn validate(&self) -> Result<()> {
+        if [
+            self.budget,
+            self.price,
+            self.resources,
+            self.operations,
+            self.accounting,
+            self.planning,
+            self.project_data,
+        ]
+        .into_iter()
+        .any(|v| v)
+        {
+            Ok(())
+        } else {
+            Err(StorageError::InvalidValue(
+                "Permití al menos un apartado".into(),
+            ))
+        }
+    }
+}
+/// Redact before serialization/transmission, including secondary copies of restricted data.
+pub fn restrict_shared_document(mut data: Value, p: &SharingPermissions) -> Value {
+    data["permissions"] = json!(p);
+    if !p.planning {
+        data["planning"] = Value::Null;
+        data["schedule"] = Value::Null;
+        data["baselines"] = json!([]);
+        data["plan_revisions"] = json!([]);
+    }
+    if !p.project_data {
+        if let Some(parties) = data["parties"].as_array_mut() {
+            for party in parties {
+                let old = party.clone();
+                *party = json!({"id":old["id"],"kind":old["kind"],"name":old["name"],"code":old["code"],"attributes":{}});
+            }
+        }
+        let client = data["client"].clone();
+        data["client"] = json!({"id":client["id"],"name":client["name"]});
+        data["suppliers"] = json!([]);
+        data["records"] = json!([]);
+    }
+    if !p.resources {
+        data["resources"] = json!([]);
+        data["stock"] = json!([]);
+        if let Some(tasks) = data
+            .get_mut("planning")
+            .and_then(|v| v.get_mut("plan"))
+            .and_then(|v| v.get_mut("tasks"))
+            .and_then(Value::as_array_mut)
+        {
+            for task in tasks {
+                task["assignments"] = json!([]);
+            }
+        }
+        for collection in ["baselines", "plan_revisions"] {
+            if let Some(plans) = data[collection].as_array_mut() {
+                for plan in plans {
+                    if let Some(tasks) = plan["plan"]["tasks"].as_array_mut() {
+                        for task in tasks {
+                            task["assignments"] = json!([]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if !p.operations {
+        data["warehouses"] = json!([]);
+        data["stock"] = json!([]);
+    }
+    if let Some(operations) = data["operations"].as_array_mut() {
+        let finance = [
+            "payable",
+            "receivable",
+            "payment",
+            "collection",
+            "advance_paid",
+            "advance_received",
+            "retention_payable",
+            "retention_receivable",
+            "forecast",
+        ];
+        operations.retain(|o| {
+            if finance.contains(&o["kind"].as_str().unwrap_or("")) {
+                p.accounting
+            } else {
+                p.operations
+            }
+        });
+        if !p.resources {
+            for o in operations {
+                o["lines"] = json!([]);
+            }
+        }
+    }
+    if !p.operations && !p.accounting {
+        data["parties"] = json!([]);
+    }
+    if let Some(budgets) = data["budgets"].as_array_mut() {
+        for budget in budgets {
+            let pricing = budget["pricing"].clone();
+            budget["totals"] = json!({"direct":pricing["direct"],"total":pricing["calculation"]["breakdown"]["total"]});
+            if !p.project_data {
+                budget["print_data"] = Value::Null;
+            }
+            if !p.price {
+                budget["pricing"] = json!({"revision":pricing["revision"],"custom":false,"definition":{"rows":[]},"direct":pricing["direct"],"calculation":null,"calculation_error":null});
+                budget["document"]["price_definition"] = Value::Null;
+                budget["document"]["rates"] = json!({});
+                budget["print_data"] = Value::Null;
+            }
+            if !p.resources {
+                budget["document"]["line_analyses"] = json!([]);
+                budget["resource_prices"] = json!({});
+                budget["print_data"] = Value::Null;
+            }
+            if !p.budget {
+                for field in [
+                    "lines",
+                    "sections",
+                    "assignments",
+                    "takeoffs",
+                    "formulas",
+                    "line_analyses",
+                ] {
+                    budget["document"][field] = json!([]);
+                }
+                budget["resource_prices"] = json!({});
+                budget["print_data"] = Value::Null;
+                if !p.price {
+                    budget["totals"] = json!({});
+                    budget["pricing"]["direct"] = Value::Null;
+                }
+            }
+            if let Some(report) = budget["report"].as_object_mut() {
+                if !p.accounting {
+                    for field in [
+                        "summaries",
+                        "cash_flow",
+                        "costs",
+                        "section_results",
+                        "alerts",
+                    ] {
+                        report.insert(field.into(), json!([]));
+                    }
+                }
+                if !p.operations {
+                    for field in ["production", "quotes", "needs", "alerts"] {
+                        report.insert(field.into(), json!([]));
+                    }
+                }
+                if !p.resources {
+                    for field in ["needs", "quotes", "costs"] {
+                        report.insert(field.into(), json!([]));
+                    }
+                }
+            }
+        }
+    }
+    data
 }

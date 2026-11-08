@@ -401,6 +401,7 @@ export function createPlanningWorkspace({
     throw new Error("Fecha fuera del calendario admitido");
   }
   function pointerDown(event) {
+    if(state.remoteProject)return;
     const bar = event.target.closest?.(".gantt-bar");
     if (!bar) return;
     const task = model.plan.tasks.find(

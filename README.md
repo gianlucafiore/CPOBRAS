@@ -13,7 +13,7 @@ Es un único archivo para Linux x86-64: no necesitás instalar Rust, Node ni Git
 2. Clic derecho → **Propiedades → Permisos → Permitir ejecutar como programa**.
 3. Abrilo con doble clic.
 
-La versión 0.1.1 está preparada para Linux Mint 21/22 y Ubuntu 22.04/24.04.
+La versión 0.1.2 está preparada para Linux Mint 21/22 y Ubuntu 22.04/24.04.
 Los datos se guardan por usuario fuera del AppImage; no se transfieren con el
 programa. Para consultar una obra de otro equipo, usá **Inicio → Vinculación P2P**.
 Guía y solución para sistemas sin FUSE: [docs/APPIMAGE.md](docs/APPIMAGE.md).
@@ -343,3 +343,5 @@ funcionalidades verificadas de trabajo todavía pendiente.
 - [Aplicación de escritorio](apps/desktop/README.md).
 - [Validación y límites conocidos](docs/VALIDATION.md).
 - [Auditoría de dependencias](docs/DEPENDENCIES.md).
+
+Las obras externas vinculadas por P2P aparecen en Inicio y se abren en el entorno habitual de solo lectura. Cada invitación permite elegir los apartados visibles. Ver [guía P2P](docs/P2P.md). El icono y la cabecera usan el yacaré de CPOBRAS.

@@ -15,12 +15,28 @@ conexión válida la vincula a la identidad criptográfica de ese equipo. Para
 otro equipo, generá otra invitación. Los contactos, obras y organizaciones
 propias del observador no se reemplazan.
 
-La copia externa tiene vistas de presupuesto, determinación de precio,
-documentos de gestión, planificación y datos de la obra y su organización.
-Incluye todos los presupuestos de la obra, sus costos internos, composiciones,
-cómputos, proveedores vinculados y documentos operativos. Los datos públicos de
-la organización también aparecen en Organizaciones como externos de solo lectura.
-No se permite guardar cambios sobre una obra recibida.
+Las obras vinculadas aparecen también en **Inicio / Obras**, con el distintivo
+**Externa · Solo lectura**, la organización de origen, la identidad del propietario
+y la fecha de la última copia. **Abrir** usa las mismas pestañas que una obra propia.
+La cabecera conserva su estado: **Emitido · Solo lectura** o
+**En elaboración · Solo lectura**. Podés consultar los presupuestos disponibles,
+sin modificar datos locales ni la obra original. **Inicio** vuelve a tus propias obras.
+
+### Elegir qué puede ver cada observador
+
+Al crear una invitación, seleccioná los apartados autorizados: presupuesto,
+determinación de precio, insumos y composiciones, gestión de obra, contabilidad
+y finanzas, planificación y datos de obra. Debe quedar al menos uno seleccionado.
+En una invitación existente, **Permisos** permite cambiar esta selección.
+
+El propietario filtra los documentos antes del envío; los apartados excluidos no
+viajan en la copia nueva. Los controles de edición permanecen deshabilitados en
+todas las vistas externas. Las invitaciones anteriores conservan acceso completo
+hasta que el propietario cambie sus permisos. Ambos equipos deben actualizarse.
+Un cambio de permisos se aplica al recibir una copia nueva; no elimina archivos,
+impresiones o copias que el observador haya guardado anteriormente.
+Los textos libres escritos por el propietario no se analizan para censurar su contenido.
+Los datos públicos de la organización siguen identificando el origen de la obra.
 
 ## Actualización, desconexión y revocación
 

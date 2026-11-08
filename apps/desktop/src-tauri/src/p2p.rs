@@ -1,6 +1,7 @@
 //! Authenticated read-only project replication over iroh's encrypted QUIC and relay fallback.
 use crate::{backups::now, Db};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use cpobras_storage::sharing::{restrict_shared_document, SharingPermissions};
 use iroh::{endpoint::presets, Endpoint, EndpointAddr, SecretKey};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -17,6 +18,8 @@ const ALPN: &[u8] = b"cpobras/read-only-project/1";
 const MAX_SNAPSHOT: usize = 32 * 1024 * 1024;
 #[derive(Clone, Serialize, Deserialize)]
 struct Grant {
+    #[serde(default)]
+    permissions: SharingPermissions,
     id: Uuid,
     project_id: Uuid,
     label: String,
@@ -27,6 +30,8 @@ struct Grant {
 }
 #[derive(Clone, Serialize, Deserialize)]
 struct Subscription {
+    #[serde(default)]
+    metadata: Option<Value>,
     id: Uuid,
     ticket: Ticket,
     name: String,
@@ -151,7 +156,7 @@ impl P2p {
     pub fn status(&self) -> Result<Value> {
         let saved = lock(&self.saved)?;
         Ok(
-            json!({"enabled":saved.enabled,"peer_id":SecretKey::from_bytes(&saved.key).public().to_string(),"network_error":*lock(&self.network_error)?,"shares":saved.grants.iter().map(|g|json!({"id":g.id,"project_id":g.project_id,"label":g.label,"peer":g.peer,"revoked":g.revoked,"last_seen":g.last_seen})).collect::<Vec<_>>(),"subscriptions":saved.subscriptions.iter().map(|s|json!({"id":s.id,"name":s.name,"owner":s.ticket.owner.id.to_string(),"project_id":s.ticket.project_id,"last_sync":s.last_sync,"last_checked":s.last_checked,"error":s.error,"revoked":s.revoked,"has_snapshot":self.cache_path(s.id).is_file()})).collect::<Vec<_>>()}),
+            json!({"enabled":saved.enabled,"peer_id":SecretKey::from_bytes(&saved.key).public().to_string(),"network_error":*lock(&self.network_error)?,"shares":saved.grants.iter().map(|g|json!({"id":g.id,"project_id":g.project_id,"label":g.label,"peer":g.peer,"revoked":g.revoked,"last_seen":g.last_seen,"permissions":g.permissions})).collect::<Vec<_>>(),"subscriptions":saved.subscriptions.iter().map(|s|json!({"id":s.id,"name":s.name,"owner":s.ticket.owner.id.to_string(),"project_id":s.ticket.project_id,"last_sync":s.last_sync,"last_checked":s.last_checked,"error":s.error,"revoked":s.revoked,"has_snapshot":self.cache_path(s.id).is_file()})).collect::<Vec<_>>()}),
         )
     }
     pub async fn set_enabled<R: tauri::Runtime>(
@@ -282,6 +287,7 @@ impl P2p {
             .map_err(|e| e.to_string())?
             .shared_project_document(grant.project_id, &date)
             .map_err(|e| e.to_string())?;
+        let data = restrict_shared_document(data, &grant.permissions);
         let bytes = serde_json::to_vec(&data).map_err(|e| e.to_string())?;
         if bytes.len() > MAX_SNAPSHOT - 1024 {
             return Err("La obra supera el tamaño admitido para compartir (32 MB)".into());
@@ -297,7 +303,9 @@ impl P2p {
         app: &tauri::AppHandle<R>,
         project_id: Uuid,
         label: String,
+        permissions: SharingPermissions,
     ) -> Result<Value> {
+        permissions.validate().map_err(|e| e.to_string())?;
         if label.trim().is_empty() || label.len() > 200 {
             return Err("Indicá para quién es la invitación".into());
         }
@@ -334,6 +342,7 @@ impl P2p {
         }
         let token = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
         let grant = Grant {
+            permissions,
             id: Uuid::new_v4(),
             project_id,
             label: label.trim().into(),
@@ -382,6 +391,7 @@ impl P2p {
             let id = Uuid::new_v4();
             let mut next = saved.clone();
             next.subscriptions.push(Subscription {
+                metadata: None,
                 id,
                 ticket,
                 name: "Obra pendiente de recibir".into(),
@@ -400,6 +410,58 @@ impl P2p {
         let _guard = self.sync.lock().await;
         self.sync_one(app, id).await;
         self.status()
+    }
+    pub fn set_permissions(&self, id: Uuid, permissions: SharingPermissions) -> Result<Value> {
+        permissions.validate().map_err(|e| e.to_string())?;
+        let mut saved = lock(&self.saved)?;
+        let mut next = saved.clone();
+        next.grants
+            .iter_mut()
+            .find(|g| g.id == id && !g.revoked)
+            .ok_or("Invitación inexistente o revocada")?
+            .permissions = permissions;
+        self.persist(&next)?;
+        *saved = next;
+        drop(saved);
+        self.status()
+    }
+    pub fn projects(&self) -> Result<Value> {
+        let subscriptions = lock(&self.saved)?.subscriptions.clone();
+        let mut rows = vec![];
+        for s in subscriptions {
+            let has_snapshot = self.cache_path(s.id).is_file();
+            let mut error = None;
+            let metadata = if let Some(m) = s
+                .metadata
+                .clone()
+                .filter(|m| m["_revision"] == json!(s.revision))
+            {
+                m
+            } else {
+                match self.read(s.id) {
+                    Ok(copy) => {
+                        let d = &copy["data"];
+                        let m = json!({"_revision":s.revision,"name":d["project"]["name"],"organization_name":d["organization"]["name"],"client_name":d["client"]["name"],"currency":d["project"]["currency"],"received_at":copy["received_at"]});
+                        let mut saved = lock(&self.saved)?;
+                        if let Some(current) = saved
+                            .subscriptions
+                            .iter_mut()
+                            .find(|r| r.id == s.id && r.revision == s.revision)
+                        {
+                            current.metadata = Some(m.clone());
+                            let _ = self.persist(&saved);
+                        }
+                        m
+                    }
+                    Err(e) => {
+                        error = Some(e);
+                        json!({"name":s.name})
+                    }
+                }
+            };
+            rows.push(json!({"id":s.id,"project_id":s.ticket.project_id,"name":metadata["name"],"organization_name":metadata["organization_name"],"client_name":metadata["client_name"],"currency":metadata["currency"],"owner":s.ticket.owner.id.to_string(),"revision":s.revision,"received_at":metadata["received_at"],"last_checked":s.last_checked,"error":s.error.or(error),"revoked":s.revoked,"has_snapshot":has_snapshot}));
+        }
+        Ok(json!(rows))
     }
     pub fn revoke(&self, id: Uuid) -> Result<Value> {
         let mut saved = lock(&self.saved)?;
@@ -448,7 +510,7 @@ impl P2p {
             return Err("Origen de la copia inválido".into());
         }
         Ok(
-            json!({"data":cached.data,"received_at":cached.received_at,"owner":cached.owner,"read_only":true,"revoked":sub.revoked,"error":sub.error}),
+            json!({"data":cached.data,"revision":cached.revision,"received_at":cached.received_at,"owner":cached.owner,"read_only":true,"revoked":sub.revoked,"error":sub.error}),
         )
     }
     pub async fn sync_all<R: tauri::Runtime>(&self, app: &tauri::AppHandle<R>) -> Result<Value> {
@@ -493,6 +555,7 @@ impl P2p {
                 s.last_checked = Some(now());
                 match result {
                     Ok(Some((revision, name))) => {
+                        s.metadata = None;
                         s.last_sync = Some(now());
                         s.revision = Some(revision);
                         s.name = name;
@@ -719,6 +782,26 @@ mod tests {
             currency: Currency::Ars,
         };
         store.save_project(&project).unwrap();
+        let estimate = cpobras_storage::estimates::Estimate {
+            id: Uuid::new_v4(),
+            project_id: project.id,
+            title: "Presupuesto compartido".into(),
+            currency: Currency::Ars,
+            issued: false,
+        };
+        store.create_estimate(&estimate).unwrap();
+        store
+            .add_estimate_item(&cpobras_storage::estimates::EstimateItem {
+                id: Uuid::new_v4(),
+                estimate_id: estimate.id,
+                position: 0,
+                analysis_id: None,
+                description: "Partida del propietario".into(),
+                unit: "m".into(),
+                quantity: 2.into(),
+                unit_cost_snapshot: 100.into(),
+            })
+            .unwrap();
         let mut p = P2p::load(temp.path().join("p2p")).unwrap();
         p.local_only = true;
         p.relay = relay;
@@ -751,6 +834,7 @@ mod tests {
             {
                 let mut s = lock(&o.saved).unwrap();
                 s.grants.push(Grant {
+                    permissions: SharingPermissions::default(),
                     id: grant_id,
                     project_id: project.id,
                     label: "Observador".into(),
@@ -818,6 +902,18 @@ mod tests {
                 p.read(sub.id).unwrap()["data"]["project"]["name"],
                 "Obra actualizada"
             );
+            {
+                let db = owner.state::<Db>();
+                let store = db.lock().unwrap();
+                assert_eq!(
+                    store
+                        .shared_project_document(project.id, "2026-11-08")
+                        .unwrap(),
+                    store
+                        .shared_project_document(project.id, "2026-11-08")
+                        .unwrap()
+                );
+            }
             let path = p.cache_path(sub.id);
             let modified = std::fs::metadata(&path).unwrap().modified().unwrap();
             p.sync_all(observer.handle()).await.unwrap();
@@ -825,6 +921,29 @@ mod tests {
                 std::fs::metadata(&path).unwrap().modified().unwrap(),
                 modified
             );
+            let permissions = SharingPermissions {
+                price: false,
+                resources: false,
+                accounting: false,
+                ..Default::default()
+            };
+            o.set_permissions(grant_id, permissions).unwrap();
+            p.sync_all(observer.handle()).await.unwrap();
+            let restricted = p.read(sub.id).unwrap();
+            assert_eq!(restricted["data"]["permissions"]["price"], false);
+            assert!(restricted["data"]["budgets"][0]["print_data"].is_null());
+            assert_eq!(
+                restricted["data"]["budgets"][0]["document"]["rates"],
+                json!({})
+            );
+            assert_eq!(
+                restricted["data"]["budgets"][0]["pricing"]["definition"]["rows"],
+                json!([])
+            );
+            let home = p.projects().unwrap();
+            assert_eq!(home[0]["name"], "Obra actualizada");
+            assert_eq!(home[0]["client_name"], "Comitente");
+            assert_eq!(home[0]["has_snapshot"], true);
             o.revoke(grant_id).unwrap();
             p.sync_all(observer.handle()).await.unwrap();
             assert!(p.read(sub.id).unwrap()["revoked"].as_bool().unwrap());
@@ -872,7 +991,12 @@ mod tests {
             let o = owner.state::<P2p>();
             let p = observer.state::<P2p>();
             let invitation = o
-                .invite(owner.handle(), project.id, "Observador por relay".into())
+                .invite(
+                    owner.handle(),
+                    project.id,
+                    "Observador por relay".into(),
+                    SharingPermissions::default(),
+                )
                 .await
                 .unwrap();
             assert!(o

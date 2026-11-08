@@ -245,3 +245,13 @@ Guía, reglas económicas y límites: [OPERATIONS.md](OPERATIONS.md).
 
 Los comandos de compilación y arranque y una guía para probar los avances
 están en el [README principal](../README.md).
+
+## Obras externas y permisos (0.1.2)
+
+Verificados 22 casos del núcleo, 71 de almacenamiento, 29 de JavaScript y
+47 flujos de navegador. Se cubren las vistas de solo lectura, estados emitidos,
+selección y edición de permisos por observador, bloqueo de mutaciones y
+filtrado de información secundaria (impresiones, informes e historial de planes).
+Las 13 pruebas nativas también verifican la réplica cifrada, la revocación,
+la edición de permisos y la conservación de la copia sin reescribirla cuando
+no hay cambios. La compilación del frontend y las comprobaciones de formato Rust pasan.

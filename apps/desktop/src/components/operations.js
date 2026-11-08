@@ -648,6 +648,7 @@ export function createOperationsWorkspace({
     );
   }
   function dashboard() {
+    if(state.remoteProject?.data.permissions?.accounting===false)return `<p class="context-help">El propietario no compartió información contable. Se muestra la producción autorizada de esta obra.</p>${production()}`;
     return `<p class="context-help">${state.view==='portfolio'?"Cartera global: último presupuesto emitido de cada obra, o último borrador si no hay emitidos.":"Tablero de esta obra con el presupuesto activo indicado arriba."} Fecha de corte: ${e(model.asOf)}. Los importes se muestran por moneda. El costo real proviene de consumos netos, servicios aceptados y horas de partes, sin duplicar las facturas. El costo a terminar utiliza la última proyección o la proporción del costo presupuestado pendiente según producción.</p>${table(
       [
         "Obra",
@@ -738,7 +739,7 @@ export function createOperationsWorkspace({
 
       ],
       model.exportScope || "summary",
-    )}<button class="btn" data-action="ops-export" data-format="xlsx">Informe Excel</button><button class="btn" data-action="ops-export" data-format="pdf">Informe PDF</button></div>${model.lastExport ? `<p role="status">Guardado en ${e(model.lastExport)}</p>` : ""}${model.report?.alerts.map((a) => `<p class="operations-alert">${e(a)}</p>`).join("") || ""}${model.tab === "dashboard" ? dashboard() : !model.projectId ? "<p>Seleccioná una obra para comenzar.</p>" : `${model.tab === "purchases" ? purchasing() : model.tab === "production" ? production() : model.tab === "finance" ? finances() : summary(model.report)}${formMarkup()}<h3>Historial de documentos de esta obra (todas las versiones)</h3>${documentRows()}`}${detail()}</section>`;
+    )}<button class="btn" data-action="ops-export" data-format="xlsx">Informe Excel</button><button class="btn" data-action="ops-export" data-format="pdf">Informe PDF</button></div>${model.lastExport ? `<p role="status">Guardado en ${e(model.lastExport)}</p>` : ""}${model.report?.alerts.map((a) => `<p class="operations-alert">${e(a)}</p>`).join("") || ""}${model.tab === "dashboard" ? dashboard() : !model.projectId ? "<p>Seleccioná una obra para comenzar.</p>" : `${model.tab === "purchases" ? purchasing() : model.tab === "production" ? production() : model.tab === "finance" ? finances() : summary(model.report)}${state.remoteProject?"":formMarkup()}<h3>Historial de documentos de esta obra (todas las versiones)</h3>${documentRows()}`}${detail()}</section>`;
   }
   async function act(button) {
     const a = button.dataset.action;
@@ -767,6 +768,7 @@ export function createOperationsWorkspace({
       ]);
       model.partners=model.partners.filter(p=>!p.project_id||p.project_id===model.projectId);
       model.centers=model.centers.filter(c=>!c.project_id||c.project_id===model.projectId);
+      if(state.remoteProject){const p=state.remoteProject.data.permissions||{};model.tab=p.operations===false?'finance':'dashboard';model.asOf=state.remoteProject.data.as_of||model.asOf;model.draft=null;model.exportScope=p.accounting===false?'production':'summary';}
       await refresh();
       if (model.tab !== "dashboard")
         model.draft ||= draft(operationGroups[model.tab][0]);

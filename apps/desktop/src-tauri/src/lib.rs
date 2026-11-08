@@ -49,6 +49,8 @@ pub(crate) fn configure<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri:
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             commands::p2p::p2p_status,
+            commands::p2p::p2p_projects,
+            commands::p2p::p2p_set_permissions,
             commands::p2p::p2p_enable,
             commands::p2p::p2p_invite,
             commands::p2p::p2p_join,

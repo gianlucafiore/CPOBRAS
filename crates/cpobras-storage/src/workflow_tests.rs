@@ -2665,3 +2665,45 @@ fn shared_project_contains_only_its_own_data_and_leaves_the_database_unchanged()
         .shared_project_document(Uuid::new_v4(), "2026-11-07")
         .is_err());
 }
+
+#[test]
+fn shared_permissions_remove_secrets_from_secondary_documents_and_keep_the_allowed_budget() {
+    use crate::sharing::{restrict_shared_document, SharingPermissions};
+    use serde_json::json;
+    let data = json!({"version":1,"project":{"name":"Obra visible"},"client":{"id":"c","name":"Comitente","email":"SECRET_CONTACT"},"parties":[{"id":"p","kind":"supplier","name":"Proveedor","attributes":{"phone":"SECRET_PHONE"}}],"suppliers":["SECRET_PROVIDER"],"records":["SECRET_RECORD"],"resources":["SECRET_RESOURCE"],"stock":["SECRET_STOCK"],"planning":{"plan":{"tasks":["SECRET_PLAN"]}},"schedule":"SECRET_SCHEDULE","plan_revisions":["SECRET_HISTORY"],"baselines":["SECRET_BASELINE"],"warehouses":[],"operations":[{"kind":"purchase_order","number":"Orden visible","lines":["SECRET_RESOURCE"]},{"kind":"payment","notes":"SECRET_PAYMENT"},{"kind":"forecast","notes":"SECRET_FORECAST"}],"budgets":[{"estimate":{"title":"Presupuesto visible"},"document":{"lines":[{"description":"Partida visible"}],"sections":[],"assignments":[],"takeoffs":[],"formulas":[],"line_analyses":["SECRET_COMPOSITION"],"rates":{"profit_percent":"SECRET_MARGIN"},"price_definition":"SECRET_PRICE"},"pricing":{"revision":1,"direct":"200","definition":{"rows":["SECRET_PRICE"]},"calculation":{"breakdown":{"total":"242","profit":"SECRET_MARGIN"}}},"totals":{},"resource_prices":{"x":"SECRET_RESOURCE_PRICE"},"print_data":{"document":"SECRET_NESTED_PRINT","client":"SECRET_CONTACT"},"report":{"summaries":["SECRET_ACCOUNTING"],"cash_flow":["SECRET_CASH"],"costs":["SECRET_COST"],"section_results":["SECRET_RESULT"],"quotes":["SECRET_QUOTE"],"needs":["SECRET_RESOURCE"],"production":[],"alerts":["SECRET_FINANCE_ALERT"]}}]});
+    let p = SharingPermissions {
+        budget: true,
+        price: false,
+        resources: false,
+        operations: true,
+        accounting: false,
+        planning: false,
+        project_data: false,
+    };
+    let filtered = restrict_shared_document(data.clone(), &p);
+    assert!(!filtered.to_string().contains("SECRET"), "{filtered}");
+    assert_eq!(
+        filtered["budgets"][0]["document"]["lines"][0]["description"],
+        "Partida visible"
+    );
+    assert_eq!(filtered["budgets"][0]["totals"]["total"], "242");
+    assert_eq!(filtered["operations"].as_array().unwrap().len(), 1);
+    let p = SharingPermissions {
+        budget: false,
+        price: false,
+        resources: false,
+        operations: false,
+        accounting: true,
+        planning: false,
+        project_data: false,
+    };
+    let finance = restrict_shared_document(data, &p);
+    assert_eq!(finance["budgets"][0]["document"]["lines"], json!([]));
+    assert_eq!(finance["operations"].as_array().unwrap().len(), 2);
+    assert!(finance["planning"].is_null());
+    let no_access = SharingPermissions {
+        accounting: false,
+        ..p
+    };
+    assert!(no_access.validate().is_err());
+}

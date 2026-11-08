@@ -1,6 +1,14 @@
 import { sumDecimals } from "../decimal.js";
-export function createWorkspaceService({ invoke, state, currentLine, render }) {
+export function createWorkspaceService({ invoke,globalInvoke=invoke, state, currentLine, render }) {
   async function loadCollections() {
+    if(state.remoteProject){
+      const remote=state.remoteProject,d=remote.data;
+      state.projects=[{...d.project,organization_id:d.organization.id,organization_name:d.organization.name,organization_locked:true,read_only:true}];
+      state.clients=d.client?[d.client]:[];state.personClients=state.clients;state.personSuppliers=d.suppliers||[];
+      state.organizations=[{...d.organization,ownership:'external',owner_peer_id:remote.owner,is_default:false}];
+      state.resources=await invoke('list_resources');state.analyses=await invoke('list_analyses');
+      state.units=(d.records||[]).filter(r=>r.kind==='unit');state.trades=(d.records||[]).filter(r=>r.kind==='trade');return;
+    }
     [
       state.clients,
       state.projects,
@@ -11,16 +19,18 @@ export function createWorkspaceService({ invoke, state, currentLine, render }) {
       state.organizations,
       state.personClients,
       state.personSuppliers,
+      state.externalProjects,
     ] = await Promise.all([
-      invoke("list_clients"),
-      invoke("list_projects"),
-      invoke("list_resources"),
-      invoke("list_analyses"),
-      invoke("list_management_records", { kind: "unit", projectId: null }),
-      invoke("list_management_records", { kind: "trade", projectId: null }),
-      invoke("list_organizations"),
-      invoke("list_persons", { role: "client" }),
-      invoke("list_persons", { role: "supplier" }),
+      globalInvoke("list_clients"),
+      globalInvoke("list_projects"),
+      globalInvoke("list_resources"),
+      globalInvoke("list_analyses"),
+      globalInvoke("list_management_records", { kind: "unit", projectId: null }),
+      globalInvoke("list_management_records", { kind: "trade", projectId: null }),
+      globalInvoke("list_organizations"),
+      globalInvoke("list_persons", { role: "client" }),
+      globalInvoke("list_persons", { role: "supplier" }),
+      globalInvoke("p2p_projects").catch(error=>{state.externalProjectError=String(error);return [];}),
     ]);
   }
   async function loadEstimates() {
@@ -126,7 +136,7 @@ export function createWorkspaceService({ invoke, state, currentLine, render }) {
     state.selectedSectionId = null;
     state.projectId = id;
     state.view = "workspace";
-    state.panel = "acu";
+    state.panel = state.remoteProject?.data.permissions?.resources===false?"takeoffs":"acu";
     state.selectedLineId = null;
     await loadEstimates();
     state.estimateId = state.estimates[0]?.id || null;

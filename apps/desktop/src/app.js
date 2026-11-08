@@ -1,3 +1,4 @@
+import {createRemoteInvoke,protectRemoteControls,remoteActionAllowed} from "./services/remote-workspace.js";
 import { createSharing } from "./components/sharing.js";
 import { createPersons } from "./components/persons.js";
 import { createOrganizations } from "./components/organizations.js";
@@ -29,11 +30,14 @@ export function createWorkspaceApp({
 }) {
   const root = document.querySelector("#app");
   const state = createState();
+  const nativeInvoke=invoke;
+  invoke=createRemoteInvoke(nativeInvoke,state);
   const selectors = createSelectors(state);
   const service = createWorkspaceService({
     invoke,
     state,
     currentLine: selectors.currentLine,
+    globalInvoke:nativeInvoke,
     render,
   });
   const context = {
@@ -45,6 +49,8 @@ export function createWorkspaceApp({
     renderSelection,
     openModal,
     closeModal,
+    openExternalProject,
+    refreshExternalSession,
     document,
     window,
     FormData,
@@ -135,6 +141,7 @@ export function createWorkspaceApp({
       patterns.afterRender();
     }
     if (state.view === "price-determination") pricing.afterRender();
+    protectRemoteControls(root,state);
     const restored = document.querySelector(".table-scroll");
     if (restored) restored.scrollTop = position;
     if (state.search) filterRows(state.search);
@@ -193,6 +200,7 @@ export function createWorkspaceApp({
     "open-budget-tools": "budget-tools",
     "open-organizations": "organizations",
     "open-sharing": "sharing",
+    "open-external-project": "workspace",
     "open-budget-printing": "budget-printing",
   };
   function protectContext() {
@@ -257,6 +265,8 @@ export function createWorkspaceApp({
     render();
     try {
       if (action === "go-home") {
+        if(state.remoteProject){state.remoteProject=null;state.projects=[];state.clients=[];state.resources=[];state.analyses=[];state.organizations=[];}
+
         Object.assign(state, {
           projectId: null,
           estimateId: null,
@@ -275,6 +285,7 @@ export function createWorkspaceApp({
           search: "",
           contextMenu: null,
         });
+        await service.loadCollections();
         render();
       } else if (action === "open-workspace") {
         state.view = "workspace";
@@ -288,6 +299,7 @@ export function createWorkspaceApp({
         await costing.act(button);
       } else if (action === "open-price-determination")
         await pricing.act(button);
+      else if (action === "open-external-project") await openExternalProject(button.dataset.id);
       else if (action === "open-sharing") await sharing.act(button);
       else if (action === "open-organizations") await organizations.act(button);
       else if (action === "open-budget-printing") await printing.act(button);
@@ -299,6 +311,37 @@ export function createWorkspaceApp({
       render();
     }
     return true;
+  }
+  async function showExternalView(view){
+    const p=state.remoteProject?.data.permissions||{};
+    if(view==='price-determination'&&p.price!==false)await pricing.act({dataset:{action:'open-price-determination'}});
+    else if(view==='operations'&&(p.operations!==false||p.accounting!==false))await operations.act({dataset:{action:'open-operations'}});
+    else if(view==='planning'&&p.planning!==false)await planning.act({dataset:{action:'open-planning'}});
+    else if(view==='management'&&p.project_data!==false)await management.act({dataset:{action:'open-management'}});
+    else if(p.budget!==false)state.view='workspace';
+    else if(p.price!==false)await pricing.act({dataset:{action:'open-price-determination'}});
+    else if(p.operations!==false||p.accounting!==false)await operations.act({dataset:{action:'open-operations'}});
+    else if(p.planning!==false)await planning.act({dataset:{action:'open-planning'}});
+    else await management.act({dataset:{action:'open-management'}});
+  }
+  async function openExternalProject(id){
+    const remote=await nativeInvoke('p2p_read',{id});state.remoteProject={...remote,id};
+    await service.loadCollections();await service.openProject(remote.data.project.id);
+    await showExternalView('workspace');render();
+  }
+  async function refreshExternalSession(){
+    const before=state.remoteProject;if(!before||state.busy||state.navigating||state.pageDirty||document.querySelector('[role=dialog]'))return;
+    const links=await nativeInvoke('p2p_projects');const link=links.find(p=>p.id===before.id);
+    if(state.remoteProject!==before||!link||link.revision===before.revision&&link.received_at===before.received_at&&link.revoked===before.revoked&&(link.error||null)===(before.error||null))return;
+    const remote=await nativeInvoke('p2p_read',{id:before.id});
+    if(state.remoteProject!==before)return;
+    state.busy=true;
+    try{
+      const view=state.view,estimateId=state.estimateId,lineId=state.selectedLineId;
+      state.remoteProject={...remote,id:before.id};await service.loadCollections();await service.loadEstimates();
+      state.estimateId=state.estimates.some(e=>e.id===estimateId)?estimateId:state.estimates[0]?.id||null;
+      state.selectedLineId=lineId;await service.loadEstimate();await showExternalView(view);render();
+    }finally{state.busy=false;}
   }
   async function switchEstimate(id) {
     if (state.busy || state.navigating) return;
@@ -416,6 +459,7 @@ export function createWorkspaceApp({
       state.pageDirty = false;
     }
     try {
+      if(!remoteActionAllowed(state,button))return;
       if (await route(button)) return;
       if (button.dataset.action.startsWith("share-")) {await sharing.act(button);return;}
       if (button.dataset.action.startsWith("person-")) {
@@ -491,7 +535,7 @@ export function createWorkspaceApp({
   document.addEventListener("submit", async (evt) => {
     const groups = [
       [people, ["person-form"]],
-      [sharing, ["p2p-invite-form", "p2p-join-form"]],
+      [sharing, ["p2p-invite-form", "p2p-join-form", "p2p-access-form"]],
       [organizations, ["organization-create-form"]],
       [printProfile, ["print-profile-form"]],
       [printing, ["budget-print-form"]],
@@ -593,10 +637,9 @@ export function createWorkspaceApp({
     }
   });
   document.addEventListener("change", async (evt) => {
-    sharing.change(evt.target);
     if (
       evt.target.closest?.(
-        "#p2p-invite-form,#p2p-join-form,#organization-create-form,#print-profile-form,#budget-print-form,#management-form,#planning-task-form,#planning-settings,#budget-bulk-form,#nested-analysis-form,#price-list-form,#scoped-price-form",
+        "#p2p-invite-form,#p2p-join-form,#p2p-access-form,#organization-create-form,#print-profile-form,#budget-print-form,#management-form,#planning-task-form,#planning-settings,#budget-bulk-form,#nested-analysis-form,#price-list-form,#scoped-price-form",
       )
     )
       state.pageDirty = true;
@@ -655,7 +698,7 @@ export function createWorkspaceApp({
   document.addEventListener("input", (evt) => {
     if (
       evt.target.closest?.(
-        "#p2p-invite-form,#p2p-join-form,#organization-create-form,#print-profile-form,#budget-print-form,#management-form,#planning-task-form,#planning-settings,#budget-bulk-form,#nested-analysis-form,#price-list-form,#scoped-price-form",
+        "#p2p-invite-form,#p2p-join-form,#p2p-access-form,#organization-create-form,#print-profile-form,#budget-print-form,#management-form,#planning-task-form,#planning-settings,#budget-bulk-form,#nested-analysis-form,#price-list-form,#scoped-price-form",
       )
     )
       state.pageDirty = true;
@@ -710,7 +753,7 @@ export function createWorkspaceApp({
       render();
     });
   });
-  document.addEventListener("pointerdown", (evt) => planning.pointerDown(evt));
+  document.addEventListener("pointerdown", (evt) => {if(!state.remoteProject)planning.pointerDown(evt);});
   document.addEventListener("pointerup", async (evt) => {
     try {
       await planning.pointerUp(evt);

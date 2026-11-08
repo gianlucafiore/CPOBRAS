@@ -64,6 +64,8 @@ commands.allow = [
   "list_plan_baselines",
   "list_plan_revisions",
   "p2p_status",
+  "p2p_projects",
+  "p2p_set_permissions",
   "p2p_enable",
   "p2p_invite",
   "p2p_join",

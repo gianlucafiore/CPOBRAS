@@ -2,6 +2,8 @@ export function createState() {
   return {
     view: "projects",
     organizations: [],
+    externalProjects: [],
+    remoteProject:null,
     personClients: [],
     personSuppliers: [],
     organizationId: null,
@@ -59,7 +61,7 @@ export function createSelectors(state) {
     state.clients.find((c) => c.id === id)?.name || "Sin cliente";
   const locked = () =>
     !editable()
-      ? "disabled title='El presupuesto está emitido o no hay presupuesto'"
+      ? (state.remoteProject?"disabled title='Obra externa de solo lectura'":"disabled title='El presupuesto está emitido o no hay presupuesto'")
       : "";
   return {
     currentProject,
