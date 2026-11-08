@@ -27,6 +27,13 @@ export function createPlanningWorkspace({
   const model = {
     tab: "gantt",
     calendarOpen: false,
+    financeOpen: false,
+    overview: [],
+    generalCalendar: {
+      revision: 0,
+      nonworking_weekdays: [5, 6],
+      exceptions: {},
+    },
     cutMode: false,
     viewport: { x: 40, y: 40, zoom: 1 },
     splitting: null,
@@ -48,6 +55,7 @@ export function createPlanningWorkspace({
   let drag = null;
   const uuid = () => window.crypto.randomUUID();
   const empty = () => ({
+    calendar_overrides: { nonworking_weekdays: null, exceptions: {} },
     calendar: {
       start_date: dateToday(),
       nonworking_weekdays: [5, 6],
@@ -65,19 +73,67 @@ export function createPlanningWorkspace({
     presentation: {},
     tasks: [],
   });
+  function applyCalendar() {
+    if (!model.plan?.calendar_overrides) return;
+    const local = model.plan.calendar_overrides;
+    model.plan.calendar.nonworking_weekdays =
+      local.nonworking_weekdays || model.generalCalendar.nonworking_weekdays;
+    model.plan.calendar.exceptions = {
+      ...model.generalCalendar.exceptions,
+      ...local.exceptions,
+    };
+    for (const [date, x] of Object.entries(local.exceptions)) {
+      const general = model.generalCalendar.exceptions[date];
+      if (
+        general &&
+        general.description &&
+        !x.description.includes(general.description)
+      )
+        model.plan.calendar.exceptions[date] = {
+          ...x,
+          description: [...(general.description + " · " + x.description)]
+            .slice(0, 500)
+            .join(""),
+        };
+    }
+    model.plan.calendar.holidays = [];
+  }
   async function refresh() {
     if (!model.projectId) {
       model.plan = empty();
       model.schedule = null;
       return;
     }
-    const [saved, baselines, crews, history] = await Promise.all([
+    const [saved, baselines, crews, history, general] = await Promise.all([
       invoke("get_project_plan", { projectId: model.projectId }),
       invoke("list_plan_baselines", { projectId: model.projectId }),
       invoke("list_management_records", { kind: "crew", projectId: null }),
       invoke("list_plan_revisions", { projectId: model.projectId }),
+      invoke("get_general_calendar"),
     ]);
+    model.generalCalendar = general || model.generalCalendar;
     model.plan = saved?.plan || empty();
+    if (!model.plan.calendar_overrides)
+      model.plan.calendar_overrides = {
+        nonworking_weekdays:
+          JSON.stringify(model.plan.calendar.nonworking_weekdays) ===
+          JSON.stringify(model.generalCalendar.nonworking_weekdays)
+            ? null
+            : model.plan.calendar.nonworking_weekdays,
+        exceptions: {
+          ...model.plan.calendar.exceptions,
+          ...Object.fromEntries(
+            (model.plan.calendar.holidays || []).map((d) => [
+              d,
+              model.plan.calendar.exceptions?.[d] || {
+                description: "Feriado previo",
+                working: false,
+              },
+            ]),
+          ),
+        },
+      };
+    applyCalendar();
     model.plan.finance ||= {
       cut_dates: [],
       collection_delay_days: 0,
@@ -95,6 +151,13 @@ export function createPlanningWorkspace({
     );
     model.editing = null;
     model.dirty = false;
+    model.overview = state.estimateId
+      ? (await invoke("certification_overview", {
+          projectId: model.projectId,
+          estimateId: state.estimateId,
+          asOf: model.asOf,
+        })) || []
+      : [];
     model.schedule = await invoke("calculate_schedule", {
       plan: model.plan,
       asOf: model.asOf,
@@ -102,6 +165,7 @@ export function createPlanningWorkspace({
   }
   async function save() {
     model.dirty = true;
+    applyCalendar();
     const saved = await invoke("save_project_plan", {
       projectId: model.projectId,
       revision: model.revision,
@@ -115,6 +179,17 @@ export function createPlanningWorkspace({
     model.history = await invoke("list_plan_revisions", {
       projectId: model.projectId,
     }).catch(() => model.history);
+    model.overview = state.estimateId
+      ? (await invoke("certification_overview", {
+          projectId: model.projectId,
+          estimateId: state.estimateId,
+          asOf: model.asOf,
+        }).catch((error) => {
+          state.message =
+            "Plan guardado; no se pudo actualizar la previsión: " + error;
+          return model.overview;
+        })) || []
+      : [];
     model.schedule = await invoke("calculate_schedule", {
       plan: model.plan,
       asOf: model.asOf,
@@ -319,29 +394,45 @@ export function createPlanningWorkspace({
   }
   function financialSettings() {
     const f = model.plan.finance || {};
-    return `<details class="planning-options"><summary>Cortes de certificación y previsión financiera</summary><p>Los cortes dividen el cronograma en períodos inclusivos. El cálculo financiero se consulta en Gestión de obra → Finanzas. Los ingresos son previsiones de avance planificado: para cobrar, registrá el certificado con las cantidades realmente ejecutadas.</p><form id="planning-finance" class="feature-toolbar"><fieldset><legend>Cortes de certificación (destildá para quitar)</legend>${(f.cut_dates || []).map((d) => `<label><input type="checkbox" name="cut_date" value="${e(d)}" checked> ${e(d)}</label>`).join("")}</fieldset>${field("Agregar fecha de corte", "new_cut", "", 'type="date"')}${field("Días desde corte hasta cobro", "collection_delay_days", f.collection_delay_days || 0, 'type="number" min="0" max="365" required')}${select(
-      "Moneda de la caja",
-      "cash_currency",
-      [
-        ["ARS", "ARS"],
-        ["USD", "USD"],
-      ],
-      f.cash_currency || "ARS",
-    )}${field("Caja disponible a la fecha de seguimiento", "opening_cash", f.opening_cash || "0", 'type="number" min="0" step="any" required')}${field("Reparo previsto %", "retention_percent", f.retention_percent || "0", 'type="number" min="0" max="100" step="any" required')}${field("Recuperación de anticipo del comitente %", "advance_recovery_percent", f.advance_recovery_percent || "0", 'type="number" min="0" max="100" step="any" required')}<button class="btn primary" type="submit">Guardar cortes y condiciones</button><p class="feature-error" role="alert"></p></form></details>`;
+    return `<section class="certifications-card"><div class="feature-toolbar"><h2>Certificaciones programadas</h2><button class="btn" data-action="plan-finance-conditions">Configurar condiciones</button><button class="btn" data-action="agreement-open">Acuerdo de ajuste del presupuesto</button><button class="btn" data-action="plan-overview-refresh">Actualizar previsión</button></div><p>El cobro previsto incluye el ajuste disponible, anticipo y reparo. El resto es ese cobro menos los gastos previstos de la siguiente etapa; no incluye la caja inicial y no es la ganancia de la obra. Los importes previstos no son certificados emitidos. Emitido no significa cobrado: los cobros se registran en Finanzas.</p><table class="data-grid"><thead><tr><th>Corte / estado</th><th>Cobro</th><th>Gastos próxima etapa</th><th>Resto</th><th>Índice aplicado</th><th>Fecha prevista de cobro</th></tr></thead><tbody>${model.overview.map((p) => `<tr><td>${e(p.cut)} · ${e(p.state)}</td><td class="number">${money(p.amount)}</td><td class="number">${money(p.next_expenses)}</td><td class="number">${money(p.remainder)}</td><td>${e(p.index_status)}${p.factor ? " · coef. " + numeric(p.factor) : ""}</td><td>${e(p.collection_date)}</td></tr>`).join("") || '<tr><td colspan="6">Marcá cortes en el Gantt para programar las certificaciones.</td></tr>'}</tbody></table>${
+      model.financeOpen
+        ? `<div class="planning-options"><h3>Condiciones de certificación y caja</h3><p>Los cortes dividen el cronograma en períodos inclusivos. El cálculo financiero se consulta en Gestión de obra → Finanzas. Los ingresos son previsiones de avance planificado: para cobrar, registrá el certificado con las cantidades realmente ejecutadas.</p><form id="planning-finance" class="feature-toolbar"><fieldset><legend>Cortes de certificación (destildá para quitar)</legend>${(f.cut_dates || []).map((d) => `<label><input type="checkbox" name="cut_date" value="${e(d)}" checked> ${e(d)}</label>`).join("")}</fieldset>${field("Agregar fecha de corte", "new_cut", "", 'type="date"')}${field("Días desde corte hasta cobro", "collection_delay_days", f.collection_delay_days || 0, 'type="number" min="0" max="365" required')}${select(
+            "Moneda de la caja",
+            "cash_currency",
+            [
+              ["ARS", "ARS"],
+              ["USD", "USD"],
+            ],
+            f.cash_currency || "ARS",
+          )}${field("Caja disponible a la fecha de seguimiento", "opening_cash", f.opening_cash || "0", 'type="number" min="0" step="any" required')}${field("Reparo previsto %", "retention_percent", f.retention_percent || "0", 'type="number" min="0" max="100" step="any" required')}${field("Recuperación de anticipo del comitente %", "advance_recovery_percent", f.advance_recovery_percent || "0", 'type="number" min="0" max="100" step="any" required')}<button class="btn primary" type="submit">Guardar cortes y condiciones</button><p class="feature-error" role="alert"></p></form></div>`
+        : ""
+    }</section>`;
   }
   function markup() {
     if (model.plan)
       calendarPicker.configure(
-        model.plan.calendar,
+        {
+          ...model.plan.calendar,
+          exceptions: model.plan.calendar_overrides?.exceptions || {},
+          holidays: [],
+        },
         model.projectId + ":" + model.revision,
       );
-    return `<main class="feature-page"><div class="feature-toolbar"><h1>Planificación de obras</h1><span class="scope-label">${e(state.projects.find((p) => p.id === state.projectId)?.name)}</span>${model.projectId ? '<button class="btn primary" data-action="plan-new">Nueva tarea / hito</button><button class="btn" data-action="plan-baseline">Guardar línea base</button>' : ""}</div>${
+    return `<main class="feature-page"><div class="feature-toolbar"><h1>Planificación de obras</h1><span class="scope-label">${e(state.projects.find((p) => p.id === state.projectId)?.name)}</span>${model.projectId ? '<button class="btn primary" data-action="plan-new">Nueva tarea / hito</button>' : ""}</div>${
       !model.projectId
         ? "<p>Seleccioná una obra para planificar.</p>"
         : `
-      <nav class="planning-tabs" aria-label="Vistas de planificación"><button class="btn ${model.tab === "gantt" ? "active" : ""}" role="tab" aria-selected="${model.tab === "gantt"}" data-action="plan-view" data-view="gantt">Gantt</button><button class="btn ${model.tab === "pert" ? "active" : ""}" role="tab" aria-selected="${model.tab === "pert"}" data-action="plan-view" data-view="pert">PERT</button></nav><div class="planning-overview-row"><details class="planning-options planning-calendar" ${model.calendarOpen ? "open" : ""}><summary>Calendario y seguimiento</summary><form id="planning-settings" class="feature-toolbar">${field("Inicio del proyecto", "start_date", model.plan.calendar.start_date, 'type="date" required')}${field("Fecha de seguimiento", "as_of", model.asOf, 'type="date" required')}<fieldset><legend>Días laborables</legend>${["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"].map((day, index) => `<label><input type="checkbox" name="workday" value="${index}" ${model.plan.calendar.nonworking_weekdays.includes(index) ? "" : "checked"}>${day}</label>`).join("")}</fieldset><div data-calendar-picker>${calendarPicker.markup()}</div><button class="btn primary" type="submit">Guardar calendario</button><p class="feature-error" role="alert"></p></form></details>
+      <nav class="planning-tabs" aria-label="Vistas de planificación"><button class="btn ${model.tab === "gantt" ? "active" : ""}" role="tab" aria-selected="${model.tab === "gantt"}" data-action="plan-view" data-view="gantt">Gantt</button><button class="btn ${model.tab === "pert" ? "active" : ""}" role="tab" aria-selected="${model.tab === "pert"}" data-action="plan-view" data-view="pert">PERT</button></nav><div class="planning-overview-row"><details class="planning-options planning-calendar" ${model.calendarOpen ? "open" : ""}><summary>Seguimiento y excepciones de esta obra</summary><form id="planning-settings" class="feature-toolbar">${field("Inicio del proyecto", "start_date", model.plan.calendar.start_date, 'type="date" required')}${field("Fecha de seguimiento", "as_of", model.asOf, 'type="date" required')}<p>Los feriados generales se administran en Inicio → Datos generales. Aquí solo modificás esta obra.</p><label><input type="checkbox" name="custom_week" ${model.plan.calendar_overrides?.nonworking_weekdays ? "checked" : ""}> Personalizar semana laborable de esta obra</label><fieldset><legend>Días laborables (si se personaliza la semana)</legend>${["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"].map((day, index) => `<label><input type="checkbox" name="workday" value="${index}" ${model.plan.calendar.nonworking_weekdays.includes(index) ? "" : "checked"}>${day}</label>`).join("")}</fieldset><details><summary>Feriados heredados del calendario general</summary>${
+        Object.entries(model.generalCalendar.exceptions || {})
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(
+            ([date, x]) =>
+              `<p>${e(date)} · ${e(x.description)} · ${x.working ? "Laborable general" : "No laborable general"} <button type="button" class="btn tiny" data-action="plan-calendar-override" data-date="${date}">${calendarPicker.model.exceptions[date] ? "Restaurar criterio general" : "Cambiar solo en esta obra"}</button></p>`,
+          )
+          .join("") || "Sin feriados generales cargados."
+      }</details><div data-calendar-picker>${calendarPicker.markup()}</div><button class="btn primary" type="submit">Guardar calendario</button><p class="feature-error" role="alert"></p></form></details>
       <div class="planning-metrics"><span>Duración <b>${model.schedule?.duration_days || 0} días laborables</b></span><span>Fin previsto <b>${e(model.schedule?.finish)}</b></span><span>Planificado <b>${numeric(model.schedule?.planned_progress)} %</b></span><span>Real <b>${numeric(model.schedule?.actual_progress)} %</b></span><span>${model.dirty ? "Cambios sin guardar" : "Revisión " + model.revision}</span></div></div>
-      ${model.schedule?.warnings.map((warning) => `<p class="feature-error">${e(warning)}</p>`).join("") || ""}<details class="planning-options"><summary>Líneas base e historial de revisiones</summary>${select("Comparar línea base", "planning-baseline", [["", "Sin superposición"], ...model.baselines.map((baseline) => [baseline.id, baseline.name + " · revisión " + baseline.revision])], model.baselineId)}<div class="feature-toolbar">${select("Historial de reprogramaciones", "planning-history", [["", "Seleccionar revisión"], ...model.history.map((saved) => [String(saved.revision), "Revisión " + saved.revision + " · " + saved.plan.tasks.length + " tareas"])], model.historyRevision)}<button class="btn" data-action="plan-recover">Recuperar como nueva revisión</button></div></details>${financialSettings()}${criticalExplanation()}${editor()}${splitEditor()}${model.tab === "pert" ? pert() : gantt()}<div class="feature-columns">${chart()}</div>`
+      ${model.schedule?.warnings.map((warning) => `<p class="feature-error">${e(warning)}</p>`).join("") || ""}${financialSettings()}${criticalExplanation()}${editor()}${splitEditor()}${model.tab === "pert" ? pert() : gantt()}<div class="feature-columns">${chart()}</div>`
     }</main>`;
   }
   async function loadLines() {
@@ -416,6 +507,11 @@ export function createPlanningWorkspace({
       return;
     }
     if (action === "plan-cut-date") {
+      if (
+        model.movedCut?.date === button.dataset.date &&
+        Date.now() - model.movedCut.at < 600
+      )
+        return;
       const previous = structuredClone(model.plan);
       model.plan.finance ||= {
         cut_dates: [],
@@ -437,6 +533,47 @@ export function createPlanningWorkspace({
         model.dirty = false;
         throw error;
       }
+      return;
+    }
+    if (
+      state.pageDirty &&
+      ["plan-finance-conditions", "plan-overview-refresh"].includes(action)
+    ) {
+      window.alert(
+        "Guardá primero los cambios del formulario para conservarlos antes de actualizar esta vista.",
+      );
+      return;
+    }
+    if (action === "plan-finance-conditions") {
+      model.financeOpen = !model.financeOpen;
+      render();
+      return;
+    }
+    if (action === "plan-overview-refresh") {
+      model.overview =
+        (await invoke("certification_overview", {
+          projectId: model.projectId,
+          estimateId: state.estimateId,
+          asOf: model.asOf,
+        })) || [];
+      render();
+      return;
+    }
+    if (action === "plan-calendar-override") {
+      model.calendarOpen = true;
+      const entries = calendarPicker.value(),
+        date = button.dataset.date;
+      if (entries[date]) delete entries[date];
+      else {
+        const base = model.generalCalendar.exceptions[date];
+        entries[date] = {
+          description: base.description,
+          working: !base.working,
+        };
+      }
+      calendarPicker.model.exceptions = entries;
+      state.pageDirty = true;
+      render();
       return;
     }
     if (action.startsWith("plan-calendar-")) {
@@ -780,14 +917,15 @@ export function createPlanningWorkspace({
       model.calendarOpen = Boolean(form.closest("details")?.open);
       model.plan.calendar.start_date = value("start_date");
       const exceptions = calendarPicker.value();
-      model.plan.calendar.exceptions = exceptions;
-      model.plan.calendar.holidays = Object.entries(exceptions)
-        .filter(([, v]) => !v.working)
-        .map(([date]) => date)
-        .sort();
-      model.plan.calendar.nonworking_weekdays = [0, 1, 2, 3, 4, 5, 6].filter(
-        (day) => !data.getAll("workday").includes(String(day)),
-      );
+      model.plan.calendar_overrides = {
+        exceptions,
+        nonworking_weekdays: data.has("custom_week")
+          ? [0, 1, 2, 3, 4, 5, 6].filter(
+              (day) => !data.getAll("workday").includes(String(day)),
+            )
+          : null,
+      };
+      applyCalendar();
       model.asOf = value("as_of");
       try {
         await save();
@@ -1041,5 +1179,13 @@ export function createPlanningWorkspace({
     drop,
     dragEnd,
     model,
+    refreshOverview: async () => {
+      model.overview =
+        (await invoke("certification_overview", {
+          projectId: model.projectId,
+          estimateId: state.estimateId,
+          asOf: model.asOf,
+        })) || [];
+    },
   };
 }

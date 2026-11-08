@@ -1,4 +1,5 @@
 //! CPOBRAS domain logic: deterministic quantities and money (never f32/f64).
+pub mod adjustments;
 pub mod contracting;
 pub mod costing;
 pub mod planning;

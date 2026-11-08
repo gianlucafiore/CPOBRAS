@@ -25,3 +25,5 @@ pub(crate) mod persons;
 pub(crate) mod p2p;
 
 pub(crate) mod project_dashboard;
+
+pub(crate) mod system_settings;

@@ -492,6 +492,7 @@ impl LocalStore {
              FROM estimate_pricing WHERE estimate_id=?2",
             params![copy.id.to_string(), source_id.to_string()],
         )?;
+        transaction.execute("INSERT INTO estimate_adjustment_agreements(estimate_id,revision,definition_json) SELECT ?1,1,definition_json FROM estimate_adjustment_agreements WHERE estimate_id=?2",params![copy.id.to_string(),source_id.to_string()])?;
         transaction.execute("INSERT INTO estimate_price_definitions(estimate_id,revision,definition_json) SELECT ?1,1,definition_json FROM estimate_price_definitions WHERE estimate_id=?2",params![copy.id.to_string(),source_id.to_string()])?;
         crate::estimate_resource_prices::synchronize(&transaction, copy.id, &BTreeMap::new())?;
         transaction.commit()?;

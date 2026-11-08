@@ -97,6 +97,16 @@ Finanzas**, consultá necesidades de materiales por período, pagos de cuadrilla
 vencimientos y capital adicional previsto. Declaración de acopio, anticipos,
 alquileres mensuales y conciliación de facturas: [guía de uso](docs/FINANCIAL_PLANNING.md).
 
+## Calendario e índices de ajuste
+
+**Inicio → Datos generales** reúne el calendario general y las publicaciones
+mensuales de CAC, IPC u otras series. Las obras heredan los feriados y permiten
+excepciones propias. Cada presupuesto define su mes base y combinación de índices.
+La lista de certificaciones distingue importes previstos y emitidos; los
+certificados provisorios permiten reclamar diferencias en el siguiente período,
+sin modificar los anteriores. También se pueden incluir adicionales puntuales.
+[Guía con ejemplos y criterios](docs/INDEX_ADJUSTMENTS.md).
+
 ## Vinculación P2P de solo lectura
 
 Desde **Inicio → Vinculación P2P**, elegí una obra, indicá el nombre del
@@ -321,10 +331,11 @@ presenta una ventana en el escritorio del usuario.
 5. Desde **Inicio → Costos y precios**, creá listas por proveedor/moneda/zona y cargá precios
    con fecha y fuente. Probá ACU compuestos, rendimientos, desperdicios,
    escenarios de variación y conversiones con cotización explícita.
-6. Abrí una obra y, en **Planificación**, configurá días laborables y
-   feriados, cargá tareas/hitos, dependencias y recursos. Podés arrastrar una barra
-   del Gantt o cambiar su duración desde el extremo. Guardá una línea base,
-   registrá avances y compará la curva S, las holguras y la ruta crítica.
+6. Configurá el calendario en **Inicio → Datos generales**. En una obra,
+   **Planificación** permite excepciones locales, tareas/hitos, dependencias y
+   recursos. Podés arrastrar barras y cortes del Gantt, registrar avances y
+   consultar la curva S, las holguras y la ruta crítica. Las revisiones internas
+   se conservan sin mostrar una tarjeta de historial en esta vista.
 7. En **Copias de seguridad**, configurá una carpeta fija, activá la frecuencia
    automática y guardá. Probá **Crear copia ahora**, **Abrir carpeta** y
    **Actualizar estado**. Restaurar crea antes una copia del estado actual.
@@ -407,10 +418,10 @@ vacía de directorio. Ver [tablero de obra](docs/PROJECT-DASHBOARD.md).
 ### Calendario del Gantt y dirección del mapa
 
 El Gantt permite panear por fechas reales, con encabezados de año, mes, semana ISO
-y día y con fines de semana resaltados. **Calendario y seguimiento** permite
-seleccionar varias fechas, describirlas y marcar si se trabaja o no. Al guardar,
-Gantt y PERT se recalculan con las mismas reglas. El calendario y el resumen
-ocupan dos columnas en pantallas amplias.
+y día y con fines de semana resaltados. Los feriados se administran desde
+**Inicio → Datos generales**; **Seguimiento y excepciones de esta obra** permite
+cambiar su condición laborable únicamente para la obra abierta. Gantt y PERT
+utilizan las mismas reglas. La descripción aparece al pasar el mouse.
 
 Al guardar el pin del mapa se completa la dirección aproximada cuando el servicio
 OpenStreetMap/Nominatim responde. Si no está disponible, la ubicación se guarda

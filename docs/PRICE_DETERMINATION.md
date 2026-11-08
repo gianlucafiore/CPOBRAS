@@ -99,3 +99,10 @@ la emisión hasta corregirla.
 La migración 18 agrega las definiciones y plantillas sin reemplazar partidas ni
 precios existentes. Los presupuestos con configuración personalizada se
 exportan en JSON de presupuesto versión 2; se siguen importando los de versión 1.
+
+## Acuerdo de ajuste del presupuesto
+
+El botón **Acuerdo de ajuste del presupuesto** define mes base, desfase e índices
+ponderados. Las publicaciones se cargan una vez en **Inicio → Datos generales**.
+Este acuerdo no altera los precios base guardados; se aplica al certificar y
+conserva los valores utilizados en cada emisión. [Guía de índices y adicionales](INDEX_ADJUSTMENTS.md).

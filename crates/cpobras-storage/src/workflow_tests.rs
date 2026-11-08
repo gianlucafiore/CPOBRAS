@@ -164,6 +164,7 @@ fn saved_plan_resolves_budget_links_and_keeps_immutable_baselines() {
         actual_progress: Decimal::from(25),
     };
     let plan = Plan {
+        calendar_overrides: None,
         finance: Default::default(),
         segments: BTreeMap::new(),
         presentation: BTreeMap::new(),
@@ -1344,7 +1345,7 @@ fn upgrades_populated_schema_fifteen_and_deletes_its_preexisting_linked_line() {
         old.execute_batch(&format!("DROP TRIGGER {name}")).unwrap();
     }
     undo_people_migration_for_fixture(&old);
-    old.execute_batch("ALTER TABLE operation_links DROP COLUMN archived_line_id; DROP TABLE deleted_estimate_lines; DROP TABLE line_analysis_sources; DROP TABLE estimate_resource_prices; DROP TABLE estimate_price_definitions; DROP TABLE price_definition_templates;
+    old.execute_batch("ALTER TABLE operation_links DROP COLUMN archived_line_id; DROP TABLE deleted_estimate_lines; DROP TABLE line_analysis_sources; DROP TABLE estimate_resource_prices; DROP TABLE estimate_adjustment_agreements;DROP TABLE index_points;DROP TABLE system_calendar;DROP TABLE estimate_price_definitions; DROP TABLE price_definition_templates;
              DROP TABLE print_profiles; DROP TRIGGER new_project_organization; DROP TRIGGER external_company_readonly_update; DROP TRIGGER external_company_readonly_delete; DROP TRIGGER clear_measured_quantity; DROP TABLE automatic_codes; DROP TABLE measured_lines; DROP TABLE project_attachments; DROP TABLE project_organizations; DROP TABLE organization_preferences; DROP TABLE organizations; DELETE FROM schema_migrations WHERE version>=16; CREATE TRIGGER operation_links_no_update BEFORE UPDATE ON operation_links BEGIN SELECT RAISE(ABORT,'operation links are immutable'); END;").unwrap();
     drop(old);
     let mut upgraded = LocalStore::open(&path).unwrap();
@@ -1354,7 +1355,7 @@ fn upgrades_populated_schema_fifteen_and_deletes_its_preexisting_linked_line() {
             .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| r
                 .get::<_, i64>(0))
             .unwrap(),
-        26
+        27
     );
     upgraded.delete_estimate_item(e.id, line.id).unwrap();
     assert!(upgraded.estimate_items(e.id).unwrap().is_empty());
@@ -2899,6 +2900,7 @@ fn pert_presentation_round_trips_with_revisions_baselines_and_legacy_plans() {
     let (mut s, p, _, line) = fixture();
     let id = Uuid::new_v4();
     let mut plan = Plan {
+        calendar_overrides: None,
         finance: Default::default(),
         segments: BTreeMap::new(),
         calendar: Calendar {
@@ -2983,6 +2985,7 @@ fn partial_tasks_allocate_each_budget_line_once_and_preserve_history() {
         actual_progress: Decimal::from(25),
     };
     let mut plan = Plan {
+        calendar_overrides: None,
         finance: Default::default(),
         calendar: Calendar {
             exceptions: BTreeMap::new(),
@@ -3042,6 +3045,7 @@ fn partial_tasks_allocate_each_budget_line_once_and_preserve_history() {
 
 fn financial_test_plan(line: Uuid) -> Plan {
     Plan {
+        calendar_overrides: None,
         finance: cpobras_core::planning::FinanceSettings {
             cut_dates: vec!["2026-11-10".into()],
             collection_delay_days: 30,
@@ -3352,4 +3356,222 @@ fn material_orders_in_another_currency_cover_supply_without_implicit_currency_co
     assert_eq!(f.periods[0].materials[0].purchase, Decimal::ZERO);
     assert!(!f.warnings.is_empty());
     assert_eq!(f.additional_cash, Decimal::ZERO);
+}
+#[test]
+fn global_calendar_is_inherited_but_work_specific_exceptions_win_without_rewriting_history() {
+    use cpobras_core::planning::{CalendarException, CalendarOverrides};
+    let (mut s, p, _, l) = fixture();
+    let mut plan = financial_test_plan(l.id);
+    plan.calendar_overrides = Some(CalendarOverrides::default());
+    s.save_project_plan(p.id, 0, plan, "2026-11-05").unwrap();
+    s.create_plan_baseline(p.id, "Antes del calendario", "2026-11-05")
+        .unwrap();
+    let mut calendar = s.general_calendar().unwrap();
+    calendar.exceptions.insert(
+        "2026-11-09".into(),
+        CalendarException {
+            description: "Feriado de prueba".into(),
+            working: false,
+        },
+    );
+    s.save_general_calendar(&calendar).unwrap();
+    let inherited = s.project_plan(p.id).unwrap().unwrap();
+    assert_eq!(
+        inherited.plan.schedule("2026-11-05").unwrap().tasks[0].start,
+        "2026-11-10"
+    );
+    let mut specific = inherited.plan;
+    specific
+        .calendar_overrides
+        .as_mut()
+        .unwrap()
+        .exceptions
+        .insert(
+            "2026-11-09".into(),
+            CalendarException {
+                description: "Contratista trabaja".into(),
+                working: true,
+            },
+        );
+    let saved = s
+        .save_project_plan(p.id, 1, specific, "2026-11-05")
+        .unwrap();
+    assert_eq!(
+        saved.plan.schedule("2026-11-05").unwrap().tasks[0].start,
+        "2026-11-09"
+    );
+    assert!(saved.plan.calendar.exceptions["2026-11-09"]
+        .description
+        .contains("Feriado de prueba"));
+    assert!(s.plan_baselines(p.id).unwrap()[0]
+        .plan
+        .calendar
+        .exceptions
+        .is_empty());
+    assert!(s.save_general_calendar(&calendar).is_err());
+}
+#[test]
+fn provisional_certificates_freeze_indices_and_extras_and_settle_positive_and_negative_differences_once(
+) {
+    use crate::adjustments::CertificateExtra;
+    use cpobras_core::adjustments::{AdjustmentAgreement, IndexPoint, IndexWeight};
+    let (mut s, p, e, l) = fixture();
+    let agreement = AdjustmentAgreement {
+        base_month: "2026-09".into(),
+        lag_months: 0,
+        weights: vec![IndexWeight {
+            series: "CAC".into(),
+            weight: Decimal::ONE,
+        }],
+    };
+    s.save_adjustment_agreement(e.id, 0, Some(agreement.clone()))
+        .unwrap();
+    let copy = s.duplicate_estimate(e.id, "Copia con acuerdo").unwrap();
+    assert_eq!(
+        s.adjustment_agreement(copy.id)
+            .unwrap()
+            .definition
+            .unwrap()
+            .base_month,
+        "2026-09"
+    );
+    let point = |period: &str, value: i64, published: &str| IndexPoint {
+        id: Uuid::new_v4(),
+        series: "CAC".into(),
+        period: period.into(),
+        value: value.into(),
+        publication_date: published.into(),
+        source: "https://example.org/indice".into(),
+    };
+    s.save_index_point(&point("2026-09", 100, "2026-10-01"))
+        .unwrap();
+    s.save_index_point(&point("2026-10", 110, "2026-11-01"))
+        .unwrap();
+    s.issue_estimate(e.id).unwrap();
+    assert!(s.save_adjustment_agreement(e.id, 1, None).is_err());
+    let mut cert = operation(p.id, "certificate");
+    cert.date = "2026-11-05".into();
+    cert.estimate_id = Some(e.id);
+    cert.period_start = "2026-11-01".into();
+    cert.period_end = "2026-11-05".into();
+    cert.retention_percent = 5.into();
+    cert.lines = vec![crate::operations::OperationLine {
+        line_id: Some(l.id),
+        description: "Trabajo".into(),
+        quantity: Decimal::ONE,
+        ..Default::default()
+    }];
+    let extra = |amount: i64, adjustable, retention| CertificateExtra {
+        id: Uuid::new_v4(),
+        description: "Movilización".into(),
+        reason: "Pedido extraordinario".into(),
+        authorization: "Orden del comitente 12".into(),
+        amount: amount.into(),
+        adjustable,
+        retention,
+        recover_advance: false,
+    };
+    cert.extras = vec![extra(50, false, false), extra(20, true, true)];
+    let first = s.post_operation(&cert).unwrap();
+    assert!(first.index_snapshot.as_ref().unwrap().provisional);
+    assert_eq!(first.calculated["gross"], 182.into());
+    assert_eq!(first.calculated["pending_base"], 100.into());
+    assert_eq!(first.calculated["pending"], 110.into());
+    assert_eq!(first.amount, "175.4".parse().unwrap());
+    assert!(s
+        .pending_adjustment_differences(p.id, "2026-11-05")
+        .unwrap()
+        .is_empty());
+    s.save_index_point(&point("2026-11", 120, "2026-11-06"))
+        .unwrap();
+    assert!(s
+        .pending_adjustment_differences(p.id, "2026-11-05")
+        .unwrap()
+        .is_empty());
+    let pending = s
+        .pending_adjustment_differences(p.id, "2026-11-06")
+        .unwrap();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].delta, 12.into());
+    assert_eq!(pending[0].retention_delta, "0.6".parse().unwrap());
+    let mut second = cert.clone();
+    second.id = Uuid::new_v4();
+    second.number = "CERT-2".into();
+    second.date = "2026-11-06".into();
+    second.period_start = "2026-11-06".into();
+    second.period_end = "2026-11-06".into();
+    second.extras.clear();
+    second.lines[0].quantity = "0.5".parse().unwrap();
+    second.reconcile_ids = vec![first.id];
+    let posted = s.post_operation(&second).unwrap();
+    assert_eq!(posted.calculated["gross"], 72.into());
+    assert_eq!(posted.reconciliations[0].delta, 12.into());
+    assert!(s
+        .pending_adjustment_differences(p.id, "2026-11-06")
+        .unwrap()
+        .is_empty());
+    let mut repeated = second.clone();
+    repeated.id = Uuid::new_v4();
+    repeated.number = "CERT-3".into();
+    repeated.date = "2026-11-07".into();
+    repeated.period_start = "2026-11-07".into();
+    repeated.period_end = "2026-11-07".into();
+    repeated.lines[0].quantity = "0.25".parse().unwrap();
+    assert!(s.post_operation(&repeated).is_err());
+    s.save_index_point(&point("2026-11", 115, "2026-11-07"))
+        .unwrap();
+    let pending = s
+        .pending_adjustment_differences(p.id, "2026-11-07")
+        .unwrap();
+    assert_eq!(
+        pending
+            .iter()
+            .find(|d| d.source_id == first.id)
+            .unwrap()
+            .delta,
+        Decimal::from(-6)
+    );
+    let third = s.post_operation(&repeated).unwrap();
+    assert_eq!(third.calculated["gross"], "22.75".parse().unwrap());
+    assert_eq!(third.reconciliations[0].delta, Decimal::from(-6));
+    let original = s
+        .operation_documents(Some(p.id))
+        .unwrap()
+        .into_iter()
+        .find(|d| d.id == first.id)
+        .unwrap();
+    assert_eq!(
+        original.index_snapshot.unwrap().factor,
+        "1.1".parse().unwrap()
+    );
+    assert_eq!(original.amount, first.amount);
+    let report = s.operations_report(p.id, Some(e.id), "2026-11-07").unwrap();
+    assert_eq!(
+        report
+            .costs
+            .iter()
+            .map(|r| r.certified_income)
+            .sum::<Decimal>(),
+        "276.75".parse().unwrap()
+    );
+    s.verify_integrity().unwrap();
+}
+#[test]
+fn shared_documents_redact_index_agreements_publications_and_certificate_extras_without_permission()
+{
+    use crate::sharing::{restrict_shared_document, SharingPermissions};
+    use serde_json::json;
+    let data = json!({"planning":null,"operations":[{"kind":"certificate","index_snapshot":{"source":"SECRET_PUBLICATION"},"extras":[{"authorization":"SECRET_EXTRA"}],"reconciliations":[{"snapshot":"SECRET_DIFFERENCE"}],"reconcile_ids":[]}],"budgets":[{"document":{"lines":[],"adjustment_agreement":{"series":"SECRET_AGREEMENT"}},"adjustment_agreement":{"definition":"SECRET_AGREEMENT"},"certification_overview":["SECRET_OVERVIEW"],"report":{"financial_projection":{"source":"SECRET_PROJECTION"}}}]});
+    let filtered = restrict_shared_document(
+        data.clone(),
+        &SharingPermissions {
+            price: false,
+            accounting: false,
+            ..Default::default()
+        },
+    );
+    assert!(!filtered.to_string().contains("SECRET"), "{filtered}");
+    let allowed = restrict_shared_document(data, &SharingPermissions::default());
+    assert!(allowed.to_string().contains("SECRET_PUBLICATION"));
+    assert!(allowed.to_string().contains("SECRET_AGREEMENT"));
 }

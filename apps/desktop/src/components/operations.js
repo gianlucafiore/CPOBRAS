@@ -47,7 +47,7 @@ export const operationNames = {
   certificate: "Certificado de avance",
   subcertificate: "Certificado de subcontratista",
   index: "Índice de precios",
-  adjustment: "Redeterminación contractual",
+  adjustment: "Ajuste de certificado anterior sin acuerdo",
   payable: "Factura por pagar",
   receivable: "Factura por cobrar",
   payment: "Pago",
@@ -96,9 +96,9 @@ const guides = {
   subcertificate:
     "Elegí un subcontrato y presupuesto emitido. Se toman los precios del subcontrato y se controlan los saldos por partida y contrato.",
   index:
-    "Registrá CAC, IPC o INDEC con período, fecha de publicación y URL de la fuente. La carga es manual; verificá la publicación oficial. No se descargan ni inventan índices.",
+    "Registro anterior por obra. Las nuevas publicaciones se cargan en Inicio → Datos generales y se heredan según el acuerdo de cada presupuesto.",
   adjustment:
-    "Vinculá un certificado. La fórmula es suma(ponderador × índice del período / índice base). Los ponderadores deben sumar 1 y los índices deben estar registrados antes de la fecha del ajuste.",
+    "Solo para certificados anteriores que no tenían acuerdo automático. Cargá publicaciones nuevas en Inicio → Datos generales. Los certificados con acuerdo usan sus diferencias pendientes, sin este ajuste manual.",
   payable:
     "Registrá la factura y su vencimiento. Podés vincular recepción o certificado; su facturación y pagos no pueden superar el saldo. La factura crea deuda, no duplica el costo físico.",
   receivable:
@@ -142,6 +142,8 @@ export function createOperationsWorkspace({
     warehouses: [],
     stock: [],
     report: null,
+    pendingDifferences:[],
+    indexPreview:null,
     portfolio: [],
     draft: null,
     dirty: false,
@@ -161,6 +163,7 @@ export function createOperationsWorkspace({
       partner_id: null,
       reference_id: null,
       price_cost: null,
+      extras:[],reconcile_ids:[],index_snapshot:null,reconciliations:[],
       warehouse_id: null,
       destination_id: null,
       estimate_id: model.estimateId || null,
@@ -230,6 +233,7 @@ export function createOperationsWorkspace({
         asOf: model.asOf,
       });
       model.portfolio = [model.report];
+      model.pendingDifferences=await invoke("pending_adjustment_differences",{projectId:model.projectId,asOf:model.asOf})||[];
       model.lines = model.estimateId
         ? await invoke("list_estimate_lines", { estimateId: model.estimateId })
         : [];
@@ -267,6 +271,11 @@ export function createOperationsWorkspace({
       o[k] ??= "";
     const rental = String(data.get("rental-link") || "").split("|");
     o.price_cost = o.kind === "payable" && rental.length === 3 ? {row_id:rental[0],item_id:rental[1],period_start:rental[2]} : null;
+    o.extras=[...form.querySelectorAll("[data-certificate-extra]")].map(row=>{
+      const val=n=>row.querySelector(`[name="${n}"]`)?.value||"",checked=n=>Boolean(row.querySelector(`[name="${n}"]`)?.checked);
+      return {id:row.dataset.certificateExtra,description:val("extra-description"),reason:val("extra-reason"),authorization:val("extra-authorization"),amount:val("extra-amount"),adjustable:checked("extra-adjustable"),retention:checked("extra-retention"),recover_advance:checked("extra-advance")};
+    });
+    o.reconcile_ids=data.getAll("certificate-difference").map(String);
     o.lines = [...form.querySelectorAll(".operation-line")].map((row) => {
       const value = (n) => row.querySelector(`[name="${n}"]`)?.value || "";
       return {
@@ -340,6 +349,11 @@ export function createOperationsWorkspace({
           .join("")
       : "";
   }
+  function certificateExtras(o) {
+    if(o.kind!=="certificate")return "";
+    const pending=model.pendingDifferences.filter(d=>d.estimate_id===o.estimate_id);
+    return `<fieldset class="certificate-extras"><legend>Ajuste y adicionales de este certificado</legend><p>El ajuste se calcula al registrar con el acuerdo del presupuesto y las publicaciones conocidas a la fecha de emisión. Los trabajos que amplían el alcance se cargan como partidas en un rubro de adicionales; los siguientes cargos puntuales se cobran completos, una sola vez. Si son ajustables, ingresá su importe a valores del mes base; si son fijos, ingresá el importe final pactado.</p><button type="button" class="btn" data-action="ops-preview-index">Consultar índice a aplicar</button>${model.indexPreview?`<p role="status">${e(model.indexPreview.message)}</p>`:""}<h4>Diferencias pendientes de certificados anteriores</h4>${pending.map(d=>`<label><input type="checkbox" name="certificate-difference" value="${d.source_id}" ${(o.reconcile_ids||[]).includes(d.source_id)?"checked":""}> Certificado ${e(d.source_number)} · diferencia ${money(d.delta)} · reparo ${money(d.retention_delta)} · coeficiente ${numeric(d.from_factor)} → ${numeric(d.snapshot.factor)} ${d.snapshot.provisional?"(aún provisorio)":"(definitivo)"}</label>`).join("")||"<p>No hay diferencias pendientes publicadas para este presupuesto.</p>"}${(o.extras||[]).map((x,i)=>`<fieldset data-certificate-extra="${x.id}"><legend>Adicional puntual ${i+1}</legend><div class="form-grid three">${field("Descripción del adicional", "extra-description",x.description,'required maxlength="500"')}${field("Motivo del adicional", "extra-reason",x.reason,'required maxlength="2000"')}${field("Autorización / referencia del comitente", "extra-authorization",x.authorization,'required maxlength="2000"')}${field("Importe completo del adicional", "extra-amount",x.amount,'type="number" min="0.000001" step="any" required')}</div><label><input type="checkbox" name="extra-adjustable" ${x.adjustable?"checked":""}> Aplicar ajuste de índices</label><label><input type="checkbox" name="extra-retention" ${x.retention?"checked":""}> Aplicar fondo de reparo</label><label><input type="checkbox" name="extra-advance" ${x.recover_advance?"checked":""}> Permitir recuperar anticipo</label><button type="button" class="btn" data-action="ops-remove-extra" data-index="${i}">Quitar adicional</button></fieldset>`).join("")}<button type="button" class="btn" data-action="ops-add-extra">Agregar adicional puntual</button></fieldset>`;
+  }
   function formMarkup() {
     const o = model.draft;
     if (!o) return "";
@@ -394,10 +408,11 @@ export function createOperationsWorkspace({
       o.currency,
     )}${select("Contraparte", "o:partner_id", [["", "Comitente / sin contraparte"], ...model.partners.filter(p=>p.attributes?.person_primary!=="false"||p.id===o.partner_id).map((p) => [p.id, p.name+((state.projects.find(x=>x.id===state.projectId)?.supplier_ids||[]).includes(p.attributes?.person_id||p.id)?" · Vinculado a la obra":"")])], o.partner_id)}${available.length || ["rfq", "quote", "purchase_order", "service_order", "subcontract", "receipt", "service_receipt", "return", "subcertificate", "adjustment", "payable", "receivable", "payment", "collection", "advance_paid", "retention_payable", "retention_receivable"].includes(o.kind) ? select("Documento de origen", "o:reference_id", [["", "Sin origen"], ...available.map((d) => [d.id, `${operationNames[d.kind]} · ${d.number} · ${partnerName(d.partner_id)} · ${d.currency} ${money(d.amount)}`])], o.reference_id) : ""}${select("Presupuesto de referencia", "o:estimate_id", [["", "Sin vínculo"], ...model.estimates.filter(x=>x.id===model.estimateId||x.id===o.estimate_id).map((x) => [x.id, x.title + (x.issued ? " · Emitido" : " · Borrador")])], o.estimate_id)}</div>
  ${o.kind === "payable" ? select("Alquiler / gasto mensual previsto (opcional)", "rental-link", [["", "Sin vínculo"], ...(model.report?.recurring_costs || []).filter(r => r.currency === o.currency).map(r => [rentalKey(r), `${r.description} · ${r.period_start} → ${r.period_end}`])], o.price_cost ? rentalKey(o.price_cost) : "") + '<p class="modal-help">Para un gasto mensual elegí su período y dejá Documento de origen sin vínculo. La factura reemplaza la previsión; registrá su pago por separado.</p>' : ""}
- ${["purchase_order", "service_order", "subcontract"].includes(o.kind) ? field("Fecha prevista de pago del saldo", "o:due_date", o.due_date || "", 'type="date"') + '<p class="modal-help">Se utiliza para el saldo aún no facturado ni cubierto por anticipos. Las facturas posteriores tendrán su propio vencimiento.</p>' : ""}
+
  ${stockKinds.includes(o.kind) ? `<div class="form-grid">${select("Depósito", "o:warehouse_id", opts(model.warehouses.filter((w) => w.project_id === model.projectId)), o.warehouse_id)}${o.kind === "transfer" ? select("Depósito de destino", "o:destination_id", [["", "Seleccionar…"], ...model.warehouses.map((w) => [w.id, whName(w.id)])], o.destination_id) : ""}</div>` : ""}
  ${cert ? `<div class="form-grid three">${field("Inicio del período", "o:period_start", o.period_start, 'type="date" required')}${field("Fin del período", "o:period_end", o.period_end, 'type="date" required')}${field("Anticipo a descontar", "o:advance", o.advance, 'type="number" min="0" step="any" required')}${field("Otros descuentos", "o:discount", o.discount, 'type="number" min="0" step="any" required')}${field("Fondo de reparo %", "o:retention_percent", o.retention_percent, 'type="number" min="0" max="100" step="any" required')}${field("Vencimiento", "o:due_date", o.due_date, 'type="date" required')}</div>` : ""}
  ${o.kind === "payable" && model.partners.find(p=>p.id===o.partner_id)?.kind === "crew" ? `<div class="form-grid three">${field("Inicio de la liquidación", "o:period_start",o.period_start,'type="date" required')}${field("Fin de la liquidación", "o:period_end",o.period_end,'type="date" required')}${field("Anticipo a descontar del importe bruto", "o:advance",o.advance || "0",'type="number" min="0" step="any" required')}</div><p>El importe ingresado es bruto; se descontará este anticipo para obtener el neto por pagar.</p>` : ""}
+ ${certificateExtras(o)}
  ${monetary.includes(o.kind) ? `<div class="form-grid">${field(o.kind === "forecast" ? "Costo restante estimado" : "Importe", "o:amount", o.amount, 'type="number" min="0" step="any" required')}${field(o.kind === "forecast" ? "Fin previsto" : "Vencimiento / fecha prevista", "o:due_date", o.due_date, 'type="date" required')}</div>` : ""}
  ${
    o.kind === "index"
@@ -468,7 +483,7 @@ export function createOperationsWorkspace({
          .join("")}`
      : ""
  }
- ${["subcontract", "service_order", "purchase_order"].includes(o.kind) ? field("Vencimiento previsto / fin contractual", "o:due_date", o.due_date, 'type="date" required') + `<label>Condiciones, alcance, plazos y forma de pago<textarea name="o:terms">${e(o.terms)}</textarea></label>` : ""}<label>Observaciones<textarea name="o:notes">${e(o.notes)}</textarea></label><p class="feature-error" role="alert"></p><button type="submit" class="btn primary">Registrar ${e(operationNames[o.kind].toLowerCase())}</button></form>`;
+ ${["subcontract", "service_order", "purchase_order"].includes(o.kind) ? field("Fecha prevista de pago del saldo", "o:due_date", o.due_date, 'type="date" required') + `<label>Condiciones, alcance, plazos y forma de pago<textarea name="o:terms">${e(o.terms)}</textarea></label>` : ""}<label>Observaciones<textarea name="o:notes">${e(o.notes)}</textarea></label><p class="feature-error" role="alert"></p><button type="submit" class="btn primary">Registrar ${e(operationNames[o.kind].toLowerCase())}</button></form>`;
   }
   function documentRows() {
     const kinds = operationGroups[model.tab] || [];
@@ -698,10 +713,14 @@ export function createOperationsWorkspace({
       ),
     )}${model.projectId ? finances() + production() : ""}`;
   }
+  function certificateAnnex(d) {
+    const snap=d.index_snapshot;
+    return `${snap?`<h4>Ajuste ${snap.provisional?"provisorio":"definitivo"} · coeficiente ${numeric(snap.factor)}</h4><p>Mes base ${e(snap.agreement.base_month)} · mes objetivo ${e(snap.target_month)} · mes aplicado ${e(snap.applied_month)}.</p>${table(["Índice", "Peso", "Puntaje base", "Puntaje aplicado", "Publicación"],snap.indices.map(x=>[e(x.series),numeric(x.weight),numeric(x.base.value),numeric(x.current.value),e(x.current.publication_date)]))}`:""}${(d.extras||[]).length?`<h4>Adicionales puntuales</h4>${table(["Descripción", "Motivo", "Autorización", "Importe base", "Ajustable"],d.extras.map(x=>[e(x.description),e(x.reason),e(x.authorization),money(x.amount),x.adjustable?"Sí":"No"]))}`:""}${(d.reconciliations||[]).length?`<h4>Diferencias de ajuste incluidas</h4>${table(["Certificado original", "Diferencia", "Reparo", "Nuevo coeficiente"],d.reconciliations.map(x=>[e(x.source_number),money(x.delta),money(x.retention_delta),numeric(x.snapshot.factor)]))}`:""}`;
+  }
   function detail() {
     const d = model.detail;
     if (!d) return "";
-    return `<div class="modal-overlay"><section class="dialog-shell wide" role="dialog" aria-modal="true" aria-label="Documento registrado"><div class="dialog-header"><h2>${e(operationNames[d.kind])} · ${e(d.number)}</h2><button type="button" data-action="ops-close-detail" aria-label="Cerrar documento">×</button></div><div class="dialog-body"><p>Presupuesto del documento: <strong>${e(model.estimates.find(est=>est.id===d.estimate_id)?.title||"Sin vínculo")}</strong></p><p>${e(d.date)} · ${e(partnerName(d.partner_id))} · ${e(d.currency)} ${money(d.amount)}</p><p>${e(d.notes)}</p><p>${e(d.terms)}</p>${d.period_start ? `<p>Período: ${e(d.period_start)} a ${e(d.period_end)}</p>` : ""}${table(
+    return `<div class="modal-overlay"><section class="dialog-shell wide" role="dialog" aria-modal="true" aria-label="Documento registrado"><div class="dialog-header"><h2>${e(operationNames[d.kind])} · ${e(d.number)}</h2><button type="button" data-action="ops-close-detail" aria-label="Cerrar documento">×</button></div><div class="dialog-body"><p>Presupuesto del documento: <strong>${e(model.estimates.find(est=>est.id===d.estimate_id)?.title||"Sin vínculo")}</strong></p><p>${e(d.date)} · ${e(partnerName(d.partner_id))} · ${e(d.currency)} ${money(d.amount)}</p><p>${e(d.notes)}</p><p>${e(d.terms)}</p>${d.period_start ? `<p>Período: ${e(d.period_start)} a ${e(d.period_end)}</p>` : ""}${certificateAnnex(d)}${table(
       ["Descripción", "Cantidad", "Precio", "Horas"],
       d.lines.map((l) => [
         e(l.description),
@@ -735,7 +754,7 @@ export function createOperationsWorkspace({
         ? select(
             "Tipo de documento",
             "ops-kind",
-            (operationGroups[model.tab] || []).map((k) => [
+            (operationGroups[model.tab] || []).filter(k=>k!=="index" && (k!=="adjustment" || model.docs.some(d=>d.kind==="certificate" && !d.index_snapshot && d.calculated?.index_factor===undefined))).map((k) => [
               k,
               operationNames[k],
             ]),
@@ -812,6 +831,13 @@ export function createOperationsWorkspace({
       );
       model.dirty = false;
     }
+    if(a==="ops-add-extra"){model.draft.extras ||= [];model.draft.extras.push({id:window.crypto.randomUUID(),description:"",reason:"",authorization:"",amount:"0",adjustable:false,retention:false,recover_advance:false});model.dirty=true;}
+    if(a==="ops-remove-extra"){model.draft.extras.splice(Number(button.dataset.index),1);model.dirty=true;}
+    if(a==="ops-preview-index"){
+      const o=model.draft;
+      model.pendingDifferences=await invoke("pending_adjustment_differences",{projectId:model.projectId,asOf:o.date})||[];
+      try {const p=await invoke("certificate_index_preview",{estimateId:o.estimate_id,cut:o.period_end,asOf:o.date});model.indexPreview={message:p?`${p.provisional?"Provisorio":"Definitivo"}: mes ${p.applied_month}, corresponde ${p.target_month}; coeficiente ${numeric(p.factor)}.`:"Este presupuesto no tiene ajuste pactado."};}catch(error){model.indexPreview={message:String(error)};}
+    }
     if (a === "ops-add-line") {
       model.draft.lines.push(newLine());
       model.dirty = true;
@@ -868,7 +894,7 @@ export function createOperationsWorkspace({
         render();
         return;
       }
-      model.draft = draft(target.value);
+      model.draft = draft(target.value);model.indexPreview=null;
       model.dirty = false;
       render();
       return;

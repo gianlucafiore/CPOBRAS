@@ -55,6 +55,7 @@ pub struct PeriodMaterial {
 }
 #[derive(Debug, Serialize)]
 pub struct FundingPeriod {
+    pub adjustment: Option<cpobras_core::adjustments::AdjustmentSnapshot>,
     pub start: String,
     pub end: String,
     pub gross: D,
@@ -634,6 +635,19 @@ impl LocalStore {
                 .iter()
                 .filter(|(d, _)| d.as_str() >= start_iso.as_str() && d.as_str() <= cut.as_str())
                 .map(|(_, v)| *v))?;
+            let adjustment = match crate::adjustments::snapshot(&self.conn, eid, &cut, as_of) {
+                Ok(p) => p,
+                Err(e) => {
+                    warnings.insert(format!(
+                        "Corte {}: {}. Se muestra el importe base sin ajuste",
+                        cut, e
+                    ));
+                    None
+                }
+            };
+            if let Some(a) = &adjustment {
+                gross = mul(gross, a.factor)?;
+            }
             let actual_certified = sum(docs
                 .iter()
                 .filter(|o| {
@@ -684,6 +698,7 @@ impl LocalStore {
                 v.cost = add(v.cost, m.cost)?;
             }
             periods.push(FundingPeriod {
+                adjustment,
                 start: start_iso,
                 end: cut,
                 gross,

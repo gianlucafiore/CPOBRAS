@@ -108,8 +108,16 @@ impl FinanceSettings {
         Ok(())
     }
 }
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct CalendarOverrides {
+    pub nonworking_weekdays: Option<Vec<u32>>,
+    pub exceptions: BTreeMap<String, CalendarException>,
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Plan {
+    #[serde(default)]
+    pub calendar_overrides: Option<CalendarOverrides>,
     #[serde(default)]
     pub finance: FinanceSettings,
     #[serde(default)]
@@ -151,7 +159,7 @@ fn date(value: &str) -> Result<NaiveDate, String> {
     NaiveDate::parse_from_str(value, "%Y-%m-%d").map_err(|_| format!("Fecha inválida: {value}"))
 }
 impl Calendar {
-    fn validate(&self) -> Result<(), String> {
+    pub fn validate(&self) -> Result<(), String> {
         date(&self.start_date)?;
         let weekdays: BTreeSet<_> = self.nonworking_weekdays.iter().copied().collect();
         if weekdays.len() == 7 || weekdays.iter().any(|day| *day > 6) {
@@ -530,6 +538,7 @@ mod tests {
     }
     fn plan(tasks: Vec<Task>) -> Plan {
         Plan {
+            calendar_overrides: None,
             finance: Default::default(),
             segments: BTreeMap::new(),
             presentation: BTreeMap::new(),

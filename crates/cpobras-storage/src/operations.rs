@@ -86,6 +86,10 @@ pub struct RecurringExpense {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Operation {
+    pub index_snapshot: Option<cpobras_core::adjustments::AdjustmentSnapshot>,
+    pub extras: Vec<crate::adjustments::CertificateExtra>,
+    pub reconcile_ids: Vec<Uuid>,
+    pub reconciliations: Vec<crate::adjustments::CertificateDifference>,
     pub price_cost: Option<PriceCostLink>,
     pub id: Uuid,
     pub project_id: Uuid,
@@ -123,6 +127,10 @@ pub struct Operation {
 impl Default for Operation {
     fn default() -> Self {
         Self {
+            index_snapshot: None,
+            extras: vec![],
+            reconcile_ids: vec![],
+            reconciliations: vec![],
             price_cost: None,
             id: Uuid::new_v4(),
             project_id: Uuid::nil(),
@@ -322,6 +330,8 @@ impl LocalStore {
     pub fn post_operation(&mut self, input: &Operation) -> Result<Operation> {
         let mut o = input.clone();
         o.calculated.clear();
+        o.index_snapshot = None;
+        o.reconciliations.clear();
         o.number = o.number.trim().into();
         if !KINDS.contains(&o.kind.as_str())
             || o.id.is_nil()
@@ -515,6 +525,7 @@ impl LocalStore {
         ]
         .contains(&o.kind.as_str())
             && o.lines.is_empty()
+            && !(o.kind == "certificate" && (!o.extras.is_empty() || !o.reconcile_ids.is_empty()))
         {
             return Err(err("Agregá al menos un renglón"));
         }
@@ -882,6 +893,37 @@ impl LocalStore {
                 }
             }
         }
+        if o.kind != "certificate" && (!o.extras.is_empty() || !o.reconcile_ids.is_empty()) {
+            return Err(err(
+                "Adicionales y diferencias se agregan a certificados del comitente",
+            ));
+        }
+        if o.extras.len() > 100 || o.reconcile_ids.len() > 200 {
+            return Err(err("Demasiados adicionales o diferencias"));
+        }
+        let mut extra_ids = BTreeSet::new();
+        for extra in &o.extras {
+            if extra.id.is_nil()
+                || !extra_ids.insert(extra.id)
+                || extra.description.trim().is_empty()
+                || extra.description.len() > 500
+                || extra.reason.trim().is_empty()
+                || extra.reason.len() > 2000
+                || extra.authorization.trim().is_empty()
+                || extra.authorization.len() > 2000
+                || extra.amount <= D::ZERO
+            {
+                return Err(err(
+                    "El adicional requiere descripción, motivo, autorización e importe positivo",
+                ));
+            }
+            if prior
+                .iter()
+                .any(|p| p.extras.iter().any(|e| e.id == extra.id))
+            {
+                return Err(err("Este adicional ya se incluyó en una certificación"));
+            }
+        }
         if ["certificate", "subcertificate"].contains(&o.kind.as_str()) {
             let estimate = o
                 .estimate_id
@@ -1042,7 +1084,69 @@ impl LocalStore {
                     return Err(err("El descuento de anticipo supera el anticipo registrado pendiente de recuperar"));
                 }
             }
-            let gross = total(&o)?;
+            let base_work = total(&o)?;
+            if o.kind == "certificate" {
+                o.index_snapshot =
+                    crate::adjustments::snapshot(&tx, estimate, &o.period_end, &o.date)?;
+            }
+            let factor = o.index_snapshot.as_ref().map_or(D::ONE, |s| s.factor);
+            if o.index_snapshot.is_none() && o.extras.iter().any(|x| x.adjustable) {
+                return Err(err("Un adicional ajustable requiere un acuerdo de índices en el presupuesto; configurá el acuerdo o declaralo de importe fijo"));
+            }
+            let mut gross = mul(base_work, factor)?;
+            let mut retention_basis = gross;
+            let mut advance_basis = gross;
+            let mut adjustable_base = base_work;
+            let mut retention_adjustable_base = base_work;
+            let mut extras_total = D::ZERO;
+            for extra in &o.extras {
+                let value = mul(extra.amount, if extra.adjustable { factor } else { D::ONE })?;
+                extras_total = add(extras_total, value)?;
+                gross = add(gross, value)?;
+                if extra.retention {
+                    retention_basis = add(retention_basis, value)?;
+                }
+                if extra.recover_advance {
+                    advance_basis = add(advance_basis, value)?;
+                }
+                if extra.adjustable {
+                    adjustable_base = add(adjustable_base, extra.amount)?;
+                    if extra.retention {
+                        retention_adjustable_base = add(retention_adjustable_base, extra.amount)?;
+                    }
+                }
+            }
+            let pending_differences = crate::adjustments::differences(&tx, &prior, &o.date)?;
+            let mut unique = BTreeSet::new();
+            let mut delta = D::ZERO;
+            let mut retention_delta = D::ZERO;
+            for id in &o.reconcile_ids {
+                if !unique.insert(*id) {
+                    return Err(err("Diferencia repetida"));
+                }
+                let source=prior.iter().find(|p|p.id==*id && p.kind=="certificate" && p.estimate_id==o.estimate_id && p.currency==o.currency && p.partner_id==o.partner_id && p.date<=o.date).ok_or_else(||err("La diferencia debe pertenecer al mismo presupuesto, moneda y comitente"))?;
+                let d=pending_differences.iter().find(|d|d.source_id==source.id).ok_or_else(||err("La diferencia ya fue liquidada o no tiene una nueva publicación disponible"))?;
+                delta = add(delta, d.delta)?;
+                retention_delta = add(retention_delta, d.retention_delta)?;
+                o.reconciliations.push(d.clone());
+            }
+            gross = add(gross, delta)?;
+            if o.advance > advance_basis {
+                return Err(err(
+                    "El anticipo supera los conceptos habilitados para recuperación",
+                ));
+            }
+            o.calculated.extend([
+                ("base_work".into(), base_work),
+                ("adjustable_base".into(), adjustable_base),
+                (
+                    "retention_adjustable_base".into(),
+                    retention_adjustable_base,
+                ),
+                ("index_factor".into(), factor),
+                ("extras".into(), extras_total),
+                ("adjustment_difference".into(), delta),
+            ]);
             previous = sum(prior
                 .iter()
                 .filter(|p| {
@@ -1052,11 +1156,32 @@ impl LocalStore {
                         && (o.kind != "subcertificate" || p.reference_id == o.reference_id)
                 })
                 .map(|p| p.calculated.get("gross").copied().unwrap_or_default()))?;
-            pending = sub(sale, add(previous, gross)?)?.max(D::ZERO);
-            let retention = div(mul(gross, o.retention_percent)?, D::from(100))?;
+            pending = if o.kind == "certificate" {
+                let prior_base = sum(prior
+                    .iter()
+                    .filter(|p| {
+                        p.kind == "certificate"
+                            && p.estimate_id == o.estimate_id
+                            && p.partner_id == o.partner_id
+                    })
+                    .map(|p| {
+                        p.calculated.get("base_work").copied().unwrap_or_else(|| {
+                            p.calculated.get("gross").copied().unwrap_or_default()
+                        })
+                    }))?;
+                let base_pending = sub(sale, add(prior_base, base_work)?)?.max(D::ZERO);
+                o.calculated.insert("pending_base".into(), base_pending);
+                mul(base_pending, factor)?
+            } else {
+                sub(sale, add(previous, gross)?)?.max(D::ZERO)
+            };
+            let retention = add(
+                div(mul(retention_basis, o.retention_percent)?, D::from(100))?,
+                retention_delta,
+            )?;
             let deductions = add(add(o.advance, o.discount)?, retention)?;
             if deductions > gross {
-                return Err(err("Las deducciones superan el certificado"));
+                return Err(err("El certificado resultaría con saldo negativo: conservá la diferencia a favor del comitente para un próximo certificado con saldo suficiente"));
             }
             o.amount = sub(gross, deductions)?;
             o.calculated.extend([
@@ -1114,11 +1239,15 @@ impl LocalStore {
             let source = reference
                 .as_ref()
                 .ok_or_else(|| err("Seleccioná certificado de origen"))?;
+            if source.index_snapshot.is_some() {
+                return Err(err("Este certificado usa acuerdo de índices: incluí su diferencia pendiente en un certificado posterior"));
+            }
             if !["certificate", "subcertificate"].contains(&source.kind.as_str()) {
                 return Err(err("El ajuste requiere un certificado"));
             }
             let mut series = BTreeSet::new();
             let (mut weights, mut factor) = (D::ZERO, D::ZERO);
+            let publications = crate::adjustments::points(&tx)?;
             for w in &o.adjustment_weights {
                 if w.weight < D::ZERO || !series.insert(&w.series) {
                     return Err(err("Ponderadores negativos o series repetidas"));
@@ -1134,6 +1263,17 @@ impl LocalStore {
                                 && p.date <= o.date
                         })
                         .map(|p| p.index_value)
+                        .or_else(|| {
+                            publications
+                                .iter()
+                                .filter(|p| {
+                                    p.series == w.series
+                                        && p.period == period
+                                        && p.publication_date <= o.date
+                                })
+                                .max_by(|a, b| a.publication_date.cmp(&b.publication_date))
+                                .map(|p| p.value)
+                        })
                         .ok_or_else(|| {
                             err("Falta índice con fuente y fecha verificables para la fórmula")
                         })
@@ -1646,7 +1786,30 @@ impl LocalStore {
                 for l in &o.lines {
                     let key = (l.line_id, l.center_id, o.currency.clone());
                     let old = incomes.get(&key).copied().unwrap_or_default();
-                    incomes.insert(key, add(old, mul(l.quantity, l.unit_price)?)?);
+                    incomes.insert(
+                        key,
+                        add(
+                            old,
+                            mul(
+                                mul(l.quantity, l.unit_price)?,
+                                o.index_snapshot.as_ref().map_or(D::ONE, |s| s.factor),
+                            )?,
+                        )?,
+                    );
+                }
+            }
+            if o.kind == "certificate" {
+                let additional = add(
+                    o.calculated.get("extras").copied().unwrap_or_default(),
+                    o.calculated
+                        .get("adjustment_difference")
+                        .copied()
+                        .unwrap_or_default(),
+                )?;
+                if additional != D::ZERO {
+                    let key = (None, None, o.currency.clone());
+                    let old = incomes.get(&key).copied().unwrap_or_default();
+                    incomes.insert(key, add(old, additional)?);
                 }
             }
             if o.kind == "adjustment" {

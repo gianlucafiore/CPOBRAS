@@ -13,6 +13,8 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BudgetDocument {
     #[serde(default)]
+    pub adjustment_agreement: Option<cpobras_core::adjustments::AdjustmentAgreement>,
+    #[serde(default)]
     pub measured_line_ids: Vec<Uuid>,
     #[serde(default)]
     pub price_definition: Option<cpobras_core::price_determination::PriceDefinition>,
@@ -98,11 +100,14 @@ impl LocalStore {
             }
         }
         Ok(BudgetDocument {
+            adjustment_agreement: self.adjustment_agreement(id)?.definition,
             measured_line_ids: self.measured_lines(id)?,
             price_definition: self.stored_price_definition(id)?,
             line_analyses,
             formulas,
-            format_version: if self.stored_price_definition(id)?.is_some() {
+            format_version: if self.adjustment_agreement(id)?.definition.is_some() {
+                3
+            } else if self.stored_price_definition(id)?.is_some() {
                 2
             } else {
                 1
@@ -156,7 +161,7 @@ impl LocalStore {
         project_id: Uuid,
         document: &BudgetDocument,
     ) -> Result<Estimate> {
-        if ![1, 2].contains(&document.format_version)
+        if ![1, 2, 3].contains(&document.format_version)
             || document.title.trim().is_empty()
             || document.lines.len() > 10_000
             || document.sections.len() > 5000
@@ -355,6 +360,10 @@ impl LocalStore {
             )?;
         }
         crate::estimate_resource_prices::synchronize(&tx, estimate.id, &BTreeMap::new())?;
+        if let Some(a) = &document.adjustment_agreement {
+            a.validate().map_err(StorageError::InvalidValue)?;
+            tx.execute("INSERT INTO estimate_adjustment_agreements(estimate_id,revision,definition_json) VALUES(?1,1,?2)",params![estimate.id.to_string(),serde_json::to_string(&Some(a))?])?;
+        }
         if let Some(definition) = &document.price_definition {
             definition
                 .calculate(crate::estimates::checked_budget_total(&tx, estimate.id)?)

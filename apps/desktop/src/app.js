@@ -1,3 +1,5 @@
+import { createAdjustmentAgreement } from "./components/adjustment-agreement.js";
+import { createSystemSettings } from "./components/system-settings.js";
 import {createRemoteInvoke,protectRemoteControls,remoteActionAllowed} from "./services/remote-workspace.js";
 import { createSharing } from "./components/sharing.js";
 import { createPersons } from "./components/persons.js";
@@ -61,6 +63,8 @@ export function createWorkspaceApp({
   const operations = createOperationsWorkspace(context);
   const management = createManagementWorkspace(context);
   const planning = createPlanningWorkspace(context);
+  const systemSettings = createSystemSettings(context);
+  const agreement = createAdjustmentAgreement({...context,onSaved:async()=>{if(state.view==="planning")await planning.refreshOverview();}});
   const costing = createCostingWorkspace(context);
   const patterns = createBudgetPatterns(context);
   const pricing = createPriceDetermination(context);
@@ -120,6 +124,7 @@ export function createWorkspaceApp({
     const position = top?.scrollTop || 0;
     root.innerHTML = ["clients", "suppliers"].includes(state.view)
       ? chrome(people.markup())
+      : state.view === "system-settings" ? chrome(systemSettings.markup())
       : state.view === "sharing" ? chrome(sharing.markup())
       : state.view === "organizations"
         ? chrome(organizations.markup())
@@ -140,6 +145,7 @@ export function createWorkspaceApp({
                       : state.view === "workspace"
                         ? workspace()
                         : listViews();
+    if (agreement.model.open) root.innerHTML += agreement.markup();
     if (patterns.model.active) {
       root.innerHTML += patterns.markup();
       patterns.afterRender();
@@ -208,6 +214,7 @@ export function createWorkspaceApp({
     "open-budget-tools": "budget-tools",
     "open-organizations": "organizations",
     "open-sharing": "sharing",
+    "open-system-settings": "system-settings",
     "open-external-project": "workspace",
     "open-budget-printing": "budget-printing",
   };
@@ -248,6 +255,7 @@ export function createWorkspaceApp({
         "open-portfolio",
         "open-organizations",
         "open-sharing",
+        "open-system-settings",
       ].includes(action)
     )
       throw new Error(
@@ -309,6 +317,7 @@ export function createWorkspaceApp({
         await pricing.act(button);
       else if (action === "open-external-project") await openExternalProject(button.dataset.id);
       else if (action === "open-sharing") await sharing.act(button);
+      else if (action === "open-system-settings") await systemSettings.act(button);
       else if (action === "open-organizations") await organizations.act(button);
       else if (action === "open-budget-printing") await printing.act(button);
       else if (action === "open-budget-tools") await budgetTools.act(button);
@@ -497,6 +506,8 @@ export function createWorkspaceApp({
         );
         return;
       }
+      if(button.dataset.action.startsWith("agreement-")){await agreement.act(button);return;}
+      if (button.dataset.action === "open-system-settings" || button.dataset.action.startsWith("system-") || (state.view==="system-settings" && button.dataset.action.startsWith("plan-calendar-"))) {await systemSettings.act(button);return;}
       if (button.classList?.contains("resource-search")) return;
       if (
         button.dataset.action === "open-patterns" ||
@@ -542,6 +553,8 @@ export function createWorkspaceApp({
   });
   document.addEventListener("submit", async (evt) => {
     const groups = [
+      [agreement, ["adjustment-agreement-form"]],
+      [systemSettings, ["system-calendar", "system-index"]],
       [people, ["person-form"]],
       [sharing, ["p2p-invite-form", "p2p-join-form", "p2p-access-form"]],
       [organizations, ["organization-create-form"]],
@@ -576,7 +589,7 @@ export function createWorkspaceApp({
           "copy-base-analysis-form",
         ],
       ],
-      [planning, ["planning-task-form", "planning-settings","planning-finance","planning-split-form"]],
+      [planning, ["planning-task-form", "planning-settings","planning-finance","planning-agreement","planning-split-form"]],
       [management, ["management-form","project-attachment-form"]],
     ];
     if (evt.target.id === "unit-create-form") {
@@ -624,6 +637,7 @@ export function createWorkspaceApp({
           "planning-split-form",
           "planning-settings",
           "planning-finance",
+          "planning-agreement",
           "budget-bulk-form",
           "nested-analysis-form",
           "price-list-form",
@@ -650,10 +664,12 @@ export function createWorkspaceApp({
   document.addEventListener("change", async (evt) => {
     if (
       evt.target.closest?.(
-        "#p2p-invite-form,#p2p-join-form,#p2p-access-form,#organization-create-form,#print-profile-form,#budget-print-form,#management-form,#project-attachment-form,#planning-task-form,#planning-split-form,#planning-settings,#planning-finance,#budget-bulk-form,#nested-analysis-form,#price-list-form,#scoped-price-form",
+        "#p2p-invite-form,#p2p-join-form,#p2p-access-form,#organization-create-form,#print-profile-form,#budget-print-form,#management-form,#project-attachment-form,#planning-task-form,#planning-split-form,#planning-settings,#planning-finance,#planning-agreement,#system-calendar,#system-index,#budget-bulk-form,#nested-analysis-form,#price-list-form,#scoped-price-form",
       )
     )
       if(evt.target.name!=="calendar-month")state.pageDirty = true;
+    agreement.change(evt.target);
+    if(state.view === "system-settings") systemSettings.change(evt.target);
     if (state.modal && evt.target.closest?.("#dialog-form"))
       state.modalDirty = true;
     if (evt.target.name === "library-trade") {
@@ -709,7 +725,7 @@ export function createWorkspaceApp({
   document.addEventListener("input", (evt) => {
     if (
       evt.target.closest?.(
-        "#p2p-invite-form,#p2p-join-form,#p2p-access-form,#organization-create-form,#print-profile-form,#budget-print-form,#management-form,#project-attachment-form,#planning-task-form,#planning-split-form,#planning-settings,#planning-finance,#budget-bulk-form,#nested-analysis-form,#price-list-form,#scoped-price-form",
+        "#p2p-invite-form,#p2p-join-form,#p2p-access-form,#organization-create-form,#print-profile-form,#budget-print-form,#management-form,#project-attachment-form,#planning-task-form,#planning-split-form,#planning-settings,#planning-finance,#planning-agreement,#system-calendar,#system-index,#budget-bulk-form,#nested-analysis-form,#price-list-form,#scoped-price-form",
       )
     )
       if(evt.target.name!=="calendar-month")state.pageDirty = true;
@@ -781,6 +797,7 @@ export function createWorkspaceApp({
     }
   });
   document.addEventListener("keydown", (evt) => {
+    if(evt.key==='Escape' && agreement.model.open){evt.preventDefault();agreement.act({dataset:{action:'agreement-close'}}).catch(error=>{state.message=String(error);render();});return;}
     if(evt.key==='Escape'&&state.view==='planning'&&(document.querySelector('#planning-task-form')||document.querySelector('#planning-split-form'))){evt.preventDefault();const action=document.querySelector('#planning-split-form')?'plan-split-cancel':'plan-cancel';planning.act({dataset:{action}}).catch(error=>{state.message=String(error);render();});return;}
     if (people.keyDown(evt)) return;
     if (patterns.keyDown(evt)) return;

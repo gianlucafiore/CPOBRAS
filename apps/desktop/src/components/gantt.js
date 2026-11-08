@@ -30,7 +30,7 @@ export function createGantt({ state, model, document, save, render }) {
   }
   function dateTitle(date) {
     const entry = model.plan.calendar.exceptions?.[date];
-    return `${date}${(model.plan.finance?.cut_dates || []).includes(date) ? " · Corte de certificación" : ""}${entry?.description ? " · " + entry.description : ""} · ${isWorkingDate(model.plan.calendar, date) ? "Laborable" : "No laborable"}`;
+    return `${date}${(model.plan.finance?.cut_dates || []).includes(date) ? " · Corte de certificación" : ""}${entry ? " · Feriado / fecha especial: " + (entry.description || "Sin descripción") : ""} · ${isWorkingDate(model.plan.calendar, date) ? "Laborable" : "No laborable"}`;
   }
   function fills(start, finish) {
     const spans = [];
@@ -106,14 +106,14 @@ export function createGantt({ state, model, document, save, render }) {
         .map((task) => {
           const scheduled = model.schedule?.tasks.find((t) => t.id === task.id),
             previous = baseline?.schedule.tasks.find((t) => t.id === task.id);
-          return `<div class="gantt-track">${days.map((d) => `<span class="gantt-day-cell ${classes(d.iso)}" style="left:${(d.day - camera.day) * CELL + camera.offset}px;width:${CELL}px" title="${e(dateTitle(d.iso))}"></span>`).join("")}${(model.plan.finance?.cut_dates || []).map((date) => `<span class="gantt-certification-cut" title="Corte de certificación ${e(date)}" style="left:${left(date) + CELL}px"></span>`).join("")}${previous ? `<span class="gantt-baseline" style="left:${left(previous.start)}px;width:${Math.max(8, (dayNumber(previous.finish) - dayNumber(previous.start) + 1) * CELL)}px"></span>` : ""}${scheduled ? taskBar(task, scheduled) : ""}</div>`;
+          return `<div class="gantt-track">${days.map((d) => `<span class="gantt-day-cell ${classes(d.iso)}" style="left:${(d.day - camera.day) * CELL + camera.offset}px;width:${CELL}px" title="${e(dateTitle(d.iso))}"></span>`).join("")}${(model.plan.finance?.cut_dates || []).map((date) => `<span data-cut-date="${date}" ${model.cutMode ? `data-action="plan-cut-date" data-date="${date}"` : ""} class="gantt-certification-cut ${model.cutMode ? "cut-editable" : ""}" title="Corte de certificación ${e(date)}" style="left:${left(date) + CELL}px"></span>`).join("")}${previous ? `<span class="gantt-baseline" style="left:${left(previous.start)}px;width:${Math.max(8, (dayNumber(previous.finish) - dayNumber(previous.start) + 1) * CELL)}px"></span>` : ""}${scheduled ? taskBar(task, scheduled) : ""}</div>`;
         })
         .join("")
     );
   }
   function markup() {
     configure();
-    return `<section class="gantt-board"><div class="gantt-toolbar"><p>Arrastrá el fondo para recorrer las fechas. Las barras usan días calendario; su duración cuenta solo los laborables. Rojo: ruta crítica.</p><div><button class="btn ${model.cutMode ? "primary" : ""}" data-action="plan-finance-mark">${model.cutMode ? "Finalizar marcado de cortes" : "Marcar cortes de certificación"}</button><button class="btn" data-action="plan-gantt-prev" aria-label="Gantt: cuatro semanas anteriores">←</button><button class="btn" data-action="plan-gantt-start">Inicio de obra</button><button class="btn" data-action="plan-gantt-today">Hoy</button><button class="btn" data-action="plan-gantt-next" aria-label="Gantt: cuatro semanas siguientes">→</button></div></div><div class="gantt-scroll"><div class="gantt-label-column"><div class="gantt-label-heading">Tareas</div>${model.plan.tasks
+    return `<section class="gantt-board"><div class="gantt-toolbar"><p>Arrastrá el fondo para recorrer las fechas. Las barras usan días calendario; su duración cuenta solo los laborables. Rojo: ruta crítica. ${model.cutMode ? "En el encabezado, hacé clic en una fecha para agregar un corte; si ya existe, otro clic lo elimina. Arrastrá un corte existente para cambiar su fecha." : ""}</p><div><button class="btn ${model.cutMode ? "primary" : ""}" data-action="plan-finance-mark">${model.cutMode ? "Finalizar marcado de cortes" : "Marcar cortes de certificación"}</button><button class="btn" data-action="plan-gantt-prev" aria-label="Gantt: cuatro semanas anteriores">←</button><button class="btn" data-action="plan-gantt-start">Inicio de obra</button><button class="btn" data-action="plan-gantt-today">Hoy</button><button class="btn" data-action="plan-gantt-next" aria-label="Gantt: cuatro semanas siguientes">→</button></div></div><div class="gantt-scroll"><div class="gantt-label-column"><div class="gantt-label-heading">Tareas</div>${model.plan.tasks
       .map((task) => {
         const scheduled = model.schedule?.tasks.find((t) => t.id === task.id);
         return `<button class="gantt-label" data-action="plan-edit" data-id="${e(task.id)}">${e(task.parent_id ? "↳ " : "")}${e(task.name)}<small>${e(scheduled?.start)} → ${e(scheduled?.finish)} · holgura ${scheduled?.float_days ?? "—"} d</small></button>`;
@@ -152,7 +152,20 @@ export function createGantt({ state, model, document, save, render }) {
     draw();
   }
   function pointerDown(event) {
-    if (event.target.closest?.('[data-action="plan-cut-date"]')) return false;
+    const cut = event.target.closest?.('[data-action="plan-cut-date"]');
+    if (cut) {
+      if (
+        model.cutMode &&
+        !state.remoteProject &&
+        !state.pageDirty &&
+        (model.plan.finance?.cut_dates || []).includes(cut.dataset.date) &&
+        event.button === 0
+      ) {
+        drag = { type: "cut", date: cut.dataset.date, x: event.clientX };
+        return true;
+      }
+      return false;
+    }
     const host = event.target.closest?.("[data-gantt-viewport]");
     if (!host || event.button !== 0) return false;
     const bar = event.target.closest?.(".gantt-bar");
@@ -184,6 +197,20 @@ export function createGantt({ state, model, document, save, render }) {
   }
   function pointerMove(event) {
     if (!drag) return false;
+    if (drag.type === "cut") {
+      const delta = Math.round((event.clientX - drag.x) / CELL);
+      drag.preview = addDays(drag.date, delta);
+      if (drag.preview < model.plan.calendar.start_date)
+        drag.preview = model.plan.calendar.start_date;
+      for (const line of document.querySelectorAll(
+        `[data-cut-date="${drag.date}"]`,
+      )) {
+        line.style.transform = `translateX(${(dayNumber(drag.preview) - dayNumber(drag.date)) * CELL}px)`;
+        line.style.borderRightStyle = "solid";
+        line.title = "Mover corte a " + drag.preview;
+      }
+      return true;
+    }
     if (drag.type === "pan") {
       const raw = drag.offset + event.clientX - drag.x,
         steps = Math.floor(raw / CELL);
@@ -232,6 +259,26 @@ export function createGantt({ state, model, document, save, render }) {
       .querySelector("[data-gantt-viewport]")
       ?.classList.remove("panning");
     if (old.type === "pan") return true;
+    if (old.type === "cut") {
+      if (!old.preview || old.preview === old.date) return true;
+      model.movedCut = { date: old.date, at: Date.now() };
+      if (model.plan.finance.cut_dates.includes(old.preview)) {
+        draw();
+        throw new Error("Ya existe un corte en esa fecha");
+      }
+      const previous = structuredClone(model.plan);
+      model.plan.finance.cut_dates = model.plan.finance.cut_dates
+        .map((d) => (d === old.date ? old.preview : d))
+        .sort();
+      try {
+        await save();
+      } catch (error) {
+        model.plan = previous;
+        model.dirty = false;
+        throw error;
+      }
+      return true;
+    }
     if (
       !old.preview ||
       (old.preview.start === old.start && old.preview.duration === old.duration)
@@ -267,13 +314,21 @@ export function createGantt({ state, model, document, save, render }) {
     return true;
   }
   let resizeObserver = null;
+  let measuredWidth = null;
   function afterRender() {
     resizeObserver?.disconnect();
     const host = document.querySelector("[data-gantt-viewport]");
     if (!host) return;
     draw();
     if (typeof ResizeObserver !== "undefined") {
-      resizeObserver ||= new ResizeObserver(() => draw());
+      measuredWidth = host.clientWidth;
+      resizeObserver ||= new ResizeObserver((entries) => {
+        const width = entries[0]?.target.clientWidth;
+        if (width && width !== measuredWidth) {
+          measuredWidth = width;
+          draw();
+        }
+      });
       resizeObserver.observe(host);
     }
   }

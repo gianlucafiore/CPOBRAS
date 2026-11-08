@@ -6,11 +6,11 @@
    Las tareas deben estar vinculadas con partidas de ese presupuesto. Para conocer
    materiales y rendimientos necesitan una composición ACU. Los tramos parciales
    conservan su porcentaje de la cantidad y del costo originales.
-2. En **Planificación → Cortes de certificación y previsión financiera**, agregá
+2. En **Planificación → Certificaciones programadas → Configurar condiciones**, agregá
    fechas de corte, plazo de cobro en días calendario, reparo, recuperación de
    anticipo del comitente y caja disponible. Indicá la moneda de esa caja.
    También podés activar **Marcar cortes de certificación** y pulsar días del
-   encabezado del Gantt para agregarlos o quitarlos. Las líneas violetas marcan
+   encabezado del Gantt para agregarlos o quitarlos. Arrastrá un corte para moverlo. Las líneas violetas marcan
    los cierres inclusivos; el período siguiente comienza al día siguiente.
 3. En **Datos de obra → Directorios y fichas → Cuadrillas**, definí el costo de
    la jornada de la cuadrilla completa, moneda, frecuencia y porcentaje de
@@ -109,6 +109,9 @@ se incluyen en las copias de respaldo y conservan las revisiones del cronograma.
 Los datos financieros se filtran antes de enviar una obra por P2P. Esta función
 no conecta bancos, no envía dinero y no genera comprobantes fiscales.
 
-El esquema de la base se actualiza automáticamente a 26. Una versión anterior
+El esquema de la base se actualiza automáticamente a 27. Una versión anterior
 no debe abrir esta base: ignoraría las nuevas reglas financieras. Conservá
 siempre una copia de respaldo antes de actualizar.
+
+Acuerdos por presupuesto, índices provisorios, diferencias posteriores y
+adicionales: [guía de calendario e índices](INDEX_ADJUSTMENTS.md).

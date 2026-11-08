@@ -8,9 +8,8 @@ los nombres, duraciones, precedencias, recursos y avances se comparten.
 - Creá una tarea o vinculala con una partida presupuestaria.
 - Arrastrá una barra para fijar una fecha mínima de comienzo; su extremo cambia
   la duración. El calendario y las dependencias siguen teniendo prioridad.
-- Configurá días laborables y feriados en **Calendario y seguimiento**.
-- Las tareas críticas se distinguen en rojo. Las líneas base y revisiones se
-  consultan desde **Líneas base e historial de revisiones**.
+- Configurá días laborables y feriados en **Inicio → Datos generales**. La obra permite excepciones propias.
+- Las tareas críticas se distinguen en rojo. Las revisiones internas se conservan; la tarjeta de líneas base e historial se quitó de esta vista.
 
 ## PERT
 
@@ -111,20 +110,18 @@ sin sumar fines de semana o feriados que se atraviesen.
 
 ## Feriados y jornadas especiales
 
-**Calendario y seguimiento** y el resumen de duración/avance se muestran en dos
-columnas de una misma fila cuando hay ancho suficiente.
+El calendario general se configura en **Inicio → Datos generales**. Las obras
+lo heredan y pueden habilitar o suspender fechas particulares en **Seguimiento
+y excepciones de esta obra**. Quitar una excepción local restaura el criterio
+general. También puede personalizarse la semana de una obra sin cambiar las demás.
 
-1. Desplegá **Calendario y seguimiento** y configurá los días habituales.
-2. Seleccioná todas las fechas necesarias en el calendario mensual. Permanece
-   abierto y conserva la selección al cambiar de mes.
-3. A la derecha, indicá una descripción para cada fecha. Por defecto se trata
-   de un día **no laborable**. Activá **Laborable** para habilitarlo, incluso
-   si es sábado, domingo o un feriado anterior.
-4. **Guardar calendario** aplica los cambios a Gantt y PERT. Las selecciones
-   sin guardar no cambian el cronograma. Se conservan en revisiones, líneas base
-   y respaldos junto con la obra.
+Las fechas especiales se colorean en el Gantt y su descripción aparece al pasar
+el mouse, junto con su condición laborable. Un feriado laborable mantiene su
+identificación. Las fechas antiguas se conservan como excepciones de la obra.
 
-Una excepción por fecha tiene prioridad sobre los días habituales y los feriados
-anteriores. Quitarla restaura la regla semanal. Los feriados de versiones previas
-se conservan como fechas no laborables editables. Actualizá ambos equipos si
-compartís por P2P un plan que utiliza jornadas laborables excepcionales.
+La tarjeta **Certificaciones programadas** muestra cobro neto previsto/emitido,
+gastos previstos de la siguiente etapa y resto de caja. **Configurar condiciones**
+oculta los ajustes de caja habituales. En el modo de cortes, un clic agrega o
+elimina y un arrastre cambia la fecha, con vista previa.
+
+[Calendario general, acuerdos de índices y certificados](INDEX_ADJUSTMENTS.md).

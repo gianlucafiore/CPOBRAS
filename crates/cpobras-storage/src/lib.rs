@@ -4,6 +4,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use std::path::Path;
 use uuid::Uuid;
 
+pub mod adjustments;
 pub mod advanced_costing;
 pub mod budget_patterns;
 pub mod budget_pricing;
@@ -24,6 +25,7 @@ pub mod price_determination;
 pub mod printing;
 pub mod resource_catalog;
 pub mod sharing;
+pub mod system_settings;
 pub mod takeoffs;
 
 const INITIAL_MIGRATION: &str = include_str!("../migrations/0001_initial.sql");
@@ -96,6 +98,7 @@ impl LocalStore {
             include_str!("../migrations/0024_task_segments.sql"),
             include_str!("../migrations/0025_calendar_exceptions.sql"),
             include_str!("../migrations/0026_financial_planning.sql"),
+            include_str!("../migrations/0027_calendar_and_certificates.sql"),
         ];
         let latest: i64 = conn.query_row(
             "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",

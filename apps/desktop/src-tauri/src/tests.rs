@@ -52,6 +52,45 @@ fn ipc_creates_budget_and_preserves_issued_snapshot() {
         json!({"projectId":project["id"], "title":"Presupuesto"}),
     )
     .unwrap();
+    let general = call("get_general_calendar", json!({})).unwrap();
+    assert_eq!(general["revision"], 0);
+    call("save_general_calendar",json!({"calendar":{"revision":0,"nonworking_weekdays":[5,6],"exceptions":{"2099-01-01":{"description":"Feriado de prueba","working":false}}}})).unwrap();
+    call("save_index_point",json!({"point":{"id":uuid::Uuid::new_v4(),"series":"CAC","period":"2026-09","value":"100","publication_date":"2026-10-01","source":"https://example.org/cac"}})).unwrap();
+    assert_eq!(
+        call("list_index_points", json!({}))
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    call("save_adjustment_agreement",json!({"estimateId":estimate["id"],"revision":0,"definition":{"base_month":"2026-09","lag_months":0,"weights":[{"series":"CAC","weight":"1"}]}})).unwrap();
+    let preview = call(
+        "certificate_index_preview",
+        json!({"estimateId":estimate["id"],"cut":"2026-11-05","asOf":"2026-11-05"}),
+    )
+    .unwrap();
+    assert_eq!(preview["provisional"], true);
+    assert_eq!(preview["factor"], "1");
+    call(
+        "save_adjustment_agreement",
+        json!({"estimateId":estimate["id"],"revision":1,"definition":null}),
+    )
+    .unwrap();
+    assert!(call(
+        "get_adjustment_agreement",
+        json!({"estimateId":estimate["id"]})
+    )
+    .unwrap()["definition"]
+        .is_null());
+    assert_eq!(
+        call(
+            "certification_overview",
+            json!({"projectId":project["id"],"estimateId":estimate["id"],"asOf":"2026-11-05"})
+        )
+        .unwrap(),
+        json!([])
+    );
     let resource = call("create_resource", json!({"code":"MAT-1","description":"Material","unit":"kg","kind":"material","price":"1.005","effectiveDate":"2026-11-05","source":null})).unwrap();
     let analysis = call("create_analysis", json!({"code":"ACU-1","description":"Análisis","unit":"kg","components":[{"resourceId":resource["id"],"quantity":"2","unitPrice":"1.005"}]})).unwrap();
     assert_eq!(analysis["unit_cost"], "2.010");

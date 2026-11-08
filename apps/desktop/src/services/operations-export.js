@@ -129,6 +129,44 @@ export async function exportOperationalReport({
           multiplyDecimals(l.hours, l.unit_price),
         ]),
       );
+    if (d.index_snapshot) {
+      const snap = d.index_snapshot;
+      rows.push([
+        "Ajuste",
+        snap.provisional ? "Provisorio" : "Definitivo",
+        snap.target_month,
+        snap.applied_month,
+        snap.factor,
+      ]);
+      for (const x of snap.indices)
+        rows.push([
+          "Índice " + x.series,
+          x.current.source,
+          x.base.value,
+          x.current.value,
+          x.weight,
+        ]);
+    }
+    for (const x of d.extras || [])
+      rows.push([
+        "Adicional",
+        x.description +
+          " · " +
+          x.reason +
+          " · Autorización: " +
+          x.authorization,
+        "",
+        x.adjustable ? "Ajustable" : "Fijo",
+        x.amount,
+      ]);
+    for (const x of d.reconciliations || [])
+      rows.push([
+        "Diferencia certificado " + x.source_number,
+        "Coeficiente " + x.from_factor + " → " + x.snapshot.factor,
+        "Reparo: " + x.retention_delta,
+        "",
+        x.delta,
+      ]);
   } else if (scope === "portfolio") {
     title = "Cartera de obras";
     headers = summaryHeaders;

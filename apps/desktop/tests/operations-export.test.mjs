@@ -83,3 +83,7 @@ test("financial exports preserve exact balances and material stock offsets", asy
   assert.ok(rows.some(r=>r[1]==="Pago previsto" && r[3]==="9007199254740993.01" && r[4]==="-9007199254740893.01"));
   assert.ok(rows.some(r=>r[1]==="Verificar entrega"));
 });
+test('certificate exports include frozen index sources, authorized extras and prior-certificate differences',async()=>{
+ const d={...model().detail,index_snapshot:{provisional:true,target_month:'2026-11',applied_month:'2026-10',factor:'1.1',indices:[{series:'CAC',weight:'1',base:{value:'100'},current:{value:'110',source:'https://example.org/cac'}}]},extras:[{description:'Movilización',reason:'Cambio solicitado',authorization:'Orden 18',amount:'500',adjustable:false}],reconciliations:[{source_number:'CERT-ANT',from_factor:'1.1',snapshot:{factor:'1.2'},retention_delta:'5',delta:'100'}]};
+ const result=await generate('xlsx','document',{detail:d});const rows=await parseExcel(new Uint8Array(result.bytes));assert.ok(rows.some(r=>r[0]==='Índice CAC' && r[1]==='https://example.org/cac'));assert.ok(rows.some(r=>r[0]==='Adicional' && r[1].includes('Orden 18') && r[4]==='500'));assert.ok(rows.some(r=>r[0]==='Diferencia certificado CERT-ANT' && r[4]==='100'));
+});

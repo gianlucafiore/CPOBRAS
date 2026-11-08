@@ -38,6 +38,11 @@ export function createRemoteInvoke(nativeInvoke, state) {
       throw new Error("La consulta no pertenece a la obra externa abierta.");
     const projected = () => {
       switch (command) {
+        case "get_general_calendar":return {revision:0,nonworking_weekdays:d.planning?.plan.calendar.nonworking_weekdays||[5,6],exceptions:d.planning?.plan.calendar.exceptions||{}};
+        case "list_index_points":return [];
+        case "get_adjustment_agreement":requirePermission("price");return budget().adjustment_agreement||{revision:0,definition:null};
+        case "certification_overview":return budget().certification_overview||[];
+        case "pending_adjustment_differences":return [];
         case "list_project_estimates":
           return d.budgets.map((b) => b.estimate);
         case "get_estimate_metadata":return p.budget?(budget().metadata||{}):{};
@@ -203,6 +208,7 @@ export function createRemoteInvoke(nativeInvoke, state) {
   };
 }
 const viewActions = new Set([
+  "agreement-open", "agreement-close", "plan-overview-refresh", "plan-finance-conditions",
   "go-home",
   "open-workspace",
   "open-price-determination",
@@ -259,6 +265,8 @@ export function remoteActionAllowed(state, button) {
   if (!viewActions.has(a)) return false;
   const p = permissionsFor(state);
   if (a === "open-workspace" && !p.budget) return false;
+  if(a === "agreement-open" && !p.price)return false;
+  if(["plan-finance-conditions","plan-overview-refresh"].includes(a) && !p.accounting)return false;
   if (a === "open-price-determination" && !p.price) return false;
   if (a === "open-planning" && !p.planning) return false;
   if (a === "open-management" && !p.project_data) return false;

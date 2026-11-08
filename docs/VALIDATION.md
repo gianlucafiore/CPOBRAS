@@ -352,3 +352,30 @@ frontend y las comprobaciones de formato Rust son correctas.
   La compilación del frontend, el formato Rust y las 13 pruebas nativas pasan.
 - No se generaron AppImage, etiquetas ni releases.
 - Alcance y supuestos operativos: [guía financiera](FINANCIAL_PLANNING.md).
+
+## Calendario general, acuerdos e índices provisorios
+
+- Núcleo: 28 pruebas; almacenamiento: 87; JavaScript: 39; navegador: 69;
+  integración nativa: 13. Total: 236 casos correctos.
+- Calendario general heredado, prioridad de excepciones por obra, conservación
+  de calendarios anteriores e inmutabilidad de las líneas base históricas.
+- Acuerdos ponderados por presupuesto: pesos sumando 100 %, series únicas,
+  comparación contra el mes base y elección del último mes común publicado.
+- Publicaciones conocidas a la fecha de emisión, coeficientes congelados,
+  revisión de valores mediante nuevas publicaciones y diferencias positivas o
+  negativas. Una diferencia liquidada no vuelve a reclamarse; las correcciones
+  se comparan con el último coeficiente ya liquidado.
+- Adicionales fijos/ajustables, autorización, reparo selectivo, límites de anticipo
+  y separación entre saldo contractual base e importes adicionales/ajustados.
+- La integración IPC verifica alta del calendario y publicaciones, guardado del
+  acuerdo y cálculo provisorio. Las exportaciones conservan puntajes, fuentes,
+  adicionales y certificados de origen. P2P elimina los datos restringidos.
+- El navegador comprueba la gestión general, excepciones locales, condiciones
+  ocultas, tabla de certificaciones, acuerdo CAC/IPC, adicionales y diferencias,
+  movimiento/eliminación de cortes sin perder su fecha y conservación de condiciones
+  sin guardar al intentar abrir un acuerdo. El Gantt no reconstruye el encabezado
+  si el observador de tamaño informa el mismo ancho.
+- Compilación Vite y formato Rust correctos. Esquema 27: tablas nuevas y protección
+  frente a versiones anteriores que no interpretan estas reglas.
+- No se generaron AppImage, etiquetas ni releases.
+- Flujo y limitaciones operativas: [guía de índices y certificados](INDEX_ADJUSTMENTS.md).
