@@ -30,7 +30,7 @@ export function createGantt({ state, model, document, save, render }) {
   }
   function dateTitle(date) {
     const entry = model.plan.calendar.exceptions?.[date];
-    return `${date}${entry?.description ? " · " + entry.description : ""} · ${isWorkingDate(model.plan.calendar, date) ? "Laborable" : "No laborable"}`;
+    return `${date}${(model.plan.finance?.cut_dates || []).includes(date) ? " · Corte de certificación" : ""}${entry?.description ? " · " + entry.description : ""} · ${isWorkingDate(model.plan.calendar, date) ? "Laborable" : "No laborable"}`;
   }
   function fills(start, finish) {
     const spans = [];
@@ -98,7 +98,7 @@ export function createGantt({ state, model, document, save, render }) {
         "Diciembre",
       ],
       weekdays = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
-    const header = `<div class="gantt-calendar-header"><div class="gantt-header-tier" aria-label="Años">${groups(days, "year", (d) => String(d.year))}</div><div class="gantt-header-tier" aria-label="Meses">${groups(days, "month", (d) => months[Number(d.month.slice(5)) - 1])}</div><div class="gantt-header-tier" aria-label="Semanas ISO">${groups(days, "weekKey", (d) => "Sem. " + d.week + " · " + d.weekYear)}</div><div class="gantt-header-days">${days.map((d) => `<span class="gantt-date ${classes(d.iso)}" data-gantt-date="${d.iso}" title="${e(dateTitle(d.iso))}" style="left:${(d.day - camera.day) * CELL + camera.offset}px;width:${CELL}px"><small>${weekdays[d.weekday]}</small><b>${Number(d.iso.slice(8))}</b></span>`).join("")}</div></div>`;
+    const header = `<div class="gantt-calendar-header"><div class="gantt-header-tier" aria-label="Años">${groups(days, "year", (d) => String(d.year))}</div><div class="gantt-header-tier" aria-label="Meses">${groups(days, "month", (d) => months[Number(d.month.slice(5)) - 1])}</div><div class="gantt-header-tier" aria-label="Semanas ISO">${groups(days, "weekKey", (d) => "Sem. " + d.week + " · " + d.weekYear)}</div><div class="gantt-header-days">${days.map((d) => `<${model.cutMode ? "button" : "span"} ${model.cutMode ? 'type="button" data-action="plan-cut-date"' : ""} class="gantt-date ${classes(d.iso)} ${(model.plan.finance?.cut_dates || []).includes(d.iso) ? "is-certification-cut" : ""}" data-gantt-date="${d.iso}" data-date="${d.iso}" title="${e(dateTitle(d.iso))}" style="left:${(d.day - camera.day) * CELL + camera.offset}px;width:${CELL}px"><small>${weekdays[d.weekday]}</small><b>${Number(d.iso.slice(8))}</b></${model.cutMode ? "button" : "span"}>`).join("")}</div></div>`;
     const baseline = model.baselines.find((b) => b.id === model.baselineId);
     return (
       header +
@@ -106,14 +106,14 @@ export function createGantt({ state, model, document, save, render }) {
         .map((task) => {
           const scheduled = model.schedule?.tasks.find((t) => t.id === task.id),
             previous = baseline?.schedule.tasks.find((t) => t.id === task.id);
-          return `<div class="gantt-track">${days.map((d) => `<span class="gantt-day-cell ${classes(d.iso)}" style="left:${(d.day - camera.day) * CELL + camera.offset}px;width:${CELL}px" title="${e(dateTitle(d.iso))}"></span>`).join("")}${previous ? `<span class="gantt-baseline" style="left:${left(previous.start)}px;width:${Math.max(8, (dayNumber(previous.finish) - dayNumber(previous.start) + 1) * CELL)}px"></span>` : ""}${scheduled ? taskBar(task, scheduled) : ""}</div>`;
+          return `<div class="gantt-track">${days.map((d) => `<span class="gantt-day-cell ${classes(d.iso)}" style="left:${(d.day - camera.day) * CELL + camera.offset}px;width:${CELL}px" title="${e(dateTitle(d.iso))}"></span>`).join("")}${(model.plan.finance?.cut_dates || []).map((date) => `<span class="gantt-certification-cut" title="Corte de certificación ${e(date)}" style="left:${left(date) + CELL}px"></span>`).join("")}${previous ? `<span class="gantt-baseline" style="left:${left(previous.start)}px;width:${Math.max(8, (dayNumber(previous.finish) - dayNumber(previous.start) + 1) * CELL)}px"></span>` : ""}${scheduled ? taskBar(task, scheduled) : ""}</div>`;
         })
         .join("")
     );
   }
   function markup() {
     configure();
-    return `<section class="gantt-board"><div class="gantt-toolbar"><p>Arrastrá el fondo para recorrer las fechas. Las barras usan días calendario; su duración cuenta solo los laborables. Rojo: ruta crítica.</p><div><button class="btn" data-action="plan-gantt-prev" aria-label="Gantt: cuatro semanas anteriores">←</button><button class="btn" data-action="plan-gantt-start">Inicio de obra</button><button class="btn" data-action="plan-gantt-today">Hoy</button><button class="btn" data-action="plan-gantt-next" aria-label="Gantt: cuatro semanas siguientes">→</button></div></div><div class="gantt-scroll"><div class="gantt-label-column"><div class="gantt-label-heading">Tareas</div>${model.plan.tasks
+    return `<section class="gantt-board"><div class="gantt-toolbar"><p>Arrastrá el fondo para recorrer las fechas. Las barras usan días calendario; su duración cuenta solo los laborables. Rojo: ruta crítica.</p><div><button class="btn ${model.cutMode ? "primary" : ""}" data-action="plan-finance-mark">${model.cutMode ? "Finalizar marcado de cortes" : "Marcar cortes de certificación"}</button><button class="btn" data-action="plan-gantt-prev" aria-label="Gantt: cuatro semanas anteriores">←</button><button class="btn" data-action="plan-gantt-start">Inicio de obra</button><button class="btn" data-action="plan-gantt-today">Hoy</button><button class="btn" data-action="plan-gantt-next" aria-label="Gantt: cuatro semanas siguientes">→</button></div></div><div class="gantt-scroll"><div class="gantt-label-column"><div class="gantt-label-heading">Tareas</div>${model.plan.tasks
       .map((task) => {
         const scheduled = model.schedule?.tasks.find((t) => t.id === task.id);
         return `<button class="gantt-label" data-action="plan-edit" data-id="${e(task.id)}">${e(task.parent_id ? "↳ " : "")}${e(task.name)}<small>${e(scheduled?.start)} → ${e(scheduled?.finish)} · holgura ${scheduled?.float_days ?? "—"} d</small></button>`;
@@ -152,6 +152,7 @@ export function createGantt({ state, model, document, save, render }) {
     draw();
   }
   function pointerDown(event) {
+    if (event.target.closest?.('[data-action="plan-cut-date"]')) return false;
     const host = event.target.closest?.("[data-gantt-viewport]");
     if (!host || event.button !== 0) return false;
     const bar = event.target.closest?.(".gantt-bar");

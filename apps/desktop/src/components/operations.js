@@ -9,6 +9,7 @@ export const operationGroups = {
     "purchase_order",
     "service_order",
     "subcontract",
+    "stock_opening",
     "receipt",
     "service_receipt",
     "consumption",
@@ -36,6 +37,7 @@ export const operationNames = {
   purchase_order: "Orden de compra",
   service_order: "Orden de servicio",
   subcontract: "Contrato de subcontratista",
+  stock_opening: "Declarar acopio existente",
   receipt: "Remito / recepción parcial",
   service_receipt: "Recepción de servicio",
   consumption: "Consumo de materiales",
@@ -57,6 +59,7 @@ export const operationNames = {
   forecast: "Proyección de costo a terminar",
 };
 const guides = {
+  stock_opening: "Declaración de material que ya pertenece a la obra. Indicá depósito, cantidad disponible y valor de inventario. No genera una compra, deuda ni salida de caja; si todavía debés pagarlo, registrá la factura por separado.",
   advance_paid:
     "Registrá el anticipo efectivamente pagado y vinculalo con el subcontrato. Luego se descuenta en sus certificados, hasta el saldo pendiente.",
   advance_received:
@@ -157,6 +160,7 @@ export function createOperationsWorkspace({
         "ARS",
       partner_id: null,
       reference_id: null,
+      price_cost: null,
       warehouse_id: null,
       destination_id: null,
       estimate_id: model.estimateId || null,
@@ -261,6 +265,8 @@ export function createOperationsWorkspace({
       "target_period",
     ])
       o[k] ??= "";
+    const rental = String(data.get("rental-link") || "").split("|");
+    o.price_cost = o.kind === "payable" && rental.length === 3 ? {row_id:rental[0],item_id:rental[1],period_start:rental[2]} : null;
     o.lines = [...form.querySelectorAll(".operation-line")].map((row) => {
       const value = (n) => row.querySelector(`[name="${n}"]`)?.value || "";
       return {
@@ -337,7 +343,7 @@ export function createOperationsWorkspace({
   function formMarkup() {
     const o = model.draft;
     if (!o) return "";
-    const stockKinds = ["receipt", "consumption", "return", "transfer"];
+    const stockKinds = ["stock_opening", "receipt", "consumption", "return", "transfer"];
     const monetary = [
       "payable",
       "receivable",
@@ -378,7 +384,7 @@ export function createOperationsWorkspace({
         }[o.kind] || [];
       return allowed.includes(d.kind);
     });
-    return `<form id="operation-form" class="operations-form"><h3>${e(operationNames[o.kind])}</h3><p class="context-help">${e(guides[o.kind])} Los documentos registrados conservan su historial y no se sobrescriben.</p><div class="form-grid three">${field("Número / referencia", "o:number", o.number, 'required maxlength="100"')}${field("Fecha", "o:date", o.date, 'type="date" required')}${select(
+    return `<form id="operation-form" class="operations-form"><h3>${e(operationNames[o.kind])}</h3><p class="context-help">${e(guides[o.kind])} Los documentos registrados conservan su historial y no se sobrescriben.</p><div class="form-grid three">${field("Número / referencia", "o:number", o.number, o.kind === "stock_opening" ? 'readonly placeholder="Automático al registrar"' : 'required maxlength="100"')}${field("Fecha", "o:date", o.date, 'type="date" required')}${select(
       "Moneda",
       "o:currency",
       [
@@ -387,8 +393,11 @@ export function createOperationsWorkspace({
       ],
       o.currency,
     )}${select("Contraparte", "o:partner_id", [["", "Comitente / sin contraparte"], ...model.partners.filter(p=>p.attributes?.person_primary!=="false"||p.id===o.partner_id).map((p) => [p.id, p.name+((state.projects.find(x=>x.id===state.projectId)?.supplier_ids||[]).includes(p.attributes?.person_id||p.id)?" · Vinculado a la obra":"")])], o.partner_id)}${available.length || ["rfq", "quote", "purchase_order", "service_order", "subcontract", "receipt", "service_receipt", "return", "subcertificate", "adjustment", "payable", "receivable", "payment", "collection", "advance_paid", "retention_payable", "retention_receivable"].includes(o.kind) ? select("Documento de origen", "o:reference_id", [["", "Sin origen"], ...available.map((d) => [d.id, `${operationNames[d.kind]} · ${d.number} · ${partnerName(d.partner_id)} · ${d.currency} ${money(d.amount)}`])], o.reference_id) : ""}${select("Presupuesto de referencia", "o:estimate_id", [["", "Sin vínculo"], ...model.estimates.filter(x=>x.id===model.estimateId||x.id===o.estimate_id).map((x) => [x.id, x.title + (x.issued ? " · Emitido" : " · Borrador")])], o.estimate_id)}</div>
+ ${o.kind === "payable" ? select("Alquiler / gasto mensual previsto (opcional)", "rental-link", [["", "Sin vínculo"], ...(model.report?.recurring_costs || []).filter(r => r.currency === o.currency).map(r => [rentalKey(r), `${r.description} · ${r.period_start} → ${r.period_end}`])], o.price_cost ? rentalKey(o.price_cost) : "") + '<p class="modal-help">Para un gasto mensual elegí su período y dejá Documento de origen sin vínculo. La factura reemplaza la previsión; registrá su pago por separado.</p>' : ""}
+ ${["purchase_order", "service_order", "subcontract"].includes(o.kind) ? field("Fecha prevista de pago del saldo", "o:due_date", o.due_date || "", 'type="date"') + '<p class="modal-help">Se utiliza para el saldo aún no facturado ni cubierto por anticipos. Las facturas posteriores tendrán su propio vencimiento.</p>' : ""}
  ${stockKinds.includes(o.kind) ? `<div class="form-grid">${select("Depósito", "o:warehouse_id", opts(model.warehouses.filter((w) => w.project_id === model.projectId)), o.warehouse_id)}${o.kind === "transfer" ? select("Depósito de destino", "o:destination_id", [["", "Seleccionar…"], ...model.warehouses.map((w) => [w.id, whName(w.id)])], o.destination_id) : ""}</div>` : ""}
  ${cert ? `<div class="form-grid three">${field("Inicio del período", "o:period_start", o.period_start, 'type="date" required')}${field("Fin del período", "o:period_end", o.period_end, 'type="date" required')}${field("Anticipo a descontar", "o:advance", o.advance, 'type="number" min="0" step="any" required')}${field("Otros descuentos", "o:discount", o.discount, 'type="number" min="0" step="any" required')}${field("Fondo de reparo %", "o:retention_percent", o.retention_percent, 'type="number" min="0" max="100" step="any" required')}${field("Vencimiento", "o:due_date", o.due_date, 'type="date" required')}</div>` : ""}
+ ${o.kind === "payable" && model.partners.find(p=>p.id===o.partner_id)?.kind === "crew" ? `<div class="form-grid three">${field("Inicio de la liquidación", "o:period_start",o.period_start,'type="date" required')}${field("Fin de la liquidación", "o:period_end",o.period_end,'type="date" required')}${field("Anticipo a descontar del importe bruto", "o:advance",o.advance || "0",'type="number" min="0" step="any" required')}</div><p>El importe ingresado es bruto; se descontará este anticipo para obtener el neto por pagar.</p>` : ""}
  ${monetary.includes(o.kind) ? `<div class="form-grid">${field(o.kind === "forecast" ? "Costo restante estimado" : "Importe", "o:amount", o.amount, 'type="number" min="0" step="any" required')}${field(o.kind === "forecast" ? "Fin previsto" : "Vencimiento / fecha prevista", "o:due_date", o.due_date, 'type="date" required')}</div>` : ""}
  ${
    o.kind === "index"
@@ -582,9 +591,18 @@ export function createOperationsWorkspace({
         ]),
     )}</details>`;
   }
+  const rentalKey = (r) => `${r.row_id}|${r.item_id}|${r.period_start}`;
+  function rentals() {
+    return `<h3>Alquileres y gastos mensuales previstos</h3><p>Provienen del detalle guardado en Determinación de precio del presupuesto activo. Vinculá las facturas con su período para reemplazar la previsión. Una previsión no registra deuda ni un pago.</p>${table(["Concepto", "Período", "Vencimiento", "Moneda", "Presupuestado", "Facturado", "Sin facturar"], (model.report?.recurring_costs || []).map(r => [e(r.description),e(r.period_start + " → " + r.period_end),e(r.due_date),e(r.currency),money(r.amount),money(r.invoiced),money(r.unbilled)]))}`;
+  }
+  function financialProjection() {
+    const f = model.report?.financial_projection;
+    if (!f) return '<p>Guardá el cronograma en Planificación para consultar la previsión financiera.</p>';
+    return `<section class="financial-projection"><h2>Previsión financiera · ${e(f.currency)}</h2><p>Desde el día siguiente al corte de seguimiento (${e(f.as_of)}). Caja inicial declarada: <strong>${money(f.opening_cash)}</strong>. Capital adicional máximo previsto: <strong>${money(f.additional_cash)}</strong>.</p><p>Los cobros por certificación son estimaciones del cronograma, no certificados emitidos. Las compras se prevén para el día en que se necesitan; anticipá sus fechas si el proveedor requiere pago o entrega previa. No se convierten monedas. Los egresos se consideran antes que los cobros del mismo día.</p>${(f.warnings || []).map(w=>`<p class="context-help">${e(w)}</p>`).join("")}${f.periods.map(p=>`<details class="planning-options" open><summary>Período ${e(p.start)} → ${e(p.end)} · Egresos ${money(p.expenses)} · Caja adicional ${money(p.additional_cash)}</summary><p>Certificación prevista: bruto ${money(p.gross)} − anticipo ${money(p.advance)} − reparo ${money(p.retention)} = <strong>${money(p.net)}</strong>. Cobro previsto: ${e(p.collection_date)}. Ingresos durante el período: ${money(p.receipts)}.</p>${table(["Material", "Unidad", "Necesario", "Del acopio", "Comprado por recibir", "Comprar", "Costo de compra"],p.materials.map(m=>[e(m.description),e(m.unit),numeric(m.required),numeric(m.from_stock),numeric(m.pending_order),numeric(m.purchase),money(m.cost)]))}</details>`).join("")}<details class="planning-options"><summary>Calendario de ingresos, egresos y saldo previsto</summary>${table(["Fecha", "Concepto", "Ingreso", "Egreso", "Saldo"],f.events.map(x=>[e(x.date),e(x.description),money(x.income),money(x.expense),money(x.balance)]))}</details></section>`;
+  }
   function finances() {
     return (
-      summary(model.report) +
+      summary(model.report) + financialProjection() + rentals() +
       `<h3>Flujo de fondos por mes</h3>${table(
         [
           "Mes",
@@ -731,6 +749,7 @@ export function createOperationsWorkspace({
         ["summary", "Resumen financiero"],
         ["production", "Producción y rendimientos"],
         ["cash", "Flujo de fondos"],
+        ["financial", "Previsión financiera y materiales por período"],
         ["needs", "Necesidades de materiales"],
         ["stock", "Existencias"],
         ["costs", "Resultados por centro y partida"],
@@ -757,7 +776,7 @@ export function createOperationsWorkspace({
       model.draft=null;model.detail=null;model.dirty=false;model.lastExport="";model.exportScope="summary";
       [model.partners, model.centers] = await Promise.all([
         Promise.all(
-          ["supplier", "subcontractor", "contact"].map((kind) =>
+          ["supplier", "subcontractor", "contact", "crew"].map((kind) =>
             invoke("list_management_records", { kind, projectId: null }),
           ),
         ).then((rows) => rows.flat()),
@@ -942,6 +961,7 @@ export function createOperationsWorkspace({
       render();
       return;
     }
+    if (name === "o:partner_id") { render(); return; }
     if (name === "o:estimate_id") {
       model.lines = target.value
         ? await invoke("list_estimate_lines", { estimateId: target.value })

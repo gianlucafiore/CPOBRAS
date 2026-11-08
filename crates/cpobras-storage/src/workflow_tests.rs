@@ -164,6 +164,7 @@ fn saved_plan_resolves_budget_links_and_keeps_immutable_baselines() {
         actual_progress: Decimal::from(25),
     };
     let plan = Plan {
+        finance: Default::default(),
         segments: BTreeMap::new(),
         presentation: BTreeMap::new(),
         calendar: Calendar {
@@ -1353,7 +1354,7 @@ fn upgrades_populated_schema_fifteen_and_deletes_its_preexisting_linked_line() {
             .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| r
                 .get::<_, i64>(0))
             .unwrap(),
-        25
+        26
     );
     upgraded.delete_estimate_item(e.id, line.id).unwrap();
     assert!(upgraded.estimate_items(e.id).unwrap().is_empty());
@@ -2898,6 +2899,7 @@ fn pert_presentation_round_trips_with_revisions_baselines_and_legacy_plans() {
     let (mut s, p, _, line) = fixture();
     let id = Uuid::new_v4();
     let mut plan = Plan {
+        finance: Default::default(),
         segments: BTreeMap::new(),
         calendar: Calendar {
             exceptions: BTreeMap::new(),
@@ -2981,6 +2983,7 @@ fn partial_tasks_allocate_each_budget_line_once_and_preserve_history() {
         actual_progress: Decimal::from(25),
     };
     let mut plan = Plan {
+        finance: Default::default(),
         calendar: Calendar {
             exceptions: BTreeMap::new(),
             start_date: "2026-11-09".into(),
@@ -3035,4 +3038,318 @@ fn partial_tasks_allocate_each_budget_line_once_and_preserve_history() {
         s.plan_revisions(p.id).unwrap()[0].plan.segments[&a].percent,
         Decimal::from(30)
     );
+}
+
+fn financial_test_plan(line: Uuid) -> Plan {
+    Plan {
+        finance: cpobras_core::planning::FinanceSettings {
+            cut_dates: vec!["2026-11-10".into()],
+            collection_delay_days: 30,
+            ..Default::default()
+        },
+        calendar: Calendar {
+            start_date: "2026-11-09".into(),
+            nonworking_weekdays: vec![5, 6],
+            holidays: vec![],
+            exceptions: BTreeMap::new(),
+        },
+        segments: BTreeMap::new(),
+        presentation: BTreeMap::new(),
+        tasks: vec![Task {
+            id: Uuid::new_v4(),
+            parent_id: None,
+            estimate_line_id: Some(line),
+            name: "Trabajo".into(),
+            duration_days: 2,
+            predecessors: vec![],
+            not_before: None,
+            finish_by: None,
+            assignments: vec![],
+            budget: Decimal::ZERO,
+            actual_progress: Decimal::ZERO,
+        }],
+    }
+}
+#[test]
+fn monthly_rentals_reconcile_partial_invoices_payments_and_cash_before_collection() {
+    use crate::operations::PriceCostLink;
+    use cpobras_core::price_determination::*;
+    let (mut s, p, e, l) = fixture();
+    let supplier = supplier(&mut s);
+    let mut definition = PriceDefinition::from_rates(PricingRates::default());
+    for row in &mut definition.rows {
+        row.enabled = false;
+    }
+    let row = &mut definition.rows[0];
+    row.enabled = true;
+    row.detail_mode = DetailMode::Items;
+    let item_id = Uuid::new_v4();
+    let row_id = row.id;
+    row.items = vec![PriceItem {
+        id: item_id,
+        parent_id: None,
+        group: false,
+        description: "Baños químicos".into(),
+        unit: "un".into(),
+        participation_percent: 100.into(),
+        quantity: 2.into(),
+        unit_price: 100.into(),
+        periodic: Some(PeriodicCost {
+            start: "2026-11-01".into(),
+            end: "2026-12-31".into(),
+            payment_day: 1,
+            prorate: true,
+        }),
+    }];
+    s.save_price_definition(e.id, 0, &definition).unwrap();
+    s.save_project_plan(p.id, 0, financial_test_plan(l.id), "2026-11-05")
+        .unwrap();
+    let before = s.operations_report(p.id, Some(e.id), "2026-11-05").unwrap();
+    assert_eq!(before.recurring_costs.len(), 2);
+    assert_eq!(before.recurring_costs[0].amount, 200.into());
+    assert_eq!(
+        before.financial_projection.unwrap().additional_cash,
+        600.into()
+    );
+    let mut bill = operation(p.id, "payable");
+    bill.estimate_id = Some(e.id);
+    bill.partner_id = Some(supplier);
+    bill.amount = 120.into();
+    bill.due_date = "2026-11-06".into();
+    bill.price_cost = Some(PriceCostLink {
+        row_id,
+        item_id,
+        period_start: "2026-11-01".into(),
+    });
+    let bill = s.post_operation(&bill).unwrap();
+    let mut payment = operation(p.id, "payment");
+    payment.reference_id = Some(bill.id);
+    payment.partner_id = Some(supplier);
+    payment.amount = 60.into();
+    s.post_operation(&payment).unwrap();
+    let after = s.operations_report(p.id, Some(e.id), "2026-11-05").unwrap();
+    assert_eq!(after.recurring_costs[0].unbilled, 80.into());
+    let f = after.financial_projection.unwrap();
+    assert_eq!(f.additional_cash, 540.into());
+    assert_eq!(f.periods[0].gross, 600.into());
+    assert_eq!(f.periods[0].collection_date, "2026-12-10");
+    assert_eq!(
+        f.events
+            .iter()
+            .filter(|x| x.kind == "obligation")
+            .map(|x| x.expense)
+            .sum::<Decimal>(),
+        60.into()
+    );
+    assert!(s
+        .post_operation(&{
+            let mut bad = operation(p.id, "payable");
+            bad.estimate_id = Some(e.id);
+            bad.amount = 1.into();
+            bad.due_date = "2026-11-06".into();
+            bad.price_cost = Some(PriceCostLink {
+                row_id,
+                item_id: Uuid::new_v4(),
+                period_start: "2026-11-01".into(),
+            });
+            bad
+        })
+        .is_err());
+}
+#[test]
+fn declared_acopio_reduces_period_purchases_without_creating_a_payment() {
+    use cpobras_core::{ResourceKind, ResourcePriceSnapshot, UnitCostAnalysis};
+    let (mut s, p, e, mut l, _, resource, warehouse) = stock_fixture();
+    let id = Uuid::new_v4();
+    s.save_analysis(&UnitCostAnalysis {
+        id,
+        code: "F".into(),
+        description: "Materiales".into(),
+        unit: "m".into(),
+        components: vec![ResourcePriceSnapshot {
+            resource_id: resource,
+            description: "Material".into(),
+            kind: ResourceKind::Material,
+            quantity_per_unit: 5.into(),
+            unit_price: 10.into(),
+        }],
+    })
+    .unwrap();
+    // Store a budget-owned composition through the same API as the editor.
+    s.save_line_resources(
+        e.id,
+        l.id,
+        &[crate::line_workflows::LineResourceInput {
+            resource_id: resource,
+            quantity: 5.into(),
+            unit_price: 10.into(),
+        }],
+    )
+    .unwrap();
+    l = s.estimate_items(e.id).unwrap().remove(0);
+    let mut stock = operation(p.id, "stock_opening");
+    stock.number = String::new();
+    stock.warehouse_id = Some(warehouse);
+    stock.lines = vec![material_row(resource, l.id, 6, 10)];
+    let posted = s.post_operation(&stock).unwrap();
+    assert_eq!(posted.number, "ACO-0001");
+    s.save_project_plan(p.id, 0, financial_test_plan(l.id), "2026-11-05")
+        .unwrap();
+    let report = s.operations_report(p.id, Some(e.id), "2026-11-05").unwrap();
+    assert_eq!(report.summaries[0].paid, Decimal::ZERO);
+    let f = report.financial_projection.unwrap();
+    let m = &f.periods[0].materials[0];
+    assert_eq!(m.required, 10.into());
+    assert_eq!(m.from_stock, 6.into());
+    assert_eq!(m.purchase, 4.into());
+    assert_eq!(m.cost, 40.into());
+    assert_eq!(f.additional_cash, 40.into());
+    let mut updated = s.project_plan(p.id).unwrap().unwrap().plan;
+    updated.tasks[0].actual_progress = 50.into();
+    s.save_project_plan(p.id, 1, updated, "2026-11-09").unwrap();
+    let f = s
+        .operations_report(p.id, Some(e.id), "2026-11-09")
+        .unwrap()
+        .financial_projection
+        .unwrap();
+    assert_eq!(f.periods[0].materials[0].required, 5.into());
+    assert_eq!(f.periods[0].materials[0].purchase, Decimal::ZERO);
+    assert_eq!(f.additional_cash, Decimal::ZERO);
+}
+#[test]
+fn crew_friday_payments_cap_advance_recovery_and_replace_liquidated_wages() {
+    use crate::line_workflows::LineResourceInput;
+    use crate::management::ManagementRecord;
+    use cpobras_core::{planning::Assignment, ResourceKind};
+    let (mut s, p, e, l, _, resource, _) = stock_fixture();
+    let company = Uuid::new_v4();
+    let crew = Uuid::new_v4();
+    let record = |id, kind: &str, company_id, attributes| ManagementRecord {
+        id,
+        kind: kind.into(),
+        name: kind.into(),
+        code: String::new(),
+        company_id,
+        parent_id: None,
+        project_id: None,
+        client_id: None,
+        attributes,
+        revision: 0,
+    };
+    s.save_management_record(&record(company, "company", None, BTreeMap::new()))
+        .unwrap();
+    s.save_management_record(&record(
+        crew,
+        "crew",
+        Some(company),
+        BTreeMap::from([
+            ("daily_rate".into(), "200".into()),
+            ("pay_frequency".into(), "weekly".into()),
+            ("advance_recovery_percent".into(), "50".into()),
+        ]),
+    ))
+    .unwrap();
+    let mut r = s.get_resource(resource).unwrap().unwrap();
+    r.kind = ResourceKind::Labor;
+    r.unit = "h".into();
+    s.save_resource(&r).unwrap();
+    s.save_line_resources(
+        e.id,
+        l.id,
+        &[LineResourceInput {
+            resource_id: resource,
+            quantity: 1.into(),
+            unit_price: 100.into(),
+        }],
+    )
+    .unwrap();
+    let mut plan = financial_test_plan(l.id);
+    plan.tasks[0].assignments = vec![Assignment {
+        resource_id: crew,
+        units_per_day: 1.into(),
+        kind: "crew".into(),
+    }];
+    s.save_project_plan(p.id, 0, plan, "2026-11-05").unwrap();
+    let mut advance = operation(p.id, "advance_paid");
+    advance.partner_id = Some(crew);
+    advance.amount = 100.into();
+    s.post_operation(&advance).unwrap();
+    let f = s
+        .operations_report(p.id, Some(e.id), "2026-11-05")
+        .unwrap()
+        .financial_projection
+        .unwrap();
+    let wage = f.events.iter().find(|x| x.kind == "crew").unwrap();
+    assert_eq!(wage.date, "2026-11-13");
+    assert_eq!(wage.expense, 300.into());
+    let mut bill = operation(p.id, "payable");
+    bill.partner_id = Some(crew);
+    bill.amount = 200.into();
+    bill.advance = 50.into();
+    bill.period_start = "2026-11-09".into();
+    bill.period_end = "2026-11-09".into();
+    bill.due_date = "2026-11-13".into();
+    let posted = s.post_operation(&bill).unwrap();
+    assert_eq!(posted.amount, 150.into());
+    assert_eq!(posted.calculated["gross"], 200.into());
+    let report = s.operations_report(p.id, Some(e.id), "2026-11-05").unwrap();
+    assert_eq!(report.summaries[0].advance_paid_balance, 50.into());
+    let f = report.financial_projection.unwrap();
+    assert_eq!(f.additional_cash, 300.into());
+    let mut bad = operation(p.id, "payable");
+    bad.partner_id = Some(crew);
+    bad.amount = 200.into();
+    bad.advance = 51.into();
+    bad.period_start = "2026-11-10".into();
+    bad.period_end = "2026-11-10".into();
+    bad.due_date = "2026-11-13".into();
+    assert!(s.post_operation(&bad).is_err());
+}
+#[test]
+fn sharing_redacts_financial_assumptions_and_crew_rates_before_transmission() {
+    use crate::sharing::{restrict_shared_document, SharingPermissions};
+    use serde_json::json;
+    let data = json!({"planning":{"plan":{"finance":{"opening_cash":"SECRET_CASH"}}},"baselines":[{"plan":{"finance":{"opening_cash":"SECRET_CASH"}}}],"plan_revisions":[{"plan":{"finance":{"opening_cash":"SECRET_CASH"}}}],"records":[{"kind":"crew","attributes":{"daily_rate":"SECRET_RATE","pay_frequency":"SECRET_FREQUENCY"}}],"budgets":[{"report":{"financial_projection":{"cash":"SECRET_FORECAST"},"recurring_costs":["SECRET_RENTAL"]}}]});
+    let p = SharingPermissions {
+        accounting: false,
+        ..Default::default()
+    };
+    let filtered = restrict_shared_document(data, &p);
+    assert!(!filtered.to_string().contains("SECRET"), "{filtered}");
+}
+#[test]
+fn material_orders_in_another_currency_cover_supply_without_implicit_currency_conversion() {
+    let (mut s, p, e, l, partner, resource, _) = stock_fixture();
+    s.save_line_resources(
+        e.id,
+        l.id,
+        &[crate::line_workflows::LineResourceInput {
+            resource_id: resource,
+            quantity: 5.into(),
+            unit_price: 10.into(),
+        }],
+    )
+    .unwrap();
+    let mut order = operation(p.id, "purchase_order");
+    order.partner_id = Some(partner);
+    order.currency = "USD".into();
+    order.due_date = "2026-11-09".into();
+    order.lines = vec![material_row(resource, l.id, 10, 10)];
+    order.lines[0].line_id = None;
+    s.post_operation(&order).unwrap();
+    let mut plan = financial_test_plan(l.id);
+    plan.finance.opening_cash = 1000.into();
+    plan.finance.cash_currency = Some("USD".into());
+    s.save_project_plan(p.id, 0, plan, "2026-11-05").unwrap();
+    let f = s
+        .operations_report(p.id, Some(e.id), "2026-11-05")
+        .unwrap()
+        .financial_projection
+        .unwrap();
+    assert_eq!(f.currency, "ARS");
+    assert_eq!(f.opening_cash, Decimal::ZERO);
+    assert_eq!(f.periods[0].materials[0].pending_order, 10.into());
+    assert_eq!(f.periods[0].materials[0].purchase, Decimal::ZERO);
+    assert!(!f.warnings.is_empty());
+    assert_eq!(f.additional_cash, Decimal::ZERO);
 }

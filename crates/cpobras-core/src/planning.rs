@@ -64,8 +64,54 @@ pub struct TaskSegment {
     pub percent: Decimal,
     pub base_budget: Decimal,
 }
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct FinanceSettings {
+    pub cut_dates: Vec<String>,
+    pub collection_delay_days: u32,
+    pub opening_cash: Decimal,
+    pub cash_currency: Option<String>,
+    pub retention_percent: Decimal,
+    pub advance_recovery_percent: Decimal,
+}
+impl FinanceSettings {
+    pub fn validate(&self, start: &str) -> Result<(), String> {
+        if self
+            .cash_currency
+            .as_ref()
+            .is_some_and(|s| !["ARS", "USD"].contains(&s.as_str()))
+        {
+            return Err("Moneda de caja inválida".into());
+        }
+        if self.cut_dates.len() > 240
+            || self.collection_delay_days > 365
+            || self.opening_cash < Decimal::ZERO
+            || self.retention_percent < Decimal::ZERO
+            || self.retention_percent > Decimal::from(100)
+            || self.advance_recovery_percent < Decimal::ZERO
+            || self.advance_recovery_percent > Decimal::from(100)
+        {
+            return Err("Configuración financiera inválida".into());
+        }
+        let mut dates = BTreeSet::new();
+        for day in &self.cut_dates {
+            let parsed = NaiveDate::parse_from_str(day, "%Y-%m-%d")
+                .map_err(|_| "Fecha de corte inválida")?;
+            if parsed.to_string() != *day
+                || day.as_str() < start
+                || parsed.year() > 9998
+                || !dates.insert(day)
+            {
+                return Err("Los cortes deben ser únicos y posteriores al inicio de obra".into());
+            }
+        }
+        Ok(())
+    }
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Plan {
+    #[serde(default)]
+    pub finance: FinanceSettings,
     #[serde(default)]
     pub segments: BTreeMap<Uuid, TaskSegment>,
     #[serde(default)]
@@ -125,7 +171,7 @@ impl Calendar {
         }
         Ok(())
     }
-    fn working(&self, day: NaiveDate) -> bool {
+    pub fn working(&self, day: NaiveDate) -> bool {
         if let Some(exception) = self.exceptions.get(&day.to_string()) {
             return exception.working;
         }
@@ -164,6 +210,7 @@ fn offset(kind: DependencyKind, predecessor_duration: i32, duration: i32, lag: i
 
 impl Plan {
     pub fn schedule(&self, as_of: &str) -> Result<Schedule, String> {
+        self.finance.validate(&self.calendar.start_date)?;
         let mut line_allocations = BTreeMap::<Uuid, Decimal>::new();
         let mut groups = BTreeMap::<Uuid, (Option<Uuid>, Decimal, Decimal)>::new();
         for task in &self.tasks {
@@ -483,6 +530,7 @@ mod tests {
     }
     fn plan(tasks: Vec<Task>) -> Plan {
         Plan {
+            finance: Default::default(),
             segments: BTreeMap::new(),
             presentation: BTreeMap::new(),
             calendar: Calendar {

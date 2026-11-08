@@ -576,7 +576,7 @@ export function createWorkspaceApp({
           "copy-base-analysis-form",
         ],
       ],
-      [planning, ["planning-task-form", "planning-settings","planning-split-form"]],
+      [planning, ["planning-task-form", "planning-settings","planning-finance","planning-split-form"]],
       [management, ["management-form","project-attachment-form"]],
     ];
     if (evt.target.id === "unit-create-form") {
@@ -623,6 +623,7 @@ export function createWorkspaceApp({
           "planning-task-form",
           "planning-split-form",
           "planning-settings",
+          "planning-finance",
           "budget-bulk-form",
           "nested-analysis-form",
           "price-list-form",
@@ -649,7 +650,7 @@ export function createWorkspaceApp({
   document.addEventListener("change", async (evt) => {
     if (
       evt.target.closest?.(
-        "#p2p-invite-form,#p2p-join-form,#p2p-access-form,#organization-create-form,#print-profile-form,#budget-print-form,#management-form,#project-attachment-form,#planning-task-form,#planning-split-form,#planning-settings,#budget-bulk-form,#nested-analysis-form,#price-list-form,#scoped-price-form",
+        "#p2p-invite-form,#p2p-join-form,#p2p-access-form,#organization-create-form,#print-profile-form,#budget-print-form,#management-form,#project-attachment-form,#planning-task-form,#planning-split-form,#planning-settings,#planning-finance,#budget-bulk-form,#nested-analysis-form,#price-list-form,#scoped-price-form",
       )
     )
       if(evt.target.name!=="calendar-month")state.pageDirty = true;
@@ -708,7 +709,7 @@ export function createWorkspaceApp({
   document.addEventListener("input", (evt) => {
     if (
       evt.target.closest?.(
-        "#p2p-invite-form,#p2p-join-form,#p2p-access-form,#organization-create-form,#print-profile-form,#budget-print-form,#management-form,#project-attachment-form,#planning-task-form,#planning-split-form,#planning-settings,#budget-bulk-form,#nested-analysis-form,#price-list-form,#scoped-price-form",
+        "#p2p-invite-form,#p2p-join-form,#p2p-access-form,#organization-create-form,#print-profile-form,#budget-print-form,#management-form,#project-attachment-form,#planning-task-form,#planning-split-form,#planning-settings,#planning-finance,#budget-bulk-form,#nested-analysis-form,#price-list-form,#scoped-price-form",
       )
     )
       if(evt.target.name!=="calendar-month")state.pageDirty = true;

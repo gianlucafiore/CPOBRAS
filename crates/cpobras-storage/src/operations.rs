@@ -14,6 +14,7 @@ pub const KINDS: &[&str] = &[
     "purchase_order",
     "service_order",
     "subcontract",
+    "stock_opening",
     "receipt",
     "service_receipt",
     "consumption",
@@ -63,8 +64,29 @@ impl Default for OperationLine {
     }
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PriceCostLink {
+    pub row_id: Uuid,
+    pub item_id: Uuid,
+    pub period_start: String,
+}
+#[derive(Debug, Serialize)]
+pub struct RecurringExpense {
+    pub row_id: Uuid,
+    pub item_id: Uuid,
+    pub description: String,
+    pub currency: String,
+    pub period_start: String,
+    pub period_end: String,
+    pub due_date: String,
+    pub amount: D,
+    pub invoiced: D,
+    pub unbilled: D,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Operation {
+    pub price_cost: Option<PriceCostLink>,
     pub id: Uuid,
     pub project_id: Uuid,
     pub kind: String,
@@ -101,6 +123,7 @@ pub struct Operation {
 impl Default for Operation {
     fn default() -> Self {
         Self {
+            price_cost: None,
             id: Uuid::new_v4(),
             project_id: Uuid::nil(),
             kind: String::new(),
@@ -302,7 +325,7 @@ impl LocalStore {
         o.number = o.number.trim().into();
         if !KINDS.contains(&o.kind.as_str())
             || o.id.is_nil()
-            || o.number.trim().is_empty()
+            || (o.number.trim().is_empty() && o.kind != "stock_opening")
             || o.number.len() > 100
             || o.notes.len() > 20000
             || o.terms.len() > 20000
@@ -355,6 +378,44 @@ impl LocalStore {
         if let Some(id) = o.estimate_id {
             if !tx.query_row("SELECT EXISTS(SELECT 1 FROM estimates WHERE id=?1 AND project_id=?2 AND currency=?3)",params![id.to_string(),o.project_id.to_string(),o.currency],|r|r.get::<_,bool>(0))?{return Err(err("El presupuesto debe pertenecer a esta obra y moneda"));}
         }
+        if let Some(link) = &o.price_cost {
+            if o.kind != "payable" || o.estimate_id.is_none() || o.reference_id.is_some() {
+                return Err(err("El gasto periódico se vincula a una factura por pagar sin otro origen y con presupuesto"));
+            }
+            let json: Option<String> = tx
+                .query_row(
+                    "SELECT definition_json FROM estimate_price_definitions WHERE estimate_id=?1",
+                    [o.estimate_id.unwrap().to_string()],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            let def: cpobras_core::price_determination::PriceDefinition = serde_json::from_str(
+                &json.ok_or_else(|| err("Guardá primero la determinación de precio"))?,
+            )?;
+            let item = def
+                .rows
+                .iter()
+                .find(|r| {
+                    r.id == link.row_id
+                        && r.enabled
+                        && !r.subtract
+                        && r.kind == cpobras_core::price_determination::PriceKind::Detailed
+                        && r.detail_mode == cpobras_core::price_determination::DetailMode::Items
+                })
+                .and_then(|r| r.items.iter().find(|i| i.id == link.item_id && !i.group))
+                .ok_or_else(|| err("Gasto periódico inexistente o inactivo"))?;
+            if !item
+                .payments()
+                .map_err(StorageError::InvalidValue)?
+                .iter()
+                .any(|p| p.period_start == link.period_start)
+            {
+                return Err(err("Período del gasto inexistente"));
+            }
+        }
+        if o.kind == "stock_opening" && o.number.is_empty() {
+            o.number = crate::project_dashboard::next_code(&tx, "stock_opening", "ACO-")?;
+        }
         let prior = documents(&tx, Some(o.project_id))?;
         if prior
             .iter()
@@ -372,8 +433,13 @@ impl LocalStore {
                     |r| r.get(0),
                 )
                 .optional()?;
-            if !kind.is_some_and(|k| ["supplier", "subcontractor", "contact"].contains(&k.as_str()))
-            {
+            let foreign_crew:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM management_records WHERE id=?1 AND kind='crew' AND project_id IS NOT NULL AND project_id<>?2)",params![id.to_string(),o.project_id.to_string()],|r|r.get(0))?;
+            if foreign_crew {
+                return Err(err("La cuadrilla pertenece a otra obra"));
+            }
+            if !kind.is_some_and(|k| {
+                ["supplier", "subcontractor", "contact", "crew"].contains(&k.as_str())
+            }) {
                 return Err(err(
                     "Seleccioná proveedor, subcontratista o contacto válido",
                 ));
@@ -502,6 +568,13 @@ impl LocalStore {
             }
             o.amount = total(&o)?;
         }
+        if o.kind == "stock_opening" {
+            if o.reference_id.is_some() || o.lines.is_empty() {
+                return Err(err(
+                    "El acopio existente requiere renglones y no lleva documento de compra",
+                ));
+            }
+        }
         if ["receipt", "service_receipt"].contains(&o.kind.as_str()) {
             let r = reference
                 .as_ref()
@@ -540,7 +613,15 @@ impl LocalStore {
             }
             o.amount = total(&o)?;
         }
-        if ["receipt", "consumption", "return", "transfer"].contains(&o.kind.as_str()) {
+        if [
+            "stock_opening",
+            "receipt",
+            "consumption",
+            "return",
+            "transfer",
+        ]
+        .contains(&o.kind.as_str())
+        {
             let wh = warehouse(
                 &tx,
                 o.warehouse_id
@@ -551,7 +632,14 @@ impl LocalStore {
             }
             if prior.iter().any(|p| {
                 p.date > o.date
-                    && ["receipt", "consumption", "return", "transfer"].contains(&p.kind.as_str())
+                    && [
+                        "stock_opening",
+                        "receipt",
+                        "consumption",
+                        "return",
+                        "transfer",
+                    ]
+                    .contains(&p.kind.as_str())
             }) {
                 return Err(err(
                     "El movimiento no puede anteceder al último movimiento de stock de la obra",
@@ -1107,9 +1195,60 @@ impl LocalStore {
             }
             date(&o.due_date)?;
         }
+        if o.kind == "payable" && o.advance > D::ZERO {
+            if o.reference_id.is_some()
+                || o.price_cost.is_some()
+                || o.partner_id.is_none()
+                || o.period_start.is_empty()
+                || o.period_end.is_empty()
+            {
+                return Err(err(
+                    "La recuperación directa requiere cuadrilla, período y factura sin otro origen",
+                ));
+            }
+            let is_crew: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM management_records WHERE id=?1 AND kind='crew')",
+                [o.partner_id.unwrap().to_string()],
+                |r| r.get(0),
+            )?;
+            if !is_crew {
+                return Err(err(
+                    "La recuperación directa es para liquidaciones de cuadrilla",
+                ));
+            }
+            let paid = sum(prior
+                .iter()
+                .filter(|p| {
+                    p.kind == "advance_paid"
+                        && p.partner_id == o.partner_id
+                        && p.currency == o.currency
+                        && p.date <= o.date
+                })
+                .map(|p| p.amount))?;
+            let recovered = sum(prior
+                .iter()
+                .filter(|p| {
+                    matches!(p.kind.as_str(), "payable" | "subcertificate")
+                        && p.partner_id == o.partner_id
+                        && p.currency == o.currency
+                })
+                .map(|p| p.advance))?;
+            if add(recovered, o.advance)? > paid || o.advance > o.amount {
+                return Err(err(
+                    "Recuperación superior al anticipo pendiente o al importe bruto",
+                ));
+            }
+            o.calculated.insert("gross".into(), o.amount);
+            o.amount = sub(o.amount, o.advance)?;
+        } else if o.kind == "payable" {
+            o.calculated.insert("gross".into(), o.amount);
+        }
         if ["payable", "receivable"].contains(&o.kind.as_str()) {
             date(&o.due_date)?;
-            if o.due_date < o.date || o.amount <= D::ZERO {
+            if o.due_date < o.date
+                || o.amount < D::ZERO
+                || (o.amount == D::ZERO && o.advance == D::ZERO)
+            {
                 return Err(err(
                     "Factura: monto positivo y vencimiento no anterior a la emisión",
                 ));
@@ -1191,7 +1330,15 @@ impl LocalStore {
             };
             tx.execute("INSERT INTO operation_links(document_id,position,resource_id,line_id,center_id,archived_line_id) VALUES (?1,?2,?3,?4,?5,?6)",params![o.id.to_string(),i as i64,l.resource_id.map(|x|x.to_string()),if archived{None}else{l.line_id.map(|x|x.to_string())},l.center_id.map(|x|x.to_string()),if archived{l.line_id.map(|x|x.to_string())}else{None}])?;
         }
-        if ["receipt", "consumption", "return", "transfer"].contains(&o.kind.as_str()) {
+        if [
+            "stock_opening",
+            "receipt",
+            "consumption",
+            "return",
+            "transfer",
+        ]
+        .contains(&o.kind.as_str())
+        {
             for (i, l) in o.lines.iter().enumerate() {
                 let sign = if ["consumption", "transfer"].contains(&o.kind.as_str()) {
                     -D::ONE
@@ -1310,6 +1457,8 @@ pub struct ProjectOperationsReport {
     pub estimate_id: Option<Uuid>,
     pub summaries: Vec<FinancialSummary>,
     pub cash_flow: Vec<CashPeriod>,
+    pub recurring_costs: Vec<RecurringExpense>,
+    pub financial_projection: Option<crate::financial_planning::FinancialProjection>,
     pub production: Vec<ProductionStatus>,
     pub costs: Vec<CostGroup>,
     pub section_results: Vec<SectionResult>,
@@ -1528,7 +1677,7 @@ impl LocalStore {
             if o.kind == "advance_received" {
                 s.advance_received_balance = add(s.advance_received_balance, o.amount)?;
             }
-            if o.kind == "subcertificate" {
+            if o.kind == "subcertificate" || o.kind == "payable" {
                 s.advance_paid_balance = sub(s.advance_paid_balance, o.advance)?;
                 s.retained_payable = add(
                     s.retained_payable,
@@ -1834,6 +1983,76 @@ impl LocalStore {
             row.result = sub(row.certified_income, row.actual_cost)?;
             row.variance = sub(row.actual_cost, row.budget_cost)?;
         }
+        let mut recurring_costs = vec![];
+        if let Some(e) = &estimate {
+            let saved = self.get_price_definition(e.id)?;
+            for row in &saved.definition.rows {
+                if !row.enabled
+                    || row.subtract
+                    || row.kind != cpobras_core::price_determination::PriceKind::Detailed
+                    || row.detail_mode != cpobras_core::price_determination::DetailMode::Items
+                {
+                    continue;
+                }
+                for item in &row.items {
+                    for period in item.payments().map_err(StorageError::InvalidValue)? {
+                        let invoiced = sum(docs
+                            .iter()
+                            .filter(|o| {
+                                o.kind == "payable"
+                                    && o.estimate_id == Some(e.id)
+                                    && o.price_cost.as_ref().is_some_and(|l| {
+                                        l.row_id == row.id
+                                            && l.item_id == item.id
+                                            && l.period_start == period.period_start
+                                    })
+                            })
+                            .map(|o| o.amount))?;
+                        let unbilled = sub(period.amount, invoiced)?.max(D::ZERO);
+                        let currency = match e.currency {
+                            cpobras_core::Currency::Ars => "ARS",
+                            cpobras_core::Currency::Usd => "USD",
+                        }
+                        .to_string();
+                        let entry = cash
+                            .entry((period.due_date[..7].into(), currency.clone()))
+                            .or_insert(CashPeriod {
+                                month: period.due_date[..7].into(),
+                                currency: currency.clone(),
+                                planned_in: D::ZERO,
+                                planned_out: D::ZERO,
+                                actual_in: D::ZERO,
+                                actual_out: D::ZERO,
+                            });
+                        entry.planned_out = add(entry.planned_out, unbilled)?;
+                        if invoiced > period.amount {
+                            alerts.push(format!(
+                                "{}: lo facturado en {} supera el alquiler previsto",
+                                item.description, period.period_start
+                            ));
+                        }
+                        recurring_costs.push(RecurringExpense {
+                            row_id: row.id,
+                            item_id: item.id,
+                            description: item.description.clone(),
+                            currency,
+                            period_start: period.period_start,
+                            period_end: period.period_end,
+                            due_date: period.due_date,
+                            amount: period.amount,
+                            invoiced,
+                            unbilled,
+                        });
+                    }
+                }
+            }
+        }
+        let financial_projection = self.financial_projection(
+            project_id,
+            estimate.as_ref().map(|e| e.id),
+            as_of,
+            &recurring_costs,
+        )?;
         Ok(ProjectOperationsReport {
             project_id,
             name: project.name,
@@ -1841,6 +2060,8 @@ impl LocalStore {
             estimate_id: estimate.map(|e| e.id),
             summaries: summaries.into_values().collect(),
             cash_flow: cash.into_values().collect(),
+            recurring_costs,
+            financial_projection,
             production,
             costs: groups,
             section_results: section_results.into_values().collect(),

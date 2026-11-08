@@ -1,0 +1,3 @@
+-- Plans include financial cut dates and cash assumptions; price items include monthly contracts.
+-- Opening stock and crew advance recoveries introduce new immutable ledger semantics.
+-- Older programs must not silently discard or misinterpret these values.

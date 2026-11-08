@@ -1,5 +1,6 @@
 //! Ordered, exact price determination. Bases depend only on preceding rows.
 use crate::{PricingBreakdown, PricingRates};
+use chrono::{Datelike, Duration, NaiveDate};
 use rust_decimal::Decimal as D;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -42,6 +43,100 @@ pub struct PriceItem {
     pub participation_percent: D,
     pub quantity: D,
     pub unit_price: D,
+    #[serde(default)]
+    pub periodic: Option<PeriodicCost>,
+}
+/// Monthly rentals use calendar months; partial months can be prorated by actual days.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct PeriodicCost {
+    pub start: String,
+    pub end: String,
+    pub payment_day: u32,
+    pub prorate: bool,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PeriodicPayment {
+    pub period_start: String,
+    pub period_end: String,
+    pub due_date: String,
+    pub amount: D,
+}
+impl PriceItem {
+    pub fn payments(&self) -> Result<Vec<PeriodicPayment>, String> {
+        let Some(p) = &self.periodic else {
+            return Ok(vec![]);
+        };
+        let parse = |s: &str| {
+            NaiveDate::parse_from_str(s, "%Y-%m-%d")
+                .ok()
+                .filter(|d| d.to_string() == s)
+                .ok_or("Fecha de alquiler inválida")
+        };
+        let start = parse(&p.start)?;
+        let end = parse(&p.end)?;
+        if self.group
+            || end < start
+            || end.signed_duration_since(start).num_days() > 3660
+            || !(1..=31).contains(&p.payment_day)
+            || start.year() < 1
+            || end.year() > 9998
+        {
+            return Err(
+                "Revisá el período del alquiler (máximo 10 años) y el día de vencimiento".into(),
+            );
+        }
+        let monthly = percent(
+            mul(self.quantity, self.unit_price)?,
+            self.participation_percent,
+        )?;
+        let mut month = start.with_day(1).unwrap();
+        let mut payments = vec![];
+        while month <= end {
+            let next = if month.month() == 12 {
+                NaiveDate::from_ymd_opt(month.year() + 1, 1, 1)
+            } else {
+                NaiveDate::from_ymd_opt(month.year(), month.month() + 1, 1)
+            }
+            .ok_or("Mes fuera de rango")?;
+            let last = next - Duration::days(1);
+            let from = start.max(month);
+            let to = end.min(last);
+            let days = D::from(to.signed_duration_since(from).num_days() + 1);
+            let amount = if p.prorate {
+                mul(monthly, days)?
+                    .checked_div(D::from(last.day()))
+                    .ok_or("Importe fuera de rango")?
+            } else {
+                monthly
+            };
+            // Never forecast a payment before the contract starts. Day 31 means last day in short months.
+            let due = month
+                .with_day(p.payment_day.min(last.day()))
+                .unwrap()
+                .max(from);
+            payments.push(PeriodicPayment {
+                period_start: from.to_string(),
+                period_end: to.to_string(),
+                due_date: due.to_string(),
+                amount,
+            });
+            month = next;
+        }
+        Ok(payments)
+    }
+    pub fn total(&self) -> Result<D, String> {
+        if self.periodic.is_some() {
+            self.payments()?
+                .iter()
+                .try_fold(D::ZERO, |s, p| add(s, p.amount))
+        } else {
+            percent(
+                mul(self.quantity, self.unit_price)?,
+                self.participation_percent,
+            )
+        }
+    }
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -253,11 +348,16 @@ impl PriceDefinition {
                     return Err("Detalle inválido: revisá descripción, unidad, cantidad, precio y participación".into());
                 }
             }
+            for i in &row.items {
+                if i.periodic.is_some() {
+                    i.payments()?;
+                }
+            }
             let mut item_totals = BTreeMap::new();
             let mut detail = D::ZERO;
             for i in &row.items {
                 if !i.group {
-                    let value = percent(mul(i.quantity, i.unit_price)?, i.participation_percent)?;
+                    let value = i.total()?;
                     item_totals.insert(i.id, value);
                     detail = add(detail, value)?;
                 }
@@ -462,6 +562,7 @@ mod tests {
             participation_percent: d("100"),
             quantity: D::ZERO,
             unit_price: D::ZERO,
+            periodic: None,
         };
         let mut r = row(PriceKind::Detailed, PriceRole::Overhead, "10");
         r.amount = d("7");
@@ -477,6 +578,7 @@ mod tests {
                 participation_percent: d("25"),
                 quantity: d("2"),
                 unit_price: d("100"),
+                periodic: None,
             },
         ];
         let mut definition = PriceDefinition { rows: vec![r] };
@@ -520,5 +622,37 @@ mod tests {
             rows: vec![row(PriceKind::PercentDirect, PriceRole::Tax, "10000")],
         };
         assert!(definition.calculate(D::MAX).is_err());
+    }
+    #[test]
+    fn monthly_contracts_prorate_leap_february_and_clamp_due_dates() {
+        let mut item = PriceItem {
+            id: Uuid::new_v4(),
+            parent_id: None,
+            group: false,
+            description: "Alquiler".into(),
+            unit: "un".into(),
+            participation_percent: d("50"),
+            quantity: d("2"),
+            unit_price: d("290"),
+            periodic: Some(PeriodicCost {
+                start: "2024-02-15".into(),
+                end: "2024-03-31".into(),
+                payment_day: 31,
+                prorate: true,
+            }),
+        };
+        let payments = item.payments().unwrap();
+        assert_eq!(payments[0].amount, d("150"));
+        assert_eq!(payments[0].due_date, "2024-02-29");
+        assert_eq!(payments[1].amount, d("290"));
+        assert_eq!(item.total().unwrap(), d("440"));
+        item.periodic.as_mut().unwrap().prorate = false;
+        assert_eq!(item.total().unwrap(), d("580"));
+        item.periodic.as_mut().unwrap().payment_day = 5;
+        assert_eq!(item.payments().unwrap()[0].due_date, "2024-02-15");
+        item.periodic.as_mut().unwrap().end = "2024-02-01".into();
+        assert!(item.total().is_err());
+        item.periodic.as_mut().unwrap().end = "2040-01-01".into();
+        assert!(item.total().is_err());
     }
 }

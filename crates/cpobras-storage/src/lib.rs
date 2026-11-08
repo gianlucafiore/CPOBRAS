@@ -12,6 +12,7 @@ pub mod budget_tools;
 pub mod estimate_comparison;
 pub mod estimate_resource_prices;
 pub mod estimates;
+pub mod financial_planning;
 pub mod line_workflows;
 pub mod maintenance;
 pub mod management;
@@ -94,6 +95,7 @@ impl LocalStore {
             include_str!("../migrations/0023_project_dashboard.sql"),
             include_str!("../migrations/0024_task_segments.sql"),
             include_str!("../migrations/0025_calendar_exceptions.sql"),
+            include_str!("../migrations/0026_financial_planning.sql"),
         ];
         let latest: i64 = conn.query_row(
             "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",

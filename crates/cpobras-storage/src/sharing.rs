@@ -203,6 +203,20 @@ pub fn restrict_shared_document(mut data: Value, p: &SharingPermissions) -> Valu
             }
         }
     }
+    if !p.accounting {
+        if let Some(plan) = data.get_mut("planning").and_then(|p| p.get_mut("plan")) {
+            plan["finance"] = json!({});
+        }
+        for field in ["baselines", "plan_revisions"] {
+            if let Some(rows) = data.get_mut(field).and_then(Value::as_array_mut) {
+                for row in rows {
+                    if let Some(plan) = row.get_mut("plan") {
+                        plan["finance"] = json!({});
+                    }
+                }
+            }
+        }
+    }
     if !p.budget {
         fn scrub_segment_bases(plan: &mut Value) {
             if let Some(parts) = plan.get_mut("segments").and_then(Value::as_object_mut) {
@@ -219,6 +233,28 @@ pub fn restrict_shared_document(mut data: Value, p: &SharingPermissions) -> Valu
                 for row in rows {
                     if let Some(plan) = row.get_mut("plan") {
                         scrub_segment_bases(plan);
+                    }
+                }
+            }
+        }
+    }
+    if !p.accounting {
+        for field in ["records", "parties"] {
+            if let Some(rows) = data.get_mut(field).and_then(Value::as_array_mut) {
+                for row in rows {
+                    if row["kind"] == "crew" {
+                        if let Some(attrs) =
+                            row.get_mut("attributes").and_then(Value::as_object_mut)
+                        {
+                            for key in [
+                                "daily_rate",
+                                "pay_currency",
+                                "pay_frequency",
+                                "advance_recovery_percent",
+                            ] {
+                                attrs.remove(key);
+                            }
+                        }
                     }
                 }
             }
@@ -267,6 +303,19 @@ pub fn restrict_shared_document(mut data: Value, p: &SharingPermissions) -> Valu
                 }
             }
             if let Some(report) = budget["report"].as_object_mut() {
+                if !p.accounting || !p.price {
+                    report.insert("recurring_costs".into(), json!([]));
+                }
+                if !(p.accounting
+                    && p.budget
+                    && p.price
+                    && p.resources
+                    && p.planning
+                    && p.operations)
+                {
+                    report.insert("financial_projection".into(), Value::Null);
+                }
+
                 if !p.accounting {
                     for field in [
                         "summaries",

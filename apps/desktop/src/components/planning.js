@@ -27,6 +27,7 @@ export function createPlanningWorkspace({
   const model = {
     tab: "gantt",
     calendarOpen: false,
+    cutMode: false,
     viewport: { x: 40, y: 40, zoom: 1 },
     splitting: null,
     connectFrom: null,
@@ -53,6 +54,13 @@ export function createPlanningWorkspace({
       holidays: [],
       exceptions: {},
     },
+    finance: {
+      cut_dates: [],
+      collection_delay_days: 0,
+      opening_cash: "0",
+      retention_percent: "0",
+      advance_recovery_percent: "0",
+    },
     segments: {},
     presentation: {},
     tasks: [],
@@ -70,6 +78,13 @@ export function createPlanningWorkspace({
       invoke("list_plan_revisions", { projectId: model.projectId }),
     ]);
     model.plan = saved?.plan || empty();
+    model.plan.finance ||= {
+      cut_dates: [],
+      collection_delay_days: 0,
+      opening_cash: "0",
+      retention_percent: "0",
+      advance_recovery_percent: "0",
+    };
     model.plan.presentation ||= {};
     model.plan.segments ||= {};
     model.revision = saved?.revision || 0;
@@ -302,6 +317,18 @@ export function createPlanningWorkspace({
     );
     return `<details class="planning-options"><summary>Cómo se calcula la duración · camino crítico</summary>${walk.simple ? `<p class="critical-walk"><strong>Un recorrido crítico:</strong> ${walk.tasks.map((t) => e(t.name) + " (" + t.duration_days + " d)").join(" → ")} = <strong>${model.schedule.duration_days} días laborables</strong>.</p>` : ""}<p>Las ramas en paralelo no se suman entre sí. El plazo incluye calendario, desfases y restricciones. Una tarea desconectada no retrasa a las demás salvo que termine después.</p><ul>${tasks.map((t) => `<li>${e(t.name)} · ${t.duration_days} días${t.predecessors.length ? " · depende de " + t.predecessors.map((d) => e(model.plan.tasks.find((p) => p.id === d.task_id)?.name || "") + " (" + e(d.kind) + (d.lag_days ? " " + d.lag_days + " d" : "") + ")").join(", ") : ""}</li>`).join("")}</ul><strong>Total del cronograma: ${model.schedule?.duration_days || 0} días laborables</strong></details>`;
   }
+  function financialSettings() {
+    const f = model.plan.finance || {};
+    return `<details class="planning-options"><summary>Cortes de certificación y previsión financiera</summary><p>Los cortes dividen el cronograma en períodos inclusivos. El cálculo financiero se consulta en Gestión de obra → Finanzas. Los ingresos son previsiones de avance planificado: para cobrar, registrá el certificado con las cantidades realmente ejecutadas.</p><form id="planning-finance" class="feature-toolbar"><fieldset><legend>Cortes de certificación (destildá para quitar)</legend>${(f.cut_dates || []).map((d) => `<label><input type="checkbox" name="cut_date" value="${e(d)}" checked> ${e(d)}</label>`).join("")}</fieldset>${field("Agregar fecha de corte", "new_cut", "", 'type="date"')}${field("Días desde corte hasta cobro", "collection_delay_days", f.collection_delay_days || 0, 'type="number" min="0" max="365" required')}${select(
+      "Moneda de la caja",
+      "cash_currency",
+      [
+        ["ARS", "ARS"],
+        ["USD", "USD"],
+      ],
+      f.cash_currency || "ARS",
+    )}${field("Caja disponible a la fecha de seguimiento", "opening_cash", f.opening_cash || "0", 'type="number" min="0" step="any" required')}${field("Reparo previsto %", "retention_percent", f.retention_percent || "0", 'type="number" min="0" max="100" step="any" required')}${field("Recuperación de anticipo del comitente %", "advance_recovery_percent", f.advance_recovery_percent || "0", 'type="number" min="0" max="100" step="any" required')}<button class="btn primary" type="submit">Guardar cortes y condiciones</button><p class="feature-error" role="alert"></p></form></details>`;
+  }
   function markup() {
     if (model.plan)
       calendarPicker.configure(
@@ -314,7 +341,7 @@ export function createPlanningWorkspace({
         : `
       <nav class="planning-tabs" aria-label="Vistas de planificación"><button class="btn ${model.tab === "gantt" ? "active" : ""}" role="tab" aria-selected="${model.tab === "gantt"}" data-action="plan-view" data-view="gantt">Gantt</button><button class="btn ${model.tab === "pert" ? "active" : ""}" role="tab" aria-selected="${model.tab === "pert"}" data-action="plan-view" data-view="pert">PERT</button></nav><div class="planning-overview-row"><details class="planning-options planning-calendar" ${model.calendarOpen ? "open" : ""}><summary>Calendario y seguimiento</summary><form id="planning-settings" class="feature-toolbar">${field("Inicio del proyecto", "start_date", model.plan.calendar.start_date, 'type="date" required')}${field("Fecha de seguimiento", "as_of", model.asOf, 'type="date" required')}<fieldset><legend>Días laborables</legend>${["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"].map((day, index) => `<label><input type="checkbox" name="workday" value="${index}" ${model.plan.calendar.nonworking_weekdays.includes(index) ? "" : "checked"}>${day}</label>`).join("")}</fieldset><div data-calendar-picker>${calendarPicker.markup()}</div><button class="btn primary" type="submit">Guardar calendario</button><p class="feature-error" role="alert"></p></form></details>
       <div class="planning-metrics"><span>Duración <b>${model.schedule?.duration_days || 0} días laborables</b></span><span>Fin previsto <b>${e(model.schedule?.finish)}</b></span><span>Planificado <b>${numeric(model.schedule?.planned_progress)} %</b></span><span>Real <b>${numeric(model.schedule?.actual_progress)} %</b></span><span>${model.dirty ? "Cambios sin guardar" : "Revisión " + model.revision}</span></div></div>
-      ${model.schedule?.warnings.map((warning) => `<p class="feature-error">${e(warning)}</p>`).join("") || ""}<details class="planning-options"><summary>Líneas base e historial de revisiones</summary>${select("Comparar línea base", "planning-baseline", [["", "Sin superposición"], ...model.baselines.map((baseline) => [baseline.id, baseline.name + " · revisión " + baseline.revision])], model.baselineId)}<div class="feature-toolbar">${select("Historial de reprogramaciones", "planning-history", [["", "Seleccionar revisión"], ...model.history.map((saved) => [String(saved.revision), "Revisión " + saved.revision + " · " + saved.plan.tasks.length + " tareas"])], model.historyRevision)}<button class="btn" data-action="plan-recover">Recuperar como nueva revisión</button></div></details>${criticalExplanation()}${editor()}${splitEditor()}${model.tab === "pert" ? pert() : gantt()}<div class="feature-columns">${chart()}</div>`
+      ${model.schedule?.warnings.map((warning) => `<p class="feature-error">${e(warning)}</p>`).join("") || ""}<details class="planning-options"><summary>Líneas base e historial de revisiones</summary>${select("Comparar línea base", "planning-baseline", [["", "Sin superposición"], ...model.baselines.map((baseline) => [baseline.id, baseline.name + " · revisión " + baseline.revision])], model.baselineId)}<div class="feature-toolbar">${select("Historial de reprogramaciones", "planning-history", [["", "Seleccionar revisión"], ...model.history.map((saved) => [String(saved.revision), "Revisión " + saved.revision + " · " + saved.plan.tasks.length + " tareas"])], model.historyRevision)}<button class="btn" data-action="plan-recover">Recuperar como nueva revisión</button></div></details>${financialSettings()}${criticalExplanation()}${editor()}${splitEditor()}${model.tab === "pert" ? pert() : gantt()}<div class="feature-columns">${chart()}</div>`
     }</main>`;
   }
   async function loadLines() {
@@ -371,6 +398,47 @@ export function createPlanningWorkspace({
   }
   async function act(button) {
     const action = button.dataset.action;
+    if (
+      state.pageDirty &&
+      ["plan-finance-mark", "plan-cut-date"].includes(action)
+    ) {
+      if (
+        !window.confirm(
+          "¿Descartar los cambios del formulario antes de marcar cortes?",
+        )
+      )
+        return;
+      state.pageDirty = false;
+    }
+    if (action === "plan-finance-mark") {
+      model.cutMode = !model.cutMode;
+      render();
+      return;
+    }
+    if (action === "plan-cut-date") {
+      const previous = structuredClone(model.plan);
+      model.plan.finance ||= {
+        cut_dates: [],
+        collection_delay_days: 0,
+        opening_cash: "0",
+        retention_percent: "0",
+        advance_recovery_percent: "0",
+      };
+      const date = button.dataset.date,
+        cuts = model.plan.finance.cut_dates;
+      model.plan.finance.cut_dates = cuts.includes(date)
+        ? cuts.filter((d) => d !== date)
+        : [...cuts, date].sort();
+      try {
+        await save();
+        render();
+      } catch (error) {
+        model.plan = previous;
+        model.dirty = false;
+        throw error;
+      }
+      return;
+    }
     if (action.startsWith("plan-calendar-")) {
       model.calendarOpen = true;
       calendarPicker.act(button);
@@ -659,6 +727,32 @@ export function createPlanningWorkspace({
   async function submit(form) {
     const data = new FormData(form),
       value = (name) => String(data.get(name) || "").trim();
+    if (form.id === "planning-finance") {
+      const previous = structuredClone(model.plan);
+      model.plan.finance = {
+        cut_dates: [
+          ...new Set(
+            [...data.getAll("cut_date").map(String), value("new_cut")].filter(
+              Boolean,
+            ),
+          ),
+        ].sort(),
+        collection_delay_days: Number(value("collection_delay_days")),
+        opening_cash: value("opening_cash"),
+        cash_currency: value("cash_currency"),
+        retention_percent: value("retention_percent"),
+        advance_recovery_percent: value("advance_recovery_percent"),
+      };
+      try {
+        await save();
+        render();
+      } catch (error) {
+        model.plan = previous;
+        model.dirty = false;
+        throw error;
+      }
+      return true;
+    }
     if (form.id === "planning-split-form") {
       const previous = structuredClone(model.plan);
       model.plan = splitTask(model.plan, model.splitting.id, {

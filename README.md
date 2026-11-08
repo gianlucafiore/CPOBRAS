@@ -89,6 +89,14 @@ detallar gastos por grupos e ítems. Permite montos manuales, referencias,
 plantillas y exportación. Usá **Guardar determinación** para persistir la vista
 previa. Guía de cálculo y prueba: [docs/PRICE_DETERMINATION.md](docs/PRICE_DETERMINATION.md).
 
+## Previsión financiera, certificaciones y acopio
+
+En **Planificación**, definí los cortes de certificación y el plazo de cobro;
+los cortes también se marcan directamente en el Gantt. En **Gestión de obra →
+Finanzas**, consultá necesidades de materiales por período, pagos de cuadrillas,
+vencimientos y capital adicional previsto. Declaración de acopio, anticipos,
+alquileres mensuales y conciliación de facturas: [guía de uso](docs/FINANCIAL_PLANNING.md).
+
 ## Vinculación P2P de solo lectura
 
 Desde **Inicio → Vinculación P2P**, elegí una obra, indicá el nombre del

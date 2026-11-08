@@ -191,7 +191,7 @@ export function createPriceDetermination({
         .filter((i) => i.parent_id === parent)
         .map(
           (item) =>
-            `<tr class="price-item-row ${item.group ? "price-group" : ""}" data-price-item="${item.id}"><td style="padding-left:${12 + depth * 18}px">${item.group ? "▾ " : ""}${e(item.description)}</td><td>${item.group ? "" : e(item.unit)}</td><td class="number">${item.group ? "" : numeric(item.participation_percent) + "%"}</td><td class="number">${item.group ? "" : numeric(item.quantity)}</td><td class="number">${item.group ? "" : money(item.unit_price)}</td><td class="number">${calculation ? money(calculation.item_totals[item.id] ?? "0") : "—"}</td><td><button class="btn tiny" data-action="price-edit-item" data-id="${item.id}" ${lock()}>Editar</button><button class="tiny-danger" data-action="price-delete-item" data-id="${item.id}" aria-label="Quitar ${e(item.description)}" ${lock()}>×</button></td></tr>${item.group ? renderChildren(item.id, depth + 1) : ""}`,
+            `<tr class="price-item-row ${item.group ? "price-group" : ""}" data-price-item="${item.id}"><td style="padding-left:${12 + depth * 18}px">${item.group ? "▾ " : ""}${e(item.description)}${item.periodic ? `<small class="muted"> · Alquiler mensual · ${e(item.periodic.start)} → ${e(item.periodic.end)}</small>` : ""}</td><td>${item.group ? "" : e(item.unit)}</td><td class="number">${item.group ? "" : numeric(item.participation_percent) + "%"}</td><td class="number">${item.group ? "" : numeric(item.quantity)}</td><td class="number">${item.group ? "" : money(item.unit_price)}</td><td class="number">${calculation ? money(calculation.item_totals[item.id] ?? "0") : "—"}</td><td><button class="btn tiny" data-action="price-edit-item" data-id="${item.id}" ${lock()}>Editar</button><button class="tiny-danger" data-action="price-delete-item" data-id="${item.id}" aria-label="Quitar ${e(item.description)}" ${lock()}>×</button></td></tr>${item.group ? renderChildren(item.id, depth + 1) : ""}`,
         )
         .join("");
     };
@@ -254,7 +254,7 @@ export function createPriceDetermination({
         ) +
         (item.group
           ? ""
-          : `<div class="form-grid">${field("Unidad", "unit", item.unit || "un", "required")}${field("Participación %", "participation", item.participation_percent ?? "100", 'type="number" min="0" max="100" step="any" required')}${field("Cantidad del detalle", "quantity", item.quantity ?? "1", 'type="number" min="0" step="any" required')}${field("Precio del detalle " + currentEstimate()?.currency, "unitPrice", item.unit_price ?? "0", 'type="number" min="0" step="any" required')}</div><p class="modal-help">Total = cantidad × precio × participación / 100.</p>`);
+          : `<div class="form-grid">${field("Unidad", "unit", item.unit || "un", "required")}${field("Participación %", "participation", item.participation_percent ?? "100", 'type="number" min="0" max="100" step="any" required')}${field("Cantidad del detalle", "quantity", item.quantity ?? "1", 'type="number" min="0" step="any" required')}${field("Precio del detalle " + currentEstimate()?.currency, "unitPrice", item.unit_price ?? "0", 'type="number" min="0" step="any" required')}</div><fieldset><legend>Gasto mensual / alquiler</legend><label><input type="checkbox" name="periodic" ${item.periodic ? "checked" : ""}> Calcular por período (por ejemplo, baños químicos)</label><div class="form-grid">${field("Inicio del alquiler", "rentalStart", item.periodic?.start || "", 'type="date"')}${field("Fin del alquiler", "rentalEnd", item.periodic?.end || "", 'type="date"')}${field("Día de vencimiento mensual", "paymentDay", item.periodic?.payment_day || "5", 'type="number" min="1" max="31"')}</div><label><input type="checkbox" name="prorate" ${item.periodic?.prorate !== false ? "checked" : ""}> Prorratear meses incompletos por días calendario</label></fieldset><p class="modal-help">Para alquileres: cantidad de unidades × tarifa mensual × meses × participación. El día 31 vence el último día de los meses más cortos. Las fechas son inclusivas. Sin alquiler, se aplica cantidad × precio × participación / 100.</p>`);
       form = "price-item-form";
     }
     if (modal.kind === "template") {
@@ -495,6 +495,15 @@ export function createPriceDetermination({
         participation_percent: old.group ? "100" : value("participation"),
         quantity: old.group ? "0" : value("quantity"),
         unit_price: old.group ? "0" : value("unitPrice"),
+        periodic:
+          !old.group && data.has("periodic")
+            ? {
+                start: value("rentalStart"),
+                end: value("rentalEnd"),
+                payment_day: Number(value("paymentDay")),
+                prorate: data.has("prorate"),
+              }
+            : null,
       };
       const i = row.items.findIndex((r) => r.id === item.id);
       if (i >= 0) row.items[i] = item;
@@ -668,16 +677,30 @@ export function createPriceDetermination({
   }
   function dragOver(evt) {
     if (!m.drag) return false;
-    document.querySelectorAll("[data-price-row].drop-before,[data-price-row].drop-after").forEach(r=>r.classList.remove("drop-before","drop-after"));
-    const target=evt.target.closest?.("[data-price-row]");
-    if(target){evt.preventDefault();const box=target.getBoundingClientRect();target.classList.add(evt.clientY>box.top+box.height/2?"drop-after":"drop-before");}
+    document
+      .querySelectorAll(
+        "[data-price-row].drop-before,[data-price-row].drop-after",
+      )
+      .forEach((r) => r.classList.remove("drop-before", "drop-after"));
+    const target = evt.target.closest?.("[data-price-row]");
+    if (target) {
+      evt.preventDefault();
+      const box = target.getBoundingClientRect();
+      target.classList.add(
+        evt.clientY > box.top + box.height / 2 ? "drop-after" : "drop-before",
+      );
+    }
     return true;
   }
   async function drop(evt) {
     if (!m.drag) return false;
     evt.preventDefault();
     const id = m.drag;
-    document.querySelectorAll("[data-price-row].drop-before,[data-price-row].drop-after").forEach(r=>r.classList.remove("drop-before","drop-after"));
+    document
+      .querySelectorAll(
+        "[data-price-row].drop-before,[data-price-row].drop-after",
+      )
+      .forEach((r) => r.classList.remove("drop-before", "drop-after"));
     m.drag = null;
     const target = evt.target.closest?.("[data-price-row]");
     if (target && id !== target.dataset.priceRow && editable()) {
@@ -712,7 +735,14 @@ export function createPriceDetermination({
     dragStart,
     dragOver,
     drop,
-    dragEnd: () => {m.drag=null;document.querySelectorAll("[data-price-row].drop-before,[data-price-row].drop-after").forEach(r=>r.classList.remove("drop-before","drop-after"));},
+    dragEnd: () => {
+      m.drag = null;
+      document
+        .querySelectorAll(
+          "[data-price-row].drop-before,[data-price-row].drop-after",
+        )
+        .forEach((r) => r.classList.remove("drop-before", "drop-after"));
+    },
     leave,
     afterRender,
     model: m,

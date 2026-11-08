@@ -60,7 +60,7 @@ async function bridge(page, options={}) {
    if(command==='list_warehouses')return warehouses;
    if(command==='create_warehouse'){warehouses.push(args.warehouse);return args.warehouse;}
    if(command==='stock_balances')return [];
-   if(command==='operations_report')return {...operationReport(),project_id:args.projectId,name:args.projectId===sourceProject.id?sourceProject.name:project.name,estimate_id:args.estimateId};
+   if(command==='operations_report')return {...operationReport(),...fixture.financialReport,project_id:args.projectId,name:args.projectId===sourceProject.id?sourceProject.name:project.name,estimate_id:args.estimateId};
    if(command==='operations_portfolio')return [operationReport()];
    if(command==='post_operation'){const o={...args.operation,calculated:{}};operations.push(o);return o;}
    if (command === "list_analyses") return [];
@@ -689,4 +689,34 @@ test('calendar keeps multiple selected dates, descriptions and exceptional workd
 
 test('a failed address lookup still saves the selected location and reports pending verification',async({page})=>{
  await bridge(page,{geocodeFails:true});await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.getByRole('button',{name:'Datos de obra',exact:true}).click();await page.getByRole('button',{name:'📍 Elegir ubicación',exact:true}).click();await page.locator('[data-work-map]').click({position:{x:140,y:120}});await page.getByRole('button',{name:'Guardar ubicación',exact:true}).click();await expect.poll(()=>page.evaluate(()=>window.__calls.filter(c=>c.command==='save_management_record').length)).toBe(1);const attrs=await page.evaluate(()=>window.__calls.filter(c=>c.command==='save_management_record').at(-1).args.record.attributes);expect(attrs.latitude).toBeTruthy();expect(attrs.longitude).toBeTruthy();expect(attrs.address_lookup_status).toBe('pending');await expect(page.locator('.toast')).toContainText('No se pudo obtener la dirección');await expect(page.locator('.card-profile')).toContainText('Dirección pendiente');
+});
+
+test('monthly rentals keep contract dates, quantities and payment terms in price determination',async({page})=>{
+ await bridge(page);await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.getByRole('button',{name:'Determinación de precio',exact:true}).click();
+ await page.locator('.price-right').getByRole('button',{name:'Con detalle',exact:true}).click();await page.getByRole('button',{name:'＋ Ítem',exact:true}).click();
+ await page.getByLabel('Descripción del detalle').fill('Baños químicos');await page.getByLabel('Cantidad del detalle').fill('2');await page.getByLabel('Precio del detalle ARS').fill('150000');
+ await page.getByLabel('Calcular por período').check();await page.getByLabel('Inicio del alquiler',{exact:true}).fill('2026-11-01');await page.getByLabel('Fin del alquiler',{exact:true}).fill('2027-01-31');await page.getByLabel('Día de vencimiento mensual').fill('5');
+ await page.locator('.price-modal button[type=submit]').click();await expect(page.locator('.price-item-row')).toContainText('Alquiler mensual');await page.getByRole('button',{name:'Guardar determinación',exact:true}).click();
+ const item=await page.evaluate(()=>window.__calls.filter(c=>c.command==='save_price_definition').at(-1).args.definition.rows[0].items[0]);expect(item.quantity).toBe('2');expect(item.periodic).toEqual({start:'2026-11-01',end:'2027-01-31',payment_day:5,prorate:true});
+});
+test('certification cuts save financing settings and can be marked directly on the Gantt',async({page})=>{
+ await bridge(page);await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.getByRole('button',{name:'Planificación',exact:true}).click();
+ await page.getByText('Cortes de certificación y previsión financiera',{exact:true}).click();await page.getByLabel('Agregar fecha de corte',{exact:true}).fill('2026-11-15');await page.getByLabel('Días desde corte hasta cobro').fill('15');await page.getByLabel('Caja disponible a la fecha de seguimiento').fill('100000');await page.getByRole('button',{name:'Guardar cortes y condiciones',exact:true}).click();
+ let saved=await page.evaluate(()=>window.__calls.filter(c=>c.command==='save_project_plan').at(-1).args.plan.finance);expect(saved.cut_dates).toEqual(['2026-11-15']);expect(saved.collection_delay_days).toBe(15);expect(saved.opening_cash).toBe('100000');expect(saved.cash_currency).toBe('ARS');
+ await page.getByRole('button',{name:'Marcar cortes de certificación',exact:true}).click();const date=page.locator('button[data-action="plan-cut-date"]').nth(3);const selected=await date.getAttribute('data-date');await date.click();
+ await expect(page.locator(`[data-gantt-date="${selected}"]`)).toHaveClass(/is-certification-cut/);saved=await page.evaluate(()=>window.__calls.filter(c=>c.command==='save_project_plan').at(-1).args.plan.finance);expect(saved.cut_dates).toContain(selected);expect(saved.opening_cash).toBe('100000');
+});
+test('financial periods show stock offsets and partial invoices can link to monthly rentals',async({page})=>{
+ const rental={row_id:'row-rental',item_id:'item-rental',description:'Baño químico',currency:'ARS',period_start:'2026-11-01',period_end:'2026-11-30',due_date:'2026-11-05',amount:'300',invoiced:'0',unbilled:'300'};
+ const material={resource_id:'resource-1',description:'Arena',unit:'m³',required:'10',from_stock:'6',pending_order:'1',purchase:'3',cost:'300'};
+ await bridge(page,{financialReport:{recurring_costs:[rental],financial_projection:{currency:'ARS',as_of:'2026-11-05',opening_cash:'100',additional_cash:'500',warnings:[],periods:[{start:'2026-11-06',end:'2026-11-30',gross:'1000',advance:'100',retention:'50',net:'850',collection_date:'2026-12-15',expenses:'600',receipts:'0',additional_cash:'500',materials:[material]}],events:[{date:'2026-11-13',description:'Cuadrilla semanal',income:'0',expense:'600',balance:'-500'}]}}});
+ await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.getByRole('button',{name:'Gestión de obra',exact:true}).click();await page.getByRole('button',{name:'Finanzas',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Previsión financiera · ARS',exact:true})).toBeVisible();await expect(page.getByRole('row').filter({hasText:'Arena'})).toContainText('6');await expect(page.locator('.financial-projection')).toContainText('2026-12-15');
+ await page.getByLabel('Número / referencia',{exact:true}).fill('ALQ-1');await page.getByLabel('Importe',{exact:true}).fill('120');await page.getByLabel('Alquiler / gasto mensual previsto (opcional)').selectOption('row-rental|item-rental|2026-11-01');await page.getByRole('button',{name:'Registrar factura por pagar',exact:true}).click();
+ const saved=await page.evaluate(()=>window.__calls.filter(c=>c.command==='post_operation').at(-1).args.operation);expect(saved.price_cost).toEqual({row_id:'row-rental',item_id:'item-rental',period_start:'2026-11-01'});expect(saved.amount).toBe('120');
+});
+test('existing stock uses an automatic reference and commitments expose their expected payment date',async({page})=>{
+ await bridge(page);await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.getByRole('button',{name:'Gestión de obra',exact:true}).click();await page.getByRole('button',{name:'Compras y almacenes',exact:true}).click();
+ await page.getByRole('combobox',{name:'Tipo de documento',exact:true}).selectOption('stock_opening');await expect(page.getByLabel('Número / referencia',{exact:true})).toHaveAttribute('readonly','');await expect(page.getByLabel('Número / referencia',{exact:true})).toHaveAttribute('placeholder','Automático al registrar');
+ await page.getByRole('combobox',{name:'Tipo de documento',exact:true}).selectOption('purchase_order');await page.getByLabel('Fecha prevista de pago del saldo',{exact:true}).fill('2026-12-10');await expect(page.getByLabel('Fecha prevista de pago del saldo',{exact:true})).toHaveValue('2026-12-10');
 });

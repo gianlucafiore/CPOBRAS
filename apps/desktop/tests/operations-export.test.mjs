@@ -38,7 +38,7 @@ const model = () => ({
     amount: "22517998136852482.525",
   },
 });
-async function generate(format, scope = "document") {
+async function generate(format, scope = "document", overrides = {}) {
   let result;
   await exportOperationalReport({
     invoke: async (cmd, args) => {
@@ -48,7 +48,7 @@ async function generate(format, scope = "document") {
     },
     format,
     scope,
-    model: model(),
+    model: {...model(), ...overrides},
     operationNames: { certificate: "Certificado" },
     partnerName: () => "Comitente",
     whName: () => "",
@@ -74,4 +74,12 @@ test("certificate annex and empty portfolio can be exported as portable PDFs", a
     );
     assert.ok(result.bytes.length > 1000);
   }
+});
+
+test("financial exports preserve exact balances and material stock offsets", async () => {
+  const result=await generate("xlsx","financial",{report:{financial_projection:{as_of:"2026-11-05",currency:"ARS",opening_cash:"100",additional_cash:"9007199254740993.01",warnings:["Verificar entrega"],periods:[{start:"2026-11-06",end:"2026-11-30",gross:"1000",advance:"100",net:"850",retention:"50",collection_date:"2026-12-15",materials:[{description:"Arena",unit:"m³",required:"10",from_stock:"6",pending_order:"1",purchase:"3",cost:"300"}]}],events:[{date:"2026-11-13",description:"Pago previsto",income:"0",expense:"9007199254740993.01",balance:"-9007199254740893.01"}]}}});
+  const rows=await parseExcel(new Uint8Array(result.bytes));
+  assert.ok(rows.some(r=>String(r[1]).includes("acopio 6") && r[3]==="3"));
+  assert.ok(rows.some(r=>r[1]==="Pago previsto" && r[3]==="9007199254740993.01" && r[4]==="-9007199254740893.01"));
+  assert.ok(rows.some(r=>r[1]==="Verificar entrega"));
 });

@@ -124,6 +124,10 @@ const fields = {
   crew: [
     ["specialty", "Especialidad"],
     ["members", "Integrantes / referencias"],
+    ["pay_frequency", "Frecuencia de pago", [["weekly", "Semanal · viernes"], ["fortnight", "Quincenal · 15 y último día"], ["monthly", "Mensual · último día"]]],
+    ["daily_rate", "Costo por jornada de cuadrilla completa"],
+    ["pay_currency", "Moneda de la jornada", [["ARS", "ARS"], ["USD", "USD"]]],
+    ["advance_recovery_percent", "Porcentaje a descontar de cada pago por anticipo (0 a 100)"],
   ],
 };
 export function createManagementWorkspace({

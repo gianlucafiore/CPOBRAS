@@ -120,6 +120,38 @@ impl LocalStore {
         {
             return Err(invalid("Datos de ficha inválidos"));
         }
+        if record.kind == "crew" {
+            for (key, max) in [
+                ("daily_rate", None),
+                (
+                    "advance_recovery_percent",
+                    Some(rust_decimal::Decimal::from(100)),
+                ),
+            ] {
+                if let Some(s) = record.attributes.get(key).filter(|s| !s.is_empty()) {
+                    let v = s
+                        .parse::<rust_decimal::Decimal>()
+                        .map_err(|_| invalid("Importe de cuadrilla inválido"))?;
+                    if v < rust_decimal::Decimal::ZERO || max.is_some_and(|m| v > m) {
+                        return Err(invalid(
+                            "Importe o recuperación de cuadrilla fuera de rango",
+                        ));
+                    }
+                }
+            }
+            if record.attributes.get("pay_frequency").is_some_and(|s| {
+                !s.is_empty() && !["weekly", "fortnight", "monthly"].contains(&s.as_str())
+            }) {
+                return Err(invalid("Frecuencia de pago inválida"));
+            }
+            if record
+                .attributes
+                .get("pay_currency")
+                .is_some_and(|s| !s.is_empty() && !["ARS", "USD"].contains(&s.as_str()))
+            {
+                return Err(invalid("Moneda de cuadrilla inválida"));
+            }
+        }
         let existing = self.management_record(record.id)?;
         for company in [
             Some(record.id),

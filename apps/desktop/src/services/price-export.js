@@ -42,6 +42,16 @@ export function priceExportRows({
             item.group ? "" : item.unit_price,
             value?.item_totals[item.id] ?? "0",
           ]);
+          if (item.periodic)
+            rows.push([
+              "Alquiler mensual",
+              item.periodic.start,
+              item.periodic.end,
+              "Vence día " + item.periodic.payment_day,
+              item.periodic.prorate
+                ? "Meses incompletos prorrateados"
+                : "Meses completos",
+            ]);
           if (item.group) walk(item.id, prefix + "  ", depth + 1);
         }
       };

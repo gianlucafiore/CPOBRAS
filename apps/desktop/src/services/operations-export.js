@@ -160,6 +160,69 @@ export async function exportOperationalReport({
       p.actual_hours_per_unit ?? "",
       p.productivity_variance ?? "",
     ]);
+  } else if (scope === "financial") {
+    title = "Previsión financiera y materiales por período";
+    headers = [
+      "Fecha / período",
+      "Concepto",
+      "Ingreso / necesario",
+      "Egreso / comprar",
+      "Saldo / costo",
+    ];
+    const f = r?.financial_projection;
+    if (!f)
+      throw new Error(
+        "Guardá el cronograma para obtener la previsión financiera",
+      );
+    rows = [
+      [
+        f.as_of,
+        "Moneda: " + f.currency,
+        "Caja inicial",
+        f.opening_cash,
+        "Caja adicional: " + f.additional_cash,
+      ],
+    ];
+    for (const p of f.periods) {
+      rows.push([
+        p.start + " → " + p.end,
+        "Certificado bruto / anticipo / neto",
+        p.gross,
+        p.advance,
+        p.net,
+      ]);
+      rows.push([
+        p.collection_date,
+        "Cobro previsto / reparo",
+        p.net,
+        p.retention,
+        "",
+      ]);
+      for (const m of p.materials)
+        rows.push([
+          p.start + " → " + p.end,
+          m.description +
+            " (" +
+            m.unit +
+            ") · acopio " +
+            m.from_stock +
+            " · por recibir " +
+            m.pending_order,
+          m.required,
+          m.purchase,
+          m.cost,
+        ]);
+    }
+    rows.push(
+      ...f.events.map((x) => [
+        x.date,
+        x.description,
+        x.income,
+        x.expense,
+        x.balance,
+      ]),
+    );
+    rows.push(...f.warnings.map((w) => ["Observación", w, "", "", ""]));
   } else if (scope === "cash") {
     title = "Flujo de fondos";
     headers = [

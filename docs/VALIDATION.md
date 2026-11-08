@@ -326,3 +326,29 @@ Las 13 pruebas nativas pasan con la configuración del mapa y el esquema 24.
 La batería completa de navegador pasa con 59 casos y las 13 pruebas nativas
 pasan con la configuración de Nominatim y el esquema 25. La compilación del
 frontend y las comprobaciones de formato Rust son correctas.
+
+## Previsión financiera, acopio y alquileres mensuales
+
+- Núcleo: 26 pruebas; almacenamiento: 84; JavaScript: 38; navegador: 63;
+  integración nativa: 13. Total: 224 casos, todos correctos.
+- Alquileres mensuales: prorrateo de febrero bisiesto, meses completos, vencimientos
+  ajustados al mes y al inicio del contrato, rechazo de períodos invertidos o
+  excesivos. Las facturas parciales y sus pagos reemplazan saldos previstos.
+- Caja: se comprueba que un cobro posterior al corte no financia gastos anteriores,
+  y que los pagos ya realizados no vuelven a aparecer como deuda pendiente.
+- Acopio: declaración sin salida de caja, cantidades consumidas una sola vez por
+  la previsión y necesidades ajustadas al avance real de las tareas. Órdenes en
+  otra moneda cubren suministro físico sin convertir sus importes.
+- Cuadrillas: viernes, quincenas y fin de mes (incluidos años bisiestos), liquidación
+  bruta/neta, recuperación limitada al anticipo pendiente y reemplazo de jornadas
+  ya liquidadas. El backend rechaza recuperar anticipos inexistentes.
+- Los tests de navegador comprueban contrato mensual, guardado de condiciones,
+  marcado directo de cortes en el Gantt, materiales por período y vínculo de la
+  factura con el mes previsto. La aritmética se valida en Rust, no en el simulador
+  de IPC del navegador.
+- Exportación Excel conserva cantidades y saldos decimales exactos. La transmisión
+  P2P elimina caja, proyección y condiciones de cuadrillas sin permiso financiero.
+- Esquema 26: protege las nuevas reglas frente a aplicaciones antiguas.
+  La compilación del frontend, el formato Rust y las 13 pruebas nativas pasan.
+- No se generaron AppImage, etiquetas ni releases.
+- Alcance y supuestos operativos: [guía financiera](FINANCIAL_PLANNING.md).
