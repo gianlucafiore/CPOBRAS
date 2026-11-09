@@ -4996,3 +4996,31 @@ fn supplier_delivery_requests_and_direct_receipts_share_the_remaining_capacity()
         assert_eq!(l.remaining, available - Decimal::from(2));
     }
 }
+
+#[test]
+fn certificate_accumulated_quantity_preserves_exact_units_and_rejects_overruns() {
+    let (mut s, p, e, mut line) = fixture();
+    line.quantity = 3.into();
+    s.update_estimate_item(&line).unwrap();
+    s.save_project_plan(p.id, 0, financial_test_plan(line.id), "2026-11-05").unwrap();
+    s.issue_estimate(e.id).unwrap();
+    let mut draft = s.open_certificate_draft(p.id, e.id, None, "2026-11-01", "2026-11-05").unwrap();
+    draft.operation.date = "2026-11-05".into();
+    draft.progress[0].accumulated_quantity = Some(Decimal::ONE);
+    draft.progress[0].accumulated_percent = Decimal::from_str_exact("33.3333333333333333").unwrap();
+    let saved = s.save_certificate_draft(&draft).unwrap();
+    assert_eq!(saved.operation.lines[0].quantity, Decimal::ONE);
+    assert_eq!(saved.progress[0].accumulated_quantity, Some(Decimal::ONE));
+    let preview = s.preview_certificate_draft(saved.id).unwrap();
+    assert_eq!(preview.rows[0].accumulated, Decimal::ONE);
+    let mut invalid = saved.clone();
+    invalid.progress[0].accumulated_quantity = Some(4.into());
+    assert!(s.save_certificate_draft(&invalid).is_err());
+    invalid.progress[0].accumulated_quantity = Some((-1).into());
+    assert!(s.save_certificate_draft(&invalid).is_err());
+    let mut legacy = saved;
+    legacy.progress[0].accumulated_quantity = None;
+    legacy.progress[0].accumulated_percent = 100.into();
+    let saved = s.save_certificate_draft(&legacy).unwrap();
+    assert_eq!(saved.operation.lines[0].quantity, 3.into());
+}

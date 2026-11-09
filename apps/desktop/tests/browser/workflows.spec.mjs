@@ -91,8 +91,8 @@ async function bridge(page, options={}) {
    if(command==='available_progress')return fixture.availableProgress||[];
    if(command==='list_quotation_requests')return structuredClone(window.__quotationRequests||[]);
    if(command==='open_certificate_draft'||command==='open_next_client_certificate'){if(command==='open_next_client_certificate')args={...args,start:'2026-11-01',end:'2026-11-13',contractId:null};window.__certDrafts ||= [];let d=window.__certDrafts.find(d=>!d.issued_id&&d.operation.reference_id===(args.contractId||null));if(!d){d={id:crypto.randomUUID(),project_id:project.id,estimate_id:estimate.id,revision:0,kind:args.contractId?'subcertificate':'certificate',issued_id:null,progress:lines.map(l=>({line_id:l.id,accumulated_percent:'0',use_approved:true})),operation:{id:crypto.randomUUID(),project_id:project.id,estimate_id:estimate.id,kind:args.contractId?'subcertificate':'certificate',reference_id:args.contractId||null,date:args.end,period_start:args.start,period_end:args.end,due_date:args.end,currency:'ARS',lines:[],extras:[],reconcile_ids:[],notes:'',amount:'0',calculated:{}}};window.__certDrafts.push(d);}return structuredClone(d);}
-   if(command==='save_certificate_draft'){const d=structuredClone(args.draft);d.revision++;d.operation.lines=d.progress.filter(p=>Number(p.accumulated_percent)>0).map(p=>{const l=lines.find(l=>l.id===p.line_id);return {line_id:l.id,description:l.description,quantity:String(Number(l.quantity)*Number(p.accumulated_percent)/100),unit_price:l.unit_cost};});window.__certDrafts[window.__certDrafts.findIndex(x=>x.id===d.id)]=d;return structuredClone(d);}
-   if(['preview_certificate_draft','certificate_editor_sheet','calculate_certificate_preview','issued_certificate_sheet'].includes(command)){const d=command==='calculate_certificate_preview'?args.draft:command==='issued_certificate_sheet'?window.__certDrafts.find(d=>d.issued_id===args.id):window.__certDrafts.find(d=>d.id===args.id),o=structuredClone(d.operation);if(command==='calculate_certificate_preview')o.lines=d.progress.map(p=>({line_id:p.line_id,quantity:String(Number(lines.find(l=>l.id===p.line_id).quantity)*Number(p.accumulated_percent)/100),unit_price:lines.find(l=>l.id===p.line_id).unit_cost}));o.amount=String(o.lines.reduce((n,l)=>n+Number(l.quantity)*Number(l.unit_price),0)+o.extras.reduce((n,x)=>n+Number(x.amount),0));o.calculated={base_work:o.amount};if(fixture.signedZeroAdvance){o.advance="-0.0000";o.advance_before_index=true;}return {preliminary:command!=='issued_certificate_sheet',project_name:project.name,budget_title:estimate.title,client_name:'Comitente',profile:{company_name:'Empresa',logo_png:[]},operation:o,total_base:'200',physical_percent:'50',rows:lines.map(l=>{const p=d.progress.find(p=>p.line_id===l.id);return{line_id:l.id,item:'01',section:'',description:l.description,unit:l.unit,quantity:l.quantity,unit_price:l.unit_cost,previous:'0',current:'1',accumulated:'1',remaining:'1',previous_percent:'0',current_percent:p?.accumulated_percent||'0',accumulated_percent:p?.accumulated_percent||'0',remaining_percent:String(100-Number(p?.accumulated_percent||0)),period_amount:String(Number(l.quantity)*Number(l.unit_cost)*Number(p?.accumulated_percent||0)/100),contract_total:'200',incidence:'100'};})};}
+   if(command==='save_certificate_draft'){const d=structuredClone(args.draft);d.revision++;d.operation.lines=d.progress.filter(p=>Number(p.accumulated_percent)>0).map(p=>{const l=lines.find(l=>l.id===p.line_id);return {line_id:l.id,description:l.description,quantity:p.accumulated_quantity ?? String(Number(l.quantity)*Number(p.accumulated_percent)/100),unit_price:l.unit_cost};});window.__certDrafts[window.__certDrafts.findIndex(x=>x.id===d.id)]=d;return structuredClone(d);}
+   if(['preview_certificate_draft','certificate_editor_sheet','calculate_certificate_preview','issued_certificate_sheet'].includes(command)){const d=command==='calculate_certificate_preview'?args.draft:command==='issued_certificate_sheet'?window.__certDrafts.find(d=>d.issued_id===args.id):window.__certDrafts.find(d=>d.id===args.id),o=structuredClone(d.operation);if(command==='calculate_certificate_preview')o.lines=d.progress.map(p=>({line_id:p.line_id,quantity:p.accumulated_quantity ?? String(Number(lines.find(l=>l.id===p.line_id).quantity)*Number(p.accumulated_percent)/100),unit_price:lines.find(l=>l.id===p.line_id).unit_cost}));o.amount=String(o.lines.reduce((n,l)=>n+Number(l.quantity)*Number(l.unit_price),0)+o.extras.reduce((n,x)=>n+Number(x.amount),0));o.calculated={base_work:o.amount};if(fixture.signedZeroAdvance){o.advance="-0.0000";o.advance_before_index=true;}return {preliminary:command!=='issued_certificate_sheet',project_name:project.name,budget_title:estimate.title,client_name:'Comitente',profile:{company_name:'Empresa',logo_png:[]},operation:o,total_base:'200',physical_percent:'50',rows:lines.map(l=>{const p=d.progress.find(p=>p.line_id===l.id);return{line_id:l.id,item:'01',section:'',description:l.description,unit:l.unit,quantity:l.quantity,unit_price:l.unit_cost,previous:'0',current:'1',accumulated:'1',remaining:'1',previous_percent:'0',current_percent:p?.accumulated_percent||'0',accumulated_percent:p?.accumulated_percent||'0',remaining_percent:String(100-Number(p?.accumulated_percent||0)),period_amount:String(Number(l.quantity)*Number(l.unit_cost)*Number(p?.accumulated_percent||0)/100),contract_total:'200',incidence:'100'};})};}
    if(command==='issue_certificate_draft'){const d=window.__certDrafts.find(d=>d.id===args.id);d.operation.number='CERT-0001';d.operation.date=args.date;d.issued_id=d.operation.id;operations.push(structuredClone(d.operation));return structuredClone(d.operation);}
    if(command==='create_quotation_request'){const r={...structuredClone(args.request),number:'SOL-0001',profile:{company_name:'Empresa',logo_png:[]},project_name:project.name};window.__quotationRequests ||= [];window.__quotationRequests.push(r);return structuredClone(r);}
    if(command==='list_operations')return operations;
@@ -210,7 +210,7 @@ test("planner saves a task, progress and resource assignment and renders Gantt",
  await expect(page.locator(".gantt-label")).toContainText("Excavación");
  const saved = await page.evaluate(() => window.__calls.filter(call => call.command === "save_project_plan").at(-1).args);
  expect(saved.plan.tasks[0].duration_days).toBe(3); expect(saved.plan.tasks[0].actual_progress).toBe("0");
- await page.locator(".gantt-label").click(); await page.getByText("Cuadrillas, equipos y recursos",{exact:true}).click();await page.getByRole("button", { name: "Asignar recurso", exact: true }).click();
+ await page.locator(".gantt-label").dblclick(); await page.getByText("Cuadrillas, equipos y recursos",{exact:true}).click();await page.getByRole("button", { name: "Asignar recurso", exact: true }).click();
  await page.getByLabel("Unidades por día").fill("2"); await page.getByRole("button", { name: "Guardar tarea y recalcular", exact: true }).click();
  const last = await page.evaluate(() => window.__calls.filter(call => call.command === "save_project_plan").at(-1).args);
  expect(last.plan.tasks[0].assignments[0].units_per_day).toBe("2");
@@ -718,7 +718,10 @@ test('Gantt uses actual dates, calendar header tiers and free horizontal panning
  const saves=await page.evaluate(()=>window.__calls.filter(c=>c.command==='save_project_plan').length);await page.getByRole('button',{name:'Gantt: cuatro semanas siguientes',exact:true}).click();await page.getByRole('button',{name:'Gantt: cuatro semanas anteriores',exact:true}).click();expect(await page.evaluate(()=>window.__calls.filter(c=>c.command==='save_project_plan').length)).toBe(saves);
  await page.getByRole('button',{name:'Inicio de obra',exact:true}).click();
  const resize=await page.locator('.gantt-bar [data-resize]').boundingBox();await page.mouse.move(resize.x+resize.width/2,resize.y+resize.height/2);await page.mouse.down();await page.mouse.move(resize.x+resize.width/2-64,resize.y+resize.height/2,{steps:6});await page.mouse.up();await expect.poll(()=>page.evaluate(()=>window.__calls.filter(c=>c.command==='save_project_plan').at(-1).args.plan.tasks[0].duration_days)).toBe(5);await expect(page.locator('#planning-task-form')).toHaveCount(0);
- const bar=await page.locator('.gantt-bar').boundingBox();await page.mouse.move(bar.x+40,bar.y+10);await page.mouse.down();await page.mouse.move(bar.x+200,bar.y+10,{steps:6});await page.mouse.up();await expect.poll(()=>page.evaluate(()=>window.__calls.filter(c=>c.command==='save_project_plan').at(-1).args.plan.tasks[0].not_before)).toBe('2026-11-16');
+ const bar=await page.locator('.gantt-bar').boundingBox();await page.mouse.move(bar.x+40,bar.y+10);await page.mouse.down();await page.mouse.move(bar.x+200,bar.y+10,{steps:6});await page.mouse.up();await expect.poll(()=>page.evaluate(()=>window.__calls.filter(c=>c.command==='save_project_plan').at(-1).args.plan.tasks[0].not_before)).toBe('2026-11-16');await expect(page.locator('#planning-task-form')).toHaveCount(0);
+ await page.locator('.gantt-label').click();await expect(page.locator('#planning-task-form')).toHaveCount(0);
+ await page.locator('.gantt-label').dblclick();await expect(page.locator('#planning-task-form')).toBeVisible();
+
  await page.screenshot({path:'/workspace/cpobras-gantt-calendar.png',fullPage:true});
 });
 
@@ -977,4 +980,30 @@ test('delivery quantities update immediately and direct receipt reduces later re
  await expect(details).toContainText('En proveedor (total): 5');
  await expect(details).toContainText('Solicitado por recibir: 5');
  await expect(details).toContainText('Disponible para solicitar: 0');
+});
+
+
+test('certificate accumulated quantity and percentage sync both ways and survive saving',async({page})=>{
+ await bridge(page,{issued:true});
+ await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();
+ await page.locator('[data-action=manage-dashboard-budget]').first().click();
+ await page.getByRole('button',{name:'Gestión de obra',exact:true}).click();
+ await page.getByRole('button',{name:'Certificaciones',exact:true}).click();
+ await page.getByRole('button',{name:'Modificar avances',exact:true}).click();
+ const quantity=page.getByLabel('Cantidad acumulada Hormigón',{exact:true});
+ const percent=page.getByLabel('Avance acumulado Hormigón',{exact:true});
+ await expect(quantity).toHaveValue('0');
+ await quantity.fill('1');
+ await expect(percent).toHaveValue('50');
+ await percent.fill('25');
+ await expect(quantity).toHaveValue('0.5');
+ await quantity.fill('2');
+ await expect(percent).toHaveValue('100');
+ await page.getByRole('button',{name:'Guardar borrador',exact:true}).click();
+ await expect(quantity).toHaveValue('2');
+ expect(await page.evaluate(()=>window.__calls.filter(c=>c.command==='save_certificate_draft').at(-1).args.draft.progress[0].accumulated_quantity)).toBe('2');
+ await page.getByRole('button',{name:'Cerrar',exact:true}).click();
+ await page.getByRole('button',{name:'Modificar avances',exact:true}).click();
+ await expect(quantity).toHaveValue('2');
+ await expect(percent).toHaveValue('100');
 });

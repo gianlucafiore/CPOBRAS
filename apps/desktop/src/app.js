@@ -773,6 +773,7 @@ export function createWorkspaceApp({
   });
   document.addEventListener("dblclick", (evt) => {
     (async () => {
+      if (await planning.doubleClick(evt)) return;
       if (await pricing.doubleClick(evt)) return;
       await interactions.doubleClick(evt);
     })().catch((error) => {

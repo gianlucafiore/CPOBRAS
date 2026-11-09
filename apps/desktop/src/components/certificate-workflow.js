@@ -1,5 +1,5 @@
 import { e, field, select, dateToday } from "./helpers.js";
-import { numeric, money, sumDecimals, multiplyDecimals } from "../decimal.js";
+import { numeric, money, sumDecimals, multiplyDecimals, percentageOf, divideDecimals, compareDecimals } from "../decimal.js";
 import { exportCertificate } from "../services/construction-export.js";
 export function createCertificateWorkflow({
   invoke,
@@ -68,7 +68,8 @@ export function createCertificateWorkflow({
       (row) => ({
         line_id: row.dataset.certProgress,
         accumulated_percent:
-          row.querySelector("input[type=number]").value || "0",
+          row.querySelector("[data-cert-percent]").value || "0",
+        accumulated_quantity: row.dataset.progressMode === "quantity" ? row.querySelector("[data-cert-quantity]").value || "0" : null,
         use_approved: true,
       }),
     );
@@ -279,12 +280,12 @@ export function createCertificateWorkflow({
     if (!view.draft || !view.sheet) return "";
     const d = view.draft,
       o = d.operation;
-    return `<section class="workflow-editor certificate-editor" role="dialog" aria-modal="true" aria-label="Modificar avances"><form id="certificate-workflow-form"><div class="feature-toolbar"><h2>Modificar avances · ${o.kind === "certificate" ? "Comitente" : "Contratista"}</h2><button type="button" class="btn" data-action="ops-cert-close">Cerrar</button><button type="submit" class="btn">Guardar borrador</button><button type="button" class="btn" data-action="ops-cert-preliminary">Generar PRELIMINAR PDF</button><button type="button" class="btn primary" data-action="ops-cert-issue">Emitir certificado aprobado</button></div><div class="workflow-grid">${field("Fecha de emisión / preparación", "date", o.date, 'type="date" required')}${field("Desde", "period_start", o.period_start, o.kind === "certificate" ? 'type="date" readonly' : 'type="date" required')}${field("Hasta", "period_end", o.period_end, o.kind === "certificate" ? 'type="date" readonly' : 'type="date" required')}${o.kind === "subcertificate" ? field("Jornadas / horas (solo contratos por tiempo)", "work_units", o.work_units || "0", 'type="number" min="0" step="any"') : ""}</div><p>Ingresá el avance acumulado de cada partida. El período es la diferencia con lo emitido anteriormente. Los avances aprobados de contratistas se incorporan al borrador, sin emitir automáticamente.</p>${o.kind === "certificate" ? '<button type="button" class="btn" data-action="ops-cert-approved">Incorporar avances aprobados de contratistas</button>' : ""}<div class="certificate-body"><div class="workflow-scroll"><table class="data-grid"><thead><tr><th>Ítem / partida</th><th>Unidad</th><th>Cantidad contratada</th><th>Anterior %</th><th>Acumulado %</th><th>Período %</th><th>Restante %</th><th>Importe período base</th></tr></thead><tbody>${view.sheet.rows
+    return `<section class="workflow-editor certificate-editor" role="dialog" aria-modal="true" aria-label="Modificar avances"><form id="certificate-workflow-form"><div class="feature-toolbar"><h2>Modificar avances · ${o.kind === "certificate" ? "Comitente" : "Contratista"}</h2><button type="button" class="btn" data-action="ops-cert-close">Cerrar</button><button type="submit" class="btn">Guardar borrador</button><button type="button" class="btn" data-action="ops-cert-preliminary">Generar PRELIMINAR PDF</button><button type="button" class="btn primary" data-action="ops-cert-issue">Emitir certificado aprobado</button></div><div class="workflow-grid">${field("Fecha de emisión / preparación", "date", o.date, 'type="date" required')}${field("Desde", "period_start", o.period_start, o.kind === "certificate" ? 'type="date" readonly' : 'type="date" required')}${field("Hasta", "period_end", o.period_end, o.kind === "certificate" ? 'type="date" readonly' : 'type="date" required')}${o.kind === "subcertificate" ? field("Jornadas / horas (solo contratos por tiempo)", "work_units", o.work_units || "0", 'type="number" min="0" step="any"') : ""}</div><p>Ingresá el porcentaje o la cantidad acumulada; ambos se sincronizan automáticamente. El período es la diferencia con lo emitido anteriormente. Los avances aprobados de contratistas se incorporan al borrador, sin emitir automáticamente.</p>${o.kind === "certificate" ? '<button type="button" class="btn" data-action="ops-cert-approved">Incorporar avances aprobados de contratistas</button>' : ""}<div class="certificate-body"><div class="workflow-scroll"><table class="data-grid"><thead><tr><th>Ítem / partida</th><th>Unidad</th><th>Cantidad contratada</th><th>Anterior %</th><th>Acumulado %</th><th>Cantidad acumulada</th><th>Período %</th><th>Restante %</th><th>Importe período base</th></tr></thead><tbody>${view.sheet.rows
       .map((r) => {
-        const v =
-          d.progress.find((p) => p.line_id === r.line_id)
-            ?.accumulated_percent || r.previous_percent;
-        return `<tr data-cert-progress="${r.line_id}"><td>${e(r.item)} · ${e(r.description)}</td><td class="certificate-unit">${e(r.unit)}</td><td class="certificate-quantity">${numeric(r.quantity)}</td><td>${numeric(r.previous_percent)}</td><td><input aria-label="Avance acumulado ${e(r.description)}" type="number" min="${r.previous_percent}" max="100" step="any" value="${e(v)}" required></td><td data-cert-period>${numeric(r.current_percent)}</td><td data-cert-remaining>${numeric(r.remaining_percent)}</td><td data-cert-amount>${money(r.period_amount)}</td></tr>`;
+        const progress = d.progress.find((p) => p.line_id === r.line_id);
+        const v = progress?.accumulated_percent || r.previous_percent;
+        const quantity = progress?.accumulated_quantity ?? (compareDecimals(v, r.previous_percent) === 0 ? r.previous : percentageOf(r.quantity, v));
+        return `<tr data-cert-progress="${r.line_id}" data-progress-mode="${progress?.accumulated_quantity != null ? "quantity" : "percent"}" data-contract-quantity="${e(r.quantity)}"><td>${e(r.item)} · ${e(r.description)}</td><td class="certificate-unit">${e(r.unit)}</td><td class="certificate-quantity">${numeric(r.quantity)}</td><td>${numeric(r.previous_percent)}</td><td><input data-cert-percent aria-label="Avance acumulado ${e(r.description)}" type="number" min="${r.previous_percent}" max="100" step="any" value="${e(v)}" required></td><td><input data-cert-quantity aria-label="Cantidad acumulada ${e(r.description)}" type="number" min="${e(r.previous)}" max="${e(r.quantity)}" step="any" value="${e(quantity)}" required></td><td data-cert-period>${numeric(r.current_percent)}</td><td data-cert-remaining>${numeric(r.remaining_percent)}</td><td data-cert-amount>${money(r.period_amount)}</td></tr>`;
       })
       .join(
         "",
@@ -409,6 +410,7 @@ export function createCertificateWorkflow({
         const target =
           Number(row.previous_percent) +
           (Number(q) * 100) / Number(row.quantity);
+        p.accumulated_quantity = null;
         p.accumulated_percent = String(
           Math.min(100, Math.max(Number(p.accumulated_percent), target)),
         );
@@ -517,6 +519,18 @@ export function createCertificateWorkflow({
       render();
     },
     input: (t) => {
+      if (t.matches?.("[data-cert-percent],[data-cert-quantity]")) {
+        const row = t.closest("[data-cert-progress]");
+        try {
+          if (t.matches("[data-cert-quantity]")) {
+            row.dataset.progressMode = "quantity";
+            row.querySelector("[data-cert-percent]").value = compareDecimals(row.dataset.contractQuantity, "0") === 0 ? "0" : divideDecimals(multiplyDecimals(t.value || "0", "100"), row.dataset.contractQuantity);
+          } else {
+            row.dataset.progressMode = "percent";
+            row.querySelector("[data-cert-quantity]").value = percentageOf(row.dataset.contractQuantity, t.value || "0");
+          }
+        } catch { /* Keep transient edits until the input is a valid decimal. */ }
+      }
       if (t.closest?.("#certificate-workflow-form")) {
         view.dirty = true;
         livePreview();

@@ -66,3 +66,10 @@ export function percentageOf(value,percent){
 }
 
 export function compareDecimals(left,right){const a=parse(left),b=parse(right),scale=Math.max(a.scale,b.scale),x=a.coefficient*power(scale-a.scale),y=b.coefficient*power(scale-b.scale);return x<y?-1:x>y?1:0;}
+
+export function divideDecimals(left,right,precision=16){
+ const a=parse(left),b=parse(right);if(b.coefficient===0n)throw new TypeError("No se puede dividir por cero");
+ const value=a.coefficient*power(b.scale+precision)/(b.coefficient*power(a.scale));
+ const digits=(value<0n?-value:value).toString().padStart(precision+1,"0");
+ return ((value<0n?"-":"")+(precision?digits.slice(0,-precision)+"."+digits.slice(-precision):digits)).replace(/(\.\d*?)0+$/, "$1").replace(/\.$/,"");
+}

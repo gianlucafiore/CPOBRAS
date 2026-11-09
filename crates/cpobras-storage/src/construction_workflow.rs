@@ -174,6 +174,8 @@ pub struct AvailableProgress {
 pub struct ProgressInput {
     pub line_id: Uuid,
     pub accumulated_percent: D,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accumulated_quantity: Option<D>,
     #[serde(default = "yes")]
     pub use_approved: bool,
 }
@@ -586,6 +588,7 @@ impl LocalStore {
             .map(|r| ProgressInput {
                 line_id: r.line_id,
                 accumulated_percent: r.previous_percent,
+                accumulated_quantity: None,
                 use_approved: true,
             })
             .collect();
@@ -668,7 +671,16 @@ impl LocalStore {
                 .iter()
                 .find(|r| r.line_id == input.line_id)
                 .ok_or_else(|| invalid("Partida ajena al certificado"))?;
-            let quantity = pct(r.quantity, input.accumulated_percent)?;
+            let quantity = match input.accumulated_quantity {
+                Some(quantity) => quantity,
+                None if input.accumulated_percent == r.previous_percent => r.previous,
+                None => pct(r.quantity, input.accumulated_percent)?,
+            };
+            if quantity < D::ZERO || quantity > r.quantity {
+                return Err(invalid(
+                    "La cantidad acumulada debe estar entre lo certificado y lo contratado",
+                ));
+            }
             let amount = add(quantity, -r.previous)?;
             if amount < D::ZERO {
                 return Err(invalid(
@@ -700,7 +712,22 @@ impl LocalStore {
             }
         }
         d.operation = op;
-        d.progress = input.progress.clone();
+        d.progress = input
+            .progress
+            .iter()
+            .map(|p| {
+                let mut p = p.clone();
+                if let Some(quantity) = p.accumulated_quantity {
+                    let r = rr.iter().find(|r| r.line_id == p.line_id).unwrap();
+                    p.accumulated_percent = if r.quantity > D::ZERO {
+                        mul(div(quantity, r.quantity)?, D::from(100))?
+                    } else {
+                        D::ZERO
+                    };
+                }
+                Ok(p)
+            })
+            .collect::<Result<Vec<_>>>()?;
         d.revision = d
             .revision
             .checked_add(1)

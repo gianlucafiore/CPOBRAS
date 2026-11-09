@@ -1208,6 +1208,15 @@ export function createPlanningWorkspace({
       .forEach((c) => c.classList.remove("drop-section"));
   return {
     markup,
+    async doubleClick(event) {
+      const id=ganttView.editTarget(event);
+      if(id===null)return false;
+      if(id===false)return true;
+      if(state.pageDirty&&!window.confirm("¿Descartar los cambios del formulario antes de editar la tarea?"))return true;
+      state.pageDirty=false;
+      await act({dataset:{action:"plan-edit",id}});
+      return true;
+    },
     act,
     change,
     submit,

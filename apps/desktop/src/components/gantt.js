@@ -12,7 +12,7 @@ import {
 } from "../services/calendar.js";
 export function createGantt({ state, model, document, save, render }) {
   const camera = { key: null, day: null, offset: 0 };
-  let drag = null;
+  let drag = null, lastBarDrag = 0;
   const minDay = dayNumber("0001-01-03"),
     maxDay = dayNumber("9999-12-20");
   function configure() {
@@ -55,7 +55,7 @@ export function createGantt({ state, model, document, save, render }) {
   }
   function taskBar(task, scheduled) {
     const days = dayNumber(scheduled.finish) - dayNumber(scheduled.start) + 1;
-    return `<button class="gantt-bar ${scheduled.critical ? "critical" : ""} ${task.duration_days === 0 ? "gantt-milestone" : ""}" data-task-id="${e(task.id)}" data-action="plan-edit" data-id="${e(task.id)}" style="left:${left(scheduled.start)}px;width:${task.duration_days === 0 ? 16 : Math.max(16, days * CELL)}px" title="${e(task.name)} · ${task.duration_days} días"><span data-gantt-fill>${fills(scheduled.start, scheduled.finish)}</span><span class="gantt-certified-fill" style="width:${Math.max(0,Math.min(100,Number(task.actual_progress)||0))}%" title="Avance certificado ${e(task.actual_progress)} %"></span><span class="gantt-bar-title">${e(task.name)}</span><i data-resize="true" aria-label="Cambiar duración">↔</i></button>`;
+    return `<button class="gantt-bar ${scheduled.critical ? "critical" : ""} ${task.duration_days === 0 ? "gantt-milestone" : ""}" data-task-id="${e(task.id)}" data-gantt-edit="${e(task.id)}" style="left:${left(scheduled.start)}px;width:${task.duration_days === 0 ? 16 : Math.max(16, days * CELL)}px" title="${e(task.name)} · ${task.duration_days} días"><span data-gantt-fill>${fills(scheduled.start, scheduled.finish)}</span><span class="gantt-certified-fill" style="width:${Math.max(0,Math.min(100,Number(task.actual_progress)||0))}%" title="Avance certificado ${e(task.actual_progress)} %"></span><span class="gantt-bar-title">${e(task.name)}</span><i data-resize="true" aria-label="Cambiar duración">↔</i></button>`;
   }
   function visibleCount(width) {
     return (
@@ -113,10 +113,10 @@ export function createGantt({ state, model, document, save, render }) {
   }
   function markup() {
     configure();
-    return `<section class="gantt-board"><div class="gantt-toolbar"><p>Arrastrá el fondo para recorrer las fechas. Las barras usan días calendario; su duración cuenta solo los laborables. Rojo: ruta crítica. ${model.cutMode ? "En el encabezado, hacé clic en una fecha para agregar un corte; si ya existe, otro clic lo elimina. Arrastrá un corte existente para cambiar su fecha." : ""}</p><div><button class="btn ${model.cutMode ? "primary" : ""}" data-action="plan-finance-mark">${model.cutMode ? "Finalizar marcado de cortes" : "Marcar cortes de certificación"}</button><button class="btn" data-action="plan-gantt-prev" aria-label="Gantt: cuatro semanas anteriores">←</button><button class="btn" data-action="plan-gantt-start">Inicio de obra</button><button class="btn" data-action="plan-gantt-today">Hoy</button><button class="btn" data-action="plan-gantt-next" aria-label="Gantt: cuatro semanas siguientes">→</button></div></div><div class="gantt-scroll"><div class="gantt-label-column"><div class="gantt-label-heading">Tareas</div>${model.plan.tasks
+    return `<section class="gantt-board"><div class="gantt-toolbar"><p>Doble clic para editar una tarea. Arrastrá la barra para moverla y su extremo para cambiar la duración. Arrastrá el fondo para recorrer las fechas. La duración cuenta días laborables. Rojo: ruta crítica. ${model.cutMode ? "En el encabezado, hacé clic en una fecha para agregar un corte; si ya existe, otro clic lo elimina. Arrastrá un corte existente para cambiar su fecha." : ""}</p><div><button class="btn ${model.cutMode ? "primary" : ""}" data-action="plan-finance-mark">${model.cutMode ? "Finalizar marcado de cortes" : "Marcar cortes de certificación"}</button><button class="btn" data-action="plan-gantt-prev" aria-label="Gantt: cuatro semanas anteriores">←</button><button class="btn" data-action="plan-gantt-start">Inicio de obra</button><button class="btn" data-action="plan-gantt-today">Hoy</button><button class="btn" data-action="plan-gantt-next" aria-label="Gantt: cuatro semanas siguientes">→</button></div></div><div class="gantt-scroll"><div class="gantt-label-column"><div class="gantt-label-heading">Tareas</div>${model.plan.tasks
       .map((task) => {
         const scheduled = model.schedule?.tasks.find((t) => t.id === task.id);
-        return `<button class="gantt-label" data-action="plan-edit" data-id="${e(task.id)}">${e(task.parent_id ? "↳ " : "")}${e(task.name)}<small>${e(scheduled?.start)} → ${e(scheduled?.finish)} · holgura ${scheduled?.float_days ?? "—"} d</small></button>`;
+        return `<button class="gantt-label" data-gantt-edit="${e(task.id)}">${e(task.parent_id ? "↳ " : "")}${e(task.name)}<small>${e(scheduled?.start)} → ${e(scheduled?.finish)} · holgura ${scheduled?.float_days ?? "—"} d</small></button>`;
       })
       .join(
         "",
@@ -286,6 +286,7 @@ export function createGantt({ state, model, document, save, render }) {
       draw();
       return true;
     }
+    lastBarDrag = Date.now();
     const previous = structuredClone(model.plan),
       task = model.plan.tasks.find((t) => t.id === old.id);
     if (old.resize) {
@@ -333,6 +334,11 @@ export function createGantt({ state, model, document, save, render }) {
     }
   }
   return {
+    editTarget(event) {
+      const target=event.target.closest?.("[data-gantt-edit]");
+      if(!target)return null;
+      return target.matches(".gantt-bar") && Date.now()-lastBarDrag<350 ? false : target.dataset.ganttEdit;
+    },
     afterRender,
     markup,
     draw,

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { money, numeric, sumDecimals, absoluteDecimal } from "../src/decimal.js";
+import { money, numeric, sumDecimals, absoluteDecimal, divideDecimals } from "../src/decimal.js";
 
 test("money keeps cents above the IEEE-754 safe integer limit", () => {
   assert.equal(money("9007199254740993.01"), "9.007.199.254.740.993,01");
@@ -42,3 +42,10 @@ test("large estimate batches do not exceed function argument limits", () => {
 });
 
 test('decimal price comparison preserves differences beyond binary precision',async()=>{const {compareDecimals}=await import('../src/decimal.js');assert.equal(compareDecimals('100000000000000000.01','100000000000000000.02'),-1);assert.equal(compareDecimals('0.10','0.1'),0);});
+
+test("decimal division keeps fractional quantities and large values exact", () => {
+ assert.equal(divideDecimals("1", "2"), "0.5");
+ assert.equal(divideDecimals("100", "3"), "33.3333333333333333");
+ assert.equal(divideDecimals("9007199254740993", "1"), "9007199254740993");
+ assert.throws(() => divideDecimals("1", "0"), TypeError);
+});
