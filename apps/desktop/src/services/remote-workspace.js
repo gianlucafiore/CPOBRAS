@@ -45,7 +45,13 @@ export function createRemoteInvoke(nativeInvoke, state) {
         case "pending_adjustment_differences":return [];
         case "list_certificate_drafts":return [];
         case "available_progress":return [];
-        case "list_quotation_requests":return [];
+        case "list_quotation_requests":return d.quotation_requests||[];
+        case "list_quote_responses":return (d.quotation_responses||[]).filter(r=>r.request_id===args.requestId);
+        case "list_quote_files":return [];
+        case "award_balances":return [];
+        case "list_supplier_orders":return args.kind==='material'?d.material_orders||[]:d.work_orders||[];
+        case "list_site_entries":{requirePermission('operations');const rows=d.site_book||[],page=Math.min(args.page||0,Math.max(0,Math.ceil(rows.length/30)-1));return {entries:rows.slice(page*30,page*30+30),total:rows.length,page};}
+        case "print_site_entries":{requirePermission('operations');return (d.site_book||[]).filter(r=>(!args.from||r.created_at.slice(0,10)>=args.from)&&(!args.to||r.created_at.slice(0,10)<=args.to)&&(!args.first||r.number>=args.first)&&(!args.last||r.number<=args.last)).slice().reverse();}
         case "issued_certificate_sheet":{requirePermission("accounting");requirePermission("price");const sheet=d.budgets.flatMap(b=>b.certificate_sheets||[]).find(s=>s.operation.id===args.id);if(!sheet)throw new Error("El propietario no incluyó este certificado en la copia compartida");return sheet;}
         case "list_project_estimates":
           return d.budgets.map((b) => b.estimate);

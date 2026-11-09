@@ -275,8 +275,12 @@ impl LocalStore {
                 .iter()
                 .filter(|p| p.kind == "subcertificate" && p.reference_id == Some(o.id))
                 .map(|p| p.advance))?;
+            let direct_paid = sum(docs
+                .iter()
+                .filter(|p| p.kind == "payment" && p.reference_id == Some(o.id))
+                .map(|p| p.amount))?;
             let remaining = sub(
-                sub(o.amount, billed.max(certified))?,
+                sub(sub(o.amount, billed.max(certified))?, direct_paid)?,
                 sub(advances, recovered)?.max(D::ZERO),
             )?
             .max(D::ZERO);

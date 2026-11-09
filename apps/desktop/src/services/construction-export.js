@@ -10,7 +10,7 @@ export const requestHeaders = [
   "Descripción",
   "Unidad",
   "Cantidad",
-  "Precio unitario",
+  "Precio unitario sin IVA",
   "Observaciones",
 ];
 export function requestRows(r) {

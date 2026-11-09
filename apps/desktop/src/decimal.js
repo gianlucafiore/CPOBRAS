@@ -64,3 +64,5 @@ export function percentageOf(value,percent){
  const digits=(p.coefficient<0n?-p.coefficient:p.coefficient).toString().padStart(scale+1,'0');
  return ((p.coefficient<0n?'-':'')+digits.slice(0,-scale)+'.'+digits.slice(-scale)).replace(/0+$/,'').replace(/\.$/,'');
 }
+
+export function compareDecimals(left,right){const a=parse(left),b=parse(right),scale=Math.max(a.scale,b.scale),x=a.coefficient*power(scale-a.scale),y=b.coefficient*power(scale-b.scale);return x<y?-1:x>y?1:0;}

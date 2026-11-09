@@ -76,7 +76,7 @@ impl LocalStore {
             .into_iter()
             .map(|id| self.get_resource(id).map(|r|r.map(|r|json!({"id":r.id,"description":r.description,"unit":r.unit,"code":r.code,"kind":r.kind,"active":r.active}))))
             .collect::<Result<Vec<_>>>()?;
-        let result = json!({"version":1,"as_of":as_of,"project":project,"organization":organization,"client":client,"suppliers":suppliers,"budgets":budgets,"planning":plan,"schedule":schedule,"baselines":self.plan_baselines(project_id)?,"plan_revisions":self.plan_revisions(project_id)?,"records":records,"operations":operations,"parties":parties,"warehouses":warehouses,"stock":stock,"resources":resources});
+        let result = json!({"version":1,"as_of":as_of,"project":project,"organization":organization,"client":client,"suppliers":suppliers,"budgets":budgets,"planning":plan,"schedule":schedule,"baselines":self.plan_baselines(project_id)?,"plan_revisions":self.plan_revisions(project_id)?,"records":records,"operations":operations,"site_book":self.shared_site_entries(project_id)?,"quotation_requests":self.quotation_requests(project_id)?,"quotation_responses":self.quotation_requests(project_id)?.iter().map(|r|self.quote_responses(r.id)).collect::<Result<Vec<_>>>()?.into_iter().flatten().collect::<Vec<_>>(),"material_orders":self.supplier_orders(project_id,"material")?,"work_orders":self.supplier_orders(project_id,"work")?,"parties":parties,"warehouses":warehouses,"stock":stock,"resources":resources});
         tx.commit()?;
         Ok(result)
     }
@@ -138,6 +138,21 @@ pub fn restrict_shared_document(mut data: Value, p: &SharingPermissions) -> Valu
         data["plan_revisions"] = json!([]);
     }
     if !p.project_data {
+        if let Some(requests) = data["quotation_requests"].as_array_mut() {
+            for r in requests {
+                r["profile"] = json!({});
+            }
+        }
+        if let Some(ops) = data["operations"].as_array_mut() {
+            for op in ops {
+                if let Some(r) = op
+                    .get_mut("quotation_request")
+                    .and_then(Value::as_object_mut)
+                {
+                    r.insert("profile".into(), json!({}));
+                }
+            }
+        }
         if let Some(parties) = data["parties"].as_array_mut() {
             for party in parties {
                 let old = party.clone();
@@ -175,6 +190,7 @@ pub fn restrict_shared_document(mut data: Value, p: &SharingPermissions) -> Valu
         }
     }
     if !p.operations {
+        data["site_book"] = json!([]);
         data["warehouses"] = json!([]);
         data["stock"] = json!([]);
     }
@@ -270,6 +286,16 @@ pub fn restrict_shared_document(mut data: Value, p: &SharingPermissions) -> Valu
             }
         }
     }
+    if !(p.accounting && p.operations && p.budget && p.resources) {
+        for key in [
+            "quotation_requests",
+            "quotation_responses",
+            "material_orders",
+            "work_orders",
+        ] {
+            data[key] = json!([]);
+        }
+    }
     if !(p.accounting && p.price && p.budget && p.resources) {
         if let Some(ops) = data["operations"].as_array_mut() {
             for op in ops {
@@ -296,6 +322,7 @@ pub fn restrict_shared_document(mut data: Value, p: &SharingPermissions) -> Valu
             budget["totals"] = json!({"direct":pricing["direct"],"total":pricing["calculation"]["breakdown"]["total"]});
             if !p.project_data {
                 budget["print_data"] = Value::Null;
+                budget["certificate_sheets"] = json!([]);
             }
             if !p.price {
                 budget["adjustment_agreement"] = Value::Null;

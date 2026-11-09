@@ -1345,7 +1345,7 @@ fn upgrades_populated_schema_fifteen_and_deletes_its_preexisting_linked_line() {
         old.execute_batch(&format!("DROP TRIGGER {name}")).unwrap();
     }
     undo_people_migration_for_fixture(&old);
-    old.execute_batch("ALTER TABLE operation_links DROP COLUMN archived_line_id; DROP TABLE deleted_estimate_lines; DROP TABLE line_analysis_sources; DROP TABLE estimate_resource_prices; DROP TABLE certificate_drafts;DROP TABLE certificate_sheets;DROP TABLE certified_sources;DROP TABLE quotation_requests;DROP TABLE estimate_adjustment_agreements;DROP TABLE index_points;DROP TABLE system_calendar;DROP TABLE estimate_price_definitions; DROP TABLE price_definition_templates;
+    old.execute_batch("ALTER TABLE operation_links DROP COLUMN archived_line_id; DROP TABLE deleted_estimate_lines; DROP TABLE line_analysis_sources; DROP TABLE estimate_resource_prices; DROP TABLE quotation_response_files;DROP TABLE quotation_awards;DROP TABLE quotation_responses;DROP TABLE site_book_entries;DROP TABLE certificate_drafts;DROP TABLE certificate_sheets;DROP TABLE certified_sources;DROP TABLE quotation_requests;DROP TABLE estimate_adjustment_agreements;DROP TABLE index_points;DROP TABLE system_calendar;DROP TABLE estimate_price_definitions; DROP TABLE price_definition_templates;
              DROP TABLE print_profiles; DROP TRIGGER new_project_organization; DROP TRIGGER external_company_readonly_update; DROP TRIGGER external_company_readonly_delete; DROP TRIGGER clear_measured_quantity; DROP TABLE automatic_codes; DROP TABLE measured_lines; DROP TABLE project_attachments; DROP TABLE project_organizations; DROP TABLE organization_preferences; DROP TABLE organizations; DELETE FROM schema_migrations WHERE version>=16; CREATE TRIGGER operation_links_no_update BEFORE UPDATE ON operation_links BEGIN SELECT RAISE(ABORT,'operation links are immutable'); END;").unwrap();
     drop(old);
     let mut upgraded = LocalStore::open(&path).unwrap();
@@ -1355,7 +1355,7 @@ fn upgrades_populated_schema_fifteen_and_deletes_its_preexisting_linked_line() {
             .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| r
                 .get::<_, i64>(0))
             .unwrap(),
-        28
+        29
     );
     upgraded.delete_estimate_item(e.id, line.id).unwrap();
     assert!(upgraded.estimate_items(e.id).unwrap().is_empty());
@@ -3934,4 +3934,335 @@ fn planning_observer_keeps_cut_dates_but_never_receives_certificate_terms() {
         value["planning"]["plan"]["finance"]["cut_dates"],
         json!(["2026-11-20"])
     );
+}
+
+#[test]
+fn site_book_uses_server_identity_revisions_confirmation_and_thirty_row_pages() {
+    let (mut s, p, _, _) = fixture();
+    let first = s.save_site_entry(p.id, None, 0, "Primer registro").unwrap();
+    assert_eq!(first.number, "PAR-0001");
+    assert!(first.created_at.ends_with('Z'));
+    let edit = s
+        .save_site_entry(p.id, Some(first.id), first.revision, "Texto corregido")
+        .unwrap();
+    assert_eq!(edit.created_at, first.created_at);
+    assert!(s
+        .save_site_entry(p.id, Some(first.id), first.revision, "Obsoleto")
+        .is_err());
+    let confirmed = s.confirm_site_entry(p.id, edit.id, edit.revision).unwrap();
+    assert!(confirmed.confirmed_at.is_some());
+    assert!(s
+        .save_site_entry(p.id, Some(edit.id), confirmed.revision, "No permitido")
+        .is_err());
+    assert!(s
+        .confirm_site_entry(p.id, edit.id, confirmed.revision)
+        .is_err());
+    assert!(s
+        .conn
+        .execute(
+            "UPDATE site_book_entries SET description='X' WHERE id=?1",
+            [edit.id.to_string()]
+        )
+        .is_err());
+    for n in 0..30 {
+        s.save_site_entry(p.id, None, 0, &format!("Borrador {n}"))
+            .unwrap();
+    }
+    let page = s.site_entries(p.id, 0).unwrap();
+    assert_eq!(page.entries.len(), 30);
+    assert_eq!(page.total, 31);
+    assert_eq!(page.entries[0].number, "PAR-0031");
+    assert_eq!(s.site_entries(p.id, 1).unwrap().entries[0].id, first.id);
+    let print = s
+        .print_site_entries(p.id, "", "", "PAR-0001", "PAR-0031")
+        .unwrap();
+    assert_eq!(print.len(), 1);
+    assert_eq!(print[0].description, "Texto corregido");
+    let share = s.shared_project_document(p.id, "2026-11-05").unwrap();
+    assert_eq!(share["site_book"].as_array().unwrap().len(), 1);
+}
+fn procurement_fixture() -> (
+    LocalStore,
+    Project,
+    Estimate,
+    crate::quotation_workflow::QuotationRequest,
+    Uuid,
+    Uuid,
+) {
+    use crate::quotation_workflow::*;
+    let (mut s, p, e, _, supplier, res, _) = stock_fixture();
+    let r = s
+        .create_quotation_request(&QuotationRequest {
+            id: Uuid::new_v4(),
+            project_id: p.id,
+            estimate_id: None,
+            kind: "material".into(),
+            title: "Corralón".into(),
+            number: String::new(),
+            date: "2026-11-05".into(),
+            currency: "ARS".into(),
+            partner_id: None,
+            scope: "Materiales".into(),
+            delivery: String::new(),
+            payment: String::new(),
+            validity: String::new(),
+            taxes: "Sin IVA".into(),
+            items: vec![RequestItem {
+                id: Uuid::new_v4(),
+                source_id: res,
+                code: String::new(),
+                description: String::new(),
+                unit: "kg".into(),
+                quantity: 10.into(),
+            }],
+            profile: serde_json::json!({}),
+            project_name: String::new(),
+        })
+        .unwrap();
+    (s, p, e, r, supplier, res)
+}
+#[test]
+fn inline_quotes_awards_partial_receipts_and_payments_keep_independent_balances() {
+    use crate::procurement::*;
+    use crate::quotation_workflow::QuotedPrice;
+    let (mut s, p, e, r, supplier, res) = procurement_fixture();
+    let response = s
+        .save_quote_response(&QuoteResponse {
+            id: Uuid::new_v4(),
+            request_id: r.id,
+            supplier_id: supplier,
+            revision: 0,
+            reference: "Oferta A".into(),
+            terms: "Contado".into(),
+            prices: vec![QuotedPrice {
+                row_id: r.items[0].id,
+                unit_price: Some(5.into()),
+                notes: String::new(),
+            }],
+        })
+        .unwrap();
+    let choice = AwardChoice {
+        row_id: r.items[0].id,
+        response_id: response.id,
+        response_revision: response.revision,
+        quantity: 6.into(),
+    };
+    let baseline = s.estimate_total(e.id).unwrap();
+    let docs = s
+        .award_quotation(r.id, &[choice.clone()], "2026-12-01", None)
+        .unwrap();
+    let order = &docs[0];
+    assert_eq!(order.amount, 30.into());
+    assert!(order.number.starts_with("PED-"));
+    assert_eq!(s.award_balances(r.id).unwrap()[0].quantity, 4.into());
+    assert_eq!(s.estimate_total(e.id).unwrap(), baseline);
+    assert!(s
+        .award_quotation(r.id, &[choice], "2026-12-01", None)
+        .is_err());
+    assert_eq!(s.supplier_orders(p.id, "material").unwrap().len(), 1);
+    s.receive_material_order(p.id, order.id, &BTreeMap::from([(res, 2.into())]))
+        .unwrap();
+    let status = s.supplier_orders(p.id, "material").unwrap();
+    assert_eq!(status[0].delivery_state, "Parcial");
+    assert_eq!(status[0].payment_state, "Pendiente");
+    assert_eq!(status[0].lines[0].remaining, 4.into());
+    let mut payment = operation(p.id, "payment");
+    payment.number = String::new();
+    payment.date = "2026-12-01".into();
+    payment.reference_id = Some(order.id);
+    payment.partner_id = Some(supplier);
+    payment.amount = 10.into();
+    s.post_operation(&payment).unwrap();
+    let status = s.supplier_orders(p.id, "material").unwrap();
+    assert_eq!(status[0].payment_state, "Parcial");
+    assert_eq!(status[0].pending_payment, 20.into());
+    assert_eq!(status[0].delivery_state, "Parcial");
+    assert!(s
+        .receive_material_order(p.id, order.id, &BTreeMap::from([(res, 5.into())]))
+        .is_err());
+    s.receive_material_order(p.id, order.id, &BTreeMap::from([(res, 4.into())]))
+        .unwrap();
+    assert_eq!(
+        s.supplier_orders(p.id, "material").unwrap()[0].delivery_state,
+        "Completa"
+    );
+    assert_eq!(
+        s.operation_stock("2099-01-01").unwrap()[0].quantity,
+        6.into()
+    );
+}
+#[test]
+fn quotation_adjudication_rejects_stale_prices_and_rolls_back_all_documents_on_failure() {
+    use crate::procurement::*;
+    use crate::quotation_workflow::QuotedPrice;
+    let (mut s, _, _, r, supplier, _) = procurement_fixture();
+    let input = QuoteResponse {
+        id: Uuid::new_v4(),
+        request_id: r.id,
+        supplier_id: supplier,
+        revision: 0,
+        reference: String::new(),
+        terms: String::new(),
+        prices: vec![QuotedPrice {
+            row_id: r.items[0].id,
+            unit_price: Some(5.into()),
+            notes: String::new(),
+        }],
+    };
+    let one = s.save_quote_response(&input).unwrap();
+    assert!(s.save_quote_response(&input).is_err());
+    let mut edit = one.clone();
+    edit.prices[0].unit_price = Some(9.into());
+    s.save_quote_response(&edit).unwrap();
+    let count = s.operation_documents(None).unwrap().len();
+    assert!(s
+        .award_quotation(
+            r.id,
+            &[AwardChoice {
+                row_id: r.items[0].id,
+                response_id: one.id,
+                response_revision: one.revision,
+                quantity: 10.into()
+            }],
+            "2026-12-01",
+            None
+        )
+        .is_err());
+    assert_eq!(s.operation_documents(None).unwrap().len(), count);
+    assert_eq!(s.award_balances(r.id).unwrap()[0].quantity, 10.into());
+    let pdf = s
+        .attach_quote_file(one.id, "Oferta.pdf", b"%PDF-1.4\nexample")
+        .unwrap();
+    assert_eq!(s.quote_files(r.id).unwrap().len(), 1);
+    assert!(s.quote_file_content(Uuid::new_v4(), pdf).is_err());
+    assert!(s.attach_quote_file(one.id, "bad.exe", b"%PDF-1.4").is_err());
+    assert!(s
+        .attach_quote_file(one.id, "bad.png", b"not a PNG")
+        .is_err());
+}
+
+#[test]
+fn scheduled_client_certificate_only_opens_the_next_cut_and_reuses_open_draft() {
+    let (mut s, p, e, _) = fixture();
+    let mut plan = financial_test_plan(Uuid::new_v4());
+    plan.tasks.clear();
+    plan.finance.cut_dates = vec!["2026-11-10".into(), "2026-11-20".into()];
+    s.save_project_plan(p.id, 0, plan, "2026-11-05").unwrap();
+    let d = s.open_next_client_certificate(p.id, e.id).unwrap();
+    assert_eq!(d.operation.period_end, "2026-11-10");
+    assert_eq!(s.open_next_client_certificate(p.id, e.id).unwrap().id, d.id);
+    let mut changed = d.clone();
+    changed.operation.period_end = "2026-11-20".into();
+    assert!(s.save_certificate_draft(&changed).is_err());
+}
+#[test]
+fn a_multi_contractor_award_is_atomic_when_a_later_contract_exceeds_physical_capacity() {
+    use crate::construction_workflow::ContractTerms;
+    use crate::procurement::*;
+    use crate::quotation_workflow::*;
+    let (mut s, p, e, l) = fixture();
+    let one = supplier(&mut s);
+    let two = Uuid::new_v4();
+    s.save_management_record(&crate::management::ManagementRecord {
+        id: two,
+        kind: "supplier".into(),
+        name: "Otro proveedor".into(),
+        code: String::new(),
+        project_id: None,
+        company_id: None,
+        parent_id: None,
+        client_id: None,
+        attributes: BTreeMap::new(),
+        revision: 0,
+    })
+    .unwrap();
+    let mut existing = operation(p.id, "subcontract");
+    existing.partner_id = Some(one);
+    existing.estimate_id = Some(e.id);
+    existing.contract_terms = Some(ContractTerms::default());
+    existing.lines = vec![crate::operations::OperationLine {
+        line_id: Some(l.id),
+        description: l.description.clone(),
+        quantity: 1.into(),
+        unit_price: 2.into(),
+        ..Default::default()
+    }];
+    s.post_operation(&existing).unwrap();
+    let request = s
+        .create_quotation_request(&QuotationRequest {
+            id: Uuid::new_v4(),
+            project_id: p.id,
+            estimate_id: Some(e.id),
+            kind: "work".into(),
+            title: "Trabajo".into(),
+            number: String::new(),
+            date: "2026-11-05".into(),
+            currency: "ARS".into(),
+            partner_id: None,
+            scope: "Mano de obra".into(),
+            delivery: String::new(),
+            payment: String::new(),
+            validity: String::new(),
+            taxes: "Sin IVA".into(),
+            items: vec![RequestItem {
+                id: Uuid::new_v4(),
+                source_id: l.id,
+                code: String::new(),
+                description: l.description,
+                unit: l.unit,
+                quantity: 2.into(),
+            }],
+            profile: serde_json::json!({}),
+            project_name: String::new(),
+        })
+        .unwrap();
+    let mut choices = vec![];
+    for supplier_id in [one, two] {
+        let response = s
+            .save_quote_response(&QuoteResponse {
+                id: Uuid::new_v4(),
+                request_id: request.id,
+                supplier_id,
+                revision: 0,
+                reference: String::new(),
+                terms: String::new(),
+                prices: vec![QuotedPrice {
+                    row_id: request.items[0].id,
+                    unit_price: Some(2.into()),
+                    notes: String::new(),
+                }],
+            })
+            .unwrap();
+        choices.push(AwardChoice {
+            row_id: request.items[0].id,
+            response_id: response.id,
+            response_revision: response.revision,
+            quantity: 1.into(),
+        });
+    }
+    let before = s.operation_documents(None).unwrap().len();
+    assert!(s
+        .award_quotation(
+            request.id,
+            &choices,
+            "2026-12-01",
+            Some(ContractTerms::default())
+        )
+        .is_err());
+    assert_eq!(s.operation_documents(None).unwrap().len(), before);
+    assert_eq!(s.award_balances(request.id).unwrap()[0].quantity, 2.into());
+    assert!(s.conn.is_autocommit());
+}
+
+#[test]
+fn hidden_project_data_is_not_reintroduced_by_request_profiles_or_frozen_certificates() {
+    use crate::sharing::{restrict_shared_document, SharingPermissions};
+    use serde_json::json;
+    let permissions = SharingPermissions {
+        project_data: false,
+        ..Default::default()
+    };
+    let data = json!({"quotation_requests":[{"profile":{"address":"SECRET"}}],"operations":[{"kind":"rfq","quotation_request":{"profile":{"address":"SECRET"}}}],"budgets":[{"certificate_sheets":[{"profile":{"address":"SECRET"}}],"report":{}}]});
+    let shared = restrict_shared_document(data, &permissions);
+    assert!(!shared.to_string().contains("SECRET"));
 }

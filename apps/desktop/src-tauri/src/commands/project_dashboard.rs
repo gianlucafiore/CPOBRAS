@@ -136,3 +136,47 @@ pub(crate) fn get_estimate_metadata(
         .estimate_metadata(Uuid::parse_str(&estimate_id).map_err(|e| e.to_string())?)
         .map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub(crate) fn open_quote_file(
+    db: tauri::State<'_, Db>,
+    directory: tauri::State<'_, BackupDirectory>,
+    project_id: String,
+    id: String,
+) -> Result<(), String> {
+    let (name, bytes) = db
+        .lock()
+        .map_err(|e| e.to_string())?
+        .quote_file_content(
+            Uuid::parse_str(&project_id).map_err(|e| e.to_string())?,
+            Uuid::parse_str(&id).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
+    let root = directory
+        .0
+        .parent()
+        .ok_or("Directorio inválido")?
+        .join("attachment-previews")
+        .join(Uuid::new_v4().to_string());
+    std::fs::create_dir_all(&root).map_err(|e| e.to_string())?;
+    let path = root.join(name);
+    std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
+    #[cfg(target_os = "linux")]
+    let mut cmd = {
+        let mut c = crate::system_open::command("gio");
+        c.arg("open");
+        c
+    };
+    #[cfg(target_os = "macos")]
+    let mut cmd = crate::system_open::command("open");
+    #[cfg(target_os = "windows")]
+    let mut cmd = {
+        let mut c = crate::system_open::command("rundll32.exe");
+        c.arg("url.dll,FileProtocolHandler");
+        c
+    };
+    if !cmd.arg(path).status().map_err(|e| e.to_string())?.success() {
+        return Err("No se pudo abrir el archivo con su aplicación predeterminada".into());
+    }
+    Ok(())
+}

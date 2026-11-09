@@ -388,3 +388,13 @@ frontend y las comprobaciones de formato Rust son correctas.
 - Núcleo: 28; almacenamiento: 93; JavaScript: 42; navegador: 70; nativas Tauri: 13. Vite compila correctamente.
 - Se verificó la privacidad de condiciones financieras y conservación de cortes del Gantt para observadores autorizados solo a planificación.
 - Sin generación de AppImage ni publicación de release.
+
+## Gestión de obra simplificada (2026-11-09)
+
+- Núcleo 28 pruebas; almacenamiento 99; JavaScript 43; navegador 74; nativas Tauri 13. Compilación Vite correcta.
+- Libro: fecha e identidad del servidor, revisión obsoleta, bloqueo al confirmar, selección de confirmados para imprimir y paginación de 30 registros.
+- Cotizaciones: edición en celdas, distinción precio vacío/cero, importación, adjuntos por proveedor, comparador decimal exacto y conservación del precio adjudicado.
+- Adjudicación: cantidades pendientes, rechazo de precios obsoletos, reversión de múltiples contratos ante falta de capacidad, recepciones y pagos parciales independientes.
+- Navegación: una sola tabla de certificaciones, filtro histórico solo en Finanzas, separación de materiales/subcontrataciones y formularios antiguos fuera de la vista principal.
+- P2P: solo partes confirmados y retirada de perfiles/hojas impresas cuando se restringen sus datos.
+- Migración 29 preserva los partes diarios anteriores como históricos confirmados. Sin AppImage ni release.

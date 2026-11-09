@@ -17,8 +17,8 @@ const pages = {
     "Resumen de todas las obras desde Inicio. Se usa el último presupuesto emitido de cada una, o el último borrador si no hay emitidos. Para trabajar, volvé a Inicio y abrí la obra correspondiente.",
   ],
   operations: [
-    "Gestión de obra: compras, producción, certificaciones y finanzas",
-    "La obra abierta se conserva en todas las pestañas. El presupuesto activo y la fecha de corte definen el informe. Usá las pestañas para recorrer cada etapa y registrar documentos vinculados. El tablero reúne esta obra y los informes se exportan a Excel o PDF.",
+    "Gestión de obra: materiales, subcontrataciones, libro y finanzas",
+    "La obra abierta se conserva en todas las pestañas. Cada apartado muestra sus propias tareas; en Finanzas, «Consultar al» define la fecha de los informes. Usá las pestañas para recorrer cada etapa y registrar documentos vinculados. El tablero reúne esta obra y los informes se exportan a Excel o PDF.",
   ],
   projects: [
     "Obras y presupuestos",

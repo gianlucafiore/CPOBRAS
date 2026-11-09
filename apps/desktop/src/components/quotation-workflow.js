@@ -1,5 +1,11 @@
 import { e, field, select, dateToday } from "./helpers.js";
-import { numeric, money } from "../decimal.js";
+import {
+  numeric,
+  money,
+  multiplyDecimals,
+  sumDecimals,
+  compareDecimals,
+} from "../decimal.js";
 import {
   exportRequest,
   readQuotedFile,
@@ -20,19 +26,97 @@ export function createQuotationWorkflow({
     selected: null,
     kind: "material",
     query: "",
-    preview: null,
+    responses: [],
+    files: [],
+    balances: [],
+    orders: [],
     dirty: false,
+    award: null,
+    receive: null,
+    payment: null,
   };
-  async function load() {
-    v.requests = await invoke("list_quotation_requests", {
-      projectId: model.projectId,
-    });
-    v.request = null;
-    v.selected = null;
-    v.preview = null;
-    v.dirty = false;
+  const kind = () => (model.tab === "contracts" ? "work" : "material");
+  const supplier = (id) =>
+    model.partners.find((p) => p.id === id)?.name || "Proveedor";
+  const partners = () =>
+    model.partners.filter(
+      (p) =>
+        ["supplier", "subcontractor", "crew"].includes(p.kind) &&
+        p.attributes?.person_primary !== "false",
+    );
+  async function selectRequest(id) {
+    v.selected = v.requests.find((r) => r.id === id) || null;
+    v.responses = [];
+    v.files = [];
+    v.balances = [];
+    if (!v.selected) return;
+    [v.responses, v.files, v.balances] = await Promise.all([
+      invoke("list_quote_responses", { requestId: id }),
+      invoke("list_quote_files", { requestId: id }),
+      invoke("award_balances", { requestId: id }),
+    ]);
+    // Existing imported offers remain visible when opening a request created before this edition.
+    for (const quote of model.docs.filter(
+      (d) => d.kind === "quote" && d.reference_id === id,
+    )) {
+      if (v.responses.some((r) => r.supplier_id === quote.partner_id)) continue;
+      v.responses.push({
+        id: window.crypto.randomUUID(),
+        request_id: id,
+        supplier_id: quote.partner_id,
+        revision: 0,
+        reference: quote.number,
+        terms: quote.terms || "",
+        prices: v.selected.items.map((row) => ({
+          row_id: row.id,
+          unit_price:
+            quote.lines.find((l) =>
+              v.selected.kind === "material"
+                ? l.resource_id === row.source_id
+                : l.line_id === row.source_id,
+            )?.unit_price ?? null,
+          notes: "",
+        })),
+      });
+    }
   }
-  function read() {
+  async function load() {
+    const selected = v.selected?.id;
+    v.requests =
+      (await invoke("list_quotation_requests", {
+        projectId: model.projectId,
+      })) || [];
+    v.kind = kind();
+    v.orders =
+      (await invoke("list_supplier_orders", {
+        projectId: model.projectId,
+        kind: v.kind,
+      })) || [];
+    v.orders = v.orders.filter(
+      (o) =>
+        v.kind === "material" || o.document.estimate_id === model.estimateId,
+    );
+    v.request = null;
+    v.award = null;
+    v.receive = null;
+    v.payment = null;
+    v.dirty = false;
+    const rows = v.requests.filter(
+      (r) =>
+        r.kind === v.kind &&
+        (r.kind === "material" || r.estimate_id === model.estimateId),
+    );
+    await selectRequest(
+      rows.some((r) => r.id === selected) ? selected : rows.at(-1)?.id,
+    );
+  }
+  const sources = () =>
+    v.kind === "material"
+      ? state.resources.filter(
+          (r) => !r.archived && String(r.kind).toLowerCase() === "material",
+        )
+      : model.lines.filter((l) => !l.archived);
+  function readRequest() {
     const form = document.querySelector("#quotation-request-form");
     if (!form || !v.request) return;
     const f = new FormData(form);
@@ -42,23 +126,23 @@ export function createQuotationWorkflow({
       "delivery",
       "payment",
       "validity",
-      "taxes",
       "currency",
     ])
       v.request[k] = String(f.get(k) || "").trim();
+    v.request.taxes = "Precios unitarios sin IVA";
     v.request.partner_id = f.get("partner_id") || null;
     const selected = new Map(v.request.items.map((i) => [i.source_id, i]));
     for (const row of form.querySelectorAll("[data-request-source]")) {
       const id = row.dataset.requestSource;
       if (row.querySelector("input[type=checkbox]").checked) {
-        const source = sources().find((r) => r.id === id);
+        const s = sources().find((r) => r.id === id);
         selected.set(id, {
           ...(selected.get(id) || {
             id: window.crypto.randomUUID(),
             source_id: id,
-            code: source.code || "",
-            description: source.description || source.name,
-            unit: source.unit,
+            code: s.code || "",
+            description: s.description || s.name,
+            unit: s.unit,
           }),
           quantity: row.querySelector("input[type=number]").value || "1",
         });
@@ -66,25 +150,125 @@ export function createQuotationWorkflow({
     }
     v.request.items = [...selected.values()];
   }
-  const sources = () =>
-    v.kind === "material"
-      ? state.resources.filter((r) => !r.archived)
-      : model.lines.filter((l) => !l.archived);
-  function markup() {
+  function readResponses() {
+    for (const input of document.querySelectorAll("[data-quote-cell]")) {
+      const response = v.responses.find((r) => r.id === input.dataset.response),
+        p = response?.prices.find((p) => p.row_id === input.dataset.row);
+      if (p) p.unit_price = input.value.trim() === "" ? null : input.value;
+    }
+    for (const input of document.querySelectorAll("[data-response-term]")) {
+      const r = v.responses.find((r) => r.id === input.dataset.response);
+      if (r) r[input.dataset.responseTerm] = input.value;
+    }
+  }
+  async function saveResponses() {
+    readResponses();
+    for (const r of v.responses)
+      for (const p of r.prices) {
+        if (p.unit_price !== null && !/^\d+(\.\d+)?$/.test(p.unit_price))
+          throw new Error(
+            "Ingresá precios unitarios positivos sin IVA, o dejá la celda vacía",
+          );
+      }
+    for (let i = 0; i < v.responses.length; i++)
+      v.responses[i] = await invoke("save_quote_response", {
+        response: v.responses[i],
+      });
+    v.dirty = false;
+  }
+  function price(response, row) {
+    return response.prices.find((p) => p.row_id === row)?.unit_price ?? null;
+  }
+  function cheapest(row) {
+    return v.responses
+      .filter((r) => price(r, row) !== null)
+      .sort((a, b) => compareDecimals(price(a, row), price(b, row)))[0]?.id;
+  }
+  function pending(id) {
     return (
-      `<section class="workflow-card"><div class="feature-toolbar"><h2>Solicitudes de cotización</h2>${state.remoteProject ? "" : '<button class="btn" data-action="ops-rfq-new" data-kind="material">Pedir materiales</button><button class="btn" data-action="ops-rfq-new" data-kind="work">Pedir trabajos a contratistas</button>'}</div><p>Seleccioná insumos o partidas para armar pedidos separados por especialidad. Los PDF y planillas no muestran tus costos internos. Las respuestas crean cotizaciones, sin modificar el presupuesto.</p><table class="data-grid"><thead><tr><th>Solicitud</th><th>Tipo</th><th>Fecha</th><th>Ítems</th><th></th></tr></thead><tbody>${v.requests.map((r) => `<tr><td>${e(r.title)} · ${e(r.number)}</td><td>${r.kind === "material" ? "Materiales" : "Trabajos"}</td><td>${e(r.date)}</td><td>${r.items.length}</td><td><button class="btn" data-action="ops-rfq-select" data-id="${r.id}">Exportar / cargar respuesta</button></td></tr>`).join("")}</tbody></table>${v.selected ? selected() : ""}</section>` +
-      editor()
+      v.balances.find((b) => b.row_id === id)?.quantity ??
+      v.selected?.items.find((i) => i.id === id)?.quantity ??
+      "0"
     );
+  }
+  function markup() {
+    const rows = v.requests
+      .filter(
+        (r) =>
+          r.kind === kind() &&
+          (r.kind === "material" || r.estimate_id === model.estimateId),
+      )
+      .slice()
+      .reverse();
+    return `<section class="workflow-card"><div class="feature-toolbar"><h2>Solicitudes de cotización</h2>${state.remoteProject ? "" : `<button class="btn primary" data-action="ops-rfq-new" data-kind="${kind()}">${kind() === "material" ? "Por materiales" : "Por subcontratos"}</button>`}</div><div class="quotation-layout"><aside class="quotation-list" aria-label="Solicitudes de cotización">${rows.map((r) => `<button class="quotation-item ${v.selected?.id === r.id ? "selected" : ""}" data-action="ops-rfq-select" data-id="${r.id}"><strong>${e(r.title)}</strong><small>${e(r.number)} · ${e(r.date)} · ${r.items.length} ítems</small></button>`).join("") || "<p>Todavía no hay solicitudes.</p>"}</aside><div class="quotation-detail">${v.selected ? selected() : "<p>Creá o seleccioná una solicitud para ver sus respuestas.</p>"}</div></div></section>${orders()}${editor()}${awardEditor()}${receiveEditor()}${paymentEditor()}`;
   }
   function selected() {
     const r = v.selected;
-    return `<section class="workflow-card"><h3>${e(r.title)}</h3>${field("Nombre del archivo", "rfq-filename", r.title, 'maxlength="150"')}<div class="feature-toolbar"><button class="btn" data-action="ops-rfq-export" data-format="pdf">PDF para enviar</button><button class="btn" data-action="ops-rfq-export" data-format="xlsx">Planilla para completar precios</button></div><p>El proveedor puede completar «Precio unitario» y «Observaciones» y reordenar filas, conservando el ID de renglón. Precios sin impuestos salvo lo indicado en las condiciones. Las celdas vacías quedan sin cotizar; cero es un precio explícito.</p>${state.remoteProject ? "" : `<div class="workflow-grid">${select("Proveedor / contratista que cotiza", "rfq-supplier", [["", "Seleccionar…"], ...model.partners.map((p) => [p.id, p.name])], "")}${field("Referencia del proveedor", "rfq-reference", "", 'maxlength="150"')}<label>Respuesta XLSX<input type="file" accept=".xlsx" data-rfq-import></label><button class="btn" data-action="ops-rfq-preview">Revisar respuesta</button></div>`}${v.preview ? `<h4>Vista previa · ${v.preview.currency} ${money(v.preview.amount)}</h4><table class="data-grid"><thead><tr><th>Descripción</th><th>Cantidad</th><th>Precio</th></tr></thead><tbody>${v.preview.lines.map((l) => `<tr><td>${e(l.description)}</td><td>${numeric(l.quantity)}</td><td>${money(l.unit_price)}</td></tr>`).join("")}</tbody></table><button class="btn primary" data-action="ops-rfq-confirm">Confirmar cotización del proveedor</button>` : ""}</section>`;
+    return `<div class="feature-toolbar"><h3>${e(r.title)}</h3><button class="btn" data-action="ops-rfq-export" data-format="pdf">PDF para enviar</button><button class="btn" data-action="ops-rfq-export" data-format="xlsx">Planilla para completar precios</button></div><details><summary>Condiciones y nombre de archivo</summary>${field("Nombre del archivo", "rfq-filename", r.title, 'maxlength="150"')}<p>${e(r.scope)} · ${e(r.delivery)} · ${e(r.payment)} · ${e(r.validity)}</p></details><p>Precios unitarios <strong>sin IVA</strong> en ${e(r.currency)}. Editá directamente las celdas. Vacío = sin cotizar; cero = precio explícito. Se resalta el menor precio disponible, sin imponer proveedor.</p>${
+      state.remoteProject
+        ? ""
+        : `<div class="feature-toolbar">${select(
+            "Agregar proveedor",
+            "rfq-add-supplier",
+            [
+              ["", "Seleccionar…"],
+              ...partners()
+                .filter((p) => !v.responses.some((r) => r.supplier_id === p.id))
+                .map((p) => [p.id, p.name]),
+            ],
+            "",
+          )}<button class="btn" data-action="ops-rfq-add-provider">Agregar proveedor</button><button class="btn" data-action="ops-rfq-save-prices">Guardar precios</button><button class="btn primary" data-action="ops-rfq-distribute">Distribuir pedido</button><span>${v.dirty ? "Cambios sin guardar" : ""}</span></div>`
+    }<div class="quotation-matrix"><table class="data-grid"><thead><tr><th>${r.kind === "material" ? "Material" : "Tarea"}</th><th>Unidad</th><th>Cantidad solicitada</th>${v.responses.map((p) => `<th>${e(supplier(p.supplier_id))}<small>Precio unitario sin IVA</small></th>`).join("")}</tr></thead><tbody>${r.items.map((row) => `<tr><td>${e(row.description)}</td><td>${e(row.unit)}</td><td>${numeric(row.quantity)}<small>Pendiente de asignar: ${numeric(pending(row.id))}</small></td>${v.responses.map((p) => `<td class="${cheapest(row.id) === p.id ? "quote-best" : ""}"><input type="number" min="0" step="any" data-quote-cell data-response="${p.id}" data-row="${row.id}" value="${e(price(p, row.id) ?? "")}" aria-label="Precio sin IVA ${e(row.description)} de ${e(supplier(p.supplier_id))}" ${state.remoteProject ? "readonly" : ""}></td>`).join("")}</tr>`).join("")}<tr><th colspan="3">Subtotal cotizado sin IVA</th>${v.responses.map((p) => `<td><strong data-quote-total="${p.id}">${money(sumDecimals(r.items.filter((i) => price(p, i.id) !== null).map((i) => multiplyDecimals(i.quantity, price(p, i.id)))))}</strong><small>${p.prices.filter((x) => x.unit_price !== null).length} de ${r.items.length} cotizados</small></td>`).join("")}</tr><tr><th colspan="3">Referencia y condiciones</th>${v.responses.map((p) => `<td><input data-response-term="reference" data-response="${p.id}" value="${e(p.reference)}" placeholder="Referencia" aria-label="Referencia de ${e(supplier(p.supplier_id))}"><textarea data-response-term="terms" data-response="${p.id}" placeholder="Pago, entrega, validez" aria-label="Condiciones de ${e(supplier(p.supplier_id))}">${e(p.terms)}</textarea>${state.remoteProject ? "" : `<button class="btn" data-action="ops-rfq-distribute" data-response="${p.id}">Asignar todo a este proveedor</button>`}</td>`).join("")}</tr><tr><th colspan="3">Presupuestos adjuntos / importar precios</th>${v.responses
+      .map(
+        (p) =>
+          `<td>${v.files
+            .filter((f) => f.response_id === p.id)
+            .map(
+              (f) =>
+                `<button class="btn tiny" data-action="ops-rfq-open-file" data-id="${f.id}">${e(f.name)}</button>`,
+            )
+            .join(
+              "",
+            )}${state.remoteProject ? "" : `<label class="attachment-picker">Adjuntar PDF / imagen<input type="file" data-quote-attachment="${p.id}" accept="application/pdf,image/png,image/jpeg,image/webp"></label><label class="attachment-picker">Importar respuesta XLSX<input type="file" data-quote-import="${p.id}" accept=".xlsx"></label>`}</td>`,
+      )
+      .join("")}</tr></tbody></table></div>`;
+  }
+  function orders() {
+    const material = kind() === "material";
+    return `<section class="workflow-card"><div class="feature-toolbar"><h2>${material ? "Pedidos a proveedores" : "Subcontratos adjudicados"}</h2>${material && !state.remoteProject ? '<button class="btn" data-action="ops-stock-declare">Declarar acopio existente</button>' : ""}</div><p>${material ? "Pago y entrega se siguen por separado. Las recepciones parciales actualizan el acopio." : "Los certificados aprobados reconocen el avance y el saldo por pagar del contratista."} Los importes adjudicados son sin IVA; los comprobantes fiscales y su conciliación se administran en Finanzas.</p><table class="data-grid"><thead><tr><th>Pedido / proveedor</th><th>Importe sin IVA</th><th>Pago</th><th>${material ? "Entrega" : "Avance"}</th><th></th></tr></thead><tbody>${v.orders.map((o) => `<tr><td>${e(o.document.number)} · ${e(supplier(o.document.partner_id))}<details><summary>${o.lines.length} ${material ? "materiales" : "tareas"}</summary>${o.lines.map((l) => `<p>${e(l.description)} · ${numeric(l.received)} de ${numeric(l.quantity)} ${material ? "recibidos" : "certificados"}</p>`).join("")}</details></td><td>${e(o.document.currency)} ${money(o.document.amount)}</td><td>${e(o.payment_state)}<small>Pagado: ${money(o.paid)} · Pendiente: ${money(o.pending_payment)}</small></td><td>${e(o.delivery_state)}</td><td>${state.remoteProject ? "" : material ? `<button class="btn" data-action="ops-rfq-receive" data-id="${o.document.id}" ${o.delivery_state === "Completa" ? "disabled" : ""}>Registrar entrega</button><button class="btn" data-action="ops-rfq-pay" data-id="${o.document.id}" ${Number(o.pending_payment) <= 0 ? "disabled" : ""}>Registrar pago</button>` : `<button class="btn" data-action="ops-cert-contract" data-contract="${o.document.id}">Certificar avances / pagos</button>`}</td></tr>`).join("") || '<tr><td colspan="5">Al distribuir una solicitud aparecerán aquí los pedidos adjudicados.</td></tr>'}</tbody></table>${material && model.stock.length ? `<details><summary>Acopio disponible de esta obra</summary><table class="data-grid"><thead><tr><th>Material</th><th>Cantidad</th></tr></thead><tbody>${model.stock.map((s) => `<tr><td>${e(state.resources.find((r) => r.id === s.resource_id)?.description || "Material")}</td><td>${numeric(s.quantity)}</td></tr>`).join("")}</tbody></table></details>` : ""}</section>`;
+  }
+  function sourceRows(rows, selected, needed = false) {
+    return rows
+      .map((s) => {
+        const need = model.report?.needs?.find((n) => n.resource_id === s.id);
+        const suggested = needed
+          ? String(
+              Math.max(
+                0,
+                (Number(need.shortage) || 0) -
+                  Math.max(0, Number(need.ordered) - Number(need.received)),
+              ),
+            )
+          : s.quantity || "1";
+        return `<label class="rfq-select ${needed ? "required-material" : ""}" data-request-source="${s.id}"><input type="checkbox" ${selected.has(s.id) ? "checked" : ""}><span>${e(s.code || "")} · ${e(s.description || s.name)} · ${e(s.unit)}${needed ? `<small>Necesario: ${numeric(need.required)} · Acopio: ${numeric(need.stock)} · Comprado: ${numeric(need.ordered)} · Sugerido a pedir: ${numeric(suggested)}</small>` : ""}</span><input aria-label="Cantidad ${e(s.description || s.name)}" type="number" min="0" ${v.kind === "work" ? `max="${s.quantity}"` : ""} step="any" value="${e(selected.get(s.id)?.quantity || suggested)}"></label>`;
+      })
+      .join("");
   }
   function editor() {
     if (!v.request) return "";
     const r = v.request,
-      selected = new Map(r.items.map((i) => [i.source_id, i]));
-    return `<section class="workflow-editor" role="dialog" aria-modal="true" aria-label="Solicitud de cotización"><form id="quotation-request-form"><div class="feature-toolbar"><h2>${v.kind === "material" ? "Cotizar materiales" : "Cotizar trabajos"}</h2><button type="button" class="btn" data-action="ops-rfq-close">Cancelar</button><button type="submit" class="btn primary">Guardar solicitud</button></div><div class="workflow-grid">${field("Nombre (ej. Corralón, Sanitarios, Pintores)", "title", r.title, 'required maxlength="150"')}${select(
+      chosen = new Map(r.items.map((i) => [i.source_id, i])),
+      rows = sources().filter((s) =>
+        (s.description || s.name || "")
+          .toLowerCase()
+          .includes(v.query.toLowerCase()),
+      ),
+      needed = rows.filter((s) =>
+        model.report?.needs?.some(
+          (n) => n.resource_id === s.id && Number(n.required) > 0,
+        ),
+      );
+    return `<section class="workflow-editor" role="dialog" aria-modal="true" aria-label="Solicitud de cotización"><form id="quotation-request-form"><div class="feature-toolbar"><h2>${v.kind === "material" ? "Cotizar materiales" : "Cotizar subcontratos"}</h2><button type="button" class="btn" data-action="ops-rfq-close">Cancelar</button><button type="submit" class="btn primary">Guardar solicitud</button></div><div class="workflow-grid">${field("Nombre de la solicitud", "title", r.title, 'required maxlength="150"')}${select(
       "Moneda",
       "currency",
       [
@@ -92,25 +276,101 @@ export function createQuotationWorkflow({
         ["USD", "USD"],
       ],
       r.currency,
-    )}${select("Destinatario (opcional)", "partner_id", [["", "Sin destinatario"], ...model.partners.map((p) => [p.id, p.name])], r.partner_id)}${field("Alcance: mano de obra / provisión / ejecución", "scope", r.scope, 'required maxlength="4000"')}${field("Entrega / plazo", "delivery", r.delivery)}${field("Condiciones de pago", "payment", r.payment)}${field("Validez solicitada", "validity", r.validity)}${field("Tratamiento de impuestos", "taxes", r.taxes)}</div>${field("Buscar insumos / tareas", "rfq-query", v.query, 'type="search"')}<button type="button" class="btn" data-action="ops-rfq-filter">Buscar</button><div class="workflow-scroll">${sources()
-      .filter((s) =>
-        (s.description || s.name || "")
-          .toLowerCase()
-          .includes(v.query.toLowerCase()),
-      )
+    )}${select("Destinatario (opcional)", "partner_id", [["", "Sin destinatario"], ...partners().map((p) => [p.id, p.name])], r.partner_id)}${field("Alcance", "scope", r.scope, 'required maxlength="4000"')}${field("Entrega / plazo", "delivery", r.delivery)}${field("Condiciones de pago", "payment", r.payment)}${field("Validez solicitada", "validity", r.validity)}</div><p>Todos los precios se solicitarán por unidad y sin IVA.</p>${field("Buscar materiales / tareas", "rfq-query", v.query, 'type="search"')}<button type="button" class="btn" data-action="ops-rfq-filter">Buscar</button><div class="workflow-scroll">${
+      v.kind === "material"
+        ? `<h3>Materiales necesarios para esta obra</h3>${sourceRows(needed, chosen, true) || "<p>Sin materiales calculados para esta selección. Vinculá ACU a las partidas para obtener necesidades.</p>"}<details open><summary>Otros materiales del catálogo</summary>${sourceRows(
+            rows.filter((s) => !needed.some((n) => n.id === s.id)),
+            chosen,
+          )}</details>`
+        : sourceRows(rows, chosen)
+    }</div></form></section>`;
+  }
+  function readAward() {
+    const form = document.querySelector("#quotation-award-form");
+    if (!form) return;
+    v.award.choices = [...form.querySelectorAll("[data-award-row]")].map(
+      (row) => ({
+        row_id: row.dataset.awardRow,
+        response_id: row.querySelector("select").value,
+        quantity: row.querySelector("input[type=number]").value,
+        selected: row.querySelector("input[type=checkbox]").checked,
+      }),
+    );
+  }
+  function awardEditor() {
+    if (!v.award) return "";
+    const r = v.selected,
+      work = r.kind === "work";
+    return `<section class="workflow-editor" role="dialog" aria-modal="true" aria-label="Distribuir pedido"><form id="quotation-award-form"><div class="feature-toolbar"><h2>${work ? "Adjudicar subcontratos" : "Distribuir pedido"}</h2><button class="btn" type="button" data-action="ops-rfq-award-close">Cancelar</button><button class="btn primary" type="submit">Confirmar adjudicación</button></div><p>Se sugiere el menor precio unitario sin IVA. Podés elegir otro proveedor y adjudicar una cantidad parcial; el resto seguirá pendiente.</p>${field("Fecha prevista de pago", "due_date", dateToday(), 'type="date" required')}<table class="data-grid"><thead><tr><th>Pedir</th><th>${work ? "Tarea" : "Material"}</th><th>Cantidad</th><th>Proveedor / precio unitario sin IVA</th><th>Subtotal sin IVA</th></tr></thead><tbody>${r.items
+      .filter((row) => Number(pending(row.id)) > 0)
+      .map((row) => {
+        const c = v.award.choices.find((c) => c.row_id === row.id),
+          options = v.responses.filter((p) => price(p, row.id) !== null);
+        return `<tr data-award-row="${row.id}"><td><input type="checkbox" ${c.selected ? "checked" : ""} ${options.length ? "" : "disabled"}></td><td>${e(row.description)} · ${e(row.unit)}</td><td><input aria-label="Cantidad a adjudicar ${e(row.description)}" type="number" min="0.000001" max="${pending(row.id)}" step="any" value="${e(c.quantity)}"></td><td><select aria-label="Proveedor para ${e(row.description)}"><option value="">Seleccionar…</option>${options.map((p) => `<option value="${p.id}" ${p.id === c.response_id ? "selected" : ""}>${e(supplier(p.supplier_id))} · ${money(price(p, row.id))}${cheapest(row.id) === p.id ? " · Menor precio" : ""}</option>`).join("")}</select></td><td data-award-subtotal="${row.id}">${
+          c.response_id
+            ? money(
+                multiplyDecimals(
+                  c.quantity || "0",
+                  price(
+                    v.responses.find((p) => p.id === c.response_id),
+                    row.id,
+                  ) || "0",
+                ),
+              )
+            : "Sin cotizar"
+        }</td></tr>`;
+      })
+      .join("")}</tbody></table>${
+      work
+        ? `<h3>Condiciones del subcontrato</h3><div class="workflow-grid">${field("Alcance contratado", "contract_scope", r.scope, "required")}${select(
+            "Modalidad de liquidación",
+            "method",
+            [
+              ["quantity", "Por cantidades ejecutadas"],
+              ["percent", "Por avance porcentual"],
+              ["fixed", "Importe fijo por período"],
+              ["daily", "Por jornada"],
+              ["hourly", "Por hora"],
+            ],
+            "quantity",
+          )}${select(
+            "Frecuencia de pago",
+            "frequency",
+            [
+              ["weekly", "Semanal (viernes)"],
+              ["fortnight", "Quincenal"],
+              ["monthly", "Mensual"],
+              ["by_progress", "Al certificar avance"],
+            ],
+            "weekly",
+          )}${field("Tarifa por período / jornada / hora", "rate", "0", 'type="number" min="0" step="any"')}${field("Tope total para tarifa fija o por tiempo", "ceiling", "0", 'type="number" min="0" step="any"')}${field("Jornadas / horas estimadas por pago", "forecast_units", "1", 'type="number" min="0" step="any"')}${field("Inicio contratado", "contract_start", "", 'type="date"')}${field("Fin contratado", "contract_end", "", 'type="date"')}${field("Demora de pago (días)", "payment_delay_days", "0", 'type="number" min="0" max="365"')}${field("Recuperación de anticipo %", "advance_recovery_percent", "0", 'type="number" min="0" max="100" step="any"')}${field("Fondo de reparo %", "retention_percent", "0", 'type="number" min="0" max="100" step="any"')}</div><label><input type="checkbox" name="contributes_progress" checked> Aporta ejecución física (desmarcar apoyos, alquileres y servicios)</label>`
+        : ""
+    }</form></section>`;
+  }
+  function receiveEditor() {
+    if (!v.receive) return "";
+    return `<section class="workflow-editor" role="dialog" aria-label="Registrar entrega"><form id="quotation-receive-form"><h2>Registrar entrega · ${e(v.receive.document.number)}</h2><p>Ingresá solo las cantidades recibidas ahora. Las pendientes se conservan y lo recibido se incorpora al acopio de esta obra.</p>${v.receive.lines
+      .filter((l) => Number(l.remaining) > 0)
       .map(
-        (s) =>
-          `<label class="rfq-select" data-request-source="${s.id}"><input type="checkbox" ${selected.has(s.id) ? "checked" : ""}><span>${e(s.code || "")} · ${e(s.description || s.name)} · ${e(s.unit)}</span><input aria-label="Cantidad ${e(s.description || s.name)}" type="number" min="0.000001" ${v.kind === "work" ? `max="${s.quantity}"` : ""} step="any" value="${e(selected.get(s.id)?.quantity || s.quantity || "1")}"></label>`,
+        (l) =>
+          `<div class="feature-toolbar">${field(l.description + " · Pendiente " + numeric(l.remaining), l.source_id, "0", `type="number" min="0" max="${l.remaining}" step="any"`)}</div>`,
       )
-      .join("")}</div></form></section>`;
+      .join(
+        "",
+      )}<button class="btn primary" type="submit">Confirmar recepción</button><button class="btn" type="button" data-action="ops-rfq-receive-close">Cancelar</button></form></section>`;
+  }
+  function paymentEditor() {
+    if (!v.payment) return "";
+    return `<section class="workflow-editor" role="dialog" aria-label="Registrar pago"><form id="quotation-payment-form"><h2>Registrar pago · ${e(v.payment.document.number)}</h2><p>Saldo del pedido sin IVA: ${money(v.payment.pending_payment)}. Si ya registraste una factura, aplicá el pago desde Finanzas para conciliarla.</p>${field("Importe pagado", "amount", v.payment.pending_payment, `type="number" min="0.000001" max="${v.payment.pending_payment}" step="any" required`)}${field("Fecha del pago", "date", dateToday(), 'type="date" required')}<button class="btn primary" type="submit">Registrar pago</button><button class="btn" type="button" data-action="ops-rfq-pay-close">Cancelar</button></form></section>`;
   }
   async function act(b) {
     const a = b.dataset.action;
     if (!a.startsWith("ops-rfq-")) return false;
-    read();
+    readRequest();
+    readResponses();
     if (a === "ops-rfq-new") {
-      if (state.remoteProject) throw new Error("Solo lectura");
-      v.kind = b.dataset.kind;
+      if (!protect()) return true;
+      v.kind = kind();
       v.query = "";
       v.request = {
         id: window.crypto.randomUUID(),
@@ -120,72 +380,155 @@ export function createQuotationWorkflow({
         title: "",
         number: "",
         date: dateToday(),
-        currency:
-          model.estimates.find((x) => x.id === model.estimateId)?.currency ===
-          "Usd"
-            ? "USD"
-            : "ARS",
+        currency: ["Usd", "USD"].includes(
+          model.estimates.find((x) => x.id === model.estimateId)?.currency,
+        )
+          ? "USD"
+          : "ARS",
         partner_id: null,
         scope: v.kind === "work" ? "Mano de obra" : "Provisión de materiales",
         delivery: "",
         payment: "",
         validity: "",
-        taxes: "Precios sin IVA; indicar alícuota y total por separado",
+        taxes: "Precios unitarios sin IVA",
         items: [],
       };
     }
-    if (a === "ops-rfq-filter")
-      v.query = document.querySelector('[name="rfq-query"]').value;
     if (a === "ops-rfq-close") {
-      if (v.dirty && !window.confirm("¿Descartar la solicitud sin guardar?"))
-        return true;
+      if (!protect()) return true;
       v.request = null;
       v.dirty = false;
     }
+    if (a === "ops-rfq-filter")
+      v.query = document.querySelector('[name="rfq-query"]').value;
     if (a === "ops-rfq-select") {
-      v.selected = v.requests.find((r) => r.id === b.dataset.id);
-      v.preview = null;
+      if (!protect()) return true;
+      await selectRequest(b.dataset.id);
+      v.dirty = false;
+    }
+    if (a === "ops-rfq-add-provider") {
+      const id = document.querySelector('[name="rfq-add-supplier"]').value;
+      if (!id) throw new Error("Elegí un proveedor");
+      if (v.responses.some((r) => r.supplier_id === id))
+        throw new Error("El proveedor ya está agregado");
+      const response = {
+        id: window.crypto.randomUUID(),
+        request_id: v.selected.id,
+        supplier_id: id,
+        revision: 0,
+        reference: "",
+        terms: "",
+        prices: v.selected.items.map((i) => ({
+          row_id: i.id,
+          unit_price: null,
+          notes: "",
+        })),
+      };
+      v.responses.push(await invoke("save_quote_response", { response }));
+    }
+    if (a === "ops-rfq-save-prices") {
+      await saveResponses();
+      state.message = "Precios unitarios sin IVA guardados.";
     }
     if (a === "ops-rfq-export")
       model.lastExport = await exportRequest(
         invoke,
         v.selected,
         b.dataset.format,
-        document.querySelector('[name="rfq-filename"]').value,
+        document.querySelector('[name="rfq-filename"]')?.value ||
+          v.selected.title,
       );
-    if (a === "ops-rfq-preview") {
-      const file = document.querySelector("[data-rfq-import]").files[0];
-      if (!file) throw new Error("Seleccioná la respuesta XLSX");
-      const supplierId = document.querySelector('[name="rfq-supplier"]').value;
-      if (!supplierId) throw new Error("Elegí quién cotiza");
-      const prices = await readQuotedFile(file);
-      v.preview = await invoke("preview_quotation_import", {
-        requestId: v.selected.id,
-        supplierId,
-        prices,
-        importId: window.crypto.randomUUID(),
-        date: dateToday(),
-        reference: document.querySelector('[name="rfq-reference"]').value,
+    if (a === "ops-rfq-distribute") {
+      await saveResponses();
+      v.balances = await invoke("award_balances", { requestId: v.selected.id });
+      v.award = {
+        choices: v.selected.items
+          .filter((row) => Number(pending(row.id)) > 0)
+          .map((row) => ({
+            row_id: row.id,
+            response_id: b.dataset.response || cheapest(row.id) || "",
+            quantity: pending(row.id),
+            selected: b.dataset.response
+              ? price(
+                  v.responses.find((r) => r.id === b.dataset.response),
+                  row.id,
+                ) !== null
+              : Boolean(cheapest(row.id)),
+          })),
+      };
+    }
+    if (a === "ops-rfq-award-close") v.award = null;
+    if (a === "ops-rfq-receive")
+      v.receive = v.orders.find((o) => o.document.id === b.dataset.id);
+    if (a === "ops-rfq-receive-close") v.receive = null;
+    if (a === "ops-rfq-pay")
+      v.payment = v.orders.find((o) => o.document.id === b.dataset.id);
+    if (a === "ops-rfq-pay-close") v.payment = null;
+    if (a === "ops-rfq-open-file")
+      await invoke("open_quote_file", {
+        projectId: model.projectId,
+        id: b.dataset.id,
       });
-    }
-    if (a === "ops-rfq-confirm") {
-      if (!v.preview) throw new Error("Revisá la respuesta primero");
-      await invoke("post_operation", { operation: v.preview });
-      v.preview = null;
-      await refresh();
-      state.message =
-        "Cotización registrada; los precios del presupuesto no cambiaron.";
-    }
     render();
     return true;
   }
-  return {
-    load,
-    markup,
-    act,
-    submit: async () => {
-      read();
-      v.selected = await invoke("create_quotation_request", {
+  async function change(t) {
+    if (t.dataset.quoteAttachment) {
+      const file = t.files?.[0];
+      if (!file) return;
+      if (file.size > 10 * 1024 * 1024)
+        throw new Error("Máximo 10 MB por adjunto");
+      await saveResponses();
+      await invoke("attach_quote_file", {
+        responseId: t.dataset.quoteAttachment,
+        name: file.name,
+        content: [...new Uint8Array(await file.arrayBuffer())],
+      });
+      v.files = await invoke("list_quote_files", { requestId: v.selected.id });
+      render();
+      return true;
+    }
+    if (t.dataset.quoteImport) {
+      const file = t.files?.[0];
+      if (!file) return;
+      readResponses();
+      const prices = await readQuotedFile(file),
+        r = v.responses.find((r) => r.id === t.dataset.quoteImport);
+      for (const p of prices) {
+        const existing = r.prices.find((x) => x.row_id === p.row_id);
+        if (!existing)
+          throw new Error("La planilla contiene renglones de otro pedido");
+        Object.assign(existing, p);
+      }
+      v.dirty = true;
+      render();
+      return true;
+    }
+    if (t.closest?.("#quotation-award-form")) {
+      readAward();
+      for (const output of document.querySelectorAll("[data-award-subtotal]")) {
+        const c = v.award.choices.find(
+            (c) => c.row_id === output.dataset.awardSubtotal,
+          ),
+          response = v.responses.find((r) => r.id === c?.response_id);
+        output.textContent = response
+          ? money(
+              multiplyDecimals(
+                c.quantity || "0",
+                price(response, c.row_id) || "0",
+              ),
+            )
+          : "Sin cotizar";
+      }
+      return true;
+    }
+    return false;
+  }
+  async function submit(form) {
+    const data = new FormData(form);
+    if (form.id === "quotation-request-form") {
+      readRequest();
+      const saved = await invoke("create_quotation_request", {
         request: v.request,
       });
       v.request = null;
@@ -194,12 +537,135 @@ export function createQuotationWorkflow({
       v.requests = await invoke("list_quotation_requests", {
         projectId: model.projectId,
       });
-      render();
-    },
+      await selectRequest(saved.id);
+    }
+    if (form.id === "quotation-award-form") {
+      readAward();
+      const choices = v.award.choices
+        .filter((c) => c.selected)
+        .map(({ selected, ...c }) => ({
+          ...c,
+          response_revision:
+            v.responses.find((r) => r.id === c.response_id)?.revision || 0,
+        }));
+      if (!choices.length)
+        throw new Error("Seleccioná materiales o tareas para adjudicar");
+      const contractTerms =
+        v.selected.kind === "work"
+          ? {
+              method: String(data.get("method")),
+              frequency: String(data.get("frequency")),
+              rate: String(data.get("rate") || "0"),
+              ceiling: String(data.get("ceiling") || "0"),
+              forecast_units: String(data.get("forecast_units") || "1"),
+              start: String(data.get("contract_start") || ""),
+              end: String(data.get("contract_end") || ""),
+              scope: String(data.get("contract_scope")),
+              contributes_progress: data.has("contributes_progress"),
+              payment_delay_days: Number(data.get("payment_delay_days") || 0),
+              advance_recovery_percent: String(
+                data.get("advance_recovery_percent") || "0",
+              ),
+              retention_percent: String(data.get("retention_percent") || "0"),
+            }
+          : null;
+      await invoke("award_quotation", {
+        requestId: v.selected.id,
+        choices,
+        dueDate: String(data.get("due_date")),
+        contractTerms,
+      });
+      await refresh();
+      await load();
+      state.message =
+        "Adjudicación confirmada. Los precios del presupuesto no cambiaron.";
+    }
+    if (form.id === "quotation-receive-form") {
+      const quantities = Object.fromEntries(
+        [...data].map(([id, q]) => [id, String(q)]),
+      );
+      await invoke("receive_material_order", {
+        projectId: model.projectId,
+        orderId: v.receive.document.id,
+        quantities,
+      });
+      await refresh();
+      await load();
+    }
+    if (form.id === "quotation-payment-form") {
+      const o = v.payment.document;
+      await invoke("post_operation", {
+        operation: {
+          id: window.crypto.randomUUID(),
+          project_id: model.projectId,
+          estimate_id: o.estimate_id,
+          partner_id: o.partner_id,
+          reference_id: o.id,
+          kind: "payment",
+          number: "",
+          date: String(data.get("date")),
+          currency: o.currency,
+          amount: String(data.get("amount")),
+        },
+      });
+      await refresh();
+      await load();
+    }
+    render();
+  }
+  function protect() {
+    readRequest();
+    readResponses();
+    if (!v.dirty) return true;
+    if (
+      !window.confirm(
+        "¿Descartar los cambios de la solicitud o los precios sin guardar?",
+      )
+    )
+      return false;
+    v.dirty = false;
+    return true;
+  }
+  return {
+    v,
+    load,
+    markup,
+    act,
+    change,
+    submit,
+    protect,
     input: (t) => {
-      if (t.closest?.("#quotation-request-form")) v.dirty = true;
+      if (
+        t.closest?.("#quotation-request-form") ||
+        t.matches?.("[data-quote-cell],[data-response-term]")
+      )
+        v.dirty = true;
+      if (t.matches?.("[data-quote-cell]")) {
+        readResponses();
+        try {
+          for (const input of document.querySelectorAll("[data-quote-cell]"))
+            input
+              .closest("td")
+              .classList.toggle(
+                "quote-best",
+                cheapest(input.dataset.row) === input.dataset.response,
+              );
+          for (const output of document.querySelectorAll(
+            "[data-quote-total]",
+          )) {
+            const r = v.responses.find(
+              (r) => r.id === output.dataset.quoteTotal,
+            );
+            output.textContent = money(
+              sumDecimals(
+                v.selected.items
+                  .filter((i) => price(r, i.id) !== null)
+                  .map((i) => multiplyDecimals(i.quantity, price(r, i.id))),
+              ),
+            );
+          }
+        } catch {}
+      }
     },
-    protect: () =>
-      !v.dirty || window.confirm("¿Descartar la solicitud sin guardar?"),
   };
 }

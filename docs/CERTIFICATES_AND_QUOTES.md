@@ -1,3 +1,5 @@
+> La interfaz actual y su distribución se describen en [Libro de obra y adjudicaciones](SITE_BOOK_AND_PROCUREMENT.md).
+
 # Certificados, cotizaciones y contratos
 
 ## Planificación y avance oficial

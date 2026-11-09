@@ -24,9 +24,11 @@ pub mod persons;
 pub mod planning;
 pub mod price_determination;
 pub mod printing;
+pub mod procurement;
 pub mod quotation_workflow;
 pub mod resource_catalog;
 pub mod sharing;
+pub mod site_book;
 pub mod system_settings;
 pub mod takeoffs;
 
@@ -102,6 +104,7 @@ impl LocalStore {
             include_str!("../migrations/0026_financial_planning.sql"),
             include_str!("../migrations/0027_calendar_and_certificates.sql"),
             include_str!("../migrations/0028_construction_workflow.sql"),
+            include_str!("../migrations/0029_site_book_and_procurement.sql"),
         ];
         let latest: i64 = conn.query_row(
             "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",

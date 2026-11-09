@@ -622,6 +622,12 @@ impl LocalStore {
                 "El borrador cambió o pertenece a otro contexto. Recargá antes de guardar",
             ));
         }
+        if d.kind == "certificate"
+            && (input.operation.period_start != d.operation.period_start
+                || input.operation.period_end != d.operation.period_end)
+        {
+            return Err(invalid("El período del certificado proviene de sus cortes; no puede cambiarse en el formulario"));
+        }
         let mut op = input.operation.clone();
         op.id = d.operation.id;
         op.kind = d.kind.clone();

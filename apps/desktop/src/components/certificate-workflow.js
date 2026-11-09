@@ -19,13 +19,17 @@ export function createCertificateWorkflow({
     dirty: false,
     overview: [],
     project: "",
+    contractId: null,
+    payment: null,
   };
   async function load() {
-    if (view.project !== model.projectId) {
+    if (view.project !== model.projectId + ":" + model.estimateId) {
       view.draft = null;
       view.sheet = null;
       view.dirty = false;
-      view.project = model.projectId;
+      view.project = model.projectId + ":" + model.estimateId;
+      view.contractId = null;
+      view.payment = null;
     }
     if (!model.estimateId) return;
     [view.drafts, view.available, view.overview] = await Promise.all([
@@ -40,7 +44,9 @@ export function createCertificateWorkflow({
       invoke("certification_overview", {
         projectId: model.projectId,
         estimateId: model.estimateId,
-        asOf: model.asOf,
+        asOf:
+          state.remoteProject?.data.as_of ||
+          (model.tab === "finance" ? model.asOf : dateToday()),
       }),
     ]);
   }
@@ -91,36 +97,113 @@ export function createCertificateWorkflow({
     });
   }
   function overview() {
-    return `<section class="workflow-card"><div class="feature-toolbar"><h2>Certificaciones programadas</h2><button class="btn" data-action="agreement-open">Acuerdo, anticipo y reparo del presupuesto</button><button class="btn" data-action="ops-cert-refresh">Actualizar previsión</button></div><p>Los cortes se marcan en el Gantt. Los importes son previsiones; emitir no significa cobrar. El resto no es la ganancia de la obra.</p><table class="data-grid"><thead><tr><th>Corte / estado</th><th>Cobro previsto</th><th>Gastos próxima etapa</th><th>Resto</th><th>Índice</th><th>Cobro</th><th></th></tr></thead><tbody>${(view.overview || []).map((p, i) => `<tr><td>${e(p.cut)} · ${e(p.state)}</td><td>${money(p.amount)}</td><td>${money(p.next_expenses)}</td><td>${money(p.remainder)}</td><td>${e(p.index_status)}</td><td>${e(p.collection_date)}</td><td>${state.remoteProject || p.state === "Emitido" ? "" : `<button class="btn" data-action="ops-cert-open" data-cut="${e(p.cut)}" data-start="${e(p.start || (i ? new Date(new Date(view.overview[i - 1].cut + "T12:00:00Z").getTime() + 86400000).toISOString().slice(0, 10) : ""))}">Modificar avances</button>`}</td></tr>`).join("") || '<tr><td colspan="7">Programá cortes en el Gantt.</td></tr>'}</tbody></table></section>`;
+    const drafts = view.drafts.filter(
+        (d) => d.kind === "certificate" && !d.issued_id,
+      ),
+      open = drafts[0];
+    const issued = model.docs.filter(
+      (d) => d.kind === "certificate" && d.estimate_id === model.estimateId,
+    );
+    const rows = (view.overview || []).map((p) => ({
+      ...p,
+      document: issued.find(
+        (d) =>
+          (p.certificate_ids || []).includes(d.id) ||
+          d.period_end === p.cut ||
+          (d.period_start <= p.cut && d.period_end > p.cut),
+      ),
+    }));
+    if (open && !rows.some((r) => r.cut === open.operation.period_end))
+      rows.push({
+        cut: open.operation.period_end,
+        start: open.operation.period_start,
+        amount: open.operation.amount || "0",
+        state: "Abierto",
+        index_status: "Borrador existente",
+        document: null,
+      });
+    for (const d of issued)
+      if (!rows.some((r) => r.document?.id === d.id))
+        rows.push({
+          cut: d.period_end,
+          start: d.period_start,
+          amount: d.amount,
+          state: "Emitido",
+          index_status: d.index_snapshot ? "Índice conservado" : "Sin ajuste",
+          collection_date: d.due_date,
+          document: d,
+        });
+    const seen = new Set();
+    for (let i = rows.length - 1; i >= 0; i--) {
+      const r = rows[i];
+      if (r.document) {
+        if (seen.has(r.document.id)) {
+          rows.splice(i, 1);
+          continue;
+        }
+        seen.add(r.document.id);
+        r.cut = r.document.period_end;
+        r.start = r.document.period_start;
+      }
+    }
+    rows.sort((a, b) => a.cut.localeCompare(b.cut));
+    const lastIssued =
+      issued
+        .map((d) => d.period_end)
+        .sort()
+        .at(-1) || "";
+    const active = open
+      ? rows.find((r) => r.cut === open.operation.period_end)
+      : rows.find(
+          (r) => !r.document && r.state !== "Emitido" && r.cut > lastIssued,
+        );
+    return `<section class="workflow-card"><div class="feature-toolbar"><h2>Certificaciones pactadas</h2><button class="btn" data-action="agreement-open">Acuerdo, anticipo y reparo del presupuesto</button><button class="btn" data-action="ops-cert-refresh">Actualizar previsión</button></div><p>Los períodos provienen de los cortes del Gantt. Solo se edita el certificado abierto; al emitirlo se habilita el siguiente. Los cobros previstos no son cobros registrados.</p><table class="data-grid"><thead><tr><th>Período / certificado</th><th>Estado</th><th>Cobro previsto / emitido</th><th>Gastos próxima etapa</th><th>Resto</th><th>Índice</th><th>Cobro</th><th></th></tr></thead><tbody>${
+      rows
+        .map((r) => {
+          const current = r === active;
+          return `<tr><td>${e(r.start || "")} → ${e(r.cut)}${r.document ? "<small>" + e(r.document.number) + "</small>" : ""}</td><td>${r.document || r.state === "Emitido" ? "Emitido" : current ? "Abierto" : "Pendiente"}</td><td>${money(r.document?.amount || r.amount)}</td><td>${money(r.next_expenses || "0")}</td><td>${money(r.remainder || "0")}</td><td>${e(r.index_status || "")}</td><td>${e(r.collection_date || "")}</td><td>${r.document ? `<button class="btn" data-action="ops-cert-pdf" data-id="${r.document.id}">Ver certificado / PDF</button>` : current && !state.remoteProject ? `<button class="btn primary" data-action="${open ? "ops-cert-resume" : "ops-cert-next"}" ${open ? 'data-id="' + open.id + '"' : ""}>Modificar avances</button>` : ""}</td></tr>`;
+        })
+        .join("") ||
+      '<tr><td colspan="8">Marcá los cortes de certificación en el Gantt para comenzar.</td></tr>'
+    }</tbody></table></section>`;
   }
   function markup() {
+    return overview() + editor() + paymentEditor();
+  }
+  function contracts() {
+    if (!view.contractId) return "";
+    const c = model.docs.find((d) => d.id === view.contractId);
+    if (!c) return "";
+    const certs = model.docs.filter(
+        (d) => d.kind === "subcertificate" && d.reference_id === c.id,
+      ),
+      last = certs
+        .slice()
+        .sort((a, b) => a.period_end.localeCompare(b.period_end))
+        .at(-1),
+      start = last
+        ? new Date(
+            new Date(last.period_end + "T12:00:00Z").getTime() + 86400000,
+          )
+            .toISOString()
+            .slice(0, 10)
+        : c.contract_terms?.start || dateToday().slice(0, 7) + "-01";
     return (
-      overview() +
-      `<section class="workflow-card"><h2>Certificados de avance</h2><p>Solo se modifica el certificado abierto. El preliminar permite pedir aprobación; al emitir se fija el documento y se actualiza el avance del Gantt.</p>${state.remoteProject ? "" : `<div class="feature-toolbar">${field("Inicio del período", "cert-start", dateToday().slice(0, 7) + "-01", 'type="date"')}${field("Fin del período", "cert-end", dateToday(), 'type="date"')}${select("Certificar para", "cert-contract", [["", "Comitente"], ...model.docs.filter((d) => d.kind === "subcontract" && d.estimate_id === model.estimateId).map((d) => [d.id, `${d.number} · ${model.partners.find((p) => p.id === d.partner_id)?.name || "Cuadrilla / contratista"}`])], "")}<button class="btn primary" data-action="ops-cert-open">Abrir / modificar avances</button></div>`}<table class="data-grid"><thead><tr><th>Certificado</th><th>Período</th><th>Estado</th><th>Importe</th><th></th></tr></thead><tbody>${view.drafts
-        .filter((d) => !d.issued_id)
-        .map(
-          (d) =>
-            `<tr><td>${d.kind === "certificate" ? "Comitente" : "Subcontratista"}</td><td>${e(d.operation.period_start)} a ${e(d.operation.period_end)}</td><td>Abierto</td><td>En preparación</td><td><button class="btn" data-action="ops-cert-resume" data-id="${d.id}">Modificar avances</button></td></tr>`,
-        )
-        .join("")}${model.docs
-        .filter(
-          (d) =>
-            ["certificate", "subcertificate"].includes(d.kind) &&
-            d.estimate_id === model.estimateId,
-        )
-        .map(
-          (d) =>
-            `<tr><td>${e(d.number)}</td><td>${e(d.period_start)} a ${e(d.period_end)}</td><td>Emitido · ${e(d.date)}</td><td>${money(d.amount)}</td><td><button class="btn" data-action="ops-cert-pdf" data-id="${d.id}">Certificado PDF</button></td></tr>`,
-        )
-        .join("")}</tbody></table></section>` +
-      editor()
+      `<section class="workflow-card"><h2>Certificados del subcontrato ${e(c.number)}</h2><div class="feature-toolbar">${field("Inicio del período del contratista", "cert-start", start, 'type="date"')}${field("Fin del período del contratista", "cert-end", dateToday(), 'type="date"')}<button class="btn primary" data-action="ops-cert-open" data-contract="${c.id}">Modificar avances del contratista</button></div><table class="data-grid"><thead><tr><th>Certificado</th><th>Período</th><th>Neto por pagar</th><th></th></tr></thead><tbody>${certs.map((d) => `<tr><td>${e(d.number)}</td><td>${e(d.period_start)} a ${e(d.period_end)}</td><td>${money(d.amount)}</td><td><button class="btn" data-action="ops-cert-pdf" data-id="${d.id}">Ver certificado / PDF</button><button class="btn" data-action="ops-cert-pay" data-id="${d.id}">Registrar pago del certificado</button></td></tr>`).join("")}</tbody></table></section>` +
+      editor() +
+      paymentEditor()
     );
+  }
+  function paymentEditor() {
+    if (!view.payment) return "";
+    const o = view.payment;
+    return `<section class="workflow-editor" role="dialog" aria-label="Pago de certificado"><form id="certificate-payment-form"><h2>Pago del certificado ${e(o.number)}</h2>${field("Importe pagado al contratista", "amount", o.amount, 'type="number" min="0.000001" step="any" required')}${field("Fecha del pago", "date", dateToday(), 'type="date" required')}<button class="btn primary" type="submit">Registrar pago</button><button class="btn" type="button" data-action="ops-cert-pay-close">Cancelar</button></form></section>`;
   }
   function editor() {
     if (!view.draft || !view.sheet) return "";
     const d = view.draft,
       o = d.operation;
-    return `<section class="workflow-editor" role="dialog" aria-modal="true" aria-label="Modificar avances"><form id="certificate-workflow-form"><div class="feature-toolbar"><h2>Modificar avances · ${o.kind === "certificate" ? "Comitente" : "Contratista"}</h2><button type="button" class="btn" data-action="ops-cert-close">Cerrar</button><button type="submit" class="btn">Guardar borrador</button><button type="button" class="btn" data-action="ops-cert-preliminary">Generar PRELIMINAR PDF</button><button type="button" class="btn primary" data-action="ops-cert-issue">Emitir certificado aprobado</button></div><div class="workflow-grid">${field("Fecha de emisión / preparación", "date", o.date, 'type="date" required')}${field("Desde", "period_start", o.period_start, 'type="date" required')}${field("Hasta", "period_end", o.period_end, 'type="date" required')}${o.kind === "subcertificate" ? field("Jornadas / horas (solo contratos por tiempo)", "work_units", o.work_units || "0", 'type="number" min="0" step="any"') : ""}</div><p>Ingresá el avance acumulado de cada partida. El período es la diferencia con lo emitido anteriormente. Los avances aprobados de contratistas se incorporan al borrador, sin emitir automáticamente.</p>${o.kind === "certificate" ? '<button type="button" class="btn" data-action="ops-cert-approved">Incorporar avances aprobados de contratistas</button>' : ""}<div class="workflow-scroll"><table class="data-grid"><thead><tr><th>Ítem / partida</th><th>Anterior %</th><th>Acumulado %</th><th>Período %</th><th>Restante %</th><th>Importe período base</th></tr></thead><tbody>${view.sheet.rows
+    return `<section class="workflow-editor" role="dialog" aria-modal="true" aria-label="Modificar avances"><form id="certificate-workflow-form"><div class="feature-toolbar"><h2>Modificar avances · ${o.kind === "certificate" ? "Comitente" : "Contratista"}</h2><button type="button" class="btn" data-action="ops-cert-close">Cerrar</button><button type="submit" class="btn">Guardar borrador</button><button type="button" class="btn" data-action="ops-cert-preliminary">Generar PRELIMINAR PDF</button><button type="button" class="btn primary" data-action="ops-cert-issue">Emitir certificado aprobado</button></div><div class="workflow-grid">${field("Fecha de emisión / preparación", "date", o.date, 'type="date" required')}${field("Desde", "period_start", o.period_start, o.kind === "certificate" ? 'type="date" readonly' : 'type="date" required')}${field("Hasta", "period_end", o.period_end, o.kind === "certificate" ? 'type="date" readonly' : 'type="date" required')}${o.kind === "subcertificate" ? field("Jornadas / horas (solo contratos por tiempo)", "work_units", o.work_units || "0", 'type="number" min="0" step="any"') : ""}</div><p>Ingresá el avance acumulado de cada partida. El período es la diferencia con lo emitido anteriormente. Los avances aprobados de contratistas se incorporan al borrador, sin emitir automáticamente.</p>${o.kind === "certificate" ? '<button type="button" class="btn" data-action="ops-cert-approved">Incorporar avances aprobados de contratistas</button>' : ""}<div class="workflow-scroll"><table class="data-grid"><thead><tr><th>Ítem / partida</th><th>Anterior %</th><th>Acumulado %</th><th>Período %</th><th>Restante %</th><th>Importe período base</th></tr></thead><tbody>${view.sheet.rows
       .map((r) => {
         const v =
           d.progress.find((p) => p.line_id === r.line_id)
@@ -163,6 +246,25 @@ export function createCertificateWorkflow({
     if (state.remoteProject && a !== "ops-cert-pdf" && a !== "ops-cert-refresh")
       throw new Error("Obra de solo lectura");
     if (a === "ops-cert-refresh") await load();
+    if (a === "ops-cert-contract") {
+      view.contractId = b.dataset.contract;
+      view.draft = null;
+      view.sheet = null;
+      view.dirty = false;
+    }
+    if (a === "ops-cert-next") {
+      view.contractId = null;
+      view.draft = await invoke("open_next_client_certificate", {
+        projectId: model.projectId,
+        estimateId: model.estimateId,
+      });
+      view.draft.operation.date = dateToday();
+      await save();
+    }
+    if (a === "ops-cert-pay") {
+      view.payment = model.docs.find((d) => d.id === b.dataset.id);
+    }
+    if (a === "ops-cert-pay-close") view.payment = null;
     if (a === "ops-cert-open" || a === "ops-cert-resume") {
       if (a === "ops-cert-resume")
         view.draft = view.drafts.find((d) => d.id === b.dataset.id);
@@ -175,9 +277,7 @@ export function createCertificateWorkflow({
             b.dataset.cut ||
             document.querySelector('[name="cert-end"]')?.value ||
             dateToday(),
-          contractId = b.dataset.cut
-            ? null
-            : document.querySelector('[name="cert-contract"]')?.value || null;
+          contractId = b.dataset.contract || view.contractId || null;
         view.draft = await invoke("open_certificate_draft", {
           projectId: model.projectId,
           estimateId: model.estimateId,
@@ -278,9 +378,33 @@ export function createCertificateWorkflow({
     view,
     load,
     markup,
+    contracts,
     overview,
     act,
-    submit: async () => {
+    submit: async (form) => {
+      if (form?.id === "certificate-payment-form") {
+        const f = new FormData(form),
+          o = view.payment;
+        await invoke("post_operation", {
+          operation: {
+            id: window.crypto.randomUUID(),
+            project_id: model.projectId,
+            estimate_id: o.estimate_id,
+            partner_id: o.partner_id,
+            reference_id: o.id,
+            kind: "payment",
+            number: "",
+            date: String(f.get("date")),
+            currency: o.currency,
+            amount: String(f.get("amount")),
+          },
+        });
+        view.payment = null;
+        await refresh();
+        await load();
+        render();
+        return;
+      }
       await save();
       render();
     },
@@ -289,7 +413,14 @@ export function createCertificateWorkflow({
         view.dirty = true;
       }
     },
-    protect: () =>
-      !view.dirty || window.confirm("Hay avances sin guardar. ¿Descartarlos?"),
+    protect: () => {
+      if (!view.dirty) return true;
+      if (!window.confirm("Hay avances sin guardar. ¿Descartarlos?"))
+        return false;
+      view.dirty = false;
+      view.draft = null;
+      view.sheet = null;
+      return true;
+    },
   };
 }

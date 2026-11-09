@@ -79,7 +79,7 @@ pub(crate) fn canonical(conn: &Connection, request: &QuotationRequest) -> Result
         }
         if r.kind == "material" {
             let (code, description, unit): (String, String, String) = conn.query_row(
-                "SELECT code,description,unit FROM resources WHERE id=?1 AND active=1",
+                "SELECT code,description,unit FROM resources WHERE id=?1 AND active=1 AND kind='material'",
                 [item.source_id.to_string()],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )?;

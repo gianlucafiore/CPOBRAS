@@ -1,3 +1,4 @@
+import { createSiteBook } from "./site-book.js";
 import { createCertificateWorkflow } from "./certificate-workflow.js";
 import { createQuotationWorkflow } from "./quotation-workflow.js";
 import { e, field, select, dateToday } from "./helpers.js";
@@ -155,6 +156,15 @@ export function createOperationsWorkspace({
     lastExport: "",
     cashSettings: null,
   };
+  const book = createSiteBook({
+    invoke,
+    state,
+    model,
+    render,
+    document,
+    window,
+    FormData,
+  });
   const certificates = createCertificateWorkflow({
     invoke,
     state,
@@ -163,7 +173,10 @@ export function createOperationsWorkspace({
     document,
     window,
     FormData,
-    refresh,
+    refresh: async () => {
+      await refresh();
+      if (model.tab === "contracts") await quotations.load();
+    },
   });
   const quotations = createQuotationWorkflow({
     invoke,
@@ -260,16 +273,20 @@ export function createOperationsWorkspace({
       ? `${state.projects.find((p) => p.id === w.project_id)?.name} · ${w.name} · ${w.location}`
       : "—";
   };
+  const consultationDate = () =>
+    state.remoteProject?.data.as_of ||
+    (model.tab === "finance" ? model.asOf : dateToday());
   async function refresh() {
     model.docs = await invoke("list_operations", {
       projectId: model.projectId || null,
     });
     model.warehouses = await invoke("list_warehouses");
-    model.stock = (await invoke("stock_balances", { asOf: model.asOf })).filter(
-      (b) =>
-        model.warehouses.some(
-          (w) => w.id === b.warehouse_id && w.project_id === model.projectId,
-        ),
+    model.stock = (
+      await invoke("stock_balances", { asOf: consultationDate() })
+    ).filter((b) =>
+      model.warehouses.some(
+        (w) => w.id === b.warehouse_id && w.project_id === model.projectId,
+      ),
     );
 
     if (model.projectId) {
@@ -280,13 +297,13 @@ export function createOperationsWorkspace({
       model.report = await invoke("operations_report", {
         projectId: model.projectId,
         estimateId: model.estimateId || null,
-        asOf: model.asOf,
+        asOf: consultationDate(),
       });
       model.portfolio = [model.report];
       model.pendingDifferences =
         (await invoke("pending_adjustment_differences", {
           projectId: model.projectId,
-          asOf: model.asOf,
+          asOf: consultationDate(),
         })) || [];
       model.lines = model.estimateId
         ? await invoke("list_estimate_lines", { estimateId: model.estimateId })
@@ -393,7 +410,8 @@ export function createOperationsWorkspace({
   }
   function protect() {
     read();
-    if (!certificates.protect() || !quotations.protect()) return false;
+    if (!book.protect() || !certificates.protect() || !quotations.protect())
+      return false;
     if (!model.dirty) return true;
     if (
       !window.confirm(
@@ -589,8 +607,8 @@ export function createOperationsWorkspace({
                      "Tipo de registro",
                      "entry_type",
                      [
-                       ["contracts", "Contratistas y cuadrillas"],
-                       ["production", "Producción"],
+                       ["contracts", "Subcontrataciones"],
+                       ["production", "Libro de obra"],
                        ["labor", "Asistencia / mano de obra"],
                        ["equipment", "Uso de equipo"],
                      ],
@@ -1048,10 +1066,10 @@ export function createOperationsWorkspace({
   function markup() {
     if (state.view === "portfolio")
       return `<main class="feature-page"><div class="feature-toolbar"><h1>Cartera de obras</h1>${field("Fecha de corte", "portfolio-asof", model.asOf, 'type="date" required')}<button class="btn" data-action="ops-portfolio-refresh">Actualizar cartera</button><button class="btn" data-action="ops-export" data-format="xlsx">Informe Excel</button><button class="btn" data-action="ops-export" data-format="pdf">Informe PDF</button></div>${dashboard()}${model.lastExport ? `<p role="status">Guardado en ${e(model.lastExport)}</p>` : ""}</main>`;
-    return `<section class="feature-page operations-page"><div class="work-toolbar"><strong>${e(state.projects.find((p) => p.id === state.projectId)?.name)}</strong>${field("Fecha de corte", "ops-asof", model.asOf, 'type="date" required')}<button class="btn" data-action="ops-refresh">Actualizar</button></div><nav class="operations-tabs" aria-label="Etapas de gestión">${[
-      ["purchases", "Compras y almacenes"],
-      ["contracts", "Contratistas y cuadrillas"],
-      ["production", "Producción"],
+    return `<section class="feature-page operations-page"><nav class="operations-tabs" aria-label="Etapas de gestión">${[
+      ["purchases", "Materiales y Acopio"],
+      ["contracts", "Subcontrataciones"],
+      ["production", "Libro de obra"],
       ["certificates", "Certificaciones"],
       ["finance", "Finanzas"],
       ["dashboard", "Tablero"],
@@ -1066,43 +1084,47 @@ export function createOperationsWorkspace({
         ([key, name]) =>
           `<button class="btn ${model.tab === key ? "primary" : ""}" aria-current="${model.tab === key ? "page" : "false"}" data-action="ops-tab" data-tab="${key}">${name}</button>`,
       )
-      .join("")}</nav><div class="work-toolbar">${
-      !["dashboard", "certificates"].includes(model.tab)
-        ? select(
-            "Tipo de documento",
-            "ops-kind",
-            (operationGroups[model.tab] || [])
-              .filter(
-                (k) =>
-                  k !== "index" &&
-                  (k !== "adjustment" ||
-                    model.docs.some(
-                      (d) =>
-                        d.kind === "certificate" &&
-                        !d.index_snapshot &&
-                        d.calculated?.index_factor === undefined,
-                    )),
-              )
-              .map((k) => [k, operationNames[k]]),
-            model.draft?.kind,
-          )
+      .join("")}</nav>${
+      ["finance", "dashboard"].includes(model.tab)
+        ? `<div class="work-toolbar">${
+            model.tab === "finance"
+              ? select(
+                  "Tipo de documento",
+                  "ops-kind",
+                  (operationGroups[model.tab] || [])
+                    .filter(
+                      (k) =>
+                        k !== "index" &&
+                        (k !== "adjustment" ||
+                          model.docs.some(
+                            (d) =>
+                              d.kind === "certificate" &&
+                              !d.index_snapshot &&
+                              d.calculated?.index_factor === undefined,
+                          )),
+                    )
+                    .map((k) => [k, operationNames[k]]),
+                  model.draft?.kind,
+                )
+              : ""
+          }${model.tab === "finance" ? '<button class="btn" data-action="ops-new">Nuevo documento</button>' : ""}${select(
+            "Contenido del informe",
+            "ops-report-scope",
+            [
+              ["summary", "Resumen financiero"],
+              ["production", "Producción y rendimientos"],
+              ["cash", "Flujo de fondos"],
+              ["financial", "Previsión financiera y materiales por período"],
+              ["needs", "Necesidades de materiales"],
+              ["stock", "Existencias"],
+              ["costs", "Resultados por centro y partida"],
+              ["sections", "Resultados por rubro"],
+              ["documents", "Documentos"],
+            ],
+            model.exportScope || "summary",
+          )}<button class="btn" data-action="ops-export" data-format="xlsx">Informe Excel</button><button class="btn" data-action="ops-export" data-format="pdf">Informe PDF</button></div>`
         : ""
-    }${!["dashboard", "certificates"].includes(model.tab) ? '<button class="btn" data-action="ops-new">Nuevo documento</button>' : ""}${select(
-      "Contenido del informe",
-      "ops-report-scope",
-      [
-        ["summary", "Resumen financiero"],
-        ["production", "Producción y rendimientos"],
-        ["cash", "Flujo de fondos"],
-        ["financial", "Previsión financiera y materiales por período"],
-        ["needs", "Necesidades de materiales"],
-        ["stock", "Existencias"],
-        ["costs", "Resultados por centro y partida"],
-        ["sections", "Resultados por rubro"],
-        ["documents", "Documentos"],
-      ],
-      model.exportScope || "summary",
-    )}<button class="btn" data-action="ops-export" data-format="xlsx">Informe Excel</button><button class="btn" data-action="ops-export" data-format="pdf">Informe PDF</button></div>${model.lastExport ? `<p role="status">Guardado en ${e(model.lastExport)}</p>` : ""}${model.report?.alerts.map((a) => `<p class="operations-alert">${e(a)}</p>`).join("") || ""}${model.tab === "dashboard" ? dashboard() : !model.projectId ? "<p>Seleccioná una obra para comenzar.</p>" : `${model.tab === "purchases" ? quotations.markup() + purchasing() : model.tab === "production" ? production() : model.tab === "finance" ? financeDashboard() + certificates.overview() + finances() : model.tab === "certificates" ? certificates.markup() : summary(model.report)}${state.remoteProject || model.tab === "certificates" ? "" : formMarkup()}<h3>Historial de documentos de esta obra (todas las versiones)</h3>${documentRows()}`}${detail()}</section>`;
+    }${model.lastExport ? `<p role="status">Guardado en ${e(model.lastExport)}</p>` : ""}${model.report?.alerts.map((a) => `<p class="operations-alert">${e(a)}</p>`).join("") || ""}${model.tab === "dashboard" ? dashboard() : !model.projectId ? "<p>Seleccioná una obra para comenzar.</p>" : `${model.tab === "purchases" ? quotations.markup() : model.tab === "contracts" ? quotations.markup() + certificates.contracts() : model.tab === "production" ? book.markup() : model.tab === "finance" ? `<div class="feature-toolbar">${field("Consultar al", "ops-asof", model.asOf, 'type="date" required')}<button class="btn" data-action="ops-refresh">Actualizar</button></div>` + financeDashboard() + certificates.overview() + finances() : model.tab === "certificates" ? certificates.markup() : summary(model.report)}${state.remoteProject || (!["finance"].includes(model.tab) && model.draft?.kind !== "stock_opening") ? "" : formMarkup()}${model.tab === "finance" ? "<h3>Historial de documentos</h3>" + documentRows() : ""}`}${detail()}</section>`;
   }
   async function act(button) {
     const a = button.dataset.action;
@@ -1130,12 +1152,18 @@ export function createOperationsWorkspace({
       render();
       return;
     }
-    if ((await certificates.act(button)) || (await quotations.act(button)))
+    if (
+      (await book.act(button)) ||
+      (await certificates.act(button)) ||
+      (await quotations.act(button))
+    )
       return true;
     if (a === "open-operations") {
       if (state.view === "operations" && !protect()) return;
       if (!state.projectId) throw new Error("Abrí una obra desde Inicio");
       model.projectId = state.projectId;
+      model.projectName =
+        state.projects.find((p) => p.id === state.projectId)?.name || "Obra";
       model.estimateId = state.estimateId || "";
       model.draft = null;
       model.detail = null;
@@ -1168,8 +1196,9 @@ export function createOperationsWorkspace({
       }
       await refresh();
       await certificates.load();
-      if (!state.remoteProject) await quotations.load();
-      if (!["dashboard", "certificates"].includes(model.tab))
+      await quotations.load();
+      if (model.tab === "production") await book.load();
+      if (model.tab === "finance")
         model.draft ||= draft(operationGroups[model.tab][0]);
       state.view = "operations";
       render();
@@ -1194,15 +1223,36 @@ export function createOperationsWorkspace({
     if (a === "ops-tab") {
       if (!protect()) return;
       model.tab = button.dataset.tab;
-      model.draft = ["dashboard", "certificates"].includes(model.tab)
-        ? null
-        : draft(operationGroups[model.tab][0]);
+      model.draft =
+        model.tab === "finance" ? draft(operationGroups.finance[0]) : null;
       model.dirty = false;
-      if (!state.remoteProject) {
+      await refresh();
+      {
         if (["certificates", "finance"].includes(model.tab))
           await certificates.load();
-        if (model.tab === "purchases") await quotations.load();
+        if (["purchases", "contracts"].includes(model.tab))
+          await quotations.load();
+        if (model.tab === "production") await book.load();
       }
+    }
+    if (a === "ops-stock-declare") {
+      let warehouse = model.warehouses.find(
+        (w) => w.project_id === model.projectId,
+      );
+      if (!warehouse) {
+        warehouse = await invoke("create_warehouse", {
+          warehouse: {
+            id: window.crypto.randomUUID(),
+            project_id: model.projectId,
+            name: "Acopio de obra",
+            location: "Obra",
+          },
+        });
+        model.warehouses.push(warehouse);
+      }
+      model.draft = draft("stock_opening");
+      model.draft.warehouse_id = warehouse.id;
+      model.dirty = false;
     }
     if (a === "ops-new") {
       if (!protect()) return;
@@ -1301,6 +1351,7 @@ export function createOperationsWorkspace({
       return;
     }
     if (state.view !== "operations") return;
+    if (await quotations.change(target)) return;
     const name = target.name;
     read();
     if (target.closest("#operation-form")) model.dirty = true;
@@ -1479,8 +1530,23 @@ export function createOperationsWorkspace({
       render();
       return;
     }
-    if (form.id === "certificate-workflow-form") return certificates.submit();
-    if (form.id === "quotation-request-form") return quotations.submit();
+    if (["site-book-form", "site-book-print-form"].includes(form.id))
+      return book.submit(form);
+    if (
+      ["certificate-workflow-form", "certificate-payment-form"].includes(
+        form.id,
+      )
+    )
+      return certificates.submit(form);
+    if (
+      [
+        "quotation-request-form",
+        "quotation-award-form",
+        "quotation-receive-form",
+        "quotation-payment-form",
+      ].includes(form.id)
+    )
+      return quotations.submit(form);
     if (form.id === "warehouse-form") {
       const data = new FormData(form);
       await invoke("create_warehouse", {
@@ -1498,12 +1564,13 @@ export function createOperationsWorkspace({
     read();
     const saved = await invoke("post_operation", { operation: model.draft });
     model.dirty = false;
-    model.draft = draft(saved.kind);
+    model.draft = model.tab === "finance" ? draft(saved.kind) : null;
     await refresh();
     model.detail = saved;
     render();
   }
   function input(target) {
+    book.input(target);
     certificates.input(target);
     quotations.input(target);
     if (state.view === "operations" && target.closest?.("#operation-form")) {

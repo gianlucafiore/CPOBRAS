@@ -40,3 +40,5 @@ test("invalid numbers are never silently displayed as zero", () => {
 test("large estimate batches do not exceed function argument limits", () => {
   assert.equal(sumDecimals(Array(150000).fill("0.01")), "1500.00");
 });
+
+test('decimal price comparison preserves differences beyond binary precision',async()=>{const {compareDecimals}=await import('../src/decimal.js');assert.equal(compareDecimals('100000000000000000.01','100000000000000000.02'),-1);assert.equal(compareDecimals('0.10','0.1'),0);});

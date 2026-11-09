@@ -367,6 +367,9 @@ impl LocalStore {
                     "rfq",
                     "quote",
                     "subcontract",
+                    "purchase_order",
+                    "receipt",
+                    "payment",
                 ]
                 .contains(&o.kind.as_str()))
             || o.number.len() > 100
@@ -405,9 +408,11 @@ impl LocalStore {
             return Err(err("Reparo superior a 100%"));
         }
         // Validate and mutate under one write reservation, including cross-document limits.
-        let tx = self
-            .conn
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let mut tx = self.conn.savepoint()?;
+        tx.execute(
+            "UPDATE automatic_codes SET last_value=last_value WHERE 0",
+            [],
+        )?;
         if document(&tx, o.id)?.is_some() {
             return Err(err("Este documento ya fue registrado; no se duplicó"));
         }
@@ -466,6 +471,9 @@ impl LocalStore {
                 "rfq",
                 "quote",
                 "subcontract",
+                "purchase_order",
+                "receipt",
+                "payment",
             ]
             .contains(&o.kind.as_str())
         {
@@ -474,6 +482,9 @@ impl LocalStore {
                 "subcertificate" => "SUB-",
                 "rfq" => "SOL-",
                 "quote" => "COT-",
+                "purchase_order" => "PED-",
+                "receipt" => "REC-",
+                "payment" => "PAG-",
                 _ => "CONT-",
             };
             o.number = crate::project_dashboard::next_code(
@@ -1730,6 +1741,14 @@ impl LocalStore {
                 } else {
                     ["certificate", "adjustment"].contains(&r.kind.as_str())
                 };
+                if o.kind == "payable"
+                    && r.kind == "receipt"
+                    && prior
+                        .iter()
+                        .any(|p| p.kind == "payment" && p.reference_id == r.reference_id)
+                {
+                    return Err(err("Este pedido tiene pagos directos registrados; no generes una deuda duplicada por su recepción"));
+                }
                 if !allowed || r.partner_id != o.partner_id {
                     return Err(err("Origen de factura incompatible"));
                 }
@@ -1756,7 +1775,13 @@ impl LocalStore {
                 .as_ref()
                 .ok_or_else(|| err("Seleccioná factura o certificado de origen"))?;
             let valid = if o.kind == "payment" {
-                ["payable", "subcertificate", "retention_payable"].contains(&r.kind.as_str())
+                [
+                    "payable",
+                    "subcertificate",
+                    "retention_payable",
+                    "purchase_order",
+                ]
+                .contains(&r.kind.as_str())
             } else {
                 ["receivable", "certificate", "retention_receivable"].contains(&r.kind.as_str())
             };
@@ -1769,6 +1794,38 @@ impl LocalStore {
                 return Err(err(
                     "El documento ya fue facturado; aplicá el pago/cobro a la factura",
                 ));
+            }
+            if r.kind == "purchase_order" {
+                let children: BTreeSet<_> = prior
+                    .iter()
+                    .filter(|p| p.reference_id == Some(r.id))
+                    .map(|p| p.id)
+                    .collect();
+                let bills: BTreeSet<_> = prior
+                    .iter()
+                    .filter(|p| {
+                        p.kind == "payable"
+                            && p.reference_id.is_some_and(|id| children.contains(&id))
+                    })
+                    .map(|p| p.id)
+                    .collect();
+                let paid = sum(prior
+                    .iter()
+                    .filter(|p| {
+                        p.kind == "payment"
+                            && p.reference_id.is_some_and(|id| {
+                                id == r.id || children.contains(&id) || bills.contains(&id)
+                            })
+                    })
+                    .map(|p| p.amount))?;
+                if add(paid, o.amount)? > r.amount {
+                    return Err(err("El pago supera el saldo total del pedido"));
+                }
+                if prior.iter().any(|p| {
+                    p.kind == "payable" && p.reference_id.is_some_and(|id| children.contains(&id))
+                }) {
+                    return Err(err("El pedido tiene facturas; registrá sus pagos desde Finanzas para conciliarlas"));
+                }
             }
             let paid = sum(prior
                 .iter()
@@ -2335,7 +2392,8 @@ impl LocalStore {
                     .iter()
                     .filter(|p| {
                         p.kind == "payable"
-                            && p.reference_id.is_some_and(|id| descendants.contains(&id))
+                            && p.reference_id
+                                .is_some_and(|id| descendants.contains(&id) || id == o.id)
                     })
                     .map(|p| p.amount))?;
                 let certified = sum(docs
@@ -2346,8 +2404,15 @@ impl LocalStore {
                     .iter()
                     .filter(|p| p.kind == "advance_paid" && p.reference_id == Some(o.id))
                     .map(|p| p.amount))?;
-                let remaining =
-                    sub(sub(o.amount, invoiced.max(certified))?, advances)?.max(D::ZERO);
+                let direct_paid = sum(docs
+                    .iter()
+                    .filter(|p| p.kind == "payment" && p.reference_id == Some(o.id))
+                    .map(|p| p.amount))?;
+                let remaining = sub(
+                    sub(sub(o.amount, invoiced.max(certified))?, advances)?,
+                    direct_paid,
+                )?
+                .max(D::ZERO);
                 let due = if o.due_date.is_empty() {
                     o.date.as_str()
                 } else {

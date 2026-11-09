@@ -428,3 +428,5 @@ OpenStreetMap/Nominatim responde. Si no está disponible, la ubicación se guard
 con un aviso para revisar su dirección. Esta función requiere Internet.
 
 - [Certificados preliminares y emitidos, cotizaciones y contratos](docs/CERTIFICATES_AND_QUOTES.md)
+
+- [Libro de obra, Materiales y Acopio y Subcontrataciones](docs/SITE_BOOK_AND_PROCUREMENT.md)
