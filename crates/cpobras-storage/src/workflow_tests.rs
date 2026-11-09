@@ -4956,3 +4956,43 @@ fn certificate_bugfix_early_issue_still_rejects_dates_before_period_start() {
         .iter()
         .all(|o| o.kind != "certificate"));
 }
+
+#[test]
+fn supplier_delivery_requests_and_direct_receipts_share_the_remaining_capacity() {
+    use crate::supplier_logistics::SupplierMovement;
+    for receive_first in [false, true] {
+        let (mut s, p, _, line, supplier, res, _) = stock_fixture();
+        let mut order = operation(p.id, "purchase_order");
+        order.partner_id = Some(supplier);
+        order.lines = vec![material_row(res, line.id, 10, 100)];
+        let order = s.post_operation(&order).unwrap();
+        let mut payment = operation(p.id, "payment");
+        payment.reference_id = Some(order.id);
+        payment.partner_id = Some(supplier);
+        payment.amount = 1000.into();
+        s.post_operation(&payment).unwrap();
+        if receive_first {
+            s.receive_material_order(p.id, order.id, &BTreeMap::from([(res, 3.into())])).unwrap();
+        }
+        let listed = s.supplier_orders(p.id, "material").unwrap();
+        let available = listed[0].lines[0].vendor_stock;
+        assert_eq!(available, Decimal::from(if receive_first {7} else {10}));
+        let mut request = SupplierMovement {
+            order_id: order.id, project_id: p.id, kind: "request".into(),
+            quantities: BTreeMap::from([(res, available + Decimal::ONE)]),
+            ..Default::default()
+        };
+        assert!(s.record_supplier_movement(&request).is_err());
+        request.quantities.insert(res, available);
+        s.record_supplier_movement(&request).unwrap();
+        let listed = s.supplier_orders(p.id, "material").unwrap();
+        assert_eq!(listed[0].lines[0].requested, available);
+        s.receive_material_order_with_proof(p.id, order.id, &BTreeMap::from([(res, 2.into())]), None).unwrap();
+        let listed = s.supplier_orders(p.id, "material").unwrap();
+        let l = &listed[0].lines[0];
+        assert_eq!(l.received, Decimal::from(if receive_first {5} else {2}));
+        assert_eq!(l.vendor_stock, available - Decimal::from(2));
+        assert_eq!(l.requested, available - Decimal::from(2));
+        assert_eq!(l.remaining, available - Decimal::from(2));
+    }
+}

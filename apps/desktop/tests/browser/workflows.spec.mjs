@@ -73,7 +73,7 @@ async function bridge(page, options={}) {
    if(command==='confirm_site_entry'){const r=window.__siteEntries.find(r=>r.id===args.id);r.confirmed_at=new Date().toISOString();r.revision++;return structuredClone(r);}
    if(command==='print_site_entries')return (window.__siteEntries||[]).filter(r=>r.confirmed_at);
    if(command==='list_supplier_movements')return [];
-   if(command==='record_supplier_movement')return structuredClone(args.movement);
+   if(command==='record_supplier_movement'){const m=args.movement,o=window.__supplierOrders?.find(o=>o.document.id===m.order_id);if(o&&m.kind==='request'){for(const l of o.lines)l.requested=String(Number(l.requested||0)+Number(m.quantities[l.source_id]||0));o.revision++;}return structuredClone(m);}
    if(command==='open_operation_file')return null;
    if(command==='list_supplier_orders')return (window.__supplierOrders||[]).filter(o=>(args.kind==='material')===(o.document.kind==='purchase_order'));
    if(command==='list_quote_responses')return structuredClone((window.__responses||[]).filter(r=>r.request_id===args.requestId&&!(window.__hiddenResponses||[]).includes(r.id)));
@@ -86,7 +86,7 @@ async function bridge(page, options={}) {
    if(command==='attach_quote_file'){window.__quoteFiles ||= [];window.__quoteFiles.push({id:crypto.randomUUID(),response_id:args.responseId,name:args.name,bytes:args.content.length});return window.__quoteFiles.at(-1).id;}
    if(command==='award_balances'){const r=(window.__quotationRequests||[]).find(r=>r.id===args.requestId);return (r?.items||[]).map(i=>({row_id:i.id,quantity:i.quantity}));}
    if(command==='award_quotation'){const r=window.__quotationRequests.find(r=>r.id===args.requestId),response=window.__responses.find(p=>p.id===args.choices[0].response_id),items=args.choices.map(c=>{const row=r.items.find(i=>i.id===c.row_id);return {source_id:row.source_id,description:row.description,quantity:c.quantity,unit_price:response.prices.find(p=>p.row_id===row.id).unit_price,received:'0',remaining:c.quantity};}),doc={id:crypto.randomUUID(),kind:r.kind==='material'?'purchase_order':'subcontract',number:'PED-0001',project_id:r.project_id,estimate_id:r.estimate_id,partner_id:response.supplier_id,currency:r.currency,amount:String(items.reduce((s,l)=>s+Number(l.quantity)*Number(l.unit_price),0)),date:r.date,due_date:args.dueDate,lines:items.map(l=>({...l,resource_id:r.kind==='material'?l.source_id:null,line_id:r.kind==='work'?l.source_id:null}))};window.__supplierOrders ||= [];window.__supplierOrders.push({document:doc,lines:items,paid:'0',pending_payment:doc.amount,payment_state:'Pendiente',delivery_state:'Solicitado',editable:true,revision:0,supplier_credit:'0',files:[]});operations.push(doc);return [doc];}
-   if(command==='receive_material_order'||command==='receive_material_order_with_proof'){const o=window.__supplierOrders.find(o=>o.document.id===args.orderId);for(const l of o.lines){l.received=String(Number(l.received)+Number(args.quantities[l.source_id]||0));l.remaining=String(Number(l.quantity)-Number(l.received));}o.delivery_state=o.lines.every(l=>l.remaining==='0')?'Completa':'Parcial';return {};}
+   if(command==='receive_material_order'||command==='receive_material_order_with_proof'){const o=window.__supplierOrders.find(o=>o.document.id===args.orderId);for(const l of o.lines){l.received=String(Number(l.received)+Number(args.quantities[l.source_id]||0));l.remaining=String(Number(l.quantity)-Number(l.received));l.vendor_stock=String(Math.max(0,Number(l.vendor_stock||0)-Number(args.quantities[l.source_id]||0)));l.requested=String(Math.max(0,Number(l.requested||0)-Number(args.quantities[l.source_id]||0)));}o.delivery_state=o.lines.every(l=>l.remaining==='0')?'Completa':'Parcial';return {};}
    if(command==='list_certificate_drafts')return structuredClone(window.__certDrafts||[]);
    if(command==='available_progress')return fixture.availableProgress||[];
    if(command==='list_quotation_requests')return structuredClone(window.__quotationRequests||[]);
@@ -946,4 +946,35 @@ test('paid orders open compact read-only details',async({page})=>{
  await expect(dialog.getByRole('button',{name:'Agregar material',exact:true})).toBeHidden();
  const close=await dialog.getByRole('button',{name:'Cerrar',exact:true}).boundingBox();
  expect(close.width).toBeLessThan(120);
+});
+
+test('delivery quantities update immediately and direct receipt reduces later request capacity',async({page})=>{
+ await bridge(page);await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.locator('[data-action=manage-dashboard-budget]').first().click();
+ await page.evaluate(()=>{window.__supplierOrders=[{document:{id:'order',kind:'purchase_order',number:'PED-0099',partner_id:'supplier-1',currency:'ARS',amount:'1000',estimate_id:'estimate-1',due_date:'2026-11-20',lines:[{resource_id:'resource-1',description:'Acero',quantity:'10',unit_price:'100'}]},lines:[{source_id:'resource-1',description:'Acero',quantity:'10',unit_price:'100',received:'0',remaining:'10',vendor_stock:'10',requested:'0'}],paid:'0',cash_paid:'0',pending_payment:'1000',payment_state:'Pendiente',delivery_state:'Solicitado',editable:true,revision:0,supplier_credit:'0',files:[]}];});
+ await page.getByRole('button',{name:'Gestión de obra',exact:true}).click();
+ const details=page.locator('[data-order-details="order"]');
+ await details.locator('summary').click();
+ await expect(details).toContainText('Disponible para solicitar: 10');
+ await page.getByRole('button',{name:'Registrar entrega',exact:true}).click();
+ let dialog=page.getByRole('dialog',{name:'Registrar entrega',exact:true});
+ await dialog.getByLabel(/Acero · Pendiente/).fill('3');
+ await dialog.getByRole('button',{name:'Confirmar recepción',exact:true}).click();
+ await expect(details).toHaveAttribute('open','');
+ await expect(details).toContainText('3 recibidos · Pendiente: 7');
+ await expect(details).toContainText('Disponible para solicitar: 7');
+ await page.getByRole('button',{name:'Solicitar entrega',exact:true}).click();
+ dialog=page.getByRole('dialog',{name:'Solicitar entrega',exact:true});
+ await expect(dialog.locator('[data-movement-quantity]')).toHaveAttribute('max','7');
+ await dialog.getByRole('button',{name:'Todo',exact:true}).click();
+ await dialog.getByRole('button',{name:'Confirmar',exact:true}).click();
+ await expect(details).toContainText('Solicitado por recibir: 7');
+ await expect(details).toContainText('Disponible para solicitar: 0');
+ await page.getByRole('button',{name:'Registrar entrega',exact:true}).click();
+ dialog=page.getByRole('dialog',{name:'Registrar entrega',exact:true});
+ await dialog.getByLabel(/Acero · Pendiente/).fill('2');
+ await dialog.getByRole('button',{name:'Confirmar recepción',exact:true}).click();
+ await expect(details).toContainText('5 recibidos · Pendiente: 5');
+ await expect(details).toContainText('En proveedor (total): 5');
+ await expect(details).toContainText('Solicitado por recibir: 5');
+ await expect(details).toContainText('Disponible para solicitar: 0');
 });
