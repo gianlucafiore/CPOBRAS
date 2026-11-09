@@ -116,6 +116,7 @@ impl LocalStore {
         let tx = self
             .conn
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        if tx.query_row("SELECT EXISTS(SELECT 1 FROM management_records m JOIN entity_archives a ON a.entity_id=m.person_id AND a.kind='person:supplier' WHERE m.id=?1)",[supplier.to_string()],|r|r.get::<_,bool>(0))? {return Err(invalid("El proveedor está dado de baja"));}
         let old:Option<(String,bool)>=tx.query_row("SELECT payload_json,hidden FROM quotation_responses WHERE request_id=?1 AND supplier_id=?2",params![request.to_string(),supplier.to_string()],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
         if let Some((json, hidden)) = old {
             let mut response: QuoteResponse = serde_json::from_str(&json)?;

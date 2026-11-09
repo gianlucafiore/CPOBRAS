@@ -209,6 +209,33 @@ impl LocalStore {
         if operation.kind != "payment" {
             return Err(invalid("Movimiento de pago inválido"));
         }
+        self.operation_with_proof(operation, proof)
+    }
+    pub fn register_fund_movement(
+        &mut self,
+        operation: &Operation,
+        proof: Option<Proof>,
+    ) -> Result<Operation> {
+        if ![
+            "payment",
+            "collection",
+            "advance_received",
+            "advance_paid",
+            "direct_payment",
+            "fund_contribution",
+            "fund_reimbursement",
+        ]
+        .contains(&operation.kind.as_str())
+        {
+            return Err(invalid("Movimiento de fondos inválido"));
+        }
+        self.operation_with_proof(operation, proof)
+    }
+    fn operation_with_proof(
+        &mut self,
+        operation: &Operation,
+        proof: Option<Proof>,
+    ) -> Result<Operation> {
         if let Some(p) = &proof {
             validate_proof(p)?;
         }

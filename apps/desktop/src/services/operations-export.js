@@ -1,4 +1,4 @@
-import { multiplyDecimals } from "../decimal.js";
+import { multiplyDecimals, sumDecimals } from "../decimal.js";
 export async function exportOperationalReport({
   invoke,
   format,
@@ -24,7 +24,9 @@ export async function exportOperationalReport({
     "Cobrado",
     "Por pagar",
     "Por cobrar",
-    "Caja",
+    "Saldo respecto del comitente",
+    "Aportes propios netos",
+    "Disponible incluidos aportes",
     "Costo a terminar",
     "Resultado esperado",
     "Avance físico %",
@@ -42,6 +44,8 @@ export async function exportOperationalReport({
       s.payable,
       s.receivable,
       s.cash,
+      sumDecimals([s.own_contributions||"0",multiplyDecimals(s.own_reimbursements||"0","-1")]),
+      s.available_cash ?? s.cash,
       s.cost_to_finish,
       s.expected_result,
       s.physical_percent,

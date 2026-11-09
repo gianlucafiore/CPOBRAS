@@ -40,6 +40,9 @@ export function createQuotationWorkflow({
     providerMenu: null,
     providerAdding: false,
     exportName: null,
+    editVersion: 0,
+    saving: false,
+    saveError: "",
     award: null,
     receive: null,
     payment: null,
@@ -52,7 +55,7 @@ export function createQuotationWorkflow({
     model.partners.filter(
       (p) =>
         ["supplier", "subcontractor", "crew"].includes(p.kind) &&
-        p.attributes?.person_primary !== "false",
+        p.attributes?.person_primary !== "false" && p.attributes?.person_active !== "false",
     );
   async function selectRequest(id) {
     v.providerPicker = null;
@@ -169,21 +172,32 @@ export function createQuotationWorkflow({
       }
     }
   }
-  async function saveResponses() {
-    readResponses();
-    for (const r of v.responses)
-      for (const p of r.prices) {
-        if (p.unit_price !== null && !/^\d+(\.\d+)?$/.test(p.unit_price))
-          throw new Error(
-            "Ingresá precios unitarios positivos sin IVA, o dejá la celda vacía",
-          );
+  let priceSaveQueue = Promise.resolve();
+  let pendingPriceSaves = 0;
+  function saveResponses() {
+    const requestId = v.selected?.id;
+    pendingPriceSaves++;
+    const run = priceSaveQueue.catch(() => {}).then(async () => {
+      if(v.selected?.id !== requestId) throw new Error("La solicitud cambió antes de guardar los precios");
+      readResponses();
+      const version = v.editVersion;
+      const responses = structuredClone(v.responses);
+      for(const r of responses) for(const p of r.prices) {
+        if(p.unit_price !== null && !/^\d+(\.\d+)?$/.test(p.unit_price)) throw new Error("Ingresá precios unitarios positivos sin IVA, o dejá la celda vacía");
       }
-    for (let i = 0; i < v.responses.length; i++)
-      v.responses[i] = await invoke("save_quote_response", {
-        response: v.responses[i],
-      });
-    v.dirty = false;
-    updateSaveState();
+      v.saving=true;v.saveError="";updateSaveState();
+      try {
+        for(const response of responses) {
+          const saved=await invoke("save_quote_response",{response});
+          if(v.selected?.id !== requestId) continue;
+          const current=v.responses.find(r=>r.id===saved.id);
+          if(current) {if(v.editVersion===version) Object.assign(current,saved);else current.revision=saved.revision;}
+        }
+        if(v.selected?.id===requestId) v.dirty=v.editVersion!==version;
+      } catch(error) {v.saveError="No se pudo guardar: "+error;v.dirty=true;throw error;}
+      finally {v.saving=false;updateSaveState();}
+    });
+    priceSaveQueue=run.finally(()=>{pendingPriceSaves--;});return priceSaveQueue;
   }
   function price(response, row) {
     return response.prices.find((p) => p.row_id === row)?.unit_price ?? null;
@@ -235,7 +249,7 @@ export function createQuotationWorkflow({
   function selected() {
     const r = v.selected, editable = !state.remoteProject;
     const trailing = editable ? '<td class="quote-add-column"></td>' : v.responses.length ? "" : '<td class="quote-empty-provider">—</td>';
-    return `<div class="feature-toolbar rfq-request-heading"><h3>${e(r.title)}</h3><button class="btn tiny" data-action="ops-rfq-export" data-format="pdf">PDF para enviar</button><button class="btn tiny" data-action="ops-rfq-export" data-format="xlsx">Planilla para completar precios</button></div><details class="rfq-file-settings"><summary>Condiciones y nombre de archivo</summary>${field("Nombre del archivo", "rfq-filename", v.exportName ?? r.title, 'maxlength="150"')}<p>${e(r.scope)} · ${e(r.delivery)} · ${e(r.payment)} · ${e(r.validity)}</p></details><p class="rfq-price-help">Precios unitarios <strong>sin IVA</strong> en ${e(r.currency)}. Vacío = sin cotizar; cero = precio explícito. Verde: menor precio disponible.</p>${editable ? `<div class="rfq-comparison-actions"><button class="btn tiny" data-action="ops-rfq-save-prices">Guardar precios</button><button class="btn primary tiny" data-action="ops-rfq-distribute" ${v.responses.length ? "" : "disabled"}>Distribuir pedido</button><span role="status" aria-live="polite" data-quote-save-state class="quote-save-state ${v.dirty ? "dirty" : ""}">${v.dirty ? "Cambios sin guardar" : v.responses.length ? "Precios guardados" : ""}</span></div>` : ""}<div class="quotation-matrix"><table class="data-grid"><thead><tr class="quote-header-groups"><th rowspan="2" class="quote-item">${r.kind === "material" ? "Material" : "Tarea"}</th><th rowspan="2" class="quote-unit">Unidad</th><th rowspan="2" class="quote-quantity">Cantidad solicitada</th><th scope="colgroup" colspan="${Math.max(1,v.responses.length + (editable ? 1 : 0))}" class="quote-providers-heading">Proveedores</th></tr><tr class="quote-header-providers">${v.responses.map(p => `<th class="quote-provider"><div class="quote-provider-heading"><span>${e(supplier(p.supplier_id))}</span><button type="button" class="btn tiny" title="Opciones de ${e(supplier(p.supplier_id))}" aria-label="Opciones de ${e(supplier(p.supplier_id))}" aria-expanded="${v.providerMenu?.id === p.id}" data-action="ops-rfq-provider-menu" data-id="${p.id}">⋯</button></div><small>Precio unitario sin IVA</small></th>`).join("")}${editable ? '<th class="quote-add-column"><button type="button" class="btn tiny quote-add-provider" data-action="ops-rfq-provider-picker" title="Agregar proveedor" aria-label="Agregar proveedor" aria-expanded="'+Boolean(v.providerPicker)+'">+</button></th>' : v.responses.length ? "" : '<th class="quote-empty-provider">Sin propuestas</th>'}</tr></thead><tbody>${r.items.map(row => `<tr><td class="quote-item">${e(row.description)}</td><td class="quote-unit">${e(row.unit)}</td><td class="quote-quantity">${numeric(row.quantity)}<small>Pendiente: ${numeric(pending(row.id))}</small></td>${v.responses.map(p => `<td class="quote-provider-cell ${cheapest(row.id) === p.id ? "quote-best" : ""}"><input type="number" min="0" step="any" data-quote-cell data-response="${p.id}" data-row="${row.id}" value="${e(price(p,row.id) ?? "")}" aria-label="Precio sin IVA ${e(row.description)} de ${e(supplier(p.supplier_id))}" ${editable ? "" : "readonly"}></td>`).join("")}${trailing}</tr>`).join("")}<tr class="quote-subtotal-row"><th colspan="3">Subtotal cotizado sin IVA</th>${v.responses.map(p => `<td><strong data-quote-total="${p.id}">${money(sumDecimals(r.items.filter(i => price(p,i.id) !== null).map(i => multiplyDecimals(i.quantity,price(p,i.id)))))}</strong><small>${p.prices.filter(x => x.unit_price !== null).length} de ${r.items.length} cotizados</small></td>`).join("")}${trailing}</tr><tr class="quote-comments-row"><th colspan="3">Comentarios / condiciones</th>${v.responses.map(p => `<td><textarea data-response-term="terms" data-response="${p.id}" rows="2" placeholder="Comentarios o condiciones" aria-label="Comentarios y condiciones de ${e(supplier(p.supplier_id))}" ${editable ? "" : "readonly"}>${e([p.reference,p.terms].filter(Boolean).join("\n"))}</textarea></td>`).join("")}${trailing}</tr></tbody></table></div>${quotePopovers()}`;
+    return `<div class="feature-toolbar rfq-request-heading"><h3>${e(r.title)}</h3><button class="btn tiny" data-action="ops-rfq-export" data-format="pdf">PDF para enviar</button><button class="btn tiny" data-action="ops-rfq-export" data-format="xlsx">Planilla para completar precios</button></div><details class="rfq-file-settings"><summary>Condiciones y nombre de archivo</summary>${field("Nombre del archivo", "rfq-filename", v.exportName ?? r.title, 'maxlength="150"')}<p>${e(r.scope)} · ${e(r.delivery)} · ${e(r.payment)} · ${e(r.validity)}</p></details><p class="rfq-price-help">Precios unitarios <strong>sin IVA</strong> en ${e(r.currency)}. Vacío = sin cotizar; cero = precio explícito. Verde: menor precio disponible.</p>${editable ? `<div class="rfq-comparison-actions"><button class="btn tiny" data-action="ops-rfq-save-prices">Guardar precios</button><button class="btn primary tiny" data-action="ops-rfq-distribute" ${v.responses.length ? "" : "disabled"}>Distribuir pedido</button><span role="status" aria-live="polite" data-quote-save-state class="quote-save-state ${v.dirty ? "dirty" : ""}">${v.dirty ? "Cambios sin guardar" : v.responses.length ? "Precios guardados" : ""}</span></div>` : ""}<div class="quotation-matrix"><table class="data-grid"><thead><tr class="quote-header-groups"><th rowspan="2" class="quote-item">${r.kind === "material" ? "Material" : "Tarea"}</th><th rowspan="2" class="quote-unit">Unidad</th><th rowspan="2" class="quote-quantity">Cantidad solicitada</th><th scope="colgroup" colspan="${Math.max(1,v.responses.length + (editable ? 1 : 0))}" class="quote-providers-heading">Proveedores</th></tr><tr class="quote-header-providers">${v.responses.map(p => `<th class="quote-provider"><div class="quote-provider-heading"><span>${e(supplier(p.supplier_id))}</span><button type="button" class="btn tiny" title="Opciones de ${e(supplier(p.supplier_id))}" aria-label="Opciones de ${e(supplier(p.supplier_id))}" aria-expanded="${v.providerMenu?.id === p.id}" data-action="ops-rfq-provider-menu" data-id="${p.id}">⋯</button></div><small>Precio unitario sin IVA</small></th>`).join("")}${editable ? '<th class="quote-add-column"><button type="button" class="btn tiny quote-add-provider" data-action="ops-rfq-provider-picker" title="Agregar proveedor" aria-label="Agregar proveedor" aria-expanded="'+Boolean(v.providerPicker)+'">+</button></th>' : v.responses.length ? "" : '<th class="quote-empty-provider">Sin propuestas</th>'}</tr></thead><tbody>${r.items.map(row => `<tr><td class="quote-item">${e(row.description)}</td><td class="quote-unit">${e(row.unit)}</td><td class="quote-quantity">${numeric(row.quantity)}<small>Pendiente: ${numeric(pending(row.id))}</small></td>${v.responses.map(p => `<td class="quote-provider-cell ${cheapest(row.id) === p.id ? "quote-best" : ""}"><input type="number" min="0" step="any" data-quote-cell data-response="${p.id}" data-row="${row.id}" value="${e(price(p,row.id) ?? "")}" aria-label="Precio sin IVA ${e(row.description)} de ${e(supplier(p.supplier_id))}" ${editable ? "" : "readonly"}></td>`).join("")}${trailing}</tr>`).join("")}<tr class="quote-subtotal-row"><th colspan="3">Subtotal cotizado sin IVA</th>${v.responses.map(p => `<td><strong data-quote-total="${p.id}">${money(sumDecimals(r.items.filter(i => price(p,i.id) !== null).map(i => multiplyDecimals(i.quantity,price(p,i.id)))))}</strong><small data-quote-count="${p.id}">${p.prices.filter(x => x.unit_price !== null).length} de ${r.items.length} cotizados</small></td>`).join("")}${trailing}</tr><tr class="quote-comments-row"><th colspan="3">Comentarios / condiciones</th>${v.responses.map(p => `<td><textarea data-response-term="terms" data-response="${p.id}" rows="2" placeholder="Comentarios o condiciones" aria-label="Comentarios y condiciones de ${e(supplier(p.supplier_id))}" ${editable ? "" : "readonly"}>${e([p.reference,p.terms].filter(Boolean).join("\n"))}</textarea></td>`).join("")}${trailing}</tr></tbody></table></div>${quotePopovers()}`;
   }
   function orders() {
     const material = kind() === "material";
@@ -890,6 +904,7 @@ export function createQuotationWorkflow({
     render();
   }
   async function protect() {
+    if(pendingPriceSaves){try{await priceSaveQueue;}catch{ /* The existing unsaved-changes dialog offers retry. */ }}
     readRequest();
     readResponses();
     if (!v.dirty) return true;
@@ -919,9 +934,7 @@ export function createQuotationWorkflow({
   function updateSaveState() {
     const status = document.querySelector("[data-quote-save-state]");
     if (status) {
-      status.textContent = v.dirty
-        ? "Cambios sin guardar"
-        : "Precios guardados";
+      status.textContent = v.saveError || (v.saving ? "Guardando…" : v.dirty ? "Cambios sin guardar" : "Precios guardados");
       status.classList.toggle("dirty", v.dirty);
     }
   }
@@ -936,6 +949,10 @@ export function createQuotationWorkflow({
       button?.focus();
     }
   }
+  document.addEventListener("focusout", event => {
+    if(!event.target.isConnected || !event.target.matches?.("[data-quote-cell],[data-response-term]") || !v.dirty || state.remoteProject) return;
+    saveResponses().catch(error => {v.saveError="No se pudo guardar. Tus cambios siguen en pantalla: "+error;updateSaveState();});
+  });
   document.addEventListener("toggle", event => {
     if(event.target.isConnected && event.target.matches?.("[data-quote-analysis]")) {
       v.analysisOpen[event.target.dataset.quoteAnalysis] = event.target.open;
@@ -980,6 +997,7 @@ export function createQuotationWorkflow({
         t.matches?.("[data-quote-cell],[data-response-term]")
       ) {
         v.dirty = true;
+        v.editVersion++;v.saveError="";
         updateSaveState();
       }
       if (t.matches?.("[data-quote-cell]")) {
@@ -992,6 +1010,10 @@ export function createQuotationWorkflow({
                 "quote-best",
                 cheapest(input.dataset.row) === input.dataset.response,
               );
+          for(const count of document.querySelectorAll("[data-quote-count]")) {
+            const response=v.responses.find(r=>r.id===count.dataset.quoteCount);
+            if(response) count.textContent=`${response.prices.filter(p=>p.unit_price!==null).length} de ${v.selected.items.length} cotizados`;
+          }
           for (const output of document.querySelectorAll(
             "[data-quote-total]",
           )) {

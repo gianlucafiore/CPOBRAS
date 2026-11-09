@@ -3,7 +3,7 @@ import { createSiteBook } from "./site-book.js";
 import { createCertificateWorkflow } from "./certificate-workflow.js";
 import { createQuotationWorkflow } from "./quotation-workflow.js";
 import { e, field, select, dateToday } from "./helpers.js";
-import { money, numeric, sumDecimals } from "../decimal.js";
+import { money, numeric, sumDecimals, multiplyDecimals, compareDecimals } from "../decimal.js";
 import { exportOperationalReport } from "../services/operations-export.js";
 export const operationGroups = {
   purchases: [
@@ -30,12 +30,18 @@ export const operationGroups = {
     "collection",
     "advance_paid",
     "advance_received",
+    "direct_payment",
+    "fund_contribution",
+    "fund_reimbursement",
     "retention_payable",
     "retention_receivable",
     "forecast",
   ],
 };
 export const operationNames = {
+  direct_payment: "Gasto pagado sin factura vinculada",
+  fund_contribution: "Aporte de fondos propios",
+  fund_reimbursement: "Devolución de fondos propios",
   request: "Solicitud de materiales",
   rfq: "Pedido de cotización",
   quote: "Cotización de proveedor",
@@ -69,7 +75,10 @@ const guides = {
   advance_paid:
     "Registrá el anticipo efectivamente pagado y vinculalo con el subcontrato. Luego se descuenta en sus certificados, hasta el saldo pendiente.",
   advance_received:
-    "Registrá el anticipo cobrado del comitente. Los certificados pueden recuperarlo sin superar el saldo recibido.",
+    "Ingreso real del comitente. Se suma al fondo de la obra y queda vinculado al convenio del presupuesto elegido. Los certificados descuentan solo el anticipo recibido pendiente de recuperar.",
+  direct_payment: "Registrá permisos, tasas u otro gasto efectivamente pagado que no tenga factura o certificado ya registrado. Si ya existe un documento, usá Pago para evitar duplicar el gasto.",
+  fund_contribution: "Dinero propio que incorporás a la obra. No es un cobro del comitente ni un ingreso por venta.",
+  fund_reimbursement: "Retiro de un aporte propio previamente registrado. No es un gasto de obra.",
   retention_payable:
     "Liberá el fondo de reparo de un certificado de subcontratista. Se crea una obligación que podrás pagar vinculando este documento.",
   retention_receivable:
@@ -157,6 +166,7 @@ export function createOperationsWorkspace({
     get lastExport() { return this._lastExport || ""; },
     set lastExport(path) { this._lastExport = path; if (path) state.message = "Guardado en " + path; },
     cashSettings: null,
+    detailFiles: [],
   };
   const book = createSiteBook({
     invoke,
@@ -244,6 +254,9 @@ export function createOperationsWorkspace({
         "collection",
         "advance_paid",
         "advance_received",
+        "direct_payment",
+        "fund_contribution",
+        "fund_reimbursement",
         "retention_payable",
         "retention_receivable",
         "forecast",
@@ -512,6 +525,9 @@ export function createOperationsWorkspace({
       "collection",
       "advance_paid",
       "advance_received",
+      "direct_payment",
+      "fund_contribution",
+      "fund_reimbursement",
       "retention_payable",
       "retention_receivable",
       "forecast",
@@ -553,7 +569,8 @@ export function createOperationsWorkspace({
         ["USD", "USD"],
       ],
       o.currency,
-    )}${select("Contraparte", "o:partner_id", [["", "Comitente / sin contraparte"], ...model.partners.filter((p) => p.attributes?.person_primary !== "false" || p.id === o.partner_id).map((p) => [p.id, p.name + ((state.projects.find((x) => x.id === state.projectId)?.supplier_ids || []).includes(p.attributes?.person_id || p.id) ? " · Vinculado a la obra" : "")])], o.partner_id)}${available.length || ["rfq", "quote", "purchase_order", "service_order", "subcontract", "receipt", "service_receipt", "return", "subcertificate", "adjustment", "payable", "receivable", "payment", "collection", "advance_paid", "retention_payable", "retention_receivable"].includes(o.kind) ? select("Documento de origen", "o:reference_id", [["", "Sin origen"], ...available.map((d) => [d.id, `${operationNames[d.kind]} · ${d.number} · ${partnerName(d.partner_id)} · ${d.currency} ${money(d.amount)}`])], o.reference_id) : ""}${select("Presupuesto de referencia", "o:estimate_id", [["", "Sin vínculo"], ...model.estimates.filter((x) => x.id === model.estimateId || x.id === o.estimate_id).map((x) => [x.id, x.title + (x.issued ? " · Emitido" : " · Borrador")])], o.estimate_id)}</div>
+    )}${select("Contraparte", "o:partner_id", [["", "Comitente / sin contraparte"], ...model.partners.filter((p) => p.attributes?.person_primary !== "false" || p.id === o.partner_id).map((p) => [p.id, p.name + ((state.projects.find((x) => x.id === state.projectId)?.supplier_ids || []).includes(p.attributes?.person_id || p.id) ? " · Vinculado a la obra" : "")])], o.partner_id)}${available.length || ["rfq", "quote", "purchase_order", "service_order", "subcontract", "receipt", "service_receipt", "return", "subcertificate", "adjustment", "payable", "receivable", "payment", "collection", "advance_paid", "retention_payable", "retention_receivable"].includes(o.kind) ? select("Documento de origen", "o:reference_id", [["", "Sin origen"], ...available.map((d) => [d.id, `${operationNames[d.kind]} · ${d.number} · ${partnerName(d.partner_id)} · ${d.currency} ${money(d.amount)}`])], o.reference_id) : ""}${select(o.kind === "advance_received" ? "Presupuesto / convenio del anticipo" : "Presupuesto de referencia", "o:estimate_id", [...(o.kind === "advance_received" ? [] : [["", "Sin vínculo"]]), ...model.estimates.filter((x) => o.kind === "advance_received" || x.id === model.estimateId || x.id === o.estimate_id).map((x) => [x.id, x.title + (x.issued ? " · Emitido" : " · Borrador")])], o.estimate_id)}</div>
+ ${o.kind === "advance_received" ? field("Recuperación del anticipo % (opcional)", "o:advance_percent", o.advance_percent ?? "", 'type="number" min="0" max="100" step="any"') + '<p class="modal-help">Vacío: conserva el porcentaje pactado; si todavía no existe, se calcula con el anticipo recibido y el total del presupuesto. El ingreso y el convenio se registran juntos.</p>' : ""}
  ${o.kind === "payable" ? select("Alquiler / gasto mensual previsto (opcional)", "rental-link", [["", "Sin vínculo"], ...(model.report?.recurring_costs || []).filter((r) => r.currency === o.currency).map((r) => [rentalKey(r), `${r.description} · ${r.period_start} → ${r.period_end}`])], o.price_cost ? rentalKey(o.price_cost) : "") + '<p class="modal-help">Para un gasto mensual elegí su período y dejá Documento de origen sin vínculo. La factura reemplaza la previsión; registrá su pago por separado.</p>' : ""}
 
  ${stockKinds.includes(o.kind) ? `<div class="form-grid">${select("Depósito", "o:warehouse_id", opts(model.warehouses.filter((w) => w.project_id === model.projectId)), o.warehouse_id)}${o.kind === "transfer" ? select("Depósito de destino", "o:destination_id", [["", "Seleccionar…"], ...model.warehouses.map((w) => [w.id, whName(w.id)])], o.destination_id) : ""}</div>` : ""}
@@ -632,7 +649,7 @@ export function createOperationsWorkspace({
          .join("")}`
      : ""
  }
- ${["subcontract", "service_order", "purchase_order"].includes(o.kind) ? field("Fecha prevista de pago del saldo", "o:due_date", o.due_date, 'type="date" required') + `<label>Condiciones, alcance, plazos y forma de pago<textarea name="o:terms">${e(o.terms)}</textarea></label>` : ""}<label>Observaciones<textarea name="o:notes">${e(o.notes)}</textarea></label><p class="feature-error" role="alert"></p><button type="submit" class="btn primary">Registrar ${e(operationNames[o.kind].toLowerCase())}</button></form>`;
+ ${["subcontract", "service_order", "purchase_order"].includes(o.kind) ? field("Fecha prevista de pago del saldo", "o:due_date", o.due_date, 'type="date" required') + `<label>Condiciones, alcance, plazos y forma de pago<textarea name="o:terms">${e(o.terms)}</textarea></label>` : ""}<label>${o.kind === "direct_payment" ? "Concepto del gasto (obligatorio)" : "Observaciones"}<textarea name="o:notes" ${o.kind === "direct_payment" ? "required" : ""}>${e(o.notes)}</textarea></label>${["payment","collection","advance_received","advance_paid","direct_payment","fund_contribution","fund_reimbursement"].includes(o.kind)?'<label>Comprobante (opcional, hasta 10 MB)<input type="file" name="fund-proof" accept="application/pdf,image/png,image/jpeg,image/webp"></label>':""}<p class="feature-error" role="alert"></p><button type="submit" class="btn primary">Registrar ${e(operationNames[o.kind].toLowerCase())}</button></form>`;
   }
   function documentRows() {
     const kinds = operationGroups[model.tab] || [];
@@ -785,7 +802,7 @@ export function createOperationsWorkspace({
     const f = model.report?.financial_projection;
     if (!f)
       return "<p>Guardá el cronograma en Planificación para consultar la previsión financiera.</p>";
-    return `<section class="financial-projection"><h2>Previsión financiera · ${e(f.currency)}</h2><p>Desde el día siguiente al corte de seguimiento (${e(f.as_of)}). Caja inicial declarada: <strong>${money(f.opening_cash)}</strong>. Capital adicional máximo previsto: <strong>${money(f.additional_cash)}</strong>.</p><p>Los cobros por certificación son estimaciones del cronograma, no certificados emitidos. Las compras se prevén para el día en que se necesitan; anticipá sus fechas si el proveedor requiere pago o entrega previa. No se convierten monedas. Los egresos se consideran antes que los cobros del mismo día.</p>${(f.warnings || []).map((w) => `<p class="context-help">${e(w)}</p>`).join("")}${f.periods
+    return `<section class="financial-projection"><h2>Previsión financiera · ${e(f.currency)}</h2><p>Desde el día siguiente al corte de seguimiento (${e(f.as_of)}). Caja inicial (${f.opening_cash_source === "registered" ? "movimientos registrados" : "saldo declarado"}): <strong>${money(f.opening_cash)}</strong>. Capital adicional máximo previsto: <strong>${money(f.additional_cash)}</strong>.</p><p>Los cobros por certificación son estimaciones del cronograma, no certificados emitidos. Las compras se prevén para el día en que se necesitan; anticipá sus fechas si el proveedor requiere pago o entrega previa. No se convierten monedas. Los egresos se consideran antes que los cobros del mismo día.</p>${(f.warnings || []).map((w) => `<p class="context-help">${e(w)}</p>`).join("")}${f.periods
       .map(
         (p) =>
           `<details class="planning-options" open><summary>Período ${e(p.start)} → ${e(p.end)} · Egresos ${money(p.expenses)} · Caja adicional ${money(p.additional_cash)}</summary><p>Certificación prevista: bruto ${money(p.gross)} − anticipo ${money(p.advance)} − reparo ${money(p.retention)} = <strong>${money(p.net)}</strong>. Cobro previsto: ${e(p.collection_date)}. Ingresos durante el período: ${money(p.receipts)}.</p>${table(
@@ -825,7 +842,7 @@ export function createOperationsWorkspace({
   function cashSettings() {
     const p = model.cashSettings;
     if (!p) return "";
-    return `<form id="workflow-cash-form" class="workflow-card"><h3>Caja disponible de esta obra</h3><p>Saldo disponible a la fecha de seguimiento. No modifica movimientos contables; sirve como punto de partida de la previsión.</p><div class="feature-toolbar">${field("Caja disponible", "opening_cash", p.plan.finance?.opening_cash || "0", 'type="number" min="0" step="any" required')}${select(
+    return `<form id="workflow-cash-form" class="workflow-card"><h3>Caja disponible de esta obra</h3><p>Saldo inicial para una obra que todavía no tiene movimientos registrados. Desde el primer cobro o pago, la previsión usa automáticamente el fondo de la obra.</p><div class="feature-toolbar">${field("Caja disponible", "opening_cash", p.plan.finance?.opening_cash || "0", 'type="number" min="0" step="any" required')}${select(
       "Moneda de la caja",
       "cash_currency",
       [
@@ -855,20 +872,20 @@ export function createOperationsWorkspace({
           .filter((x) => x.kind !== "planned_certificate")
           .map((x) => x.income),
       );
-    let balance = Number(f.opening_cash),
+    let balance = f.opening_cash,
       minimum = balance;
     for (const x of until) {
-      balance += Number(x.income) - Number(x.expense);
-      minimum = Math.min(minimum, balance);
+      balance = sumDecimals([balance,x.income,multiplyDecimals(x.expense,"-1")]);
+      if(compareDecimals(balance,minimum)<0)minimum=balance;
     }
     return (
       cashSettings() +
-      `<section class="workflow-card"><button class="btn" data-action="ops-cash-open">Configurar caja disponible</button><h2>Próxima certificación · ${e(next.end)}</h2><p>Financiamiento hasta el cobro previsto (${e(next.collection_date)}), incluyendo días posteriores al corte. Moneda ${e(f.currency)}. Los gastos mensuales, acopio y obligaciones se concilian con la previsión detallada.</p><div class="workflow-summary">${[
+      `<section class="workflow-card">${f.opening_cash_source === "registered" ? "" : '<button class="btn" data-action="ops-cash-open">Configurar caja inicial</button>'}<h2>Próxima certificación · ${e(next.end)}</h2><p>Financiamiento hasta el cobro previsto (${e(next.collection_date)}), incluyendo días posteriores al corte. Moneda ${e(f.currency)}. Los gastos mensuales, acopio y obligaciones se concilian con la previsión detallada.</p><div class="workflow-summary">${[
         ["Cobro posible del corte", next.net],
         ["Gastos hasta el cobro", expenses],
         ["Otros cobros confirmados", confirmed],
-        ["Caja disponible declarada", f.opening_cash],
-        ["Capital adicional estimado", String(Math.max(0, -minimum))],
+        [f.opening_cash_source === "registered" ? "Caja de movimientos registrados" : "Caja inicial declarada", f.opening_cash],
+        ["Capital adicional estimado", (compareDecimals(minimum,"0")<0 ? multiplyDecimals(minimum,"-1") : "0")],
         ["Avance oficial certificado %", model.report.certified_percent || "0"],
       ]
         .map(([label, value]) => `<div>${label}<b>${money(value)}</b></div>`)
@@ -884,8 +901,24 @@ export function createOperationsWorkspace({
       )}</section>`
     );
   }
+  function projectFunds() {
+    const docs = model.docs.filter(o => o.date <= model.asOf);
+    const currencies = [...new Set(docs.map(o => o.currency).concat(model.report?.summaries.map(s=>s.currency)||[]))];
+    const paymentKinds=["payment","advance_paid","direct_payment"], incomeKinds=["collection","advance_received"];
+    const sum=(currency,kinds)=>sumDecimals(docs.filter(o=>o.currency===currency&&kinds.includes(o.kind)).map(o=>o.amount));
+    const rows=docs.filter(o=>[...paymentKinds,...incomeKinds,"fund_contribution","fund_reimbursement"].includes(o.kind)).sort((a,b)=>a.date.localeCompare(b.date)||model.docs.indexOf(a)-model.docs.indexOf(b));
+    const balances={};
+    return `<section class="workflow-card project-funds"><div class="feature-toolbar"><h2>Fondo de la obra</h2>${state.remoteProject ? "" : '<button class="btn tiny" data-action="ops-fund-new" data-kind="advance_received">Registrar anticipo</button><button class="btn tiny" data-action="ops-fund-new" data-kind="collection">Registrar cobro</button><button class="btn tiny" data-action="ops-fund-new" data-kind="payment">Registrar pago</button><button class="btn tiny" data-action="ops-fund-new" data-kind="direct_payment">Gasto pagado</button><button class="btn tiny" data-action="ops-fund-new" data-kind="fund_contribution">Aporte propio</button>'}</div><p>Movimientos efectivamente cobrados y pagados hasta ${e(model.asOf)}. Los pedidos, facturas y certificados pendientes no mueven este fondo. Cada moneda se mantiene separada.</p>${currencies.map(currency=>{
+      const received=sum(currency,incomeKinds),paid=sum(currency,paymentKinds),own=sumDecimals([sum(currency,["fund_contribution"]),multiplyDecimals(sum(currency,["fund_reimbursement"]),"-1")]),balance=sumDecimals([received,multiplyDecimals(paid,"-1")]),available=sumDecimals([balance,own]);
+      return `<div class="fund-currency"><h3>${e(currency)}</h3><div class="fund-kpis"><span>Recibido del comitente<b>${money(received)}</b></span><span>Pagado por la obra<b>${money(paid)}</b></span><span>Saldo respecto del comitente<b class="${compareDecimals(balance,"0")<0?"negative":""}">${money(balance)}</b></span><span>Aportes propios netos<b>${money(own)}</b></span><span>Disponible, incluidos aportes<b class="${compareDecimals(available,"0")<0?"negative":""}">${money(available)}</b></span></div>${compareDecimals(balance,"0")<0?'<p class="operations-alert">Se pagó más de lo recibido del comitente. La diferencia requiere financiamiento propio u otro ingreso de fondos.</p>':""}</div>`;
+    }).join("")}<details><summary>Movimientos del fondo (${rows.length})</summary>${table(["Fecha","Concepto","Destinatario / origen","Moneda","Ingreso","Egreso","Saldo disponible"],rows.map(o=>{
+      const incoming=[...incomeKinds,"fund_contribution"].includes(o.kind);balances[o.currency]=sumDecimals([balances[o.currency]||"0",incoming?o.amount:multiplyDecimals(o.amount,"-1")]);
+      return [e(o.date),`<button class="link" data-action="ops-detail" data-id="${o.id}">${e(operationNames[o.kind]||o.kind)} · ${e(o.number)}</button>${o.notes?`<small>${e(o.notes)}</small>`:""}${o.kind==="advance_received"&&!o.estimate_id&&!state.remoteProject?`<button class="btn tiny" data-action="ops-link-advance" data-id="${o.id}">Vincular al convenio activo</button>`:""}`,e(partnerName(o.partner_id)),e(o.currency),incoming?money(o.amount):"—",incoming?"—":money(o.amount),money(balances[o.currency])];
+    }))}</details></section>`;
+  }
   function finances() {
     return (
+      projectFunds() +
       summary(model.report) +
       financialProjection() +
       rentals() +
@@ -1047,7 +1080,7 @@ export function createOperationsWorkspace({
   function detail() {
     const d = model.detail;
     if (!d) return "";
-    return `<div class="modal-overlay"><section class="dialog-shell wide" role="dialog" aria-modal="true" aria-label="Documento registrado"><div class="dialog-header"><h2>${e(operationNames[d.kind])} · ${e(d.number)}</h2><button type="button" data-action="ops-close-detail" aria-label="Cerrar documento">×</button></div><div class="dialog-body"><p>Presupuesto del documento: <strong>${e(model.estimates.find((est) => est.id === d.estimate_id)?.title || "Sin vínculo")}</strong></p><p>${e(d.date)} · ${e(partnerName(d.partner_id))} · ${e(d.currency)} ${money(d.amount)}</p><p>${e(d.notes)}</p><p>${e(d.terms)}</p>${d.period_start ? `<p>Período: ${e(d.period_start)} a ${e(d.period_end)}</p>` : ""}${certificateAnnex(d)}${table(
+    return `<div class="modal-overlay"><section class="dialog-shell wide" role="dialog" aria-modal="true" aria-label="Documento registrado"><div class="dialog-header"><h2>${e(operationNames[d.kind])} · ${e(d.number)}</h2><button type="button" data-action="ops-close-detail" aria-label="Cerrar documento">×</button></div><div class="dialog-body"><p>Presupuesto del documento: <strong>${e(model.estimates.find((est) => est.id === d.estimate_id)?.title || "Sin vínculo")}</strong></p><p>${e(d.date)} · ${e(partnerName(d.partner_id))} · ${e(d.currency)} ${money(d.amount)}</p><p>${e(d.notes)}</p><p>${e(d.terms)}</p>${model.detailFiles.map(f=>`<button class="btn tiny" data-action="ops-rfq-proof-open" data-id="${f.id}">${e(f.name)}</button>`).join("")}${d.period_start ? `<p>Período: ${e(d.period_start)} a ${e(d.period_end)}</p>` : ""}${certificateAnnex(d)}${table(
       ["Descripción", "Cantidad", "Precio", "Horas"],
       d.lines.map((l) => [
         e(l.description),
@@ -1261,6 +1294,16 @@ export function createOperationsWorkspace({
       model.draft.warehouse_id = warehouse.id;
       model.dirty = false;
     }
+    if (a === "ops-link-advance") {
+      const estimate=model.estimates.find(e=>e.id===model.estimateId);
+      if(!estimate)throw new Error("Elegí primero el presupuesto del convenio");
+      if(!window.confirm(`¿Vincular este anticipo al convenio de «${estimate.title}»? No se registra un segundo ingreso.`))return;
+      await invoke("link_client_advance",{projectId:model.projectId,documentId:button.dataset.id,estimateId:estimate.id});await refresh();
+    }
+    if (a === "ops-fund-new") {
+      if (!(await protect())) return;
+      model.draft = draft(button.dataset.kind);model.dirty=false;
+    }
     if (a === "ops-new") {
       if (!(await protect())) return;
       model.draft = draft(
@@ -1330,8 +1373,10 @@ export function createOperationsWorkspace({
       model.dirty = true;
     }
     if (a === "ops-refresh") await refresh();
-    if (a === "ops-detail")
+    if (a === "ops-detail") {
       model.detail = model.docs.find((d) => d.id === button.dataset.id);
+      model.detailFiles = state.remoteProject ? [] : await invoke("list_operation_files",{projectId:model.projectId,documentId:button.dataset.id});
+    }
     if (a === "ops-close-detail") model.detail = null;
     if (a === "ops-export" || a === "ops-export-document")
       model.lastExport = await exportOperationalReport({
@@ -1570,11 +1615,15 @@ export function createOperationsWorkspace({
       return;
     }
     read();
-    const saved = await invoke("post_operation", { operation: model.draft });
+    const fundKinds=["payment","collection","advance_received","advance_paid","direct_payment","fund_contribution","fund_reimbursement"];
+    let proof=null;const file=form.querySelector('[name="fund-proof"]')?.files?.[0];
+    if(file){if(file.size>10*1024*1024)throw new Error("Máximo 10 MB por comprobante");proof={name:file.name,content:[...new Uint8Array(await file.arrayBuffer())]};}
+    const saved = fundKinds.includes(model.draft.kind) ? await invoke("register_fund_movement",{operation:model.draft,proof}) : await invoke("post_operation", { operation: model.draft });
     model.dirty = false;
     model.draft = model.tab === "finance" ? draft(saved.kind) : null;
     await refresh();
     model.detail = saved;
+    model.detailFiles = proof ? await invoke("list_operation_files",{projectId:model.projectId,documentId:saved.id}) : [];
     render();
   }
   function input(target) {

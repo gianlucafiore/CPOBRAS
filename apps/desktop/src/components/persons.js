@@ -33,13 +33,14 @@ export function createPersons({
     const r = role();
     return `<main class="feature-page persons-page"><div class="feature-toolbar"><h1>${titles[r]}</h1><button class="btn primary" data-action="person-new">Nuevo ${labels[r]}</button><button class="btn" data-action="person-refresh">Actualizar contactos</button><button class="btn" data-action="person-import">Importar desde ${titles[opposite(r)].toLowerCase()}</button></div><p>${r === "client" ? "Personas a las que les presupuestás y realizás obras." : "Personas que te suministran materiales o servicios."} Si ya existe en ${titles[opposite(r)].toLowerCase()}, incorporala para reutilizar sus datos.</p><table class="data-grid"><thead><tr><th>Nombre / razón social</th><th>CUIT</th><th>Teléfono</th><th>Correo</th><th></th></tr></thead><tbody>${
       entries(r)
+        .filter(p=>p[r+"_active"]!==false)
         .map(
           (p) =>
-            `<tr data-searchable="${e((p.name + " " + (p.cuit || "") + " " + p.email).toLowerCase())}"><td><strong>${e(p.name)}</strong>${p.role === "both" ? ` <span class="person-both">También ${labels[opposite(r)]}</span>` : ""}</td><td>${e(p.cuit || "—")}</td><td>${e(p.phone || "—")}</td><td>${e(p.email || "—")}</td><td><button class="btn" data-action="person-edit" data-id="${p.id}">Editar ${labels[r]}</button></td></tr>`,
+            `<tr data-searchable="${e((p.name + " " + (p.cuit || "") + " " + p.email).toLowerCase())}"><td><strong>${e(p.name)}</strong>${p.role === "both" ? ` <span class="person-both">También ${labels[opposite(r)]}</span>` : ""}</td><td>${e(p.cuit || "—")}</td><td>${e(p.phone || "—")}</td><td>${e(p.email || "—")}</td><td><button class="btn" data-action="person-edit" data-id="${p.id}">Editar ${labels[r]}</button><details class="entity-menu"><summary data-action="entity-menu" title="Opciones de ${e(p.name)}" aria-label="Opciones de ${e(p.name)}">⋯</summary><div><button class="btn tiny" data-action="person-deactivate" data-id="${p.id}" data-role="${r}">Dar de baja</button><button class="btn tiny" data-action="person-delete" data-id="${p.id}">Eliminar si no fue usado</button></div></details></td></tr>`,
         )
         .join("") ||
       '<tr><td colspan="5">Sin contactos en este apartado.</td></tr>'
-    }</tbody></table></main>`;
+    }</tbody></table><details class="inactive-persons"><summary>${titles[r]} dados de baja (${entries(r).filter(p=>p[r+"_active"]===false).length})</summary><table class="data-grid"><tbody>${entries(r).filter(p=>p[r+"_active"]===false).map(p=>`<tr><td>${e(p.name)}</td><td>${e(p.cuit||"—")}</td><td><button class="btn tiny" data-action="person-reactivate" data-id="${p.id}" data-role="${r}">Reactivar</button></td></tr>`).join("")||'<tr><td>Sin contactos dados de baja.</td></tr>'}</tbody></table></details></main>`;
   }
   function matchesMarkup() {
     const dialog = m.modal;
@@ -47,7 +48,7 @@ export function createPersons({
     const list =
       dialog.kind === "import"
         ? entries(opposite(dialog.role))
-            .filter((p) => !has(p, dialog.role))
+            .filter((p) => !has(p, dialog.role) && p[opposite(dialog.role)+"_active"]!==false)
             .filter((p) =>
               normalizeContact(
                 p.name + " " + (p.cuit || "") + " " + p.email,
@@ -125,6 +126,7 @@ export function createPersons({
       if (parent.role === "client") {
         const select = form.querySelector("[name=clientId]");
         select.innerHTML = state.clients
+          .filter(c=>state.personClients.find(p=>p.id===c.id)?.client_active!==false)
           .map((p) => `<option value="${p.id}">${e(p.name)}</option>`)
           .join("");
         select.value = person.id;
@@ -149,6 +151,7 @@ export function createPersons({
     if (!host) return;
     host.innerHTML =
       (state.personSuppliers || [])
+        .filter(p=>p.supplier_active!==false || selection.has(p.id))
         .map(
           (p) =>
             `<label class="project-supplier-choice" data-supplier-search="${e((p.name + " " + (p.cuit || "")).toLowerCase())}"><input type="checkbox" name="supplierIds" value="${p.id}" ${selection.has(p.id) ? "checked" : ""}>${e(p.name)}${p.cuit ? " · " + e(p.cuit) : ""}</label>`,
@@ -159,6 +162,13 @@ export function createPersons({
   async function act(button) {
     const a = button.dataset.action;
     if (!a.startsWith("person-")) return false;
+    if (["person-deactivate","person-reactivate","person-delete"].includes(a)) {
+      const r=button.dataset.role||role();
+      if(a!=="person-reactivate" && !window.confirm(a==="person-delete" ? "¿Eliminar este contacto? Si tiene usos registrados se impedirá la eliminación; podés darlo de baja." : "¿Dar de baja este contacto para nuevas selecciones? Su historial se conserva."))return true;
+      if(a==="person-delete")await invoke("delete_unused_person",{id:button.dataset.id});
+      else await invoke("set_entity_archived",{kind:"person:"+r,id:button.dataset.id,archived:a==="person-deactivate"});
+      await loadCollections();render();return true;
+    }
     if (a === "person-refresh") {
       await loadCollections();
       render();

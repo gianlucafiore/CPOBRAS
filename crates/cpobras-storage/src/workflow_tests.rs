@@ -1345,7 +1345,7 @@ fn upgrades_populated_schema_fifteen_and_deletes_its_preexisting_linked_line() {
         old.execute_batch(&format!("DROP TRIGGER {name}")).unwrap();
     }
     undo_people_migration_for_fixture(&old);
-    old.execute_batch("DROP TABLE supplier_movements; DROP TABLE operation_files; ALTER TABLE operation_links DROP COLUMN archived_line_id; DROP TABLE deleted_estimate_lines; DROP TABLE line_analysis_sources; DROP TABLE estimate_resource_prices; DROP TABLE quotation_request_revisions;DROP TABLE quotation_response_files;DROP TABLE quotation_awards;DROP TABLE quotation_responses;DROP TABLE site_book_entries;DROP TABLE certificate_drafts;DROP TABLE certificate_sheets;DROP TABLE certified_sources;DROP TABLE quotation_requests;DROP TABLE estimate_adjustment_agreements;DROP TABLE index_points;DROP TABLE system_calendar;DROP TABLE estimate_price_definitions; DROP TABLE price_definition_templates;
+    old.execute_batch("DROP TRIGGER inactive_client_new_project; DROP TRIGGER inactive_client_change_project; DROP TRIGGER inactive_supplier_new_offer; DROP TABLE advance_agreement_links; DROP TABLE entity_archives; DROP TABLE supplier_movements; DROP TABLE operation_files; ALTER TABLE operation_links DROP COLUMN archived_line_id; DROP TABLE deleted_estimate_lines; DROP TABLE line_analysis_sources; DROP TABLE estimate_resource_prices; DROP TABLE quotation_request_revisions;DROP TABLE quotation_response_files;DROP TABLE quotation_awards;DROP TABLE quotation_responses;DROP TABLE site_book_entries;DROP TABLE certificate_drafts;DROP TABLE certificate_sheets;DROP TABLE certified_sources;DROP TABLE quotation_requests;DROP TABLE estimate_adjustment_agreements;DROP TABLE index_points;DROP TABLE system_calendar;DROP TABLE estimate_price_definitions; DROP TABLE price_definition_templates;
              DROP TABLE print_profiles; DROP TRIGGER new_project_organization; DROP TRIGGER external_company_readonly_update; DROP TRIGGER external_company_readonly_delete; DROP TRIGGER clear_measured_quantity; DROP TABLE automatic_codes; DROP TABLE measured_lines; DROP TABLE project_attachments; DROP TABLE project_organizations; DROP TABLE organization_preferences; DROP TABLE organizations; DELETE FROM schema_migrations WHERE version>=16; CREATE TRIGGER operation_links_no_update BEFORE UPDATE ON operation_links BEGIN SELECT RAISE(ABORT,'operation links are immutable'); END;").unwrap();
     drop(old);
     let mut upgraded = LocalStore::open(&path).unwrap();
@@ -1355,7 +1355,7 @@ fn upgrades_populated_schema_fifteen_and_deletes_its_preexisting_linked_line() {
             .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| r
                 .get::<_, i64>(0))
             .unwrap(),
-        32
+        33
     );
     upgraded.delete_estimate_item(e.id, line.id).unwrap();
     assert!(upgraded.estimate_items(e.id).unwrap().is_empty());
@@ -3853,6 +3853,7 @@ fn advance_is_recovered_before_index_and_new_terms_survive_exchange() {
     s.issue_estimate(e.id).unwrap();
     let mut adv = operation(p.id, "advance_received");
     adv.amount = 100.into();
+    adv.estimate_id = Some(e.id);
     s.post_operation(&adv).unwrap();
     let mut d = s
         .open_certificate_draft(p.id, e.id, None, "2026-11-01", "2026-11-05")
@@ -4905,9 +4906,9 @@ fn certificate_bugfix_open_rebuilds_saved_progress_without_revising_and_issues_b
     let before = serde_json::to_string(&s.certificate_drafts(p.id, e.id).unwrap()).unwrap();
     let sheet = s.certificate_editor_sheet(d.id).unwrap();
     assert_eq!(sheet.operation.calculated["base_work"], Decimal::from(100));
-    assert_eq!(sheet.operation.advance, Decimal::from(50));
+    assert_eq!(sheet.operation.advance, Decimal::ZERO);
     assert_eq!(sheet.operation.calculated["retention"], Decimal::from(5));
-    assert_eq!(sheet.operation.amount, Decimal::from(45));
+    assert_eq!(sheet.operation.amount, Decimal::from(95));
     assert_eq!(sheet.operation.date, "2026-11-09");
     assert_eq!(
         before,
@@ -4922,7 +4923,7 @@ fn certificate_bugfix_open_rebuilds_saved_progress_without_revising_and_issues_b
         .issue_certificate_draft(d.id, saved.revision, "2026-11-09")
         .unwrap();
     assert_eq!(emitted.amount, sheet.operation.amount);
-    assert_eq!(emitted.advance, Decimal::from(50));
+    assert_eq!(emitted.advance, Decimal::ZERO);
     assert_eq!(emitted.period_end, "2026-11-13");
     assert_eq!(emitted.date, "2026-11-09");
     let docs = s.operation_documents(Some(p.id)).unwrap();
@@ -4930,7 +4931,7 @@ fn certificate_bugfix_open_rebuilds_saved_progress_without_revising_and_issues_b
     let report = s.operations_report(p.id, Some(e.id), "2026-11-09").unwrap();
     assert_eq!(report.summaries[0].collected, Decimal::ZERO);
     assert_eq!(report.summaries[0].advance_received_balance, Decimal::ZERO);
-    assert!(report
+    assert!(!report
         .alerts
         .iter()
         .any(|a| a.contains("pendiente de conciliar")));
@@ -5112,4 +5113,138 @@ fn deleting_takeoffs_preserves_manual_changes_and_does_not_guess_legacy_values()
     s.delete_takeoff_row(row.id).unwrap();
     assert_eq!(s.estimate_items(e.id).unwrap()[0].quantity, 6.into());
     assert!(s.measured_lines(e.id).unwrap().is_empty());
+}
+
+#[test]
+fn project_funds_keep_client_deficit_separate_from_own_money() {
+    let (mut s, p, e, _) = fixture();
+    let mut advance = operation(p.id, "advance_received");
+    advance.estimate_id = Some(e.id);
+    advance.amount = 100.into();
+    let advance = s.register_fund_movement(&advance, None).unwrap();
+    assert_eq!(advance.estimate_id, Some(e.id));
+    assert_eq!(
+        s.adjustment_agreement(e.id)
+            .unwrap()
+            .terms
+            .advance_recovery_percent,
+        50.into()
+    );
+    let mut paid = operation(p.id, "direct_payment");
+    paid.amount = 120.into();
+    paid.notes = "Permiso de obra pagado".into();
+    s.register_fund_movement(&paid, None).unwrap();
+    let mut own = operation(p.id, "fund_contribution");
+    own.amount = 20.into();
+    s.register_fund_movement(&own, None).unwrap();
+    let report = s.operations_report(p.id, Some(e.id), "2026-11-05").unwrap();
+    let summary = &report.summaries[0];
+    assert_eq!(summary.collected, 100.into());
+    assert_eq!(summary.paid, 120.into());
+    assert_eq!(summary.cash, (-20).into());
+    assert_eq!(summary.own_contributions, 20.into());
+    assert_eq!(summary.available_cash, Decimal::ZERO);
+    assert_eq!(summary.accrued, 120.into());
+    let mut refund = operation(p.id, "fund_reimbursement");
+    refund.amount = 21.into();
+    assert!(s.post_operation(&refund).is_err());
+    assert_eq!(
+        s.project_fund_balance(p.id, "ARS", "2026-11-05").unwrap(),
+        Decimal::ZERO
+    );
+}
+#[test]
+fn certificates_recover_only_received_advances_for_their_budget() {
+    let (mut s, p, e, _) = fixture();
+    let other = s.duplicate_estimate(e.id, "Otro convenio").unwrap();
+    let mut advance = operation(p.id, "advance_received");
+    advance.amount = 80.into();
+    advance.advance_percent = Some(50.into());
+    assert!(s.post_operation(&advance).is_err()); // More than one budget: never guess the agreement.
+    advance.estimate_id = Some(other.id);
+    s.post_operation(&advance).unwrap();
+    s.save_adjustment_agreement_with_terms(
+        e.id,
+        0,
+        None,
+        Some(crate::construction_workflow::CertificateTerms {
+            advance_recovery_percent: 50.into(),
+            retention_percent: Decimal::ZERO,
+            collection_delay_days: 0,
+        }),
+    )
+    .unwrap();
+    s.issue_estimate(e.id).unwrap();
+    let mut draft = s
+        .open_certificate_draft(p.id, e.id, None, "2026-11-01", "2026-11-05")
+        .unwrap();
+    draft.operation.date = "2026-11-05".into();
+    draft.progress[0].accumulated_percent = 50.into();
+    let no_advance = s.calculate_certificate_preview(&draft).unwrap();
+    assert_eq!(no_advance.operation.advance, Decimal::ZERO);
+    advance.id = Uuid::new_v4();
+    advance.number = Uuid::new_v4().to_string();
+    advance.estimate_id = Some(e.id);
+    advance.amount = 40.into();
+    s.post_operation(&advance).unwrap();
+    let draft = s.save_certificate_draft(&draft).unwrap();
+    let issued = s
+        .issue_certificate_draft(draft.id, draft.revision, "2026-11-05")
+        .unwrap();
+    assert_eq!(issued.advance, 40.into());
+    let mut next = s
+        .open_certificate_draft(p.id, e.id, None, "2026-11-06", "2026-11-10")
+        .unwrap();
+    next.operation.date = "2026-11-10".into();
+    next.progress[0].accumulated_percent = 100.into();
+    assert_eq!(
+        s.calculate_certificate_preview(&next)
+            .unwrap()
+            .operation
+            .advance,
+        Decimal::ZERO
+    );
+}
+#[test]
+fn contact_baja_preserves_roles_and_used_people_cannot_be_deleted() {
+    let (mut s, p, _, _) = fixture();
+    assert!(s.delete_unused_person(p.client_id).is_err());
+    s.set_entity_archived("person:client", p.client_id, true)
+        .unwrap();
+    assert!(!s.person(p.client_id).unwrap().unwrap().client_active);
+    let mut new_project = p.clone();
+    new_project.id = Uuid::new_v4();
+    assert!(s.save_project(&new_project).is_err());
+    s.set_entity_archived("person:client", p.client_id, false)
+        .unwrap();
+    assert!(s.person(p.client_id).unwrap().unwrap().client_active);
+    let data = crate::persons::PersonInput {
+        name: "Contacto sin uso".into(),
+        cuit: None,
+        code: String::new(),
+        email: String::new(),
+        phone: String::new(),
+        address: String::new(),
+    };
+    let unused = s.save_person(None, 0, "supplier", &data).unwrap();
+    s.set_entity_archived("person:supplier", unused.id, true)
+        .unwrap();
+    assert!(!s.person(unused.id).unwrap().unwrap().supplier_active);
+    s.set_entity_archived("person:supplier", unused.id, false)
+        .unwrap();
+    s.delete_unused_person(unused.id).unwrap();
+    assert!(s.person(unused.id).unwrap().is_none());
+}
+#[test]
+fn removing_projects_and_budgets_hides_lists_but_preserves_history() {
+    let (mut s, p, e, line) = fixture();
+    s.set_entity_archived("estimate", e.id, true).unwrap();
+    assert!(s.list_project_estimates(p.id).unwrap().is_empty());
+    assert_eq!(s.estimate_items(e.id).unwrap()[0].id, line.id);
+    s.set_entity_archived("estimate", e.id, false).unwrap();
+    assert_eq!(s.list_project_estimates(p.id).unwrap().len(), 1);
+    s.set_entity_archived("project", p.id, true).unwrap();
+    assert!(s.list_projects().unwrap().is_empty());
+    assert!(s.get_project(p.id).unwrap().is_some());
+    assert!(s.shared_project_document(p.id, "2026-11-05").is_err());
 }

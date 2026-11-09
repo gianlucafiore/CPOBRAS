@@ -75,6 +75,7 @@ pub struct FinancialProjection {
     pub periods: Vec<FundingPeriod>,
     pub events: Vec<FundingEvent>,
     pub opening_cash: D,
+    pub opening_cash_source: String,
     pub additional_cash: D,
     pub warnings: Vec<String>,
 }
@@ -176,7 +177,23 @@ impl LocalStore {
         } else {
             D::ZERO
         };
-        let opening_cash = if plan.finance.opening_cash > D::ZERO
+        let has_fund_movements = docs.iter().any(|o| {
+            o.currency == currency
+                && o.date.as_str() <= as_of
+                && [
+                    "payment",
+                    "collection",
+                    "advance_paid",
+                    "advance_received",
+                    "direct_payment",
+                    "fund_contribution",
+                    "fund_reimbursement",
+                ]
+                .contains(&o.kind.as_str())
+        });
+        let opening_cash = if has_fund_movements {
+            self.project_fund_balance(project_id, currency.as_str(), as_of)?
+        } else if plan.finance.opening_cash > D::ZERO
             && plan.finance.cash_currency.as_deref() != Some(currency.as_str())
         {
             warnings.insert("La caja declarada está en otra moneda o no tiene moneda: se usa cero en esta previsión".into());
@@ -761,13 +778,13 @@ impl LocalStore {
         }
         let mut advance = sum(docs
             .iter()
-            .filter(|o| o.kind == "advance_received")
+            .filter(|o| o.kind == "advance_received" && o.estimate_id == Some(eid))
             .map(|o| o.amount))?;
         advance = sub(
             advance,
             sum(docs
                 .iter()
-                .filter(|o| o.kind == "certificate")
+                .filter(|o| o.kind == "certificate" && o.estimate_id == Some(eid))
                 .map(|o| o.advance))?,
         )?
         .max(D::ZERO);
@@ -883,6 +900,12 @@ impl LocalStore {
             periods,
             events,
             opening_cash,
+            opening_cash_source: if has_fund_movements {
+                "registered"
+            } else {
+                "declared"
+            }
+            .into(),
             additional_cash: -minimum.min(D::ZERO),
             warnings: warnings.into_iter().collect(),
         }))

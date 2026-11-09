@@ -78,7 +78,7 @@ pub(crate) fn checked_budget_total(conn: &rusqlite::Connection, id: Uuid) -> Res
 impl LocalStore {
     pub fn list_project_estimates(&self, project_id: Uuid) -> Result<Vec<Estimate>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id FROM estimates WHERE project_id=?1 ORDER BY created_at DESC, id DESC",
+            "SELECT id FROM estimates WHERE project_id=?1 AND NOT EXISTS(SELECT 1 FROM entity_archives a WHERE a.kind='estimate' AND a.entity_id=estimates.id) ORDER BY created_at DESC, id DESC",
         )?;
         let ids = stmt.query_map([project_id.to_string()], |row| row.get::<_, String>(0))?;
         let mut estimates = Vec::new();

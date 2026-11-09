@@ -6,6 +6,15 @@ use uuid::Uuid;
 impl LocalStore {
     pub fn shared_project_document(&self, project_id: Uuid, as_of: &str) -> Result<Value> {
         let tx = self.conn.unchecked_transaction()?;
+        if tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM entity_archives WHERE kind='project' AND entity_id=?1)",
+            [project_id.to_string()],
+            |r| r.get::<_, bool>(0),
+        )? {
+            return Err(StorageError::InvalidValue(
+                "La obra fue eliminada de las listas".into(),
+            ));
+        }
         let project = self
             .get_project(project_id)?
             .ok_or_else(|| StorageError::InvalidValue("La obra no existe".into()))?;

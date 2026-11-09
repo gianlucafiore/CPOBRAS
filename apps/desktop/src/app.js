@@ -1,3 +1,4 @@
+import { createEntityActions } from "./components/entity-actions.js";
 import { createResourceImport } from "./components/resource-import.js";
 import { createAdjustmentAgreement } from "./components/adjustment-agreement.js";
 import { createSystemSettings } from "./components/system-settings.js";
@@ -61,6 +62,7 @@ export function createWorkspaceApp({
   const unitPicker = createUnitPicker(context);
   const resourcePicker = createResourcePicker(context);
   const resourceImport = createResourceImport(context);
+  const entityActions = createEntityActions({...context,onArchived:async kind=>{if(kind==="nested_analysis")await costing.refresh();}});
   const modalMarkup = createModalRenderer(context);
   const operations = createOperationsWorkspace(context);
   const management = createManagementWorkspace(context);
@@ -83,6 +85,7 @@ export function createWorkspaceApp({
   const { workspace, listViews, chrome, rightPanel } = createViews({
     ...context,
     modalMarkup,
+    costingMarkup: costing.markup,
   });
   const { act, handleSubmit } = createActions(context);
   const interactions = createBudgetInteractions({ ...context, act });
@@ -126,7 +129,7 @@ export function createWorkspaceApp({
     const position = top?.scrollTop || 0;
     root.innerHTML = ["clients", "suppliers"].includes(state.view)
       ? chrome(people.markup())
-      : state.view === "system-settings" ? chrome(systemSettings.markup())
+      : state.view === "system-settings" ? chrome(systemSettings.markup() + costing.markup("system-settings"))
       : state.view === "sharing" ? chrome(sharing.markup())
       : state.view === "organizations"
         ? chrome(organizations.markup())
@@ -491,6 +494,7 @@ export function createWorkspaceApp({
     }
     try {
       if(!remoteActionAllowed(state,button))return;
+      if (await entityActions.act(button)) return;
       if (await route(button)) return;
       if (button.dataset.action.startsWith("resource-import-")) {await resourceImport.act(button);return;}
       if (button.dataset.action.startsWith("share-")) {await sharing.act(button);return;}
@@ -687,7 +691,7 @@ export function createWorkspaceApp({
     }
     if (
       evt.target.closest?.(
-        "#p2p-invite-form,#p2p-join-form,#p2p-access-form,#organization-create-form,#print-profile-form,#budget-print-form,#management-form,#project-attachment-form,#planning-task-form,#planning-split-form,#planning-settings,#planning-finance,#planning-agreement,#system-calendar,#system-index,#budget-bulk-form,#nested-analysis-form,#price-list-form,#scoped-price-form",
+        "#p2p-invite-form,#p2p-join-form,#p2p-access-form,#organization-create-form,#print-profile-form,#budget-print-form,#management-form,#project-attachment-form,#planning-task-form,#planning-split-form,#planning-settings,#planning-finance,#planning-agreement,#system-calendar,#system-index,#budget-bulk-form,#nested-analysis-form,#price-list-form,#scoped-price-form,#fx-quote-form",
       )
     )
       if(evt.target.name!=="calendar-month")state.pageDirty = true;
@@ -749,7 +753,7 @@ export function createWorkspaceApp({
   document.addEventListener("input", (evt) => {
     if (
       evt.target.closest?.(
-        "#p2p-invite-form,#p2p-join-form,#p2p-access-form,#organization-create-form,#print-profile-form,#budget-print-form,#management-form,#project-attachment-form,#planning-task-form,#planning-split-form,#planning-settings,#planning-finance,#planning-agreement,#system-calendar,#system-index,#budget-bulk-form,#nested-analysis-form,#price-list-form,#scoped-price-form",
+        "#p2p-invite-form,#p2p-join-form,#p2p-access-form,#organization-create-form,#print-profile-form,#budget-print-form,#management-form,#project-attachment-form,#planning-task-form,#planning-split-form,#planning-settings,#planning-finance,#planning-agreement,#system-calendar,#system-index,#budget-bulk-form,#nested-analysis-form,#price-list-form,#scoped-price-form,#fx-quote-form",
       )
     )
       if(evt.target.name!=="calendar-month")state.pageDirty = true;

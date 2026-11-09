@@ -31,6 +31,9 @@ pub const KINDS: &[&str] = &[
     "collection",
     "advance_paid",
     "advance_received",
+    "direct_payment",
+    "fund_contribution",
+    "fund_reimbursement",
     "retention_payable",
     "retention_receivable",
     "forecast",
@@ -256,7 +259,12 @@ pub(crate) fn documents(
 ) -> Result<Vec<Operation>> {
     let rows=conn.prepare("SELECT payload FROM operation_documents WHERE (?1 IS NULL OR project_id=?1) ORDER BY date,created_at,rowid")?.query_map([project.map(|id|id.to_string())],|r|r.get::<_,String>(0))?.collect::<std::result::Result<Vec<_>,_>>()?;
     rows.iter()
-        .map(|v| crate::supplier_logistics::effective(conn, serde_json::from_str(v)?))
+        .map(|v| {
+            crate::funds::effective_link(
+                conn,
+                crate::supplier_logistics::effective(conn, serde_json::from_str(v)?)?,
+            )
+        })
         .collect()
 }
 fn warehouse(conn: &rusqlite::Connection, id: Uuid) -> Result<Warehouse> {
@@ -458,6 +466,19 @@ impl LocalStore {
         if let Some(id) = o.estimate_id {
             if !tx.query_row("SELECT EXISTS(SELECT 1 FROM estimates WHERE id=?1 AND project_id=?2 AND currency=?3)",params![id.to_string(),o.project_id.to_string(),o.currency],|r|r.get::<_,bool>(0))?{return Err(err("El presupuesto debe pertenecer a esta obra y moneda"));}
         }
+        if [
+            "quote",
+            "purchase_order",
+            "service_order",
+            "subcontract",
+            "advance_paid",
+        ]
+        .contains(&o.kind.as_str())
+        {
+            if let Some(id) = o.partner_id {
+                if tx.query_row("SELECT EXISTS(SELECT 1 FROM management_records m JOIN entity_archives a ON a.entity_id=m.person_id AND a.kind='person:supplier' WHERE m.id=?1)",[id.to_string()],|r|r.get::<_,bool>(0))? {return Err(err("El proveedor está dado de baja para nuevos pedidos y anticipos"));}
+            }
+        }
         if let Some(link) = &o.price_cost {
             if o.kind != "payable" || o.estimate_id.is_none() || o.reference_id.is_some() {
                 return Err(err("El gasto periódico se vincula a una factura por pagar sin otro origen y con presupuesto"));
@@ -506,6 +527,12 @@ impl LocalStore {
                 "purchase_order",
                 "receipt",
                 "payment",
+                "collection",
+                "advance_received",
+                "advance_paid",
+                "direct_payment",
+                "fund_contribution",
+                "fund_reimbursement",
             ]
             .contains(&o.kind.as_str())
         {
@@ -517,6 +544,12 @@ impl LocalStore {
                 "purchase_order" => "PED-",
                 "receipt" => "REC-",
                 "payment" => "PAG-",
+                "collection" => "COB-",
+                "advance_received" => "ANT-",
+                "advance_paid" => "ANTP-",
+                "direct_payment" => "GAS-",
+                "fund_contribution" => "APO-",
+                "fund_reimbursement" => "RET-",
                 _ => "CONT-",
             };
             o.number = crate::project_dashboard::next_code(
@@ -1158,6 +1191,37 @@ impl LocalStore {
                 }
             }
         }
+        if ["fund_contribution", "fund_reimbursement"].contains(&o.kind.as_str()) {
+            if o.amount <= D::ZERO || o.reference_id.is_some() || !o.lines.is_empty() {
+                return Err(err("El aporte o retiro de fondos requiere importe positivo, sin partidas ni documento de deuda"));
+            }
+            if o.kind == "fund_reimbursement" {
+                let net = sum(prior
+                    .iter()
+                    .filter(|p| p.currency == o.currency && p.date <= o.date)
+                    .map(|p| match p.kind.as_str() {
+                        "fund_contribution" => p.amount,
+                        "fund_reimbursement" => -p.amount,
+                        _ => D::ZERO,
+                    }))?;
+                if o.amount > net {
+                    return Err(err(
+                        "No se puede devolver más que los aportes propios pendientes",
+                    ));
+                }
+            }
+        }
+        if o.kind == "direct_payment"
+            && (o.amount <= D::ZERO
+                || o.notes.trim().is_empty()
+                || o.reference_id.is_some()
+                || !o.lines.is_empty())
+        {
+            return Err(err(
+                "El gasto pagado requiere importe positivo y un concepto, sin factura vinculada",
+            ));
+        }
+        crate::funds::bind_advance(&tx, &mut o, &prior)?;
         if (!["certificate", "subcertificate"].contains(&o.kind.as_str()) && !o.extras.is_empty())
             || (o.kind != "certificate" && !o.reconcile_ids.is_empty())
         {
@@ -1384,9 +1448,12 @@ impl LocalStore {
                     .filter(|p| {
                         p.kind == kind
                             && p.currency == o.currency
-                            && p.partner_id == o.partner_id
                             && p.date <= o.date
-                            && (o.kind == "certificate" || p.reference_id == o.reference_id)
+                            && if o.kind == "certificate" {
+                                p.estimate_id == o.estimate_id
+                            } else {
+                                p.partner_id == o.partner_id && p.reference_id == o.reference_id
+                            }
                     })
                     .map(|p| p.amount))?;
                 let recovered = sum(prior
@@ -1395,8 +1462,11 @@ impl LocalStore {
                         p.kind == o.kind
                             && p.estimate_id == o.estimate_id
                             && p.currency == o.currency
-                            && p.partner_id == o.partner_id
-                            && (o.kind == "certificate" || p.reference_id == o.reference_id)
+                            && if o.kind == "certificate" {
+                                p.estimate_id == o.estimate_id && p.date <= o.date
+                            } else {
+                                p.partner_id == o.partner_id && p.reference_id == o.reference_id
+                            }
                     })
                     .map(|p| p.advance))?;
                 let eligible = add(
@@ -1408,11 +1478,7 @@ impl LocalStore {
                         .map(|e| e.amount))?,
                 )?;
                 let contractual = o.kind == "certificate";
-                let available = if contractual {
-                    div(mul(sale, percent)?, 100.into())?
-                } else {
-                    received
-                };
+                let available = received;
                 o.advance = div(mul(eligible, percent)?, 100.into())?
                     .min(add(available, -recovered)?.max(D::ZERO));
                 if contractual {
@@ -1435,8 +1501,11 @@ impl LocalStore {
                     .filter(|p| {
                         p.kind == advance_kind
                             && p.currency == o.currency
-                            && p.partner_id == o.partner_id
-                            && (o.kind == "certificate" || p.reference_id == o.reference_id)
+                            && if o.kind == "certificate" {
+                                p.estimate_id == o.estimate_id && p.date <= o.date
+                            } else {
+                                p.partner_id == o.partner_id && p.reference_id == o.reference_id
+                            }
                     })
                     .map(|p| p.amount))?;
                 let recovered = sum(prior
@@ -1445,18 +1514,13 @@ impl LocalStore {
                         p.kind == o.kind
                             && p.estimate_id == o.estimate_id
                             && p.currency == o.currency
-                            && p.partner_id == o.partner_id
-                            && (o.kind == "certificate" || p.reference_id == o.reference_id)
+                            && if o.kind == "certificate" {
+                                p.estimate_id == o.estimate_id && p.date <= o.date
+                            } else {
+                                p.partner_id == o.partner_id && p.reference_id == o.reference_id
+                            }
                     })
                     .map(|p| p.advance))?;
-                let available = if o.kind == "certificate" {
-                    o.calculated
-                        .get("contractual_advance_limit")
-                        .copied()
-                        .unwrap_or(available)
-                } else {
-                    available
-                };
                 if add(recovered, o.advance)? > available {
                     return Err(err(
                         "El descuento de anticipo supera el anticipo pendiente de recuperar",
@@ -2062,6 +2126,9 @@ pub struct FinancialSummary {
     pub overdue_payable: D,
     pub overdue_receivable: D,
     pub cash: D,
+    pub own_contributions: D,
+    pub own_reimbursements: D,
+    pub available_cash: D,
     pub cost_to_finish: D,
     pub expected_result: D,
     pub physical_percent: D,
@@ -2398,11 +2465,23 @@ impl LocalStore {
                     o.calculated.get("gross").copied().unwrap_or_default(),
                 )?;
             }
-            if ["payment", "advance_paid"].contains(&o.kind.as_str()) {
+            if ["payment", "advance_paid", "direct_payment"].contains(&o.kind.as_str()) {
                 s.paid = add(s.paid, o.amount)?;
             }
             if ["collection", "advance_received"].contains(&o.kind.as_str()) {
                 s.collected = add(s.collected, o.amount)?;
+            }
+            if o.kind == "direct_payment" {
+                s.accrued = add(s.accrued, o.amount)?;
+                let key = (None, None, o.currency.clone());
+                let old = costs.get(&key).copied().unwrap_or_default();
+                costs.insert(key, add(old, o.amount)?);
+            }
+            if o.kind == "fund_contribution" {
+                s.own_contributions = add(s.own_contributions, o.amount)?;
+            }
+            if o.kind == "fund_reimbursement" {
+                s.own_reimbursements = add(s.own_reimbursements, o.amount)?;
             }
             if o.kind == "advance_paid" {
                 s.advance_paid_balance = add(s.advance_paid_balance, o.amount)?;
@@ -2481,8 +2560,16 @@ impl LocalStore {
                     p.planned_in = add(p.planned_in, expected)?;
                 }
             }
-            if ["payment", "collection", "advance_paid", "advance_received"]
-                .contains(&o.kind.as_str())
+            if [
+                "payment",
+                "collection",
+                "advance_paid",
+                "advance_received",
+                "fund_contribution",
+                "fund_reimbursement",
+                "direct_payment",
+            ]
+            .contains(&o.kind.as_str())
             {
                 let key = (o.date[..7].into(), o.currency.clone());
                 let p = cash.entry(key).or_insert(CashPeriod {
@@ -2493,7 +2580,14 @@ impl LocalStore {
                     actual_in: D::ZERO,
                     actual_out: D::ZERO,
                 });
-                if ["payment", "advance_paid"].contains(&o.kind.as_str()) {
+                if [
+                    "payment",
+                    "advance_paid",
+                    "fund_reimbursement",
+                    "direct_payment",
+                ]
+                .contains(&o.kind.as_str())
+                {
                     p.actual_out = add(p.actual_out, o.amount)?;
                 } else {
                     p.actual_in = add(p.actual_in, o.amount)?;
@@ -2584,6 +2678,7 @@ impl LocalStore {
         }
         for s in summaries.values_mut() {
             s.cash = sub(s.collected, s.paid)?;
+            s.available_cash = add(s.cash, sub(s.own_contributions, s.own_reimbursements)?)?;
             let forecast = docs
                 .iter()
                 .rev()

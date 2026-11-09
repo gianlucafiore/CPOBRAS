@@ -258,3 +258,39 @@ pub(crate) fn revise_subcontract(
         .revise_subcontract(project_id, order_id, revision, &quantities, &reason)
         .map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub(crate) fn register_fund_movement(
+    db: tauri::State<'_, crate::Db>,
+    operation: cpobras_storage::operations::Operation,
+    proof: Option<cpobras_storage::supplier_logistics::Proof>,
+) -> Result<cpobras_storage::operations::Operation, String> {
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .register_fund_movement(&operation, proof)
+        .map_err(|e| e.to_string())
+}
+#[tauri::command]
+pub(crate) fn list_operation_files(
+    db: tauri::State<'_, crate::Db>,
+    project_id: uuid::Uuid,
+    document_id: uuid::Uuid,
+) -> Result<Vec<cpobras_storage::supplier_logistics::FileInfo>, String> {
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .operation_file_list(project_id, document_id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub(crate) fn link_client_advance(
+    db: tauri::State<'_, crate::Db>,
+    project_id: uuid::Uuid,
+    document_id: uuid::Uuid,
+    estimate_id: uuid::Uuid,
+) -> Result<(), String> {
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .link_client_advance(project_id, document_id, estimate_id)
+        .map_err(|e| e.to_string())
+}

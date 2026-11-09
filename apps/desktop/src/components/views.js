@@ -1,3 +1,4 @@
+import { entityActions } from "./entity-actions.js";
 const appLogo = new URL("../../src-tauri/icons/icon.png", import.meta.url).href;
 import { helpBox } from "./help.js";
 import { money, numeric, sumDecimals, absoluteDecimal } from "../decimal.js";
@@ -21,6 +22,7 @@ export function createViews({
   clientName,
   locked,
   modalMarkup,
+  costingMarkup = () => "",
 }) {
   function chrome(content) {
     const work = Boolean(state.projectId);
@@ -106,7 +108,7 @@ export function createViews({
               )
               .join(
                 "",
-              )}<button class="menu-item ${active === "costing" ? "active" : ""}" aria-current="${active === "costing" ? "page" : "false"}" data-action="open-costing">Costos y precios</button><button class="menu-item ${active === "portfolio" ? "active" : ""}" aria-current="${active === "portfolio" ? "page" : "false"}" data-action="open-portfolio">Cartera de obras</button><button class="menu-item ${active === "organizations" ? "active" : ""}" aria-current="${active === "organizations" ? "page" : "false"}" data-action="open-organizations">Organizaciones</button><button class="menu-item ${active === "sharing" ? "active" : ""}" aria-current="${active === "sharing" ? "page" : "false"}" data-action="open-sharing">Vinculación P2P</button><button class="menu-item ${active === "system-settings" ? "active" : ""}" data-action="open-system-settings">Datos generales</button><button class="menu-item ${active === "backups" ? "active" : ""}" data-action="backups">Copias de seguridad</button>`
+              )}<button class="menu-item ${active === "portfolio" ? "active" : ""}" aria-current="${active === "portfolio" ? "page" : "false"}" data-action="open-portfolio">Cartera de obras</button><button class="menu-item ${active === "organizations" ? "active" : ""}" aria-current="${active === "organizations" ? "page" : "false"}" data-action="open-organizations">Organizaciones</button><button class="menu-item ${active === "sharing" ? "active" : ""}" aria-current="${active === "sharing" ? "page" : "false"}" data-action="open-sharing">Vinculación P2P</button><button class="menu-item ${active === "system-settings" ? "active" : ""}" data-action="open-system-settings">Datos generales</button><button class="menu-item ${active === "backups" ? "active" : ""}" data-action="backups">Copias de seguridad</button>`
       }<span class="grow"></span><span class="kbd-hint">ESC cierra ventanas</span>
     </nav>
 
@@ -395,7 +397,7 @@ export function createViews({
       rows = state.analyses
         .map(
           (a) =>
-            `<tr class="${state.selectedAnalysisId === a.id ? "selected" : ""}" data-action="select-analysis" data-id="${e(a.id)}" data-searchable="${e((a.code + " " + a.description).toLowerCase())}"><td>${e(a.code)}</td><td><strong>${e(a.description)}</strong></td><td>${e(a.unit)}</td><td class="number">${money(a.unit_cost)}</td><td><button class="btn tiny" data-action="edit-analysis" data-id="${e(a.id)}">Editar ACU</button> <button class="btn tiny" data-action="modal-reprice" data-id="${e(a.id)}">Actualizar precios</button></td></tr>`,
+            `<tr class="${state.selectedAnalysisId === a.id ? "selected" : ""}" data-action="select-analysis" data-id="${e(a.id)}" data-searchable="${e((a.code + " " + a.description).toLowerCase())}"><td>${e(a.code)}</td><td><strong>${e(a.description)}</strong></td><td>${e(a.unit)}</td><td class="number">${money(a.unit_cost)}</td><td><button class="btn tiny" data-action="edit-analysis" data-id="${e(a.id)}">Editar ACU</button> <button class="btn tiny" data-action="modal-reprice" data-id="${e(a.id)}">Actualizar precios</button>${entityActions("analysis",a.id,a.description)}</td></tr>`,
         )
         .join("");
       inspector = `<aside class="list-inspector"><h3>COMPOSICIÓN DEL ACU</h3>${
@@ -409,7 +411,7 @@ export function createViews({
     return chrome(`<main class="list-workspace">
     <div class="list-top"><div><h1>${title}</h1><p>${subtitle}</p></div><div class="list-top-actions">${action}</div></div>
     <div class="list-content"><section class="list-table-pane"><div class="pane-toolbar"><span class="pane-title">REGISTROS <em>${rows ? "" : "Sin datos"}</em></span><span class="grow"></span><input class="search-compact" data-search placeholder="⌕ Buscar..." value="${e(state.search)}"></div>
-      <div class="table-scroll"><table class="data-grid"><thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows || `<tr><td colspan="6" class="empty-cell">No hay registros todavía. Usá el botón superior para crear uno.</td></tr>`}</tbody></table></div></section>${inspector}</div>
+      <div class="table-scroll"><table class="data-grid"><thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows || `<tr><td colspan="6" class="empty-cell">No hay registros todavía. Usá el botón superior para crear uno.</td></tr>`}</tbody></table></div></section>${inspector}</div>${["resources","analyses"].includes(state.view)?costingMarkup(state.view):""}
   </main>`);
   }
 

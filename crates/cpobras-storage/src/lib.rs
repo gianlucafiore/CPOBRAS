@@ -15,6 +15,8 @@ pub mod estimate_comparison;
 pub mod estimate_resource_prices;
 pub mod estimates;
 pub mod financial_planning;
+pub mod funds;
+pub mod lifecycle;
 pub mod line_workflows;
 pub mod maintenance;
 pub mod management;
@@ -111,6 +113,7 @@ impl LocalStore {
             include_str!("../migrations/0030_quotation_edits.sql"),
             include_str!("../migrations/0031_supplier_logistics.sql"),
             include_str!("../migrations/0032_takeoff_manual_quantity.sql"),
+            include_str!("../migrations/0033_entity_lifecycle.sql"),
         ];
         let latest: i64 = conn.query_row(
             "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
@@ -173,7 +176,7 @@ impl LocalStore {
     pub fn list_projects(&self) -> Result<Vec<Project>> {
         let mut stmt = self
             .conn
-            .prepare("SELECT id FROM projects ORDER BY name, id")?;
+            .prepare("SELECT id FROM projects WHERE NOT EXISTS(SELECT 1 FROM entity_archives a WHERE a.kind='project' AND a.entity_id=projects.id) ORDER BY name, id")?;
         let ids = stmt.query_map([], |row| row.get::<_, String>(0))?;
         let mut projects = Vec::new();
         for id in ids {
@@ -306,7 +309,7 @@ impl LocalStore {
     pub fn list_analyses(&self) -> Result<Vec<UnitCostAnalysis>> {
         let mut stmt = self
             .conn
-            .prepare("SELECT snapshot_json FROM analyses WHERE NOT EXISTS(SELECT 1 FROM line_analysis_snapshots s WHERE s.analysis_id=analyses.id) ORDER BY code, id")?;
+            .prepare("SELECT snapshot_json FROM analyses WHERE NOT EXISTS(SELECT 1 FROM line_analysis_snapshots s WHERE s.analysis_id=analyses.id) AND NOT EXISTS(SELECT 1 FROM entity_archives a WHERE a.kind='analysis' AND a.entity_id=analyses.id) ORDER BY code, id")?;
         let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
         let mut analyses = Vec::new();
         for json in rows {

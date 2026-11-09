@@ -34,11 +34,11 @@ const pages = {
   ],
   resources: [
     "Catálogo de insumos",
-    "Cargá materiales, mano de obra, equipos y subcontratos con su unidad y precio. Luego asignálos desde la pestaña Insumos de una partida.",
+    "Cargá materiales, mano de obra, equipos y subcontratos con su unidad y precio. Luego asignálos desde la pestaña Insumos de una partida. Las listas e historial de precios están en el desplegable al pie.",
   ],
   analyses: [
     "Biblioteca de ACU",
-    "Un ACU es una receta reutilizable de insumos por unidad de trabajo. Crealo con componentes y usalo en «Desde ACU». También podés cargar insumos directamente en una partida.",
+    "Un ACU es una receta reutilizable de insumos por unidad de trabajo. Crealo con componentes y usalo en «Desde ACU». También podés cargar insumos directamente en una partida. Al pie están los ACU compuestos y la comparación de costos, en una sección desplegable.",
   ],
   workspace: [
     "Trabajar con el presupuesto",

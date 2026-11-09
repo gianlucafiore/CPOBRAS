@@ -22,6 +22,8 @@ pub struct Person {
     #[serde(flatten)]
     pub data: PersonInput,
     pub supplier_record_id: Option<Uuid>,
+    pub client_active: bool,
+    pub supplier_active: bool,
 }
 #[derive(Debug, Serialize)]
 pub struct PersonMatch {
@@ -105,9 +107,11 @@ fn row_person(r: &rusqlite::Row<'_>) -> rusqlite::Result<Person> {
         role: r.get(7)?,
         revision: r.get(8)?,
         supplier_record_id: r.get::<_, Option<String>>(9)?.map(parse).transpose()?,
+        client_active: r.get(10)?,
+        supplier_active: r.get(11)?,
     })
 }
-const SELECT:&str="SELECT p.id,p.name,p.cuit,p.code,p.email,p.phone,p.address,p.role,p.revision,(SELECT m.id FROM management_records m WHERE m.kind='supplier' AND m.person_id=p.id ORDER BY m.id LIMIT 1) FROM persons p";
+const SELECT:&str="SELECT p.id,p.name,p.cuit,p.code,p.email,p.phone,p.address,p.role,p.revision,(SELECT m.id FROM management_records m WHERE m.kind='supplier' AND m.person_id=p.id ORDER BY m.id LIMIT 1),NOT EXISTS(SELECT 1 FROM entity_archives a WHERE a.kind='person:client' AND a.entity_id=p.id),NOT EXISTS(SELECT 1 FROM entity_archives a WHERE a.kind='person:supplier' AND a.entity_id=p.id) FROM persons p";
 fn write_person(
     conn: &rusqlite::Connection,
     id: Uuid,
@@ -539,6 +543,14 @@ impl LocalStore {
         for id in suppliers {
             if !self.person(*id)?.is_some_and(|p| has(&p.role, "supplier")) {
                 return Err(invalid("Seleccioná personas habilitadas como proveedoras"));
+            }
+        }
+        for id in suppliers {
+            let allowed:bool=tx.query_row("SELECT NOT EXISTS(SELECT 1 FROM entity_archives WHERE kind='person:supplier' AND entity_id=?1) OR EXISTS(SELECT 1 FROM project_suppliers WHERE project_id=?2 AND person_id=?1)",params![id.to_string(),project.id.to_string()],|r|r.get(0))?;
+            if !allowed {
+                return Err(invalid(
+                    "El proveedor está dado de baja para nuevas vinculaciones",
+                ));
             }
         }
         self.save_project_organization_inner(project, organization)?;

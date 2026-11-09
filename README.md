@@ -451,3 +451,23 @@ con un aviso para revisar su dirección. Esta función requiere Internet.
 - [Certificados preliminares y emitidos, cotizaciones y contratos](docs/CERTIFICATES_AND_QUOTES.md)
 
 - [Libro de obra, Materiales y Acopio y Subcontrataciones](docs/SITE_BOOK_AND_PROCUREMENT.md)
+
+### Fondos de obra y administración de bibliotecas
+
+En Finanzas, el fondo de obra registra cobros, anticipos recibidos, pagos,
+anticipos a contratistas y gastos pagados. Las órdenes y los certificados por sí
+solos no mueven dinero. El saldo puede ser negativo; los aportes propios y sus
+reintegros se muestran separados de los ingresos del comitente y los gastos.
+Cada movimiento admite un comprobante y aparece en el detalle del fondo.
+
+Los anticipos recibidos se vinculan a un presupuesto y su convenio de
+certificaciones. La recuperación respeta el porcentaje pactado y el importe
+realmente recibido pendiente de recuperar. Los anticipos antiguos sin vínculo
+pueden asociarse desde el detalle del fondo, sin duplicar el ingreso.
+
+Los menús ⋯ permiten retirar obras, presupuestos y ACU de las listas conservando
+su historial. Clientes y proveedores usados pueden darse de baja y reactivarse;
+solo los contactos sin uso pueden eliminarse. Las herramientas de precios están
+en secciones desplegables de Insumos, ACU y Datos generales. Los precios de las
+cotizaciones se guardan al salir del campo; los errores se indican sin descartar
+lo escrito.

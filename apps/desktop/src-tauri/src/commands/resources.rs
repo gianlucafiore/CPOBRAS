@@ -218,3 +218,23 @@ pub(crate) fn import_resources(
         .import_resources(&rows, &effective_date, &source)
         .map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub(crate) fn set_entity_archived(
+    db: tauri::State<'_, Db>,
+    kind: String,
+    id: Uuid,
+    archived: bool,
+) -> Result<(), String> {
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .set_entity_archived(&kind, id, archived)
+        .map_err(|e| e.to_string())
+}
+#[tauri::command]
+pub(crate) fn delete_unused_person(db: tauri::State<'_, Db>, id: Uuid) -> Result<(), String> {
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .delete_unused_person(id)
+        .map_err(|e| e.to_string())
+}

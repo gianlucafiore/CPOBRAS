@@ -126,7 +126,7 @@ impl LocalStore {
     pub fn nested_analyses(&self) -> Result<Vec<NestedAnalysis>> {
         let rows: Vec<String> = self
             .conn
-            .prepare("SELECT analysis_json FROM nested_analyses ORDER BY code,id")?
+            .prepare("SELECT analysis_json FROM nested_analyses WHERE NOT EXISTS(SELECT 1 FROM entity_archives a WHERE a.kind='nested_analysis' AND a.entity_id=nested_analyses.id) ORDER BY code,id")?
             .query_map([], |r| r.get(0))?
             .collect::<std::result::Result<_, _>>()?;
         rows.into_iter()

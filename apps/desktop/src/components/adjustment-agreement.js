@@ -1,5 +1,5 @@
 import { e, field, dateToday } from "./helpers.js";
-import { multiplyDecimals, percentageOf } from "../decimal.js";
+import { multiplyDecimals, percentageOf, sumDecimals, money, compareDecimals } from "../decimal.js";
 export function createAdjustmentAgreement({
   invoke,
   state,
@@ -15,6 +15,7 @@ export function createAdjustmentAgreement({
     revision: 0,
     definition: null,
     points: [],
+    advanceSummary: null,
     enabled: false,
     terms: {
       advance_recovery_percent: "0",
@@ -86,7 +87,7 @@ export function createAdjustmentAgreement({
     const a = model.definition,
       disabled =
         currentEstimate()?.issued || state.remoteProject ? "disabled" : "";
-    return `<div class="modal-overlay"><section class="dialog-shell" role="dialog" aria-modal="true" aria-label="Acuerdo de ajuste del presupuesto" style="width:min(760px,94vw)"><form id="adjustment-agreement-form"><div class="dialog-header"><h2>Acuerdo de ajuste del presupuesto</h2><button class="close-dialog" type="button" data-action="agreement-close" aria-label="Cerrar acuerdo">×</button></div><div class="compact-editor-body"><p>${currentEstimate()?.issued ? "Presupuesto emitido: el acuerdo es de solo lectura. Volvé a borrador o creá una nueva versión para cambiarlo. " : ""}Este acuerdo pertenece únicamente al presupuesto activo. Los puntajes mensuales se cargan en Inicio → Datos generales. Al emitir se conserva la fórmula y los valores utilizados.</p><div class="form-grid">${field("Recuperación de anticipo % (antes del ajuste)", "advance_recovery_percent", model.terms.advance_recovery_percent, 'type="number" min="0" max="100" step="any" ' + disabled)}${field("Fondo de reparo %", "retention_percent", model.terms.retention_percent, 'type="number" min="0" max="100" step="any" ' + disabled)}${field("Días desde emisión hasta cobro", "collection_delay_days", model.terms.collection_delay_days, 'type="number" min="0" max="365" ' + disabled)}</div><label><input type="checkbox" name="enabled" ${model.enabled ? "checked" : ""} ${disabled}> Aplicar ajuste de índices</label><div class="form-grid">${field("Meses de desfase respecto del corte", "lag_months", a.lag_months, 'type="number" min="0" max="24" required ' + disabled)}</div>${a.weights.map((w, i) => indexRow(w, i, disabled || (!model.enabled ? "disabled" : ""))).join("")}<button class="btn" type="button" data-action="agreement-add" ${disabled}>Agregar índice</button><p>Los pesos deben sumar 100 %. Si falta una publicación, se toma el último mes común disponible y queda un ajuste provisorio. Las diferencias posteriores se proponen para otro certificado.</p><p class="feature-error" role="alert"></p></div><div class="dialog-actions"><button class="btn" type="button" data-action="agreement-close">Cerrar</button><button class="btn primary" type="submit" ${disabled}>Guardar acuerdo</button></div></form></section></div>`;
+    return `<div class="modal-overlay"><section class="dialog-shell" role="dialog" aria-modal="true" aria-label="Acuerdo de ajuste del presupuesto" style="width:min(760px,94vw)"><form id="adjustment-agreement-form"><div class="dialog-header"><h2>Acuerdo de ajuste del presupuesto</h2><button class="close-dialog" type="button" data-action="agreement-close" aria-label="Cerrar acuerdo">×</button></div><div class="compact-editor-body"><p>${currentEstimate()?.issued ? "Presupuesto emitido: el acuerdo es de solo lectura. Volvé a borrador o creá una nueva versión para cambiarlo. " : ""}Este acuerdo pertenece únicamente al presupuesto activo. Los puntajes mensuales se cargan en Inicio → Datos generales. Al emitir se conserva la fórmula y los valores utilizados.</p>${model.advanceSummary ? `<div class="agreement-advance-summary"><b>Anticipo del comitente · ${e(model.advanceSummary.currency)}</b><span>Recibido: ${money(model.advanceSummary.received)}</span><span>Recuperado: ${money(model.advanceSummary.recovered)}</span><span>Pendiente de recuperar: ${money(model.advanceSummary.pending)}</span></div>` : ""}<div class="form-grid">${field("Recuperación de anticipo % (antes del ajuste)", "advance_recovery_percent", model.terms.advance_recovery_percent, 'type="number" min="0" max="100" step="any" ' + disabled)}${field("Fondo de reparo %", "retention_percent", model.terms.retention_percent, 'type="number" min="0" max="100" step="any" ' + disabled)}${field("Días desde emisión hasta cobro", "collection_delay_days", model.terms.collection_delay_days, 'type="number" min="0" max="365" ' + disabled)}</div><label><input type="checkbox" name="enabled" ${model.enabled ? "checked" : ""} ${disabled}> Aplicar ajuste de índices</label><div class="form-grid">${field("Meses de desfase respecto del corte", "lag_months", a.lag_months, 'type="number" min="0" max="24" required ' + disabled)}</div>${a.weights.map((w, i) => indexRow(w, i, disabled || (!model.enabled ? "disabled" : ""))).join("")}<button class="btn" type="button" data-action="agreement-add" ${disabled}>Agregar índice</button><p>Los pesos deben sumar 100 %. Si falta una publicación, se toma el último mes común disponible y queda un ajuste provisorio. Las diferencias posteriores se proponen para otro certificado.</p><p class="feature-error" role="alert"></p></div><div class="dialog-actions"><button class="btn" type="button" data-action="agreement-close">Cerrar</button><button class="btn primary" type="submit" ${disabled}>Guardar acuerdo</button></div></form></section></div>`;
   }
   async function act(button) {
     const a = button.dataset.action;
@@ -102,6 +103,13 @@ export function createAdjustmentAgreement({
         invoke("list_index_points"),
         invoke("get_estimate_metadata", { estimateId: state.estimateId }),
       ]);
+      const operations = await invoke("list_operations",{projectId:state.projectId});
+      const currency=currentEstimate()?.currency || "ARS";
+      const related=operations.filter(o=>o.estimate_id===state.estimateId&&o.currency===currency&&o.date<=dateToday());
+      const received=sumDecimals(related.filter(o=>o.kind==="advance_received").map(o=>o.amount));
+      const recovered=sumDecimals(related.filter(o=>o.kind==="certificate").map(o=>o.advance||"0"));
+      const pending=sumDecimals([received,multiplyDecimals(recovered,"-1")]);
+      model.advanceSummary={received,recovered,pending:compareDecimals(pending,"0")<0?"0":pending,currency};
       model.revision = saved?.revision || 0;
       model.terms = saved?.terms || {
         advance_recovery_percent: "0",
