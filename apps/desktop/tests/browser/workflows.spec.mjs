@@ -859,7 +859,7 @@ test('supplier movement dialogs are compact, submit inline edits and attach rece
  await page.getByRole('button',{name:'Gestión de obra',exact:true}).click();
  await page.getByRole('button',{name:'Editar pedido',exact:true}).click();
  let dialog=page.getByRole('dialog',{name:'Editar pedido',exact:true});await expect(dialog).toBeVisible();
- await dialog.getByLabel('Cantidad',{exact:true}).fill('12');await dialog.getByRole('button',{name:'Confirmar',exact:true}).click();
+ await dialog.getByLabel('Cantidad',{exact:true}).fill('12');await dialog.getByRole('button',{name:'Guardar cambios',exact:true}).click();
  await expect.poll(()=>page.evaluate(()=>window.__calls.filter(c=>c.command==='record_supplier_movement').length)).toBe(1);
  expect(await page.evaluate(()=>window.__calls.filter(c=>c.command==='record_supplier_movement').at(-1).args.movement.lines[0].quantity)).toBe('12');
  await page.getByRole('button',{name:'Registrar entrega',exact:true}).click();dialog=page.getByRole('dialog',{name:'Registrar entrega',exact:true});
@@ -914,4 +914,36 @@ test('procurement layout: compact unit and quantity columns preserve supplier sp
  await page.getByRole('button',{name:'Gestión de obra',exact:true}).click();const matrix=page.locator('.quotation-matrix');
  await expect(matrix.locator('th.quote-provider')).toHaveCount(4);const unit=await matrix.locator('th.quote-unit').boundingBox(),quantity=await matrix.locator('th.quote-quantity').boundingBox(),provider=await matrix.locator('th.quote-provider').first().boundingBox();expect(unit.width).toBeLessThan(80);expect(quantity.width).toBeLessThan(140);expect(provider.width).toBeGreaterThanOrEqual(190);
  await page.getByText('1 materiales',{exact:true}).click();const item=page.locator('.order-line-item');await expect(item).toContainText('Cantidad: 20');await expect(item).toContainText('Unitario sin IVA: ARS 50,00');await expect(item).toContainText('Subtotal sin IVA: ARS 1.000,00');await expect(item).toContainText('5 recibidos · Pendiente: 15');
+});
+
+test('delivery requests enforce exact available stock and offer Todo',async({page})=>{
+ await bridge(page);await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.locator('[data-action=manage-dashboard-budget]').first().click();
+ await page.evaluate(()=>{window.__supplierOrders=[{document:{id:'order',kind:'purchase_order',number:'PED-0099',partner_id:'supplier-1',currency:'ARS',amount:'1000',estimate_id:'estimate-1',due_date:'2026-11-20',lines:[{resource_id:'resource-1',description:'Acero',quantity:'10',unit_price:'100'}]},lines:[{source_id:'resource-1',description:'Acero',quantity:'10',unit_price:'100',received:'0',remaining:'10',vendor_stock:'2.50000001',requested:'0.10000001'}],paid:'0',cash_paid:'0',pending_payment:'1000',payment_state:'Pendiente',delivery_state:'Solicitado',editable:true,revision:0,supplier_credit:'0',files:[]}];});
+ await page.getByRole('button',{name:'Gestión de obra',exact:true}).click();
+ await page.getByRole('button',{name:'Solicitar entrega',exact:true}).click();
+ const dialog=page.getByRole('dialog',{name:'Solicitar entrega',exact:true});
+ const quantity=dialog.locator('[data-movement-quantity]');
+ await expect(quantity).toHaveAttribute('max','2.40000000');
+ await quantity.fill('10');
+ await expect(dialog.locator('[data-quantity-error]')).toContainText('No puede superar el máximo disponible');
+ await dialog.getByRole('button',{name:'Todo',exact:true}).click();
+ await expect(quantity).toHaveValue('2.40000000');
+ await expect(dialog.locator('[data-quantity-error]')).toBeEmpty();
+ await dialog.getByRole('button',{name:'Confirmar',exact:true}).click();
+ await expect.poll(()=>page.evaluate(()=>window.__calls.filter(c=>c.command==='record_supplier_movement').length)).toBe(1);
+ expect(await page.evaluate(()=>window.__calls.filter(c=>c.command==='record_supplier_movement').at(-1).args.movement.quantities['resource-1'])).toBe('2.40000000');
+});
+
+test('paid orders open compact read-only details',async({page})=>{
+ await bridge(page);await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.locator('[data-action=manage-dashboard-budget]').first().click();
+ await page.evaluate(()=>{window.__supplierOrders=[{document:{id:'order',kind:'purchase_order',number:'PED-0099',partner_id:'supplier-1',currency:'ARS',amount:'1000',estimate_id:'estimate-1',due_date:'2026-11-20',lines:[{resource_id:'resource-1',description:'Acero',quantity:'10',unit_price:'100'}]},lines:[{source_id:'resource-1',description:'Acero',quantity:'10',unit_price:'100',received:'0',remaining:'10',vendor_stock:'0',requested:'0'}],paid:'0',cash_paid:'0',pending_payment:'1000',payment_state:'Pendiente',delivery_state:'Solicitado',editable:false,revision:0,supplier_credit:'0',files:[]}];});
+ await page.getByRole('button',{name:'Gestión de obra',exact:true}).click();
+ await page.getByRole('button',{name:'Ver pedido',exact:true}).click();
+ const dialog=page.getByRole('dialog',{name:'Ver pedido',exact:true});
+ await expect(dialog.getByLabel('Cantidad',{exact:true})).toBeDisabled();
+ await expect(dialog.getByLabel('Precio unitario sin IVA',{exact:true})).toBeDisabled();
+ await expect(dialog.getByRole('button',{name:'Guardar cambios',exact:true})).toHaveCount(0);
+ await expect(dialog.getByRole('button',{name:'Agregar material',exact:true})).toBeHidden();
+ const close=await dialog.getByRole('button',{name:'Cerrar',exact:true}).boundingBox();
+ expect(close.width).toBeLessThan(120);
 });
