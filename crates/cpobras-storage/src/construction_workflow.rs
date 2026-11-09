@@ -603,9 +603,7 @@ impl LocalStore {
         Ok(draft)
     }
     pub fn save_certificate_draft(&mut self, input: &CertificateDraft) -> Result<CertificateDraft> {
-        let tx = self
-            .conn
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let tx = self.conn.savepoint()?;
         let old: String = tx.query_row(
             "SELECT payload_json FROM certificate_drafts WHERE id=?1 AND issued_id IS NULL",
             [input.id.to_string()],
@@ -629,6 +627,24 @@ impl LocalStore {
             return Err(invalid("El período del certificado proviene de sus cortes; no puede cambiarse en el formulario"));
         }
         let mut op = input.operation.clone();
+        op.extras.retain(|x| {
+            !x.description.trim().is_empty()
+                || !x.reason.trim().is_empty()
+                || !x.authorization.trim().is_empty()
+                || x.amount != D::ZERO
+        });
+        if d.kind == "subcertificate" {
+            op.reconcile_ids.clear();
+            for x in &mut op.extras {
+                x.authorization.clear();
+            }
+        }
+        if d.kind == "certificate" {
+            let t = terms(&tx, d.estimate_id)?;
+            op.advance_percent = Some(t.advance_recovery_percent);
+            op.retention_percent = t.retention_percent;
+            op.advance_before_index = true;
+        }
         op.id = d.operation.id;
         op.kind = d.kind.clone();
         op.project_id = d.project_id;
@@ -693,6 +709,33 @@ impl LocalStore {
         tx.commit()?;
         Ok(d)
     }
+    pub fn calculate_certificate_preview(
+        &mut self,
+        input: &CertificateDraft,
+    ) -> Result<CertificateSheet> {
+        self.conn.execute_batch("SAVEPOINT certificate_live")?;
+        let result = (|| {
+            let saved = self.save_certificate_draft(input)?;
+            self.preview_certificate_draft(saved.id)
+        })();
+        self.conn
+            .execute_batch("ROLLBACK TO certificate_live; RELEASE certificate_live")?;
+        result
+    }
+    pub fn certificate_editor_sheet(&mut self, id: Uuid) -> Result<CertificateSheet> {
+        match self.preview_certificate_draft(id) {
+            Ok(s) => Ok(s),
+            Err(_) => {
+                let json: String = self.conn.query_row(
+                    "SELECT payload_json FROM certificate_drafts WHERE id=?1",
+                    [id.to_string()],
+                    |r| r.get(0),
+                )?;
+                let d: CertificateDraft = serde_json::from_str(&json)?;
+                sheet(&self.conn, &d.operation, true)
+            }
+        }
+    }
     pub fn preview_certificate_draft(&mut self, id: Uuid) -> Result<CertificateSheet> {
         let j: String = self.conn.query_row(
             "SELECT payload_json FROM certificate_drafts WHERE id=?1",
@@ -704,6 +747,12 @@ impl LocalStore {
             return self.issued_certificate_sheet(id);
         }
         let mut op = d.operation;
+        if op.kind == "certificate" {
+            let t = terms(&self.conn, d.estimate_id)?;
+            op.advance_percent = Some(t.advance_recovery_percent);
+            op.retention_percent = t.retention_percent;
+            op.advance_before_index = true;
+        }
         let known = op.date.clone();
         if op.date < op.period_end {
             op.date = op.period_end.clone();

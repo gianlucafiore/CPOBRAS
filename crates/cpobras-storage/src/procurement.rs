@@ -506,6 +506,38 @@ impl LocalStore {
                     })
                 })
                 .collect::<Result<Vec<_>>>()?;
+            let mut lines = lines;
+            if kind == "material" {
+                let delivered = sum(lines
+                    .iter()
+                    .map(|l| {
+                        l.received
+                            .checked_mul(l.unit_price)
+                            .ok_or_else(|| invalid("Importe fuera de rango"))
+                    })
+                    .collect::<Result<Vec<_>>>()?
+                    .into_iter())?;
+                let mut available = add(paid, -delivered)?.max(D::ZERO);
+                for l in &mut lines {
+                    let covered = if l.unit_price == D::ZERO {
+                        l.remaining
+                    } else {
+                        available
+                            .checked_div(l.unit_price)
+                            .ok_or_else(|| invalid("Precio inválido"))?
+                            .min(l.remaining)
+                    };
+                    l.vendor_stock = covered;
+                    available = add(
+                        available,
+                        -covered
+                            .checked_mul(l.unit_price)
+                            .ok_or_else(|| invalid("Importe fuera de rango"))?,
+                    )?
+                    .max(D::ZERO);
+                    l.requested = l.requested.min(l.vendor_stock);
+                }
+            }
             let any = lines.iter().any(|l| l.received > D::ZERO);
             let done = !lines.is_empty() && lines.iter().all(|l| l.remaining == D::ZERO);
             out.push(SupplierOrder {
@@ -530,7 +562,12 @@ impl LocalStore {
                     "Pendiente"
                 }
                 .into(),
-                delivery_state: if done {
+                delivery_state: if kind == "work"
+                    && done
+                    && history.iter().any(|m| m.kind == "scope")
+                {
+                    "Cerrado / baja"
+                } else if done {
                     "Completa"
                 } else if any {
                     "Parcial"

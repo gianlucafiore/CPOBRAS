@@ -3,17 +3,23 @@ export const permissionLabels = {
   budget: "Presupuesto",
   price: "Determinación de precio",
   resources: "Insumos y composiciones",
-  operations: "Gestión de obra",
-  accounting: "Contabilidad y finanzas",
+  materials: "Materiales y Acopio",
+  subcontracts: "Subcontrataciones",
+  site_book: "Libro de obra",
+  certificates: "Certificaciones",
+  accounting: "Finanzas y tablero financiero",
   planning: "Planificación",
-  project_data: "Datos de obra",
+  project_data: "Proyecto",
 };
-export const allPermissions = () =>
-  Object.fromEntries(Object.keys(permissionLabels).map((k) => [k, true]));
-export const permissionsFor = (state) => ({
-  ...allPermissions(),
-  ...state.remoteProject?.data?.permissions,
-});
+export const allPermissions = () => ({operations:true,...Object.fromEntries(Object.keys(permissionLabels).map(k=>[k,true]))});
+export const permissionsFor = state => {
+ const raw=state.remoteProject?.data?.permissions || {},p={...allPermissions(),...raw};
+ for(const key of ["materials","subcontracts","site_book"])p[key]=raw[key] ?? raw.operations ?? true;
+ p.certificates=raw.certificates ?? ((raw.operations ?? true)&&(raw.accounting ?? true));
+ p.operations=p.materials||p.subcontracts||p.site_book||p.certificates;
+ return p;
+};
+export const operationPermission = tab => ({purchases:"materials",contracts:"subcontracts",production:"site_book",certificates:"certificates",finance:"accounting",dashboard:"accounting"})[tab];
 export const mayRead = (state, key) =>
   !state.remoteProject || permissionsFor(state)[key];
 const clone = (value) => structuredClone(value);
@@ -50,9 +56,9 @@ export function createRemoteInvoke(nativeInvoke, state) {
         case "list_quote_files":return [];
         case "award_balances":return [];
         case "list_supplier_orders":return args.kind==='material'?d.material_orders||[]:d.work_orders||[];
-        case "list_site_entries":{requirePermission('operations');const rows=d.site_book||[],page=Math.min(args.page||0,Math.max(0,Math.ceil(rows.length/30)-1));return {entries:rows.slice(page*30,page*30+30),total:rows.length,page};}
-        case "print_site_entries":{requirePermission('operations');return (d.site_book||[]).filter(r=>(!args.from||r.created_at.slice(0,10)>=args.from)&&(!args.to||r.created_at.slice(0,10)<=args.to)&&(!args.first||r.number>=args.first)&&(!args.last||r.number<=args.last)).slice().reverse();}
-        case "issued_certificate_sheet":{requirePermission("accounting");requirePermission("price");const sheet=d.budgets.flatMap(b=>b.certificate_sheets||[]).find(s=>s.operation.id===args.id);if(!sheet)throw new Error("El propietario no incluyó este certificado en la copia compartida");return sheet;}
+        case "list_site_entries":{requirePermission('site_book');const rows=d.site_book||[],page=Math.min(args.page||0,Math.max(0,Math.ceil(rows.length/30)-1));return {entries:rows.slice(page*30,page*30+30),total:rows.length,page};}
+        case "print_site_entries":{requirePermission('site_book');return (d.site_book||[]).filter(r=>(!args.from||r.created_at.slice(0,10)>=args.from)&&(!args.to||r.created_at.slice(0,10)<=args.to)&&(!args.first||r.number>=args.first)&&(!args.last||r.number<=args.last)).slice().reverse();}
+        case "issued_certificate_sheet":{const sheet=d.budgets.flatMap(b=>b.certificate_sheets||[]).find(s=>s.operation.id===args.id);if(!sheet)throw new Error("El propietario no incluyó este certificado en la copia compartida");requirePermission(sheet.operation.kind === "subcertificate" ? "subcontracts" : "certificates");return sheet;}
         case "list_project_estimates":
           return d.budgets.map((b) => b.estimate);
         case "get_estimate_metadata":return p.budget?(budget().metadata||{}):{};
@@ -206,6 +212,7 @@ export function createRemoteInvoke(nativeInvoke, state) {
         "p2p_read",
         "p2p_sync",
         "write_export",
+        "save_export_file",
         "open_export_pdf",
       ].includes(command)
     )
@@ -261,6 +268,13 @@ const viewActions = new Set([
     "manage-map-center",
   "ops-tab",
   "ops-detail",
+  "manage-dashboard-budget",
+  "ops-rfq-select",
+  "ops-rfq-export",
+  "ops-cert-contract",
+  "ops-cert-contract-close",
+  "ops-cert-pdf",
+  "ops-cert-refresh",
   "ops-open-detail",
   "ops-close-detail",
   "ops-refresh",
@@ -274,6 +288,7 @@ export function remoteActionAllowed(state, button) {
   const a = button.dataset.action;
   if (!viewActions.has(a)) return false;
   const p = permissionsFor(state);
+  if (["ops-cert-contract","ops-cert-contract-close"].includes(a) && !p.subcontracts) return false;
   if (a === "open-workspace" && !p.budget) return false;
   if(a === "agreement-open" && !p.price)return false;
   if(["plan-finance-conditions","plan-overview-refresh"].includes(a) && !p.accounting)return false;
@@ -289,7 +304,7 @@ export function remoteActionAllowed(state, button) {
     return false;
   if (a === "panel" && button.dataset.panel === "summary" && !p.price)
     return false;
-  if (a === "ops-tab" && button.dataset.tab === "finance" && !p.accounting)
+  if (a === "ops-tab" && !p[operationPermission(button.dataset.tab)])
     return false;
   if (
     a === "ops-tab" &&

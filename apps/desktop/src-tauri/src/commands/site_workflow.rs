@@ -243,3 +243,18 @@ pub(crate) fn material_payment_with_proof(
         .material_payment_with_proof(&operation, proof)
         .map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub(crate) fn revise_subcontract(
+    db: tauri::State<'_, Db>,
+    project_id: Uuid,
+    order_id: Uuid,
+    revision: u32,
+    quantities: std::collections::BTreeMap<Uuid, rust_decimal::Decimal>,
+    reason: String,
+) -> Result<(), String> {
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .revise_subcontract(project_id, order_id, revision, &quantities, &reason)
+        .map_err(|e| e.to_string())
+}

@@ -378,6 +378,8 @@ export function createPlanningWorkspace({
     return `<details class="planning-options"><summary>Cómo se calcula la duración · camino crítico</summary>${walk.simple ? `<p class="critical-walk"><strong>Un recorrido crítico:</strong> ${walk.tasks.map((t) => e(t.name) + " (" + t.duration_days + " d)").join(" → ")} = <strong>${model.schedule.duration_days} días laborables</strong>.</p>` : ""}<p>Las ramas en paralelo no se suman entre sí. El plazo incluye calendario, desfases y restricciones. Una tarea desconectada no retrasa a las demás salvo que termine después.</p><ul>${tasks.map((t) => `<li>${e(t.name)} · ${t.duration_days} días${t.predecessors.length ? " · depende de " + t.predecessors.map((d) => e(model.plan.tasks.find((p) => p.id === d.task_id)?.name || "") + " (" + e(d.kind) + (d.lag_days ? " " + d.lag_days + " d" : "") + ")").join(", ") : ""}</li>`).join("")}</ul><strong>Total del cronograma: ${model.schedule?.duration_days || 0} días laborables</strong></details>`;
   }
   function markup() {
+    const calendar = document.querySelector(".planning-calendar");
+    if (calendar) model.calendarOpen = calendar.open;
     if (model.plan)
       calendarPicker.configure(
         {

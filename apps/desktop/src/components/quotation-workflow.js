@@ -218,7 +218,7 @@ export function createQuotationWorkflow({
   }
   function orders() {
     const material = kind() === "material";
-    return `<section class="workflow-card"><div class="feature-toolbar"><h2>${material ? "Pedidos a proveedores" : "Subcontratos adjudicados"}</h2>${material && !state.remoteProject ? '<button class="btn" data-action="ops-stock-declare">Declarar acopio existente</button>' : ""}</div><p>${material ? "Pago y entrega se siguen por separado. Las recepciones parciales actualizan el acopio." : "Los certificados aprobados reconocen el avance y el saldo por pagar del contratista."} Los importes adjudicados son sin IVA; los comprobantes fiscales y su conciliación se administran en Finanzas.</p><table class="data-grid"><thead><tr><th>Pedido / proveedor</th><th>Importe sin IVA</th><th>Pago</th><th>${material ? "Entrega" : "Avance"}</th><th></th></tr></thead><tbody>${v.orders.map((o) => `<tr><td>${e(o.document.number)} · ${e(supplier(o.document.partner_id))}<details><summary>${o.lines.length} ${material ? "materiales" : "tareas"}</summary>${o.lines.map((l) => `<p>${e(l.description)} · ${numeric(l.received)} de ${numeric(l.quantity)} ${material ? "recibidos" : "certificados"}${material ? `<small>Acopio en proveedor: ${numeric(l.vendor_stock || "0")} · Entrega solicitada: ${numeric(l.requested || "0")}</small>` : ""}</p>`).join("")}</details></td><td>${e(o.document.currency)} ${money(o.document.amount)}</td><td>${e(o.payment_state)}<small>Cubierto: ${money(o.paid)} · Pendiente: ${money(o.pending_payment)}${o.cash_paid != null ? `<br>Pagos registrados: ${money(o.cash_paid)}` : ""}${Number(o.supplier_credit) > 0 ? `<br>Saldo a favor en proveedor: ${money(o.supplier_credit)}` : ""}</small></td><td>${e(o.delivery_state)}${(o.files || []).map((f) => `<button class="btn tiny" data-action="ops-rfq-proof-open" data-id="${f.id}" title="${e(f.date || "")} · ${e(f.document_number || "Comprobante")}">${e(f.document_number || "")} · ${e(f.name)}</button>`).join("")}</td><td>${state.remoteProject ? "" : material ? `<button class="btn" data-action="ops-rfq-receive" data-id="${o.document.id}" ${o.delivery_state === "Completa" ? "disabled" : ""}>Registrar entrega</button><button class="btn" data-action="ops-rfq-pay" data-id="${o.document.id}" ${Number(o.pending_payment) <= 0 ? "disabled" : ""}>Registrar pago</button><button class="btn" data-action="ops-rfq-movement" data-kind="edit" data-id="${o.document.id}" ${o.editable ? "" : "disabled"} title="Solo se edita antes de registrar movimientos">Editar pedido</button><button class="btn" data-action="ops-rfq-movement" data-kind="reserve" data-id="${o.document.id}">Acopiar en proveedor</button><button class="btn" data-action="ops-rfq-movement" data-kind="request" data-id="${o.document.id}">Solicitar entrega</button><button class="btn" data-action="ops-rfq-movement" data-kind="release" data-id="${o.document.id}">Canjear materiales</button>${Number(o.supplier_credit) > 0 && Number(o.pending_payment) > 0 ? `<button class="btn" data-action="ops-rfq-movement" data-kind="apply" data-id="${o.document.id}">Aplicar saldo (${money(o.supplier_credit)})</button>` : ""}<button class="btn" data-action="ops-rfq-movement" data-kind="history" data-id="${o.document.id}">Historial</button>` : `<button class="btn" data-action="ops-cert-contract" data-contract="${o.document.id}">Certificar avances / pagos</button>`}</td></tr>`).join("") || '<tr><td colspan="5">Al distribuir una solicitud aparecerán aquí los pedidos adjudicados.</td></tr>'}</tbody></table>${material && model.stock.length ? `<details><summary>Material recibido en obra</summary><table class="data-grid"><thead><tr><th>Material</th><th>Cantidad</th></tr></thead><tbody>${model.stock.map((s) => `<tr><td>${e(state.resources.find((r) => r.id === s.resource_id)?.description || "Material")}</td><td>${numeric(s.quantity)}</td></tr>`).join("")}</tbody></table></details>` : ""}</section>`;
+    return `<section class="workflow-card"><div class="feature-toolbar"><h2>${material ? "Pedidos a proveedores" : "Subcontratos adjudicados"}</h2>${material && !state.remoteProject ? '<button class="btn" data-action="ops-stock-declare">Declarar acopio existente</button>' : ""}</div><p>${material ? "Pago y entrega se siguen por separado. El pago cubre el acopio en proveedor; las recepciones parciales lo trasladan a obra." : "Los certificados aprobados reconocen el avance y el saldo por pagar del contratista."} Los importes adjudicados son sin IVA; los comprobantes fiscales y su conciliación se administran en Finanzas.</p><table class="data-grid"><thead><tr><th>Pedido / proveedor</th><th>Importe sin IVA</th><th>Pago</th><th>${material ? "Entrega" : "Avance"}</th><th></th></tr></thead><tbody>${v.orders.map((o) => `<tr><td>${e(o.document.number)} · ${e(supplier(o.document.partner_id))}<details><summary>${o.lines.length} ${material ? "materiales" : "tareas"}</summary>${o.lines.map((l) => `<p>${e(l.description)} · ${numeric(l.received)} de ${numeric(l.quantity)} ${material ? "recibidos" : "certificados"}${material ? `<small>Acopio en proveedor: ${numeric(l.vendor_stock || "0")} · Entrega solicitada: ${numeric(l.requested || "0")}</small>` : ""}</p>`).join("")}</details></td><td>${e(o.document.currency)} ${money(o.document.amount)}</td><td>${e(o.payment_state)}<small>Cubierto: ${money(o.paid)} · Pendiente: ${money(o.pending_payment)}${o.cash_paid != null ? `<br>Pagos registrados: ${money(o.cash_paid)}` : ""}${Number(o.supplier_credit) > 0 ? `<br>Saldo a favor en proveedor: ${money(o.supplier_credit)}` : ""}</small></td><td>${e(o.delivery_state)}${(o.files || []).map((f) => `<button class="btn tiny" data-action="ops-rfq-proof-open" data-id="${f.id}" title="${e(f.date || "")} · ${e(f.document_number || "Comprobante")}">${e(f.document_number || "")} · ${e(f.name)}</button>`).join("")}</td><td>${state.remoteProject ? (material ? "" : `<button class="btn" data-action="ops-cert-contract" data-contract="${o.document.id}">Ver certificados</button>`) : material ? `<button class="btn" data-action="ops-rfq-receive" data-id="${o.document.id}" ${o.delivery_state === "Completa" ? "disabled" : ""}>Registrar entrega</button><button class="btn" data-action="ops-rfq-pay" data-id="${o.document.id}" ${Number(o.pending_payment) <= 0 ? "disabled" : ""}>Registrar pago</button><button class="btn" data-action="ops-rfq-movement" data-kind="edit" data-id="${o.document.id}" ${o.editable ? "" : "disabled"} title="Solo se edita antes de registrar movimientos">Editar pedido</button><button class="btn" data-action="ops-rfq-movement" data-kind="request" data-id="${o.document.id}">Solicitar entrega</button><button class="btn" data-action="ops-rfq-movement" data-kind="release" data-id="${o.document.id}">Canjear materiales</button>${Number(o.supplier_credit) > 0 && Number(o.pending_payment) > 0 ? `<button class="btn" data-action="ops-rfq-movement" data-kind="apply" data-id="${o.document.id}">Aplicar saldo (${money(o.supplier_credit)})</button>` : ""}<button class="btn" data-action="ops-rfq-movement" data-kind="history" data-id="${o.document.id}">Historial</button>` : `<button class="btn" data-action="ops-cert-contract" data-contract="${o.document.id}">Certificar avances / pagos</button><button class="btn" data-action="ops-rfq-movement" data-kind="scope" data-id="${o.document.id}">Reducir / dar de baja</button><button class="btn" data-action="ops-rfq-movement" data-kind="history" data-id="${o.document.id}">Historial</button>`}</td></tr>`).join("") || '<tr><td colspan="5">Al distribuir una solicitud aparecerán aquí los pedidos adjudicados.</td></tr>'}</tbody></table>${material && model.stock.length ? `<details><summary>Material recibido en obra</summary><table class="data-grid"><thead><tr><th>Material</th><th>Cantidad</th></tr></thead><tbody>${model.stock.map((s) => `<tr><td>${e(state.resources.find((r) => r.id === s.resource_id)?.description || "Material")}</td><td>${numeric(s.quantity)}</td></tr>`).join("")}</tbody></table></details>` : ""}</section>`;
   }
   function sourceRows(rows, selected, needed = false) {
     return rows
@@ -353,73 +353,76 @@ export function createQuotationWorkflow({
     release: "Canjear materiales / generar saldo",
     apply: "Aplicar saldo a favor",
     history: "Historial del pedido",
+    scope: "Reducir o dar de baja el subcontrato",
   };
   function movementEditor() {
     const m = v.movement;
     if (!m) return "";
     const o = m.order;
     return `<section class="workflow-editor compact-editor" role="dialog" aria-modal="true" aria-label="${movementTitles[m.kind]}"><form id="supplier-movement-form"><h2>${movementTitles[m.kind]} · ${e(o.document.number)}</h2><button type="button" class="btn" data-action="ops-rfq-movement-close">Cerrar</button>${
-      m.kind === "history"
-        ? `<ol>${
-            m.history
-              .map(
-                (h) =>
-                  `<li>${h.created_at ? e(new Date(h.created_at).toLocaleString("es-AR",{timeZone:"America/Buenos_Aires"})) + " · " : ""}${e(movementTitles[h.kind] || h.kind)} · ${e(h.reason)}${Object.entries(
-                    h.quantities || {},
-                  )
-                    .map(
-                      ([id, q]) =>
-                        ` · ${e(o.lines.find((l) => l.source_id === id)?.description || "Material")}: ${numeric(q)}`,
+      m.kind === "scope"
+        ? `<p>Conservá la cantidad ya certificada. Reducí el total contratado o usá «Dar de baja el trabajo pendiente» para liberar todo lo restante y adjudicarlo a otro contratista.</p><button class="btn" type="button" data-action="ops-rfq-scope-cancel">Dar de baja el trabajo pendiente</button>${o.lines.map((l) => field(l.description + " · Certificado " + numeric(l.received), "q:" + l.source_id, l.quantity, `type="number" min="${l.received}" max="${l.quantity}" step="any" required`)).join("")}`
+        : m.kind === "history"
+          ? `<ol>${
+              m.history
+                .map(
+                  (h) =>
+                    `<li>${h.created_at ? e(new Date(h.created_at).toLocaleString("es-AR", { timeZone: "America/Buenos_Aires" })) + " · " : ""}${e(movementTitles[h.kind] || h.kind)} · ${e(h.reason)}${Object.entries(
+                      h.quantities || {},
                     )
-                    .join(
-                      "",
-                    )}${Number(h.amount) ? ` · ${money(h.amount)}` : ""}</li>`,
-              )
-              .join("") || "Sin modificaciones posteriores al pedido."
-          }</ol>`
-        : m.kind === "edit"
-          ? `${select(
-              "Proveedor",
-              "partner_id",
-              partners().map((p) => [p.id, p.name]),
-              o.document.partner_id,
-            )}${field("Fecha prevista de pago", "due_date", o.document.due_date, 'type="date" required')}<div>${m.lines
-              .map(
-                (l, i) =>
-                  `<div class="movement-edit-row" data-movement-row="${i}">${select(
-                    "Material",
-                    "resource_id",
-                    state.resources
-                      .filter(
-                        (r) => String(r.kind).toLowerCase() === "material",
+                      .map(
+                        ([id, q]) =>
+                          ` · ${e(o.lines.find((l) => l.source_id === id)?.description || "Material")}: ${numeric(q)}`,
                       )
-                      .map((r) => [r.id, r.description]),
-                    l.resource_id,
-                  )}${field("Cantidad", "quantity", l.quantity, 'type="number" min="0.000001" step="any" required')}${field("Precio unitario sin IVA", "unit_price", l.unit_price, 'type="number" min="0" step="any" required')}<button class="btn" type="button" data-action="ops-rfq-movement-remove" data-index="${i}">Quitar</button></div>`,
-              )
-              .join(
-                "",
-              )}</div><button class="btn" type="button" data-action="ops-rfq-movement-add">Agregar material</button>`
-          : m.kind === "apply"
-            ? `<p>Saldo disponible en este proveedor y moneda: ${money(o.supplier_credit)}. Se aplica sin generar un nuevo pago.</p>${field("Saldo a aplicar", "amount", String(Math.min(Number(o.supplier_credit), Number(o.pending_payment))), 'type="number" min="0.000001" step="any" required')}`
-            : `<p>${m.kind === "reserve" ? "Registrá las cantidades pagadas que el proveedor confirma tener reservadas para esta obra." : m.kind === "request" ? "Indicá cuánto del acopio en proveedor pedís que sea enviado a la obra. La recepción se registra por separado." : "Solo se cancelan cantidades no entregadas. El pago original se conserva y el importe reconocido queda como saldo para otros materiales del mismo proveedor y moneda."}</p>${o.lines
-                .filter((l) => Number(l.remaining) > 0)
-                .map((l) =>
-                  field(
-                    l.description +
-                      " · Pendiente " +
-                      numeric(l.remaining) +
-                      " · En proveedor " +
-                      numeric(l.vendor_stock || "0"),
-                    "q:" + l.source_id,
-                    "0",
-                    'type="number" min="0" step="any"',
-                  ),
+                      .join(
+                        "",
+                      )}${Number(h.amount) ? ` · ${money(h.amount)}` : ""}</li>`,
+                )
+                .join("") || "Sin modificaciones posteriores al pedido."
+            }</ol>`
+          : m.kind === "edit"
+            ? `${select(
+                "Proveedor",
+                "partner_id",
+                partners().map((p) => [p.id, p.name]),
+                o.document.partner_id,
+              )}${field("Fecha prevista de pago", "due_date", o.document.due_date, 'type="date" required')}<div>${m.lines
+                .map(
+                  (l, i) =>
+                    `<div class="movement-edit-row" data-movement-row="${i}">${select(
+                      "Material",
+                      "resource_id",
+                      state.resources
+                        .filter(
+                          (r) => String(r.kind).toLowerCase() === "material",
+                        )
+                        .map((r) => [r.id, r.description]),
+                      l.resource_id,
+                    )}${field("Cantidad", "quantity", l.quantity, 'type="number" min="0.000001" step="any" required')}${field("Precio unitario sin IVA", "unit_price", l.unit_price, 'type="number" min="0" step="any" required')}<button class="btn" type="button" data-action="ops-rfq-movement-remove" data-index="${i}">Quitar</button></div>`,
                 )
                 .join(
                   "",
-                )}${m.kind === "release" ? field("Saldo reconocido por el proveedor (sin IVA)", "amount", "0", 'type="number" min="0" step="any" required') : ""}`
-    }${m.kind !== "history" ? `<label>Motivo / referencia<textarea name="reason" maxlength="2000" ${m.kind === "release" ? "required" : ""}></textarea></label><label>Comprobante (opcional)<input type="file" name="proof" accept="application/pdf,image/png,image/jpeg,image/webp"></label><button class="btn primary" type="submit">Confirmar</button>` : ""}</form></section>`;
+                )}</div><button class="btn" type="button" data-action="ops-rfq-movement-add">Agregar material</button>`
+            : m.kind === "apply"
+              ? `<p>Saldo disponible en este proveedor y moneda: ${money(o.supplier_credit)}. Se aplica sin generar un nuevo pago.</p>${field("Saldo a aplicar", "amount", String(Math.min(Number(o.supplier_credit), Number(o.pending_payment))), 'type="number" min="0.000001" step="any" required')}`
+              : `<p>${m.kind === "reserve" ? "Registrá las cantidades pagadas que el proveedor confirma tener reservadas para esta obra." : m.kind === "request" ? "Indicá cuánto del acopio en proveedor pedís que sea enviado a la obra. La recepción se registra por separado." : "Solo se cancelan cantidades no entregadas. El pago original se conserva y el importe reconocido queda como saldo para otros materiales del mismo proveedor y moneda."}</p>${o.lines
+                  .filter((l) => Number(l.remaining) > 0)
+                  .map((l) =>
+                    field(
+                      l.description +
+                        " · Pendiente " +
+                        numeric(l.remaining) +
+                        " · En proveedor " +
+                        numeric(l.vendor_stock || "0"),
+                      "q:" + l.source_id,
+                      "0",
+                      'type="number" min="0" step="any"',
+                    ),
+                  )
+                  .join(
+                    "",
+                  )}${m.kind === "release" ? field("Saldo reconocido por el proveedor (sin IVA)", "amount", "0", 'type="number" min="0" step="any" required') : ""}`
+    }${m.kind !== "history" ? `<label>Motivo / referencia<textarea name="reason" maxlength="2000" ${["release", "scope"].includes(m.kind) ? "required" : ""}></textarea></label>${m.kind === "scope" ? "" : '<label>Comprobante (opcional)<input type="file" name="proof" accept="application/pdf,image/png,image/jpeg,image/webp"></label>'}<button class="btn primary" type="submit">Confirmar</button>` : ""}</form></section>`;
   }
   function readMovementLines() {
     if (v.movement?.kind !== "edit") return;
@@ -464,6 +467,12 @@ export function createQuotationWorkflow({
           orderId: order.document.id,
         }),
       };
+    }
+    if (a === "ops-rfq-scope-cancel") {
+      for (const l of v.movement.order.lines)
+        document.querySelector(`[name="q:${l.source_id}"]`).value = l.received;
+      v.dirty = true;
+      return true;
     }
     if (a === "ops-rfq-movement-close") {
       if (!(await protect())) return true;
@@ -740,29 +749,38 @@ export function createQuotationWorkflow({
           .filter(([k]) => k.startsWith("q:"))
           .map(([k, q]) => [k.slice(2), String(q)]),
       );
-      await invoke("record_supplier_movement", {
-        movement: {
-          order_id: m.order.document.id,
-          project_id: model.projectId,
-          kind: m.kind,
+      if (m.kind === "scope") {
+        await invoke("revise_subcontract", {
+          projectId: model.projectId,
+          orderId: m.order.document.id,
           revision: m.order.revision,
           quantities,
-          amount: String(data.get("amount") || "0"),
           reason: String(data.get("reason") || ""),
-          lines:
-            m.kind === "edit"
-              ? m.lines.map((l) => ({
-                  ...l,
-                  description:
-                    state.resources.find((r) => r.id === l.resource_id)
-                      ?.description || "Material",
-                }))
-              : [],
-          partner_id: data.get("partner_id") || null,
-          due_date: data.get("due_date") || null,
-          proof: await proofFrom(form),
-        },
-      });
+        });
+      } else
+        await invoke("record_supplier_movement", {
+          movement: {
+            order_id: m.order.document.id,
+            project_id: model.projectId,
+            kind: m.kind,
+            revision: m.order.revision,
+            quantities,
+            amount: String(data.get("amount") || "0"),
+            reason: String(data.get("reason") || ""),
+            lines:
+              m.kind === "edit"
+                ? m.lines.map((l) => ({
+                    ...l,
+                    description:
+                      state.resources.find((r) => r.id === l.resource_id)
+                        ?.description || "Material",
+                  }))
+                : [],
+            partner_id: data.get("partner_id") || null,
+            due_date: data.get("due_date") || null,
+            proof: await proofFrom(form),
+          },
+        });
       v.dirty = false;
       await refresh();
       await load();

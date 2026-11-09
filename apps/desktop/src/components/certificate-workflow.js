@@ -78,15 +78,16 @@ export function createCertificateWorkflow({
           id: row.dataset.certExtra,
           description: get("description").value,
           reason: get("reason").value,
-          authorization: get("authorization").value,
-          amount: get("amount").value,
+          authorization: get("authorization")?.value || "",
+          amount: get("amount").value || "0",
           adjustable: get("adjustable").checked,
           retention: get("retention").checked,
           recover_advance: get("recover_advance").checked,
         };
       },
     );
-    d.operation.reconcile_ids = f.getAll("reconcile_id").map(String);
+    d.operation.reconcile_ids =
+      d.kind === "certificate" ? f.getAll("reconcile_id").map(String) : [];
   }
   async function save() {
     read();
@@ -95,6 +96,46 @@ export function createCertificateWorkflow({
     view.sheet = await invoke("preview_certificate_draft", {
       id: view.draft.id,
     });
+  }
+  let previewTimer,
+    previewGeneration = 0;
+  function totals() {
+    const op = view.sheet?.operation || {},
+      c = op.calculated || {};
+    return `<div><span>Base del período <b>${money(c.base_work || "0")}</b></span><span>Anticipo (${numeric(op.advance_percent || "0")} %) <b>−${money(op.advance || "0")}</b></span><span>Ajuste <b>${money(c.index_adjustment || "0")}</b></span><span>Adicionales <b>${money(c.extras || "0")}</b></span><span>Diferencias <b>${money(c.adjustment_difference || "0")}</b></span><span>Reparo (${numeric(op.retention_percent || "0")} %) <b>−${money(c.retention || "0")}</b></span><strong>Neto ${e(op.currency || "ARS")} ${money(op.amount || "0")}</strong></div><small data-preview-status>${view.dirty ? "Vista previa · cambios sin guardar" : ""}</small>`;
+  }
+  function livePreview() {
+    clearTimeout(previewTimer);
+    const generation = ++previewGeneration;
+    previewTimer = setTimeout(async () => {
+      if (!view.draft || !document.querySelector("#certificate-workflow-form"))
+        return;
+      read();
+      const id = view.draft.id;
+      try {
+        const sheet = await invoke("calculate_certificate_preview", {
+          draft: structuredClone(view.draft),
+        });
+        if (generation !== previewGeneration || view.draft?.id !== id) return;
+        view.sheet = sheet;
+        const footer = document.querySelector("[data-certificate-totals]");
+        if (footer) footer.innerHTML = totals();
+        for (const row of document.querySelectorAll("[data-cert-progress]")) {
+          const r = sheet.rows.find(
+            (r) => r.line_id === row.dataset.certProgress,
+          );
+          if (!r) continue;
+          row.children[3].textContent = numeric(r.current_percent);
+          row.children[4].textContent = numeric(r.remaining_percent);
+          row.children[5].textContent = money(r.period_amount);
+        }
+      } catch (error) {
+        if (generation === previewGeneration) {
+          const status = document.querySelector("[data-preview-status]");
+          if (status) status.textContent = "Vista previa pendiente: " + error;
+        }
+      }
+    }, 180);
   }
   function overview() {
     const drafts = view.drafts.filter(
@@ -189,7 +230,7 @@ export function createCertificateWorkflow({
             .slice(0, 10)
         : c.contract_terms?.start || dateToday().slice(0, 7) + "-01";
     return (
-      `<section class="workflow-card"><h2>Certificados del subcontrato ${e(c.number)}</h2><div class="feature-toolbar">${field("Inicio del período del contratista", "cert-start", start, 'type="date"')}${field("Fin del período del contratista", "cert-end", dateToday(), 'type="date"')}<button class="btn primary" data-action="ops-cert-open" data-contract="${c.id}">Modificar avances del contratista</button></div><table class="data-grid"><thead><tr><th>Certificado</th><th>Período</th><th>Neto por pagar</th><th></th></tr></thead><tbody>${certs.map((d) => `<tr><td>${e(d.number)}</td><td>${e(d.period_start)} a ${e(d.period_end)}</td><td>${money(d.amount)}</td><td><button class="btn" data-action="ops-cert-pdf" data-id="${d.id}">Ver certificado / PDF</button><button class="btn" data-action="ops-cert-pay" data-id="${d.id}">Registrar pago del certificado</button></td></tr>`).join("")}</tbody></table></section>` +
+      `<section class="workflow-editor compact-editor contract-certificates" role="dialog" aria-modal="true" aria-label="Certificados del subcontrato"><button class="btn" data-action="ops-cert-contract-close">Cerrar</button><h2>Certificados del subcontrato ${e(c.number)}</h2><div class="feature-toolbar">${field("Inicio del período del contratista", "cert-start", start, 'type="date"')}${field("Fin del período del contratista", "cert-end", dateToday(), 'type="date"')}${state.remoteProject ? "" : `<button class="btn primary" data-action="ops-cert-open" data-contract="${c.id}">Modificar avances del contratista</button>`}</div><table class="data-grid"><thead><tr><th>Certificado</th><th>Período</th><th>Neto por pagar</th><th></th></tr></thead><tbody>${certs.map((d) => `<tr><td>${e(d.number)}</td><td>${e(d.period_start)} a ${e(d.period_end)}</td><td>${money(d.amount)}</td><td><button class="btn" data-action="ops-cert-pdf" data-id="${d.id}">Ver certificado / PDF</button>${state.remoteProject ? "" : `<button class="btn" data-action="ops-cert-pay" data-id="${d.id}">Registrar pago del certificado</button>`}</td></tr>`).join("")}</tbody></table></section>` +
       editor() +
       paymentEditor()
     );
@@ -203,7 +244,7 @@ export function createCertificateWorkflow({
     if (!view.draft || !view.sheet) return "";
     const d = view.draft,
       o = d.operation;
-    return `<section class="workflow-editor" role="dialog" aria-modal="true" aria-label="Modificar avances"><form id="certificate-workflow-form"><div class="feature-toolbar"><h2>Modificar avances · ${o.kind === "certificate" ? "Comitente" : "Contratista"}</h2><button type="button" class="btn" data-action="ops-cert-close">Cerrar</button><button type="submit" class="btn">Guardar borrador</button><button type="button" class="btn" data-action="ops-cert-preliminary">Generar PRELIMINAR PDF</button><button type="button" class="btn primary" data-action="ops-cert-issue">Emitir certificado aprobado</button></div><div class="workflow-grid">${field("Fecha de emisión / preparación", "date", o.date, 'type="date" required')}${field("Desde", "period_start", o.period_start, o.kind === "certificate" ? 'type="date" readonly' : 'type="date" required')}${field("Hasta", "period_end", o.period_end, o.kind === "certificate" ? 'type="date" readonly' : 'type="date" required')}${o.kind === "subcertificate" ? field("Jornadas / horas (solo contratos por tiempo)", "work_units", o.work_units || "0", 'type="number" min="0" step="any"') : ""}</div><p>Ingresá el avance acumulado de cada partida. El período es la diferencia con lo emitido anteriormente. Los avances aprobados de contratistas se incorporan al borrador, sin emitir automáticamente.</p>${o.kind === "certificate" ? '<button type="button" class="btn" data-action="ops-cert-approved">Incorporar avances aprobados de contratistas</button>' : ""}<div class="workflow-scroll"><table class="data-grid"><thead><tr><th>Ítem / partida</th><th>Anterior %</th><th>Acumulado %</th><th>Período %</th><th>Restante %</th><th>Importe período base</th></tr></thead><tbody>${view.sheet.rows
+    return `<section class="workflow-editor certificate-editor" role="dialog" aria-modal="true" aria-label="Modificar avances"><form id="certificate-workflow-form"><div class="feature-toolbar"><h2>Modificar avances · ${o.kind === "certificate" ? "Comitente" : "Contratista"}</h2><button type="button" class="btn" data-action="ops-cert-close">Cerrar</button><button type="submit" class="btn">Guardar borrador</button><button type="button" class="btn" data-action="ops-cert-preliminary">Generar PRELIMINAR PDF</button><button type="button" class="btn primary" data-action="ops-cert-issue">Emitir certificado aprobado</button></div><div class="workflow-grid">${field("Fecha de emisión / preparación", "date", o.date, 'type="date" required')}${field("Desde", "period_start", o.period_start, o.kind === "certificate" ? 'type="date" readonly' : 'type="date" required')}${field("Hasta", "period_end", o.period_end, o.kind === "certificate" ? 'type="date" readonly' : 'type="date" required')}${o.kind === "subcertificate" ? field("Jornadas / horas (solo contratos por tiempo)", "work_units", o.work_units || "0", 'type="number" min="0" step="any"') : ""}</div><p>Ingresá el avance acumulado de cada partida. El período es la diferencia con lo emitido anteriormente. Los avances aprobados de contratistas se incorporan al borrador, sin emitir automáticamente.</p>${o.kind === "certificate" ? '<button type="button" class="btn" data-action="ops-cert-approved">Incorporar avances aprobados de contratistas</button>' : ""}<div class="certificate-body"><div class="workflow-scroll"><table class="data-grid"><thead><tr><th>Ítem / partida</th><th>Anterior %</th><th>Acumulado %</th><th>Período %</th><th>Restante %</th><th>Importe período base</th></tr></thead><tbody>${view.sheet.rows
       .map((r) => {
         const v =
           d.progress.find((p) => p.line_id === r.line_id)
@@ -212,10 +253,14 @@ export function createCertificateWorkflow({
       })
       .join(
         "",
-      )}</tbody></table></div><p>Importes actualizados al guardar: neto ${o.currency} ${money(view.sheet.operation.amount)}. ${view.dirty ? "Cambios sin guardar." : ""}</p><details ${(o.extras || []).length ? "open" : ""}><summary>Adicionales y diferencias de ajuste</summary>${(
+      )}</tbody></table></div><details ${(o.extras || []).length ? "open" : ""}><summary>Adicionales y diferencias de ajuste</summary>${(
       model.pendingDifferences || []
     )
-      .filter((x) => x.estimate_id === model.estimateId || !x.estimate_id)
+      .filter(
+        (x) =>
+          o.kind === "certificate" &&
+          (x.estimate_id === model.estimateId || !x.estimate_id),
+      )
       .map(
         (x) =>
           `<label><input type="checkbox" name="reconcile_id" value="${x.source_id}" ${(o.reconcile_ids || []).includes(x.source_id) ? "checked" : ""}> ${e(x.source_number)} · Diferencia ${money(x.delta)}</label>`,
@@ -223,7 +268,7 @@ export function createCertificateWorkflow({
       .join("")}${(o.extras || [])
       .map(
         (x) =>
-          `<fieldset data-cert-extra="${x.id}"><div class="workflow-grid">${field("Descripción", "description", x.description, "required")}${field("Motivo", "reason", x.reason, "required")}${field("Autorización del comitente", "authorization", x.authorization, "required")}${field("Importe completo", "amount", x.amount, 'type="number" min="0.000001" step="any" required')}</div>${[
+          `<fieldset data-cert-extra="${x.id}"><div class="workflow-grid">${field("Descripción", "description", x.description)}${field(o.kind === "certificate" ? "Motivo" : "Motivo (opcional)", "reason", x.reason)}${o.kind === "certificate" ? field("Autorización del comitente", "authorization", x.authorization) : ""}${field("Importe completo", "amount", x.amount, 'type="number" min="0" step="any"')}</div>${[
             ["adjustable", "Ajustar índices"],
             ["retention", "Aplicar reparo"],
             ["recover_advance", "Recuperar anticipo"],
@@ -238,14 +283,27 @@ export function createCertificateWorkflow({
       )
       .join(
         "",
-      )}<button type="button" class="btn" data-action="ops-cert-add-extra">Agregar adicional puntual</button></details><label>Observaciones<textarea name="notes">${e(o.notes)}</textarea></label></form></section>`;
+      )}<button type="button" class="btn" data-action="ops-cert-add-extra">Agregar adicional puntual</button></details><label>Observaciones<textarea name="notes">${e(o.notes)}</textarea></label></div><footer class="certificate-totals" data-certificate-totals>${totals()}</footer></form></section>`;
   }
   async function act(b) {
     const a = b.dataset.action;
     if (!a.startsWith("ops-cert-")) return false;
-    if (state.remoteProject && a !== "ops-cert-pdf" && a !== "ops-cert-refresh")
+    if (
+      state.remoteProject &&
+      ![
+        "ops-cert-pdf",
+        "ops-cert-refresh",
+        "ops-cert-contract",
+        "ops-cert-contract-close",
+      ].includes(a)
+    )
       throw new Error("Obra de solo lectura");
     if (a === "ops-cert-refresh") await load();
+    if (a === "ops-cert-contract-close") {
+      if (view.dirty && !window.confirm("¿Descartar los cambios sin guardar?"))
+        return true;
+      view.contractId = null;
+    }
     if (a === "ops-cert-contract") {
       view.contractId = b.dataset.contract;
       view.draft = null;
@@ -259,7 +317,10 @@ export function createCertificateWorkflow({
         estimateId: model.estimateId,
       });
       view.draft.operation.date = dateToday();
-      await save();
+      view.sheet = await invoke("certificate_editor_sheet", {
+        id: view.draft.id,
+      });
+      view.dirty = false;
     }
     if (a === "ops-cert-pay") {
       view.payment = model.docs.find((d) => d.id === b.dataset.id);
@@ -267,7 +328,14 @@ export function createCertificateWorkflow({
     if (a === "ops-cert-pay-close") view.payment = null;
     if (a === "ops-cert-open" || a === "ops-cert-resume") {
       if (a === "ops-cert-resume")
-        view.draft = view.drafts.find((d) => d.id === b.dataset.id);
+        view.draft = structuredClone(
+          (
+            await invoke("list_certificate_drafts", {
+              projectId: model.projectId,
+              estimateId: model.estimateId,
+            })
+          ).find((d) => d.id === b.dataset.id),
+        );
       else {
         const start =
             b.dataset.start ||
@@ -287,11 +355,16 @@ export function createCertificateWorkflow({
         });
       }
       view.draft.operation.date = dateToday();
-      await save();
+      view.sheet = await invoke("certificate_editor_sheet", {
+        id: view.draft.id,
+      });
+      view.dirty = false;
     }
     if (a === "ops-cert-close") {
       if (view.dirty && !window.confirm("¿Cerrar sin guardar los cambios?"))
         return true;
+      clearTimeout(previewTimer);
+      ++previewGeneration;
       view.draft = null;
       view.sheet = null;
       view.dirty = false;
@@ -372,6 +445,14 @@ export function createCertificateWorkflow({
       );
     }
     render();
+    if (
+      [
+        "ops-cert-add-extra",
+        "ops-cert-remove-extra",
+        "ops-cert-approved",
+      ].includes(a)
+    )
+      livePreview();
     return true;
   }
   return {
@@ -411,6 +492,7 @@ export function createCertificateWorkflow({
     input: (t) => {
       if (t.closest?.("#certificate-workflow-form")) {
         view.dirty = true;
+        livePreview();
       }
     },
     protect: () => {

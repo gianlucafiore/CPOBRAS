@@ -143,3 +143,35 @@ unitarios sin IVA y se confirman con **Guardar precios**.
 el PDF después de guardarlo. La planilla pide destino sin abrirla. Cancelar el
 diálogo no guarda un documento. La ruta guardada aparece en la notificación
 inferior derecha. Si falta un lector PDF, el archivo permanece guardado.
+
+## Edición de certificados y subcontratos — noviembre de 2026
+
+- Abrir un certificado permite corregir adicionales incompletos sin intentar
+  guardar primero. Un adicional totalmente vacío se ignora; uno parcial queda
+  disponible para completar o quitar. El guardado usa la revisión vigente.
+- El cálculo de vista previa usa las reglas de emisión, dentro de una transacción
+  que se revierte: actualizar los totales no guarda ni emite documentos.
+- La tabla y los adicionales se desplazan dentro del popup. El pie permanece
+  visible con base, anticipo, ajuste, adicionales, diferencias, reparo y neto.
+- El acuerdo vigente de anticipo y reparo se aplica a los certificados abiertos;
+  los ya emitidos conservan sus valores. La recuperación de anticipo se limita
+  al anticipo efectivamente registrado, no genera un descuento ficticio.
+- Los certificados de subcontrato se consultan en un popup. Sus adicionales
+  requieren descripción e importe, con motivo opcional y sin autorización del
+  comitente. No consumen cantidades físicas adicionales de la partida.
+- **Reducir / dar de baja** modifica únicamente el alcance pendiente y registra
+  la causa. Las cantidades certificadas y los documentos anteriores se conservan.
+  Lo liberado puede adjudicarse a otro contratista desde la solicitud original.
+
+El pago de materiales implica acopio en proveedor. El botón de declaración manual
+se retiró. En pagos parciales, la cobertura se distribuye en el orden de los
+materiales del pedido, conservando lo ya recibido; lo no cubierto continúa pendiente.
+Los canjes dejan saldo en el mismo proveedor, obra y moneda. Al registrar un nuevo
+pedido se aplica automáticamente el saldo disponible hasta cubrir su importe:
+no se agrega un segundo pago. La tabla distingue los pagos históricos, el importe
+cubierto, el saldo a favor y la diferencia pendiente.
+
+El PDF de certificados usa A4 apaisado, filas compactas, rubros diferenciados y
+liquidación separada. Incluye todas las partidas, precios unitarios y totales,
+publicaciones base/actuales de cada índice, pesos, coeficiente, descuentos,
+retenciones y neto, incluso cuando alguna deducción sea cero.

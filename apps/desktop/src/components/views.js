@@ -65,7 +65,7 @@ export function createViews({
       }</div>
       <div class="header-right">${
         work && currentEstimate()
-          ? `<span class="status-pill ${currentEstimate().issued ? "issued" : ""}">${currentEstimate().issued ? "● Emitido" : "● En elaboración"}${state.remoteProject ? " · Solo lectura" : ""}</span>
+          ? `${state.remoteProject ? `<span class="status-pill">${currentEstimate().issued ? "● Emitido" : "● En elaboración"} · Solo lectura</span>` : `<select class="status-pill ${currentEstimate().issued ? "issued" : ""}" name="estimate-status" aria-label="Estado del presupuesto"><option value="draft" ${!currentEstimate().issued ? "selected" : ""}>● En elaboración</option><option value="issued" ${currentEstimate().issued ? "selected" : ""}>● Emitido</option></select>`}
         <span class="total-head"><small>${state.view === "price-determination" && state.pricePreview?.dirty ? "VISTA PREVIA" : "TOTAL"}</small> ${e(currentEstimate()?.currency)} <strong>${state.view === "price-determination" && state.pricePreview ? (state.pricePreview.total == null ? "—" : money(state.pricePreview.total)) : state.totals?.pricing_error ? "—" : money(state.totals?.total)}</strong></span>`
           : `<span class="connection">${state.remoteProject ? "Solo lectura · Obra externa" : "● SQLite local"}</span>`
       }</div>
@@ -74,6 +74,11 @@ export function createViews({
       ${
         work
           ? `<button class="menu-item" data-action="go-home">← Inicio</button>${[
+              [
+                "open-management",
+                budget ? "← Volver al proyecto" : "Proyecto",
+                "management",
+              ],
               ["open-workspace", "Presupuesto", "workspace"],
               [
                 "open-price-determination",
@@ -82,11 +87,6 @@ export function createViews({
               ],
               ["open-planning", "Planificación", "planning"],
               ["open-operations", "Gestión de obra", "operations"],
-              [
-                "open-management",
-                budget ? "← Volver al proyecto" : "Proyecto",
-                "management",
-              ],
             ]
               .filter(([, , view]) => budget || view === "management")
               .map(

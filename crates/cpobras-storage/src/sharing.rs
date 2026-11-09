@@ -92,6 +92,10 @@ pub struct SharingPermissions {
     pub accounting: bool,
     pub planning: bool,
     pub project_data: bool,
+    pub materials: Option<bool>,
+    pub subcontracts: Option<bool>,
+    pub site_book: Option<bool>,
+    pub certificates: Option<bool>,
 }
 impl Default for SharingPermissions {
     fn default() -> Self {
@@ -103,6 +107,10 @@ impl Default for SharingPermissions {
             accounting: true,
             planning: true,
             project_data: true,
+            materials: None,
+            subcontracts: None,
+            site_book: None,
+            certificates: None,
         }
     }
 }
@@ -116,6 +124,10 @@ impl SharingPermissions {
             self.accounting,
             self.planning,
             self.project_data,
+            self.materials.unwrap_or(false),
+            self.subcontracts.unwrap_or(false),
+            self.site_book.unwrap_or(false),
+            self.certificates.unwrap_or(false),
         ]
         .into_iter()
         .any(|v| v)
@@ -130,6 +142,17 @@ impl SharingPermissions {
 }
 /// Redact before serialization/transmission, including secondary copies of restricted data.
 pub fn restrict_shared_document(mut data: Value, p: &SharingPermissions) -> Value {
+    let mut resolved = p.clone();
+    resolved.materials = Some(p.materials.unwrap_or(p.operations));
+    resolved.subcontracts = Some(p.subcontracts.unwrap_or(p.operations));
+    resolved.site_book = Some(p.site_book.unwrap_or(p.operations));
+    resolved.certificates = Some(p.certificates.unwrap_or(p.operations && p.accounting));
+    resolved.operations = resolved.materials == Some(true)
+        || resolved.subcontracts == Some(true)
+        || resolved.site_book == Some(true)
+        || resolved.certificates == Some(true);
+    let p = &resolved;
+    let original = data.clone();
     data["permissions"] = json!(p);
     if !p.planning {
         data["planning"] = Value::Null;
@@ -401,6 +424,131 @@ pub fn restrict_shared_document(mut data: Value, p: &SharingPermissions) -> Valu
                     }
                 }
             }
+        }
+    }
+    let materials = p.materials == Some(true);
+    let contracts = p.subcontracts == Some(true);
+    let book = p.site_book == Some(true);
+    let certificates = p.certificates == Some(true);
+    data["material_orders"] = if materials {
+        original["material_orders"].clone()
+    } else {
+        json!([])
+    };
+    data["work_orders"] = if contracts {
+        original["work_orders"].clone()
+    } else {
+        json!([])
+    };
+    for key in ["quotation_requests", "quotation_responses"] {
+        let requests = original["quotation_requests"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        data[key] = json!(original[key]
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|r| {
+                let kind = if key == "quotation_requests" {
+                    r["kind"].as_str()
+                } else {
+                    requests
+                        .iter()
+                        .find(|q| q["id"] == r["request_id"])
+                        .and_then(|q| q["kind"].as_str())
+                };
+                match kind {
+                    Some("material") => materials,
+                    Some("work") => contracts,
+                    _ => false,
+                }
+            })
+            .map(|mut r| {
+                if !p.project_data {
+                    r["profile"] = json!({});
+                }
+                r
+            })
+            .collect::<Vec<_>>());
+    }
+    if !materials {
+        data["stock"] = json!([]);
+        data["warehouses"] = json!([]);
+    }
+    data["site_book"] = if book {
+        original["site_book"].clone()
+    } else {
+        json!([])
+    };
+    if let Some(rows) = data["operations"].as_array_mut() {
+        rows.retain(|o| match o["kind"].as_str().unwrap_or("") {
+            "certificate" => certificates,
+            "subcontract" | "subcertificate" | "service_receipt" => contracts,
+            "request" | "rfq" | "quote" | "purchase_order" | "receipt" | "stock_opening"
+            | "consumption" | "return" | "transfer" => materials,
+            "daily" => book,
+            _ => p.accounting,
+        });
+    }
+    if let Some(budgets) = data["budgets"].as_array_mut() {
+        for (i, budget) in budgets.iter_mut().enumerate() {
+            let old = &original["budgets"][i];
+            budget["certificate_sheets"] = json!(old["certificate_sheets"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|s| if s["operation"]["kind"] == "certificate" {
+                    certificates
+                } else {
+                    contracts
+                })
+                .map(|mut s| {
+                    if !p.project_data {
+                        s["profile"] = json!({});
+                    }
+                    s
+                })
+                .collect::<Vec<_>>());
+            budget["certification_overview"] = if certificates {
+                old["certification_overview"].clone()
+            } else {
+                json!([])
+            };
+            if !materials {
+                budget["report"]["needs"] = json!([]);
+                budget["report"]["quotes"] = json!([]);
+            }
+        }
+    }
+    if !p.budget {
+        fn scrub(v: &mut Value) {
+            match v {
+                Value::Object(m) => {
+                    for (k, v) in m {
+                        if ["budget", "base_budget", "planned_cost", "actual_cost"]
+                            .contains(&k.as_str())
+                        {
+                            *v = json!("0");
+                        } else if k == "curve" {
+                            *v = json!([]);
+                        } else {
+                            scrub(v)
+                        }
+                    }
+                }
+                Value::Array(a) => {
+                    for v in a {
+                        scrub(v)
+                    }
+                }
+                _ => {}
+            }
+        }
+        for key in ["planning", "schedule", "baselines", "plan_revisions"] {
+            scrub(&mut data[key]);
         }
     }
     data

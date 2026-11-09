@@ -269,7 +269,7 @@ export function createManagementWorkspace({
     )
       model.mode = "dashboard";
     if (scoped() && model.mode === "dashboard")
-      return `<main class="feature-page"><div class="feature-toolbar"><h1>Proyecto</h1><button class="btn primary" data-action="manage-dashboard-profile">${state.remoteProject ? "Consultar ficha" : "Editar proyecto"}</button></div>${dashboard.markup(model.catalogs)}</main>`;
+      return `<main class="feature-page"><div class="feature-toolbar"><h1>Proyecto</h1>${(() => {const last=state.estimates.find(e=>e.id===state.lastBudgetByProject?.[state.projectId]);return last ? `<button class="btn primary" data-action="manage-dashboard-budget" data-id="${e(last.id)}">Ir al presupuesto: ${e(last.title)}</button>` : "";})()}<button class="btn primary" data-action="manage-dashboard-profile">${state.remoteProject ? "Consultar ficha" : "Editar proyecto"}</button></div>${dashboard.markup(model.catalogs)}</main>`;
     return `<main class="feature-page"><div class="feature-toolbar">${scoped() ? '<button class="btn" data-action="manage-dashboard">← Tablero de obra</button>' : ""}<h1>${scoped() ? "Datos de la obra" : organization() ? "Directorios de " + e(organization().name) : "Directorios"}</h1>${select(
       "Directorio",
       "management-kind",

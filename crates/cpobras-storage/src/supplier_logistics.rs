@@ -57,7 +57,7 @@ pub(crate) fn movements(conn: &Connection, order: Uuid) -> Result<Vec<SupplierMo
         .collect()
 }
 pub(crate) fn effective(conn: &Connection, mut o: Operation) -> Result<Operation> {
-    if o.kind != "purchase_order" {
+    if !["purchase_order", "subcontract"].contains(&o.kind.as_str()) {
         return Ok(o);
     }
     let history = movements(conn, o.id)?;
@@ -67,7 +67,7 @@ pub(crate) fn effective(conn: &Connection, mut o: Operation) -> Result<Operation
     let mut adjustment = D::ZERO;
     for m in history {
         match m.kind.as_str() {
-            "edit" => {
+            "edit" | "scope" => {
                 o.lines = m.lines;
                 o.partner_id = m.partner_id;
                 o.due_date = m.due_date.unwrap_or_default();
@@ -129,7 +129,7 @@ impl LocalStore {
         if !self
             .operation_documents(Some(project))?
             .iter()
-            .any(|o| o.id == order && o.kind == "purchase_order")
+            .any(|o| o.id == order && ["purchase_order", "subcontract"].contains(&o.kind.as_str()))
         {
             return Err(invalid("Pedido ajeno a la obra"));
         }
@@ -232,6 +232,77 @@ impl LocalStore {
             }
         }
     }
+    pub fn revise_subcontract(
+        &mut self,
+        project: Uuid,
+        id: Uuid,
+        revision: u32,
+        quantities: &BTreeMap<Uuid, D>,
+        reason: &str,
+    ) -> Result<()> {
+        if reason.trim().is_empty() || reason.len() > 2000 {
+            return Err(invalid("Indicá el motivo de reducción o baja"));
+        }
+        self.conn.execute_batch(
+            "SAVEPOINT contract_scope; UPDATE automatic_codes SET last_value=last_value WHERE 0",
+        )?;
+        let result = (|| {
+            let orders = self.supplier_orders(project, "work")?;
+            let order = orders
+                .iter()
+                .find(|o| o.document.id == id)
+                .ok_or_else(|| invalid("Subcontrato ajeno a la obra"))?;
+            if order.revision != revision {
+                return Err(invalid(
+                    "El subcontrato cambió; recargá antes de modificarlo",
+                ));
+            }
+            let mut lines = order.document.lines.clone();
+            for l in &mut lines {
+                let id = l.line_id.ok_or_else(|| invalid("Partida inválida"))?;
+                let q = quantities
+                    .get(&id)
+                    .ok_or_else(|| invalid("Indicá las cantidades del contrato"))?;
+                let old = order.lines.iter().find(|l| l.source_id == id).unwrap();
+                if *q < old.received || *q > old.quantity {
+                    return Err(invalid(
+                        "Solo se reduce trabajo pendiente; lo certificado se conserva",
+                    ));
+                }
+                l.quantity = *q;
+            }
+            let m = SupplierMovement {
+                id: Uuid::new_v4(),
+                order_id: id,
+                project_id: project,
+                kind: "scope".into(),
+                revision,
+                lines,
+                partner_id: order.document.partner_id,
+                due_date: Some(order.document.due_date.clone()),
+                reason: reason.into(),
+                created_at: self.conn.query_row(
+                    "SELECT strftime('%Y-%m-%dT%H:%M:%fZ','now')",
+                    [],
+                    |r| r.get(0),
+                )?,
+                ..Default::default()
+            };
+            self.conn.execute("INSERT INTO supplier_movements(id,order_id,project_id,kind,payload) VALUES(?1,?2,?3,?4,?5)",params![m.id.to_string(),id.to_string(),project.to_string(),m.kind,serde_json::to_string(&m)?])?;
+            Ok(())
+        })();
+        match result {
+            Ok(()) => {
+                self.conn.execute_batch("RELEASE contract_scope")?;
+                Ok(())
+            }
+            Err(e) => {
+                self.conn
+                    .execute_batch("ROLLBACK TO contract_scope; RELEASE contract_scope")?;
+                Err(e)
+            }
+        }
+    }
     pub fn supplier_credit(
         &self,
         project: Uuid,
@@ -287,7 +358,7 @@ impl LocalStore {
                 return Err(invalid("Revisá motivo, cantidades e importe"));
             }
             match m.kind.as_str() {
-                "edit" => {
+                "edit" | "scope" => {
                     if !o.editable {
                         return Err(invalid(
                             "El pedido quedó fijado por movimientos registrados",

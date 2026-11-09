@@ -2684,6 +2684,7 @@ fn shared_permissions_remove_secrets_from_secondary_documents_and_keep_the_allow
         accounting: false,
         planning: false,
         project_data: false,
+        ..Default::default()
     };
     let filtered = restrict_shared_document(data.clone(), &p);
     assert!(!filtered.to_string().contains("SECRET"), "{filtered}");
@@ -2701,6 +2702,7 @@ fn shared_permissions_remove_secrets_from_secondary_documents_and_keep_the_allow
         accounting: true,
         planning: false,
         project_data: false,
+        ..Default::default()
     };
     let finance = restrict_shared_document(data, &p);
     assert_eq!(finance["budgets"][0]["document"]["lines"], json!([]));
@@ -4468,24 +4470,17 @@ fn supplier_stock_partial_delivery_exchange_and_credit_preserve_cash_and_history
     let payment = s
         .material_payment_with_proof(&payment, Some(proof.clone()))
         .unwrap();
-    s.record_supplier_movement(&movement(
-        "reserve",
-        0,
-        BTreeMap::from([(res, 10.into())]),
-        0.into(),
-    ))
-    .unwrap();
     assert!(s
         .record_supplier_movement(&movement(
             "request",
-            0,
+            1,
             BTreeMap::from([(res, 4.into())]),
             0.into()
         ))
         .is_err()); // stale
     s.record_supplier_movement(&movement(
         "request",
-        1,
+        0,
         BTreeMap::from([(res, 4.into())]),
         0.into(),
     ))
@@ -4509,14 +4504,14 @@ fn supplier_stock_partial_delivery_exchange_and_credit_preserve_cash_and_history
     assert!(s
         .record_supplier_movement(&movement(
             "release",
-            2,
+            1,
             BTreeMap::from([(res, 7.into())]),
             60000.into()
         ))
         .is_err());
     s.record_supplier_movement(&movement(
         "release",
-        2,
+        1,
         BTreeMap::from([(res, 6.into())]),
         60000.into(),
     ))
@@ -4540,7 +4535,7 @@ fn supplier_stock_partial_delivery_exchange_and_credit_preserve_cash_and_history
         amount: 60000.into(),
         ..Default::default()
     };
-    s.record_supplier_movement(&credit).unwrap();
+
     let new = s
         .supplier_orders(p.id, "material")
         .unwrap()
@@ -4648,13 +4643,13 @@ fn supplier_reservation_after_a_receipt_counts_only_later_deliveries_and_cannot_
         quantities: BTreeMap::from([(res, 2.into())]),
         ..Default::default()
     };
-    s.record_supplier_movement(&m).unwrap();
+
     assert_eq!(
         s.supplier_orders(p.id, "material").unwrap()[0].lines[0].vendor_stock,
         Decimal::from(2)
     );
     m.kind = "release".into();
-    m.revision = 1;
+    m.revision = 0;
     m.amount = 300.into();
     m.reason = "Cambio".into();
     assert!(s.record_supplier_movement(&m).is_err()); // Only 200 of the payment backs undelivered goods.
@@ -4694,14 +4689,6 @@ fn full_supplier_credit_replacement_keeps_a_balance_or_only_requires_the_differe
         new.partner_id = Some(supplier);
         new.lines = vec![material_row(res, line.id, 1, replacement_cost)];
         let new = s.post_operation(&new).unwrap();
-        s.record_supplier_movement(&SupplierMovement {
-            project_id: p.id,
-            order_id: new.id,
-            kind: "apply".into(),
-            amount: replacement_cost.min(100000).into(),
-            ..Default::default()
-        })
-        .unwrap();
         let report = s.operations_report(p.id, None, "2026-12-31").unwrap();
         assert_eq!(
             report
@@ -4738,4 +4725,151 @@ fn full_supplier_credit_replacement_keeps_a_balance_or_only_requires_the_differe
             1
         );
     }
+}
+
+#[test]
+fn batch_certificate_preview_does_not_save_and_incomplete_extras_remain_editable() {
+    use crate::adjustments::CertificateExtra;
+    let (mut s, p, e, line) = fixture();
+    s.save_adjustment_agreement_with_terms(
+        e.id,
+        0,
+        None,
+        Some(crate::construction_workflow::CertificateTerms {
+            advance_recovery_percent: Decimal::from(50),
+            retention_percent: Decimal::from(5),
+            collection_delay_days: 3,
+        }),
+    )
+    .unwrap();
+    s.issue_estimate(e.id).unwrap();
+    let mut d = s
+        .open_certificate_draft(p.id, e.id, None, "2026-11-01", "2026-11-05")
+        .unwrap();
+    d.progress[0].accumulated_percent = 50.into();
+    d.operation.extras.push(CertificateExtra {
+        id: Uuid::new_v4(),
+        description: String::new(),
+        reason: String::new(),
+        authorization: String::new(),
+        amount: 0.into(),
+        adjustable: false,
+        retention: false,
+        recover_advance: false,
+    });
+    let sheet = s.calculate_certificate_preview(&d).unwrap();
+    assert!(sheet.operation.amount > Decimal::ZERO);
+    assert_eq!(sheet.operation.advance_percent, Some(Decimal::from(50)));
+    assert_eq!(sheet.operation.retention_percent, Decimal::from(5));
+    assert_eq!(s.certificate_drafts(p.id, e.id).unwrap()[0].revision, 0);
+    d = s.save_certificate_draft(&d).unwrap();
+    assert!(d.operation.extras.is_empty());
+    d.operation.extras.push(CertificateExtra {
+        id: Uuid::new_v4(),
+        description: "Falta completar".into(),
+        reason: String::new(),
+        authorization: String::new(),
+        amount: 100.into(),
+        adjustable: false,
+        retention: false,
+        recover_advance: false,
+    });
+    let d = s.save_certificate_draft(&d).unwrap();
+    assert!(s.preview_certificate_draft(d.id).is_err());
+    assert!(s.certificate_editor_sheet(d.id).is_ok());
+    let mut reopened = s
+        .open_certificate_draft(p.id, e.id, None, "2026-11-01", "2026-11-05")
+        .unwrap();
+    assert_eq!(reopened.revision, d.revision);
+    reopened.operation.extras.clear();
+    let repaired = s.save_certificate_draft(&reopened).unwrap();
+    assert!(s.preview_certificate_draft(repaired.id).is_ok());
+    assert_eq!(repaired.progress[0].line_id, line.id);
+}
+#[test]
+fn batch_subcontract_extras_are_optional_reason_and_scope_preserves_execution() {
+    use crate::adjustments::CertificateExtra;
+    let (mut s, p, e, line, supplier, _, _) = stock_fixture();
+    s.issue_estimate(e.id).unwrap();
+    let mut contract = operation(p.id, "subcontract");
+    contract.estimate_id = Some(e.id);
+    contract.partner_id = Some(supplier);
+    contract.lines = vec![crate::operations::OperationLine {
+        line_id: Some(line.id),
+        description: "Trabajo".into(),
+        quantity: line.quantity,
+        unit_price: 100.into(),
+        ..Default::default()
+    }];
+    let contract = s.post_operation(&contract).unwrap();
+    let mut d = s
+        .open_certificate_draft(p.id, e.id, Some(contract.id), "2026-11-01", "2026-11-05")
+        .unwrap();
+    d.progress[0].accumulated_percent = 50.into();
+    d.operation.extras.push(CertificateExtra {
+        id: Uuid::new_v4(),
+        description: "Adicional de obra".into(),
+        reason: String::new(),
+        authorization: String::new(),
+        amount: 100.into(),
+        adjustable: false,
+        retention: false,
+        recover_advance: false,
+    });
+    let d = s.save_certificate_draft(&d).unwrap();
+    let preview = s.preview_certificate_draft(d.id).unwrap();
+    assert_eq!(preview.operation.calculated["extras"], Decimal::from(100));
+    s.issue_certificate_draft(d.id, d.revision, "2026-11-05")
+        .unwrap();
+    let half = line.quantity / Decimal::from(2);
+    assert!(s
+        .revise_subcontract(
+            p.id,
+            contract.id,
+            0,
+            &BTreeMap::from([(line.id, Decimal::ZERO)]),
+            "Abandono"
+        )
+        .is_err());
+    s.revise_subcontract(
+        p.id,
+        contract.id,
+        0,
+        &BTreeMap::from([(line.id, half)]),
+        "Abandono",
+    )
+    .unwrap();
+    let orders = s.supplier_orders(p.id, "work").unwrap();
+    assert_eq!(orders[0].lines[0].quantity, half);
+    assert_eq!(orders[0].lines[0].received, half);
+    assert!(s
+        .operation_documents(Some(p.id))
+        .unwrap()
+        .iter()
+        .any(|o| o.kind == "subcertificate" && o.extras.len() == 1));
+}
+#[test]
+fn batch_planning_only_permissions_remove_money_and_module_payloads() {
+    use crate::sharing::{restrict_shared_document, SharingPermissions};
+    use serde_json::json;
+    let data = json!({"planning":{"plan":{"tasks":[{"budget":"SECRET"}],"finance":{"opening_cash":"SECRET","cut_dates":["2026-11-05"]}}},"schedule":{"Ok":{"budget":"SECRET","curve":["SECRET"]}},"budgets":[],"operations":[],"material_orders":["SECRET"],"work_orders":["SECRET"],"quotation_requests":[],"quotation_responses":[],"site_book":["SECRET"],"stock":[],"warehouses":[],"records":[],"resources":[],"parties":[],"baselines":[],"plan_revisions":[]});
+    let p = SharingPermissions {
+        budget: false,
+        price: false,
+        resources: false,
+        operations: false,
+        accounting: false,
+        planning: true,
+        project_data: false,
+        materials: Some(false),
+        subcontracts: Some(false),
+        site_book: Some(false),
+        certificates: Some(false),
+    };
+    let filtered = restrict_shared_document(data, &p);
+    assert!(!filtered.to_string().contains("SECRET"));
+    assert_eq!(
+        filtered["planning"]["plan"]["finance"]["cut_dates"],
+        json!(["2026-11-05"])
+    );
 }

@@ -200,3 +200,24 @@ pub(crate) fn preview_quotation_import(
         )
         .map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub(crate) fn calculate_certificate_preview(
+    db: tauri::State<'_, Db>,
+    draft: cpobras_storage::construction_workflow::CertificateDraft,
+) -> Result<cpobras_storage::construction_workflow::CertificateSheet, String> {
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .calculate_certificate_preview(&draft)
+        .map_err(|e| e.to_string())
+}
+#[tauri::command]
+pub(crate) fn certificate_editor_sheet(
+    db: tauri::State<'_, Db>,
+    id: uuid::Uuid,
+) -> Result<cpobras_storage::construction_workflow::CertificateSheet, String> {
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .certificate_editor_sheet(id)
+        .map_err(|e| e.to_string())
+}

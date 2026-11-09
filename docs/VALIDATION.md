@@ -415,3 +415,19 @@ frontend y las comprobaciones de formato Rust son correctas.
 - Casos nuevos: navegación Proyecto/presupuesto, rueda en mapas y PERT, borrado reversible de nodos/dependencias, formularios compactos con comprobantes, períodos base independientes, edición de pedidos sin movimientos y canjes sin duplicar pagos.
 - Verificados: pago $100.000 con reemplazo $85.000 deja $15.000 a favor; reemplazo $120.000 deja $20.000 pendientes. El flujo de caja conserva el pago original y proyecta solo la diferencia.
 - Vite compiló durante esta edición. Sin AppImage ni release. Por preferencia del usuario, las verificaciones siguientes se limitarán a los circuitos modificados.
+
+## Correcciones de certificados, alcance y permisos (2026-11-09)
+
+Verificación limitada a los cambios, sin repetir la suite completa:
+
+- Tres regresiones nuevas: vista previa sin guardar y recuperación de borradores,
+  adicionales y reducción del subcontrato, y confidencialidad de Planificación.
+- Cinco casos de proveedores, incluidos canjes y aplicación automática del saldo
+  con reemplazos de $85.000 y $120.000 sobre un pago original de $100.000.
+- Tres verificaciones del generador PDF/planillas; muestra del certificado
+  renderizada y revisada visualmente.
+- Dos recorridos de Chromium: popup de certificados del contratista y recorrido
+  de calendario cerrado, navegación y totales en vivo.
+- Una comprobación adicional del acuerdo de anticipo/reparo en la vista previa.
+- Compilación de los comandos nativos con `cargo check`; sin suite nativa, AppImage
+  ni release en esta edición.

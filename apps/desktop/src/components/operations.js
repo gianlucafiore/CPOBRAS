@@ -1,3 +1,4 @@
+import { permissionsFor, operationPermission } from "../services/remote-workspace.js";
 import { createSiteBook } from "./site-book.js";
 import { createCertificateWorkflow } from "./certificate-workflow.js";
 import { createQuotationWorkflow } from "./quotation-workflow.js";
@@ -1078,8 +1079,7 @@ export function createOperationsWorkspace({
       .filter(
         ([key]) =>
           !state.remoteProject ||
-          state.remoteProject.data.permissions?.accounting !== false ||
-          !["finance", "certificates"].includes(key),
+          permissionsFor(state)[operationPermission(key)],
       )
       .map(
         ([key, name]) =>
@@ -1163,6 +1163,7 @@ export function createOperationsWorkspace({
       if (state.view === "operations" && !(await protect())) return;
       if (!state.projectId) throw new Error("Abrí una obra desde Inicio");
       model.projectId = state.projectId;
+      if (state.remoteProject && !permissionsFor(state)[operationPermission(model.tab)]) model.tab=["purchases","contracts","production","certificates","finance"].find(t=>permissionsFor(state)[operationPermission(t)]) || "finance";
       model.projectName =
         state.projects.find((p) => p.id === state.projectId)?.name || "Obra";
       model.estimateId = state.estimateId || "";

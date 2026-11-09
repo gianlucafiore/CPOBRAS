@@ -1,4 +1,10 @@
-import { money, numeric, multiplyDecimals } from "../decimal.js";
+import {
+  money,
+  numeric,
+  multiplyDecimals,
+  sumDecimals,
+  percentageOf,
+} from "../decimal.js";
 const safe = (s) =>
   String(s)
     .replace(/[^\p{L}\p{N} ._-]/gu, " ")
@@ -241,90 +247,364 @@ export async function exportRequest(invoke, r, format, filename = r.title) {
   return save(invoke, filename, bytes, true);
 }
 export async function exportCertificate(invoke, s) {
+  const { jsPDF } = await import("jspdf");
+  const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const o = s.operation,
     c = o.calculated || {},
-    a = o.index_snapshot;
+    a = o.index_snapshot,
+    profile = s.profile || {};
+  const width = 297,
+    height = 210,
+    margin = 12,
+    usable = 273;
+  const navy = [38, 67, 88],
+    blue = [231, 240, 247],
+    gray = [244, 247, 250],
+    ink = [39, 56, 70];
+  const date = (value) =>
+    /^\d{4}-\d{2}-\d{2}$/.test(value || "")
+      ? value.split("-").reverse().join("/")
+      : value || "—";
   const title = s.preliminary
-    ? "PRELIMINAR · Para aprobación"
-    : `${o.kind === "subcertificate" ? "Certificado de subcontratista" : "Certificado"} ${o.number}`;
-  const footer = [
-    `Total contratado a valores base: ${money(s.total_base)} · Avance acumulado: ${numeric(s.physical_percent)} %`,
-    `Trabajo del período a valores base: ${money(c.base_work || "0")}`,
-  ];
-  if (Number(o.advance) > 0)
-    footer.push(
-      `Recuperación de anticipo ${numeric(o.advance_percent ?? c.recovery_percent ?? "0")} % (${o.advance_before_index ? "antes" : "después"} del ajuste): -${money(o.advance)}`,
-    );
-  if (a) {
-    footer.push(
-      `Ajuste: base ${a.agreement.base_month} · Actual ${a.applied_month} · Objetivo ${a.target_month} · ${a.provisional ? "PROVISORIO (diferencia pendiente)" : "Definitivo"}`,
-    );
-    for (const i of a.indices)
-      footer.push(
-        `${i.series} · Peso ${numeric(multiplyDecimals(i.weight, "100"))} % · Puntaje base (${i.base.period || a.agreement.base_month}) ${numeric(i.base.value)} · Actual (${i.current.period || a.applied_month}) ${numeric(i.current.value)} · Cociente ${Number(i.current.value) / Number(i.base.value)}`,
-      );
-    footer.push(
-      `Coeficiente ponderado: ${numeric(a.factor)} · Ajuste monetario: ${money(c.index_adjustment || "0")}`,
+    ? "PRELIMINAR - Para aprobación"
+    : `${o.kind === "subcertificate" ? "Certificado de subcontratista" : "Certificado"} #${o.number}`;
+  let y = 12,
+    band = 0;
+  function text(
+    value,
+    x,
+    top,
+    size = 8,
+    bold = false,
+    color = ink,
+    options = {},
+  ) {
+    pdf.setFont("helvetica", bold ? "bold" : "normal");
+    pdf.setFontSize(size);
+    pdf.setTextColor(...color);
+    pdf.text(
+      Array.isArray(value) ? value : String(value ?? ""),
+      x,
+      top,
+      options,
     );
   }
-  for (const x of o.extras || [])
-    footer.push(
-      `Adicional: ${x.description} · ${x.reason} · Autorización: ${x.authorization} · ${money(x.amount)} ${x.adjustable ? "a valores base (ajustable)" : "fijo"}`,
+  function heading() {
+    pdf.setFillColor(...navy);
+    pdf.rect(0, 0, width, 4, "F");
+    text(
+      profile.trade_name ||
+        profile.company_name ||
+        profile.professional_name ||
+        "CPOBRAS",
+      margin,
+      14,
+      14,
+      true,
+      navy,
     );
-  for (const x of o.reconciliations || [])
-    footer.push(
-      `Diferencia de certificado anterior ${x.source_number || x.source_id}: ${money(x.delta)}`,
+    if (profile.logo_png?.length) {
+      try {
+        pdf.addImage(
+          new Uint8Array(profile.logo_png),
+          "PNG",
+          width - margin - 18,
+          7,
+          18,
+          15,
+        );
+      } catch {}
+    }
+    text(title, margin, 22, 11, true, s.preliminary ? [155, 100, 30] : navy);
+    text(
+      `Obra: ${s.project_name} | Presupuesto: ${s.budget_title}`,
+      margin,
+      28,
+      8,
     );
-  if (Number(o.discount) > 0) footer.push(`Descuento: -${money(o.discount)}`);
-  if (Number(o.retention_percent) > 0)
-    footer.push(
-      `Fondo de reparo ${numeric(o.retention_percent)} %: -${money(c.retention || "0")}`,
+    text(
+      `${o.kind === "subcertificate" ? "Contraparte" : "Comitente"}: ${s.client_name} | Período: ${date(o.period_start)} al ${date(o.period_end)} | ${s.preliminary ? "Preparación" : "Emisión"}: ${date(o.date)}`,
+      margin,
+      33,
+      8,
     );
-  footer.push(
-    `NETO A COBRAR ${o.currency} ${money(o.amount)} · Vencimiento: ${o.due_date}`,
-    s.preliminary
-      ? "PRELIMINAR. No emitido. Sujeto a aprobación; no registra avance oficial."
-      : `Emitido el ${o.date}. Su emisión no acredita el cobro.`,
-    o.notes || "",
-  );
-  const bytes = await pdfTable(
-    title,
-    s.profile,
-    [
-      `Obra: ${s.project_name} · ${s.budget_title}`,
-      `Comitente: ${s.client_name} · Período: ${o.period_start} a ${o.period_end} · ${s.preliminary ? "Preparado" : "Emisión"}: ${o.date}`,
-    ],
-    [
-      "Ítem",
-      "Rubro / Partida",
-      "Und.",
-      "Cant. contrato",
-      "Precio base",
-      "Anterior %",
-      "Período %",
-      "Acumulado %",
-      "Restante %",
-      "Monto período",
-    ],
-    s.rows.map((r) => [
+    const identity = [
+      profile.tax_id ? "CUIT " + profile.tax_id : "",
+      profile.address,
+      profile.email,
+      profile.phone,
+    ]
+      .filter(Boolean)
+      .join(" | ");
+    if (identity) text(identity, margin, 38, 7);
+    y = identity ? 43 : 39;
+  }
+  function page() {
+    pdf.addPage();
+    heading();
+  }
+  function space(h) {
+    if (y + h > height - 14) page();
+  }
+  const cols = [14, 77, 9, 17, 25, 28, 17, 17, 17, 17, 35];
+  const heads = [
+    "Ítem",
+    "Partida / descripción",
+    "Und.",
+    "Cantidad contrato",
+    "Precio unitario base",
+    "Total contrato base",
+    "Anterior %",
+    "Período %",
+    "Acumulado %",
+    "Restante %",
+    "Importe período base",
+  ];
+  function row(values, header = false) {
+    pdf.setFont("helvetica", header ? "bold" : "normal");
+    pdf.setFontSize(header ? 6.8 : 7);
+    const lines = values.map((v, i) =>
+      pdf.splitTextToSize(String(v ?? ""), cols[i] - 3),
+    );
+    const h = Math.max(
+      header ? 10 : 5.2,
+      ...lines.map((l) => l.length * 3 + 1.8),
+    );
+    if (y + h > height - 14) {
+      page();
+      row(heads, true);
+    }
+    if (header || band++ % 2 === 0) {
+      pdf.setFillColor(...(header ? navy : gray));
+      pdf.rect(margin, y, usable, h, "F");
+    }
+    let x = margin;
+    for (let i = 0; i < values.length; i++) {
+      pdf.setDrawColor(214, 225, 233);
+      pdf.setLineWidth(0.15);
+      pdf.rect(x, y, cols[i], h);
+      text(
+        lines[i],
+        i > 2 && !header ? x + cols[i] - 1.5 : x + 1.5,
+        y + 3.6,
+        header ? 6.8 : 7,
+        header,
+        header ? [255, 255, 255] : ink,
+        i > 2 && !header ? { align: "right" } : {},
+      );
+      x += cols[i];
+    }
+    y += h;
+  }
+  heading();
+  row(heads, true);
+  let section = null;
+  for (const r of s.rows) {
+    if (r.section && r.section !== section) {
+      space(16);
+      pdf.setFillColor(...blue);
+      pdf.rect(margin, y, usable, 6, "F");
+      text(r.section, margin + 2, y + 4.2, 8, true, navy);
+      y += 6;
+      section = r.section;
+    }
+    row([
       r.item,
-      `${r.section ? r.section + " / " : ""}${r.description}`,
+      r.description,
       r.unit,
       numeric(r.quantity),
       money(r.unit_price),
+      money(r.contract_total || multiplyDecimals(r.quantity, r.unit_price)),
       numeric(r.previous_percent),
       numeric(r.current_percent),
       numeric(r.accumulated_percent),
       numeric(r.remaining_percent),
       money(r.period_amount),
-    ]),
-    footer,
+    ]);
+  }
+  y += 5;
+  const extraBase = sumDecimals((o.extras || []).map((x) => x.amount || "0")),
+    base = c.base_work || "0";
+  const liquidation = [
+    ["Total contratado a valores base", s.total_base],
+    [
+      "Ejecutado anterior a valores base",
+      sumDecimals(
+        s.rows.map((r) =>
+          multiplyDecimals(
+            r.previous || percentageOf(r.quantity, r.previous_percent || "0"),
+            r.unit_price,
+          ),
+        ),
+      ),
+    ],
+    ["Trabajo del período a valores base", base],
+    ["Adicionales a valores base / fijos", extraBase],
+    ["Subtotal base a certificar", sumDecimals([base, extraBase])],
+  ];
+  const advance = [
+    `Recuperación de anticipo (${numeric(o.advance_percent ?? c.recovery_percent ?? "0")} %)`,
+    "-" + (o.advance || "0"),
+  ];
+  if (o.advance_before_index) liquidation.push(advance);
+  liquidation.push(
+    ["Ajuste del período", c.index_adjustment || "0"],
+    [
+      o.advance_before_index
+        ? "Subtotal ajustado, neto de anticipo"
+        : "Total con ajuste",
+      sumDecimals([
+        base,
+        extraBase,
+        c.index_adjustment || "0",
+        o.advance_before_index ? "-" + (o.advance || "0") : "0",
+      ]),
+    ],
+    ["Diferencias de certificados anteriores", c.adjustment_difference || "0"],
+  );
+  if (!o.advance_before_index) liquidation.push(advance);
+  liquidation.push(
+    ["Otros descuentos", "-" + (o.discount || "0")],
+    [
+      `Fondo de reparo (${numeric(o.retention_percent || "0")} %)`,
+      "-" + (c.retention || "0"),
+    ],
+  );
+  space(Math.min(105, liquidation.length * 5.8 + 15));
+  const startY = y;
+  text("AJUSTE CONTRACTUAL", margin, y + 4, 8, true, navy);
+  y += 9;
+  if (a) {
+    text(
+      `Período aplicado: ${a.applied_month} | Objetivo: ${a.target_month}`,
+      margin,
+      y,
+      7,
+    );
+    y += 5;
+    text(
+      `${a.provisional ? "PROVISORIO - diferencia pendiente" : "Definitivo"} | Coeficiente: ${numeric(a.factor)}`,
+      margin,
+      y,
+      7,
+      true,
+    );
+    y += 6;
+    for (const i of a.indices) {
+      space(17);
+      text(
+        `${i.series} | Peso ${numeric(multiplyDecimals(i.weight, "100"))} %`,
+        margin,
+        y,
+        7,
+        true,
+      );
+      y += 4;
+      text(
+        `Puntaje base (${i.base.period || a.agreement.base_month}): ${numeric(i.base.value)}`,
+        margin,
+        y,
+        7,
+      );
+      y += 4;
+      text(
+        `Puntaje actual (${i.current.period || a.applied_month}): ${numeric(i.current.value)}`,
+        margin,
+        y,
+        7,
+      );
+      y += 6;
+    }
+  } else {
+    text("Sin ajuste de índices pactado.", margin, y, 7);
+    y += 6;
+  }
+  text(
+    `Avance acumulado de obra: ${numeric(s.physical_percent)} %`,
+    margin,
+    y,
+    8,
     true,
   );
+  y += 6;
+  for (const x of o.extras || []) {
+    space(12);
+    const lines = pdf.splitTextToSize(
+      `Adicional: ${x.description}${x.reason ? " | " + x.reason : ""}${x.authorization ? " | Autorización: " + x.authorization : ""} | ${money(x.amount)}`,
+      140,
+    );
+    text(lines, margin, y, 7);
+    y += lines.length * 3.2 + 3;
+  }
+  const leftEnd = y;
+  y = startY;
+  for (const [label, amount] of liquidation) {
+    const x = 162,
+      w = 123;
+    pdf.setFillColor(...gray);
+    pdf.rect(x, y, w, 6, "F");
+    text(label, x + 2, y + 4, 7);
+    text(money(amount), x + w - 2, y + 4, 8, true, ink, { align: "right" });
+    y += 6;
+  }
+  pdf.setFillColor(...navy);
+  pdf.rect(162, y, 123, 10, "F");
+  text(
+    o.kind === "subcertificate" ? "NETO A PAGAR" : "NETO A COBRAR",
+    164,
+    y + 6.3,
+    9,
+    true,
+    [255, 255, 255],
+  );
+  text(
+    `${o.currency} ${money(o.amount)}`,
+    283,
+    y + 6.3,
+    11,
+    true,
+    [255, 255, 255],
+    { align: "right" },
+  );
+  y += 15;
+  text(
+    `Fecha prevista de ${o.kind === "subcertificate" ? "pago" : "cobro"}: ${date(o.due_date)}`,
+    164,
+    y,
+    7,
+  );
+  y = Math.max(y + 6, leftEnd);
+  space(14);
+  text(
+    s.preliminary
+      ? "PRELIMINAR. No emitido. Sujeto a aprobación; no registra avance oficial."
+      : `Emitido el ${date(o.date)}. Su emisión no acredita el ${o.kind === "subcertificate" ? "pago" : "cobro"}.`,
+    margin,
+    y,
+    7,
+    true,
+  );
+  y += 5;
+  if (o.notes) {
+    const lines = pdf.splitTextToSize(o.notes, usable);
+    for (const line of lines) {
+      space(5);
+      text(line, margin, y, 7);
+      y += 4;
+    }
+  }
+  const pages = pdf.getNumberOfPages();
+  for (let n = 1; n <= pages; n++) {
+    pdf.setPage(n);
+    text(`${s.project_name} | ${title}`, margin, height - 6, 6.5);
+    text(`${n} / ${pages}`, width - margin, height - 6, 7, false, ink, {
+      align: "right",
+    });
+  }
   return save(
     invoke,
     `${s.preliminary ? "Preliminar" : "Certificado"} ${o.number || s.project_name} ${o.period_end}`,
-    bytes,
+    new Uint8Array(pdf.output("arraybuffer")),
     true,
   );
 }

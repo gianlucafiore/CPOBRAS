@@ -103,3 +103,14 @@ proxy HTTP 403). También pasó una prueba con relay local real y los transporte
 deshabilitados en ambos equipos, incluyendo creación de invitación y recepción.
 La prueba entre dos redes públicas distintas queda pendiente;
 no debe interpretarse la prueba local como validación de esa conectividad.
+
+## Permisos por apartado
+
+Los permisos actuales son Proyecto, Presupuesto, Determinación de precio,
+Insumos y composiciones, Planificación, Materiales y Acopio, Subcontrataciones,
+Libro de obra, Certificaciones y Finanzas/tablero financiero. El emisor filtra
+los datos antes de enviarlos, además de restringir los controles de la interfaz.
+Las invitaciones previas conservan su alcance mediante los permisos generales
+anteriores. Para configurar y recibir la nueva granularidad, actualizá ambos
+equipos. Planificación sin presupuesto ni finanzas no transmite costos del
+cronograma ni documentos financieros.

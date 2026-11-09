@@ -1,5 +1,5 @@
 import { e, field, select } from "./helpers.js";
-import {permissionLabels,allPermissions} from "../services/remote-workspace.js";
+import {permissionLabels,allPermissions,permissionsFor} from "../services/remote-workspace.js";
 const when = (t) =>
   t ? new Date(t * 1000).toLocaleString("es-AR") : "Todavía sin conexión";
 const table = (heads, rows) =>
@@ -25,7 +25,7 @@ export function createSharing({
     error: "",
   };
   const permissionFields=(permissions)=>`<fieldset class="sharing-permissions"><legend>Podrá consultar (siempre solo lectura)</legend>${Object.entries(permissionLabels).map(([key,label])=>`<label><input type="checkbox" name="allow-${key}" ${permissions[key]!==false?'checked':''}>${e(label)}</label>`).join('')}</fieldset>`;
-  const readPermissions=data=>Object.fromEntries(Object.keys(permissionLabels).map(k=>[k,data.get('allow-'+k)==='on']));
+  const readPermissions=data=>{const p=Object.fromEntries(Object.keys(permissionLabels).map(k=>[k,data.get('allow-'+k)==='on']));return {...p,operations:p.materials||p.subcontracts||p.site_book||p.certificates};};
   function overview() {
     const s = m.status;
     return `<main class="feature-page sharing-page"><div class="feature-toolbar"><h1>Vinculación P2P</h1><button class="btn" data-action="share-refresh">Actualizar estado</button><button class="btn" data-action="share-sync">Buscar cambios</button><button class="btn" data-action="share-toggle">${s.enabled ? "Pausar conexiones" : "Activar conexiones"}</button></div>
@@ -40,7 +40,7 @@ export function createSharing({
   )}${field("Nombre del observador", "shareLabel", "", 'required maxlength="200" placeholder="Ej.: Arquitecta María"')}${permissionFields(allPermissions())}<p>La invitación sirve para un equipo. Se vincula al primer equipo que la utiliza; podés revocar su acceso en cualquier momento.</p><button class="btn primary" type="submit" ${(state.projects || []).some((p) => !p.read_only) ? "" : "disabled"}>Crear invitación</button><p class="feature-error" role="alert"></p></form>
   ${m.invitation ? `<div class="sharing-invitation"><label>Invitación para enviar<textarea readonly id="p2p-invitation" rows="4">${e(m.invitation)}</textarea></label><button class="btn" data-action="share-copy">Copiar invitación</button><span class="sharing-copy-status" role="status">${e(m.copyMessage)}</span><button class="btn" data-action="share-clear-invitation">Ocultar invitación</button><p>Enviásela al observador por tu medio habitual. Da acceso únicamente a los apartados que autorizaste.</p></div>` : ""}</section>
   <section class="feature-editor"><h2>Recibir una obra</h2><form id="p2p-join-form"><label>Invitación del propietario<textarea name="invitation" required maxlength="16000" rows="5" placeholder="Pegá aquí la invitación que recibiste"></textarea></label><p>La obra se guarda como una copia externa de solo lectura. Tus obras y contactos propios se conservan.</p><button class="btn primary" type="submit">Vincular obra</button><p class="feature-error" role="alert"></p></form></section></div>
-  ${m.access?`<section class="feature-editor"><h2>Permisos de ${e(m.access.label)}</h2><form id="p2p-access-form">${permissionFields({...allPermissions(),...m.access.permissions})}<p>Los cambios se aplican a las futuras actualizaciones. No borran información que el observador ya recibió.</p><button type="submit" class="btn primary">Guardar permisos</button> <button type="button" class="btn" data-action="share-cancel-access">Cancelar</button><p class="feature-error" role="alert"></p></form></section>`:''}
+  ${m.access?`<section class="feature-editor"><h2>Permisos de ${e(m.access.label)}</h2><form id="p2p-access-form">${permissionFields(permissionsFor({remoteProject:{data:{permissions:m.access.permissions}}}))}<p>Los cambios se aplican a las futuras actualizaciones. No borran información que el observador ya recibió.</p><button type="submit" class="btn primary">Guardar permisos</button> <button type="button" class="btn" data-action="share-cancel-access">Cancelar</button><p class="feature-error" role="alert"></p></form></section>`:''}
   <h2>Obras que compartís</h2>${table(
     ["Obra", "Observador", "Acceso", "Última consulta", ""],
     s.shares.map(

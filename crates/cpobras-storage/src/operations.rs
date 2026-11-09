@@ -343,7 +343,39 @@ impl LocalStore {
             .collect()
     }
     pub fn post_operation(&mut self, input: &Operation) -> Result<Operation> {
-        self.post_operation_mode(input, false, None, None)
+        if input.kind != "purchase_order" {
+            return self.post_operation_mode(input, false, None, None);
+        }
+        self.conn.execute_batch("SAVEPOINT auto_supplier_credit")?;
+        let result = (|| {
+            let doc = self.post_operation_mode(input, false, None, None)?;
+            let credit = self
+                .supplier_credit(doc.project_id, doc.partner_id, &doc.currency)?
+                .min(doc.amount);
+            if credit > D::ZERO {
+                self.record_supplier_movement(&crate::supplier_logistics::SupplierMovement {
+                    project_id: doc.project_id,
+                    order_id: doc.id,
+                    kind: "apply".into(),
+                    amount: credit,
+                    reason: "Aplicación automática del saldo a favor".into(),
+                    ..Default::default()
+                })?;
+            }
+            Ok(doc)
+        })();
+        match result {
+            Ok(v) => {
+                self.conn.execute_batch("RELEASE auto_supplier_credit")?;
+                Ok(v)
+            }
+            Err(e) => {
+                self.conn.execute_batch(
+                    "ROLLBACK TO auto_supplier_credit; RELEASE auto_supplier_credit",
+                )?;
+                Err(e)
+            }
+        }
     }
     pub(crate) fn post_operation_mode(
         &mut self,
@@ -707,7 +739,8 @@ impl LocalStore {
                     .and_then(|id| prior.iter().find(|p| p.id == id))
                     .and_then(|r| r.contract_terms.as_ref())
                     .is_some_and(|t| ["fixed", "daily", "hourly"].contains(&t.method.as_str())))
-            && !(o.kind == "certificate" && (!o.extras.is_empty() || !o.reconcile_ids.is_empty()))
+            && !(["certificate", "subcertificate"].contains(&o.kind.as_str())
+                && (!o.extras.is_empty() || !o.reconcile_ids.is_empty()))
         {
             return Err(err("Agregá al menos un renglón"));
         }
@@ -1125,7 +1158,9 @@ impl LocalStore {
                 }
             }
         }
-        if o.kind != "certificate" && (!o.extras.is_empty() || !o.reconcile_ids.is_empty()) {
+        if (!["certificate", "subcertificate"].contains(&o.kind.as_str()) && !o.extras.is_empty())
+            || (o.kind != "certificate" && !o.reconcile_ids.is_empty())
+        {
             return Err(err(
                 "Adicionales y diferencias se agregan a certificados del comitente",
             ));
@@ -1139,9 +1174,9 @@ impl LocalStore {
                 || !extra_ids.insert(extra.id)
                 || extra.description.trim().is_empty()
                 || extra.description.len() > 500
-                || extra.reason.trim().is_empty()
+                || (o.kind == "certificate" && extra.reason.trim().is_empty())
                 || extra.reason.len() > 2000
-                || extra.authorization.trim().is_empty()
+                || (o.kind == "certificate" && extra.authorization.trim().is_empty())
                 || extra.authorization.len() > 2000
                 || extra.amount <= D::ZERO
             {
@@ -1573,7 +1608,11 @@ impl LocalStore {
                     .iter()
                     .filter(|p| p.kind == "subcertificate" && p.reference_id == Some(r.id))
                     .map(|p| p.calculated.get("gross").copied().unwrap_or(D::ZERO)))?;
-                if add(already, gross)? > r.amount {
+                let prior_extras = sum(prior
+                    .iter()
+                    .filter(|p| p.kind == "subcertificate" && p.reference_id == Some(r.id))
+                    .map(|p| p.calculated.get("extras").copied().unwrap_or_default()))?;
+                if sub(add(already, gross)?, add(prior_extras, extras_total)?)? > r.amount {
                     return Err(err("Certificación superior al monto del subcontrato"));
                 }
             }

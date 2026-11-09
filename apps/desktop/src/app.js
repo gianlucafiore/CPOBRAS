@@ -672,7 +672,15 @@ export function createWorkspaceApp({
       if (submit?.isConnected) submit.disabled = false;
     }
   });
+  document.addEventListener("toggle",evt=>{
+    if(evt.target.isConnected && evt.target.matches?.(".planning-calendar")) planning.model.calendarOpen=evt.target.open;
+  },true);
   document.addEventListener("change", async (evt) => {
+    if (evt.target.name === "estimate-status") {
+      const desired=evt.target.value;
+      try {if (await protectContext()) await act({dataset:{action:desired==="issued" ? "issue" : "reopen-estimate"}});}catch(error){state.message=String(error);}finally{render();}
+      return;
+    }
     if (
       evt.target.closest?.(
         "#p2p-invite-form,#p2p-join-form,#p2p-access-form,#organization-create-form,#print-profile-form,#budget-print-form,#management-form,#project-attachment-form,#planning-task-form,#planning-split-form,#planning-settings,#planning-finance,#planning-agreement,#system-calendar,#system-index,#budget-bulk-form,#nested-analysis-form,#price-list-form,#scoped-price-form",
