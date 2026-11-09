@@ -296,3 +296,52 @@ button.gantt-date { border:0; border-right:1px solid #e1e8ef; border-radius:0; c
 .resource-import-dialog>.dialog-actions{padding:12px 18px;margin:0;flex-shrink:0;background:#f7f9fc}
 
 .resource-picker [data-resource-unit]{font-size:11px;color:#58738d}.component-unit{white-space:nowrap;width:1%}
+/* Compact supplier / contractor comparison. */
+.rfq-cost-analysis{padding:0}
+.rfq-cost-analysis>summary{padding:12px 16px;font-size:15px;font-weight:700;color:#2f4b62;cursor:pointer;background:#f7fafc;border-radius:6px}
+.rfq-analysis-body{padding:12px 14px 14px}
+.rfq-analysis-body>.feature-toolbar{margin-bottom:12px;gap:10px}
+.rfq-analysis-body h3{margin:0;font-size:13px}
+.rfq-cost-analysis .quotation-layout{grid-template-columns:minmax(155px,190px) minmax(0,1fr);gap:12px}
+.rfq-cost-analysis .quotation-list{padding-right:10px}
+.rfq-cost-analysis .quotation-item{padding:8px;font-size:12px}
+.rfq-cost-analysis .quotation-list-row{margin-bottom:8px}
+.rfq-request-heading{gap:6px;margin-bottom:8px}
+.rfq-file-settings{font-size:11px;padding:6px 8px!important;margin:6px 0!important}
+.rfq-file-settings .field{max-width:360px}
+.rfq-price-help{font-size:11px;color:#60778a;margin:8px 0}
+.rfq-comparison-actions{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin:8px 0}
+.rfq-comparison-actions .quote-save-state{font-size:11px}
+.rfq-cost-analysis .quotation-matrix{max-height:58vh;border:1px solid #d3e0e9;border-radius:4px}
+.rfq-cost-analysis .quotation-matrix th,.rfq-cost-analysis .quotation-matrix td{padding:6px 8px;min-width:0;font-size:11px}
+.rfq-cost-analysis .quotation-matrix th.quote-item,.rfq-cost-analysis .quotation-matrix td.quote-item{width:230px;min-width:175px;white-space:normal}
+.rfq-cost-analysis .quotation-matrix .quote-unit{width:1%;min-width:38px;white-space:nowrap}
+.rfq-cost-analysis .quotation-matrix .quote-quantity{width:1%;min-width:82px}
+.rfq-cost-analysis .quotation-matrix td.quote-quantity small{min-width:0;font-size:10px;white-space:nowrap}
+.rfq-cost-analysis .quotation-matrix th.quote-provider,.rfq-cost-analysis .quotation-matrix td.quote-provider-cell{width:180px;min-width:170px}
+.rfq-cost-analysis .quotation-matrix .quote-header-groups th{background:#3e5e76;vertical-align:middle}
+.rfq-cost-analysis .quotation-matrix .quote-header-groups .quote-providers-heading{background:#2e716c;color:#fff;text-align:center;padding:6px}
+.rfq-cost-analysis .quotation-matrix .quote-header-providers th{background:#e7f2f0;color:#254f4d;position:static}
+.rfq-cost-analysis .quotation-matrix .quote-header-providers small{font-size:10px;color:#547772;margin-top:2px}
+.quote-provider-heading{display:flex;align-items:center;justify-content:space-between;gap:5px}
+.quote-provider-heading>span{white-space:normal;overflow-wrap:anywhere}
+.rfq-cost-analysis .quote-provider-heading>.btn{display:inline-flex;margin:0;padding:0 5px;min-width:25px;min-height:24px;align-items:center;justify-content:center;font-size:17px;flex-shrink:0}
+.rfq-cost-analysis .quotation-matrix .quote-add-column{width:36px;min-width:36px;padding:4px;text-align:center;background:#f6faf9}
+.rfq-cost-analysis .quotation-matrix .quote-add-provider{display:inline-block;margin:0;width:26px;height:26px;min-height:0;padding:0;font-size:20px;line-height:22px;color:#285c57;border-color:#a9cbc5}
+.rfq-cost-analysis .quotation-matrix input[type=number]{width:116px;max-width:100%;padding:4px 6px;height:28px}
+.rfq-cost-analysis .quotation-matrix .quote-comments-row textarea{width:100%;min-width:145px;min-height:44px;max-height:130px;margin:0;padding:5px 6px;resize:vertical}
+.rfq-cost-analysis .quotation-matrix .quote-subtotal-row small{font-size:10px}
+.quote-popover{position:fixed;z-index:120;width:280px;box-sizing:border-box;padding:10px;background:white;border:1px solid #b5cbd8;border-radius:6px;box-shadow:0 6px 24px #152c4540;color:#294458;font-size:12px;max-height:calc(100vh - 24px);overflow:auto}
+.quote-popover-title{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+.quote-popover-title>.btn{padding:0 5px;font-size:18px;line-height:22px}
+.quote-provider-picker input{width:100%;box-sizing:border-box;padding:7px;border:1px solid #b5cbd8;border-radius:4px;margin-bottom:6px}
+#quote-provider-options{max-height:220px;overflow:auto}
+#quote-provider-options>button,.quote-provider-actions>button,.quote-provider-actions>.attachment-picker{display:block;width:100%;max-width:none;box-sizing:border-box;padding:8px;text-align:left;font:inherit;background:white;color:inherit;border:0;border-radius:3px;margin:2px 0;cursor:pointer;overflow-wrap:anywhere}
+#quote-provider-options>button:hover,#quote-provider-options>button:focus-visible,.quote-provider-actions>button:hover,.quote-provider-actions>.attachment-picker:hover{background:#e9f2f7}
+#quote-provider-options small{display:block;font-size:10px;color:#688196;margin-top:2px}
+.quote-provider-actions>.quote-remove-provider{color:#a13c35;border-top:1px solid #e1e8ed;margin-top:6px}
+@media(max-width:900px){.rfq-cost-analysis .quotation-layout{grid-template-columns:1fr}.rfq-cost-analysis .quotation-list{max-height:145px;padding-right:0}.rfq-analysis-body{padding:10px}}
+
+.operations-page details.rfq-cost-analysis{padding:0}.rfq-cost-analysis .quote-header-groups .quote-providers-heading{letter-spacing:.02em}
+
+.quote-popover{max-height:min(320px,calc(100vh - 24px))}

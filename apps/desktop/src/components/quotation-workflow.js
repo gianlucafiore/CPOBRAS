@@ -35,6 +35,11 @@ export function createQuotationWorkflow({
     dirty: false,
     editRevision: null,
     guardOpen: false,
+    analysisOpen: {material:true,work:true},
+    providerPicker: null,
+    providerMenu: null,
+    providerAdding: false,
+    exportName: null,
     award: null,
     receive: null,
     payment: null,
@@ -50,7 +55,10 @@ export function createQuotationWorkflow({
         p.attributes?.person_primary !== "false",
     );
   async function selectRequest(id) {
+    v.providerPicker = null;
+    v.providerMenu = null;
     v.selected = v.requests.find((r) => r.id === id) || null;
+    v.exportName = v.selected?.title || null;
     v.responses = [];
     v.files = [];
     v.balances = [];
@@ -141,6 +149,8 @@ export function createQuotationWorkflow({
     v.request.items = [...selected.values()];
   }
   function readResponses() {
+    const filename = document.querySelector('[name="rfq-filename"]');
+    if (filename) v.exportName = filename.value;
     for (const input of document.querySelectorAll("[data-quote-cell]")) {
       const response = v.responses.find((r) => r.id === input.dataset.response),
         p = response?.prices.find((p) => p.row_id === input.dataset.row);
@@ -148,7 +158,15 @@ export function createQuotationWorkflow({
     }
     for (const input of document.querySelectorAll("[data-response-term]")) {
       const r = v.responses.find((r) => r.id === input.dataset.response);
-      if (r) r[input.dataset.responseTerm] = input.value;
+      if (r) {
+        const prefix = r.reference ? r.reference + (r.terms ? "\n" : "") : "";
+        if (input.dataset.responseTerm === "terms" && prefix && input.value.startsWith(prefix)) {
+          r.terms = input.value.slice(prefix.length);
+        } else {
+          r[input.dataset.responseTerm] = input.value;
+          if (input.dataset.responseTerm === "terms") r.reference = "";
+        }
+      }
     }
   }
   async function saveResponses() {
@@ -191,38 +209,33 @@ export function createQuotationWorkflow({
       )
       .slice()
       .reverse();
-    return `<section class="workflow-card"><div class="feature-toolbar"><h2>Solicitudes de cotización</h2>${state.remoteProject ? "" : `<button class="btn primary" data-action="ops-rfq-new" data-kind="${kind()}">+ Nueva</button>`}</div><div class="quotation-layout"><aside class="quotation-list" aria-label="Solicitudes de cotización">${rows.map((r) => `<div class="quotation-list-row"><button class="quotation-item ${v.selected?.id === r.id ? "selected" : ""}" data-action="ops-rfq-select" data-id="${r.id}"><strong>${e(r.title)}</strong><small>${e(r.number)} · ${e(r.date)} · ${r.items.length} ítems</small></button>${state.remoteProject ? "" : `<button class="btn tiny quotation-edit" title="Editar solicitud ${e(r.title)}" data-action="ops-rfq-edit" data-id="${r.id}" aria-label="Editar solicitud ${e(r.title)}">✎</button>`}</div>`).join("") || "<p>Todavía no hay solicitudes.</p>"}</aside><div class="quotation-detail">${v.selected ? selected() : "<p>Creá o seleccioná una solicitud para ver sus respuestas.</p>"}</div></div></section>${orders()}${editor()}${awardEditor()}${receiveEditor()}${paymentEditor()}${movementEditor()}`;
+    return `<details class="workflow-card rfq-cost-analysis" data-quote-analysis="${kind()}" ${v.analysisOpen[kind()] ? "open" : ""}><summary>Análisis de costos de proveedores</summary><div class="rfq-analysis-body"><div class="feature-toolbar"><h3>Solicitudes de cotización</h3>${state.remoteProject ? "" : `<button class="btn primary" data-action="ops-rfq-new" data-kind="${kind()}">+ Nueva</button>`}</div><div class="quotation-layout"><aside class="quotation-list" aria-label="Solicitudes de cotización">${rows.map((r) => `<div class="quotation-list-row"><button class="quotation-item ${v.selected?.id === r.id ? "selected" : ""}" data-action="ops-rfq-select" data-id="${r.id}"><strong>${e(r.title)}</strong><small>${e(r.number)} · ${e(r.date)} · ${r.items.length} ítems</small></button>${state.remoteProject ? "" : `<button class="btn tiny quotation-edit" title="Editar solicitud ${e(r.title)}" data-action="ops-rfq-edit" data-id="${r.id}" aria-label="Editar solicitud ${e(r.title)}">✎</button>`}</div>`).join("") || "<p>Todavía no hay solicitudes.</p>"}</aside><div class="quotation-detail">${v.selected ? selected() : "<p>Creá o seleccioná una solicitud para ver sus respuestas.</p>"}</div></div></div></details>${orders()}${editor()}${awardEditor()}${receiveEditor()}${paymentEditor()}${movementEditor()}`;
+  }
+  function popupPosition(button) {
+    const rect = button.getBoundingClientRect();
+    return {left:Math.max(8,Math.min(rect.right-280,window.innerWidth-296)),top:Math.max(8,Math.min(rect.bottom+5,window.innerHeight-340))};
+  }
+  function availableProviders(query = "") {
+    const normalize = value => String(value).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    const tokens = normalize(query).trim().split(/\s+/).filter(Boolean);
+    return partners().filter(p => !v.responses.some(r => r.supplier_id === p.id) && tokens.every(token => normalize(`${p.code || ""} ${p.name}`).includes(token)));
+  }
+  function providerOptions(query = "") {
+    return availableProviders(query).map(p => `<button type="button" role="option" data-action="ops-rfq-add-provider" data-id="${e(p.id)}">${e(p.name)}${p.code ? `<small>${e(p.code)}</small>` : ""}</button>`).join("") || '<p class="small-muted">No hay proveedores disponibles con esa búsqueda.</p>';
+  }
+  function quotePopovers() {
+    if (v.providerPicker) {
+      const position = v.providerPicker;
+      return `<div class="quote-popover quote-provider-picker" role="dialog" aria-label="Seleccionar proveedor" style="left:${position.left}px;top:${position.top}px"><div class="quote-popover-title"><b>Agregar proveedor</b><button class="btn tiny" data-action="ops-rfq-close-popover" aria-label="Cerrar selector de proveedor">×</button></div><input type="search" role="combobox" aria-label="Buscar proveedor" aria-autocomplete="list" aria-expanded="true" aria-controls="quote-provider-options" data-quote-provider-query placeholder="Buscar proveedor…" autocomplete="off"><div id="quote-provider-options" role="listbox" aria-label="Proveedores disponibles">${providerOptions()}</div></div>`;
+    }
+    const menu = v.providerMenu, response = v.responses.find(r => r.id === menu?.id);
+    if (!menu || !response) return "";
+    return `<div class="quote-popover quote-provider-actions" role="region" aria-label="Opciones de ${e(supplier(response.supplier_id))}" style="left:${menu.left}px;top:${menu.top}px"><div class="quote-popover-title"><b>${e(supplier(response.supplier_id))}</b><button class="btn tiny" data-action="ops-rfq-close-popover" aria-label="Cerrar opciones de proveedor">×</button></div>${state.remoteProject ? "" : `<button type="button" data-action="ops-rfq-distribute" data-response="${response.id}">Asignar todo a este proveedor</button><label class="attachment-picker">Importar respuesta XLSX<input type="file" data-quote-import="${response.id}" accept=".xlsx"></label><label class="attachment-picker">Adjuntar PDF / imagen<input type="file" data-quote-attachment="${response.id}" accept="application/pdf,image/png,image/jpeg,image/webp"></label>`}${v.files.filter(f => f.response_id === response.id).map(f => `<button type="button" data-action="ops-rfq-open-file" data-id="${f.id}">${e(f.name)}</button>`).join("")}${state.remoteProject ? "" : `<button type="button" class="quote-remove-provider" data-action="ops-rfq-remove-provider" data-id="${response.id}">Quitar proveedor</button>`}</div>`;
   }
   function selected() {
-    const r = v.selected;
-    return `<div class="feature-toolbar"><h3>${e(r.title)}</h3><button class="btn" data-action="ops-rfq-export" data-format="pdf">PDF para enviar</button><button class="btn" data-action="ops-rfq-export" data-format="xlsx">Planilla para completar precios</button></div><details><summary>Condiciones y nombre de archivo</summary>${field("Nombre del archivo", "rfq-filename", r.title, 'maxlength="150"')}<p>${e(r.scope)} · ${e(r.delivery)} · ${e(r.payment)} · ${e(r.validity)}</p></details><p>Precios unitarios <strong>sin IVA</strong> en ${e(r.currency)}. Editá directamente las celdas. Vacío = sin cotizar; cero = precio explícito. Se resalta el menor precio disponible, sin imponer proveedor.</p>${
-      state.remoteProject
-        ? ""
-        : `<div class="feature-toolbar">${select(
-            "Agregar proveedor",
-            "rfq-add-supplier",
-            [
-              ["", "Seleccionar…"],
-              ...partners()
-                .filter((p) => !v.responses.some((r) => r.supplier_id === p.id))
-                .map((p) => [p.id, p.name]),
-            ],
-            "",
-          )}<button class="btn" data-action="ops-rfq-add-provider">Agregar proveedor</button><button class="btn" data-action="ops-rfq-save-prices">Guardar precios</button><button class="btn primary" data-action="ops-rfq-distribute">Distribuir pedido</button><span role="status" aria-live="polite" data-quote-save-state class="quote-save-state ${v.dirty ? "dirty" : ""}">${v.dirty ? "Cambios sin guardar" : v.responses.length ? "Precios guardados" : ""}</span></div>`
-    }<div class="quotation-matrix"><table class="data-grid"><thead><tr><th>${r.kind === "material" ? "Material" : "Tarea"}</th><th class="quote-unit">Unidad</th><th class="quote-quantity">Cantidad solicitada</th>${v.responses.map((p) => `<th class="quote-provider">${e(supplier(p.supplier_id))}<small>Precio unitario sin IVA</small>${state.remoteProject ? "" : `<button class="btn tiny" data-action="ops-rfq-remove-provider" data-id="${p.id}">Quitar proveedor</button>`}</th>`).join("")}</tr></thead><tbody>${r.items.map((row) => `<tr><td>${e(row.description)}</td><td class="quote-unit">${e(row.unit)}</td><td class="quote-quantity">${numeric(row.quantity)}<small>Pendiente de asignar: ${numeric(pending(row.id))}</small></td>${v.responses.map((p) => `<td class="${cheapest(row.id) === p.id ? "quote-best" : ""}"><input type="number" min="0" step="any" data-quote-cell data-response="${p.id}" data-row="${row.id}" value="${e(price(p, row.id) ?? "")}" aria-label="Precio sin IVA ${e(row.description)} de ${e(supplier(p.supplier_id))}" ${state.remoteProject ? "readonly" : ""}></td>`).join("")}</tr>`).join("")}<tr><th colspan="3">Subtotal cotizado sin IVA</th>${v.responses.map((p) => `<td><strong data-quote-total="${p.id}">${money(sumDecimals(r.items.filter((i) => price(p, i.id) !== null).map((i) => multiplyDecimals(i.quantity, price(p, i.id)))))}</strong><small>${p.prices.filter((x) => x.unit_price !== null).length} de ${r.items.length} cotizados</small></td>`).join("")}</tr><tr><th colspan="3">Referencia y condiciones</th>${v.responses.map((p) => `<td><input data-response-term="reference" data-response="${p.id}" value="${e(p.reference)}" placeholder="Referencia" aria-label="Referencia de ${e(supplier(p.supplier_id))}"><textarea data-response-term="terms" data-response="${p.id}" placeholder="Pago, entrega, validez" aria-label="Condiciones de ${e(supplier(p.supplier_id))}">${e(p.terms)}</textarea>${state.remoteProject ? "" : `<button class="btn" data-action="ops-rfq-distribute" data-response="${p.id}">Asignar todo a este proveedor</button>`}</td>`).join("")}</tr><tr><th colspan="3">Presupuestos adjuntos / importar precios</th>${v.responses
-      .map(
-        (p) =>
-          `<td>${v.files
-            .filter((f) => f.response_id === p.id)
-            .map(
-              (f) =>
-                `<button class="btn tiny" data-action="ops-rfq-open-file" data-id="${f.id}">${e(f.name)}</button>`,
-            )
-            .join(
-              "",
-            )}${state.remoteProject ? "" : `<label class="attachment-picker">Adjuntar PDF / imagen<input type="file" data-quote-attachment="${p.id}" accept="application/pdf,image/png,image/jpeg,image/webp"></label><label class="attachment-picker">Importar respuesta XLSX<input type="file" data-quote-import="${p.id}" accept=".xlsx"></label>`}</td>`,
-      )
-      .join("")}</tr></tbody></table></div>`;
+    const r = v.selected, editable = !state.remoteProject;
+    const trailing = editable ? '<td class="quote-add-column"></td>' : v.responses.length ? "" : '<td class="quote-empty-provider">—</td>';
+    return `<div class="feature-toolbar rfq-request-heading"><h3>${e(r.title)}</h3><button class="btn tiny" data-action="ops-rfq-export" data-format="pdf">PDF para enviar</button><button class="btn tiny" data-action="ops-rfq-export" data-format="xlsx">Planilla para completar precios</button></div><details class="rfq-file-settings"><summary>Condiciones y nombre de archivo</summary>${field("Nombre del archivo", "rfq-filename", v.exportName ?? r.title, 'maxlength="150"')}<p>${e(r.scope)} · ${e(r.delivery)} · ${e(r.payment)} · ${e(r.validity)}</p></details><p class="rfq-price-help">Precios unitarios <strong>sin IVA</strong> en ${e(r.currency)}. Vacío = sin cotizar; cero = precio explícito. Verde: menor precio disponible.</p>${editable ? `<div class="rfq-comparison-actions"><button class="btn tiny" data-action="ops-rfq-save-prices">Guardar precios</button><button class="btn primary tiny" data-action="ops-rfq-distribute" ${v.responses.length ? "" : "disabled"}>Distribuir pedido</button><span role="status" aria-live="polite" data-quote-save-state class="quote-save-state ${v.dirty ? "dirty" : ""}">${v.dirty ? "Cambios sin guardar" : v.responses.length ? "Precios guardados" : ""}</span></div>` : ""}<div class="quotation-matrix"><table class="data-grid"><thead><tr class="quote-header-groups"><th rowspan="2" class="quote-item">${r.kind === "material" ? "Material" : "Tarea"}</th><th rowspan="2" class="quote-unit">Unidad</th><th rowspan="2" class="quote-quantity">Cantidad solicitada</th><th scope="colgroup" colspan="${Math.max(1,v.responses.length + (editable ? 1 : 0))}" class="quote-providers-heading">Proveedores</th></tr><tr class="quote-header-providers">${v.responses.map(p => `<th class="quote-provider"><div class="quote-provider-heading"><span>${e(supplier(p.supplier_id))}</span><button type="button" class="btn tiny" title="Opciones de ${e(supplier(p.supplier_id))}" aria-label="Opciones de ${e(supplier(p.supplier_id))}" aria-expanded="${v.providerMenu?.id === p.id}" data-action="ops-rfq-provider-menu" data-id="${p.id}">⋯</button></div><small>Precio unitario sin IVA</small></th>`).join("")}${editable ? '<th class="quote-add-column"><button type="button" class="btn tiny quote-add-provider" data-action="ops-rfq-provider-picker" title="Agregar proveedor" aria-label="Agregar proveedor" aria-expanded="'+Boolean(v.providerPicker)+'">+</button></th>' : v.responses.length ? "" : '<th class="quote-empty-provider">Sin propuestas</th>'}</tr></thead><tbody>${r.items.map(row => `<tr><td class="quote-item">${e(row.description)}</td><td class="quote-unit">${e(row.unit)}</td><td class="quote-quantity">${numeric(row.quantity)}<small>Pendiente: ${numeric(pending(row.id))}</small></td>${v.responses.map(p => `<td class="quote-provider-cell ${cheapest(row.id) === p.id ? "quote-best" : ""}"><input type="number" min="0" step="any" data-quote-cell data-response="${p.id}" data-row="${row.id}" value="${e(price(p,row.id) ?? "")}" aria-label="Precio sin IVA ${e(row.description)} de ${e(supplier(p.supplier_id))}" ${editable ? "" : "readonly"}></td>`).join("")}${trailing}</tr>`).join("")}<tr class="quote-subtotal-row"><th colspan="3">Subtotal cotizado sin IVA</th>${v.responses.map(p => `<td><strong data-quote-total="${p.id}">${money(sumDecimals(r.items.filter(i => price(p,i.id) !== null).map(i => multiplyDecimals(i.quantity,price(p,i.id)))))}</strong><small>${p.prices.filter(x => x.unit_price !== null).length} de ${r.items.length} cotizados</small></td>`).join("")}${trailing}</tr><tr class="quote-comments-row"><th colspan="3">Comentarios / condiciones</th>${v.responses.map(p => `<td><textarea data-response-term="terms" data-response="${p.id}" rows="2" placeholder="Comentarios o condiciones" aria-label="Comentarios y condiciones de ${e(supplier(p.supplier_id))}" ${editable ? "" : "readonly"}>${e([p.reference,p.terms].filter(Boolean).join("\n"))}</textarea></td>`).join("")}${trailing}</tr></tbody></table></div>${quotePopovers()}`;
   }
   function orders() {
     const material = kind() === "material";
@@ -592,18 +605,33 @@ export function createQuotationWorkflow({
       await selectRequest(b.dataset.id);
       v.dirty = false;
     }
-    if (a === "ops-rfq-add-provider") {
-      const id = document.querySelector('[name="rfq-add-supplier"]').value;
-      if (!id) throw new Error("Elegí un proveedor");
-      if (v.responses.some((r) => r.supplier_id === id))
-        throw new Error("El proveedor ya está agregado");
-      v.responses.push(
-        await invoke("add_quote_supplier", {
-          requestId: v.selected.id,
-          supplierId: id,
-        }),
-      );
+    if (a === "ops-rfq-provider-picker") {
+      const opening = !v.providerPicker;
+      v.providerMenu = null;
+      v.providerPicker = opening ? popupPosition(b) : null;
+      render();
+      document.querySelector("[data-quote-provider-query]")?.focus();
+      return true;
     }
+    if (a === "ops-rfq-provider-menu") {
+      const opening = v.providerMenu?.id !== b.dataset.id;
+      v.providerPicker = null;
+      v.providerMenu = opening ? {...popupPosition(b), id:b.dataset.id} : null;
+      render();
+      return true;
+    }
+    if (a === "ops-rfq-close-popover") { closeQuotePopover(true); return true; }
+    if (a === "ops-rfq-add-provider") {
+      if (v.providerAdding) return true;
+      const id = b.dataset.id;
+      if (!availableProviders().some(p => p.id === id)) throw new Error("El proveedor ya está agregado o no está disponible");
+      v.providerAdding = true;
+      try {
+        v.responses.push(await invoke("add_quote_supplier", {requestId:v.selected.id,supplierId:id}));
+        v.providerPicker = null;
+      } finally { v.providerAdding = false; }
+    }
+    if (!["ops-rfq-provider-picker","ops-rfq-provider-menu"].includes(a)) v.providerMenu = null;
     if (a === "ops-rfq-save-prices") {
       await saveResponses();
       state.message = "Precios unitarios sin IVA guardados.";
@@ -675,6 +703,7 @@ export function createQuotationWorkflow({
         content: [...new Uint8Array(await file.arrayBuffer())],
       });
       v.files = await invoke("list_quote_files", { requestId: v.selected.id });
+      v.providerMenu = null;
       render();
       return true;
     }
@@ -691,6 +720,7 @@ export function createQuotationWorkflow({
         Object.assign(existing, p);
       }
       v.dirty = true;
+      v.providerMenu = null;
       render();
       return true;
     }
@@ -896,6 +926,38 @@ export function createQuotationWorkflow({
     }
   }
 
+  function closeQuotePopover(restoreFocus = false) {
+    const menu = v.providerMenu;
+    v.providerPicker = null; v.providerMenu = null;
+    document.querySelectorAll(".quote-popover").forEach(p => p.remove());
+    document.querySelectorAll('[data-action="ops-rfq-provider-picker"],[data-action="ops-rfq-provider-menu"]').forEach(b => b.setAttribute("aria-expanded","false"));
+    if (restoreFocus) {
+      const button = menu ? [...document.querySelectorAll('[data-action="ops-rfq-provider-menu"]')].find(b => b.dataset.id === menu.id) : document.querySelector('[data-action="ops-rfq-provider-picker"]');
+      button?.focus();
+    }
+  }
+  document.addEventListener("toggle", event => {
+    if(event.target.isConnected && event.target.matches?.("[data-quote-analysis]")) {
+      v.analysisOpen[event.target.dataset.quoteAnalysis] = event.target.open;
+      if(!event.target.open) closeQuotePopover();
+    }
+  }, true);
+  document.addEventListener("click", event => {
+    if((v.providerPicker || v.providerMenu) && !event.target.closest?.('.quote-popover,[data-action="ops-rfq-provider-picker"],[data-action="ops-rfq-provider-menu"]')) closeQuotePopover();
+  }, true);
+  document.addEventListener("keydown", event => {
+    if(!(v.providerPicker || v.providerMenu))return;
+    if(event.key === "Escape") {event.preventDefault();event.stopPropagation();closeQuotePopover(true);return;}
+    if(event.target.matches?.("[data-quote-provider-query]") && event.key === "Enter") {
+      event.preventDefault();document.querySelector('#quote-provider-options [role="option"]')?.click();
+    }
+    if(event.key === "ArrowDown" || event.key === "ArrowUp") {
+      const options = [...document.querySelectorAll('#quote-provider-options [role="option"]')];
+      if(!options.length)return;
+      event.preventDefault();const current=options.indexOf(document.activeElement), step=event.key === "ArrowDown" ? 1 : -1;
+      options[current < 0 ? (step > 0 ? 0 : options.length-1) : (current+step+options.length)%options.length]?.focus();
+    }
+  }, true);
   return {
     v,
     load,
@@ -905,6 +967,11 @@ export function createQuotationWorkflow({
     submit,
     protect,
     input: (t) => {
+      if (t.matches?.("[data-quote-provider-query]")) {
+        const list = document.querySelector("#quote-provider-options");
+        if(list)list.innerHTML = providerOptions(t.value);
+        return;
+      }
       if (t.matches?.("[data-movement-quantity]")) validateMovementQuantity(t);
       if (
         t.closest?.(

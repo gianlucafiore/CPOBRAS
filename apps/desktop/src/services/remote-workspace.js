@@ -270,6 +270,8 @@ const viewActions = new Set([
   "ops-detail",
   "manage-dashboard-budget",
   "ops-rfq-select",
+  "ops-rfq-provider-menu",
+  "ops-rfq-close-popover",
   "ops-rfq-export",
   "ops-cert-contract",
   "ops-cert-contract-close",
