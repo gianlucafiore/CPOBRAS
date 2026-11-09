@@ -254,7 +254,7 @@ async function act(button) {
   }
   if (action === "delete-takeoff") {
     if (!editable() || !window.confirm("¿Eliminar esta medición?")) return;
-    await invoke("delete_takeoff", { id: button.dataset.id }); await loadPanel(); render(); return;
+    await invoke("delete_takeoff", { id: button.dataset.id }); await loadEstimate(); return;
   }
   if (action === "apply-takeoffs") {
     if (!editable()) return;

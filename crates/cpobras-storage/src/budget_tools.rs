@@ -18,6 +18,8 @@ pub struct BudgetDocument {
     pub adjustment_agreement: Option<cpobras_core::adjustments::AdjustmentAgreement>,
     #[serde(default)]
     pub measured_line_ids: Vec<Uuid>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub takeoff_previous_quantities: BTreeMap<Uuid, Decimal>,
     #[serde(default)]
     pub price_definition: Option<cpobras_core::price_determination::PriceDefinition>,
     #[serde(default)]
@@ -69,8 +71,17 @@ impl LocalStore {
             .ok_or_else(|| invalid("Presupuesto inexistente"))?;
         let lines = self.estimate_items(id)?;
         let mut takeoffs = Vec::new();
+        let mut takeoff_previous_quantities = BTreeMap::new();
         for line in &lines {
             takeoffs.extend(self.list_takeoff_rows(id, line.id)?);
+            let previous: Option<String> = self.conn.query_row("SELECT previous_quantity FROM measured_lines WHERE line_id=?1 AND source='takeoff' AND previous_quantity IS NOT NULL",[line.id.to_string()],|r|r.get(0)).optional()?;
+            if let Some(previous) = previous {
+                takeoff_previous_quantities.insert(
+                    line.id,
+                    Decimal::from_str_exact(&previous)
+                        .map_err(|_| invalid("Cantidad manual previa inválida"))?,
+                );
+            }
         }
         let mut formulas = Vec::new();
         for line in &lines {
@@ -105,6 +116,7 @@ impl LocalStore {
             certificate_terms: Some(crate::construction_workflow::terms(&self.conn, id)?),
             adjustment_agreement: self.adjustment_agreement(id)?.definition,
             measured_line_ids: self.measured_lines(id)?,
+            takeoff_previous_quantities,
             price_definition: self.stored_price_definition(id)?,
             line_analyses,
             formulas,
@@ -344,15 +356,20 @@ impl LocalStore {
             let target = lines
                 .get(source)
                 .ok_or_else(|| invalid("Origen de metrado fuera del documento"))?;
+            let previous = document.takeoff_previous_quantities.get(source).copied();
+            if previous.is_some_and(|q| q < Decimal::ZERO) {
+                return Err(invalid("Cantidad manual previa inválida"));
+            }
             tx.execute(
-                "INSERT INTO measured_lines(line_id,source) VALUES(?1,?2)",
+                "INSERT INTO measured_lines(line_id,source,previous_quantity) VALUES(?1,?2,?3)",
                 params![
                     target.to_string(),
                     if document.formulas.iter().any(|f| f.line_id == *source) {
                         "formula"
                     } else {
                         "takeoff"
-                    }
+                    },
+                    previous.map(|q| q.to_string())
                 ],
             )?;
         }
@@ -519,7 +536,7 @@ impl LocalStore {
         tx.execute("INSERT INTO estimate_line_sections(line_id,section_id) SELECT ?1,section_id FROM estimate_line_sections WHERE line_id=?2",params![id.to_string(),line_id.to_string()])?;
         tx.execute("INSERT INTO line_analysis_sources(line_id,analysis_id) SELECT ?1,analysis_id FROM line_analysis_sources WHERE line_id=?2",params![id.to_string(),line_id.to_string()])?;
         tx.execute("INSERT INTO line_formulas(line_id,expression,variables_json) SELECT ?1,expression,variables_json FROM line_formulas WHERE line_id=?2",params![id.to_string(),line_id.to_string()])?;
-        tx.execute("INSERT INTO measured_lines(line_id,source) SELECT ?1,source FROM measured_lines WHERE line_id=?2",params![id.to_string(),line_id.to_string()])?;
+        tx.execute("INSERT INTO measured_lines(line_id,source,previous_quantity) SELECT ?1,source,previous_quantity FROM measured_lines WHERE line_id=?2",params![id.to_string(),line_id.to_string()])?;
         for row in rows {
             tx.execute("INSERT INTO takeoff_rows(id,estimate_id,line_id,note,factor,length,width,height,sign,position) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",params![Uuid::new_v4().to_string(),estimate.to_string(),id.to_string(),row.note,row.factor.to_string(),row.length.to_string(),row.width.to_string(),row.height.to_string(),row.sign,row.position])?;
         }

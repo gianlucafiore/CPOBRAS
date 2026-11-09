@@ -64,6 +64,7 @@ export function createWorkspaceService({ invoke,globalInvoke=invoke, state, curr
     ]);
     if (state.estimateId !== id) return;
     state.lines = lines;
+    state.estimateRequiredResourceIds = [];
     state.measuredLineIds=measured;
     state.sections = sections;
     state.assignments = Object.fromEntries(
@@ -93,6 +94,11 @@ export function createWorkspaceService({ invoke,globalInvoke=invoke, state, curr
         estimateId,
       });
       if (current()) state.estimateResourcePrices = prices;
+    }
+    if (panel === "resources" && estimateId) {
+      const analysisIds = [...new Set(state.lines.map(row => row.analysis_id).filter(Boolean))];
+      const analyses = await Promise.all(analysisIds.map(analysisId => invoke("get_analysis_details", {analysisId})));
+      if (current()) state.estimateRequiredResourceIds = [...new Set(analyses.flatMap(analysis => analysis.components.map(component => component.resource_id)))];
     }
     if (["acu", "resources"].includes(state.panel) && line?.analysis_id) {
       try {

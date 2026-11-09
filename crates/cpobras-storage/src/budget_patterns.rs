@@ -97,6 +97,8 @@ fn selected_document(
     d.assignments.retain(|(l, _)| selected_lines.contains(l));
     d.takeoffs.retain(|r| selected_lines.contains(&r.line_id));
     d.measured_line_ids.retain(|id| selected_lines.contains(id));
+    d.takeoff_previous_quantities
+        .retain(|id, _| selected_lines.contains(id));
     d.formulas.retain(|r| selected_lines.contains(&r.line_id));
     let analyses: BTreeSet<_> = d.lines.iter().filter_map(|l| l.analysis_id).collect();
     d.line_analyses.retain(|a| analyses.contains(&a.id));
@@ -334,15 +336,20 @@ impl LocalStore {
             let target = lines
                 .get(source)
                 .ok_or_else(|| invalid("Origen de metrado fuera de la selección"))?;
+            let previous = d.takeoff_previous_quantities.get(source).copied();
+            if previous.is_some_and(|q| q < Decimal::ZERO) {
+                return Err(invalid("Cantidad manual previa inválida"));
+            }
             tx.execute(
-                "INSERT INTO measured_lines(line_id,source) VALUES(?1,?2)",
+                "INSERT INTO measured_lines(line_id,source,previous_quantity) VALUES(?1,?2,?3)",
                 params![
                     target.to_string(),
                     if d.formulas.iter().any(|f| f.line_id == *source) {
                         "formula"
                     } else {
                         "takeoff"
-                    }
+                    },
+                    previous.map(|q| q.to_string())
                 ],
             )?;
         }

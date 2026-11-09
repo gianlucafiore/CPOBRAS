@@ -453,7 +453,7 @@ impl LocalStore {
                     entry.unit_cost_snapshot.to_string(),
                 ],
             )?;
-            transaction.execute("INSERT INTO measured_lines(line_id,source) SELECT ?1,source FROM measured_lines WHERE line_id=?2",params![new_line_id.to_string(),entry.id.to_string()])?;
+            transaction.execute("INSERT INTO measured_lines(line_id,source,previous_quantity) SELECT ?1,source,previous_quantity FROM measured_lines WHERE line_id=?2",params![new_line_id.to_string(),entry.id.to_string()])?;
             transaction.execute("INSERT INTO line_analysis_sources(line_id,analysis_id) SELECT ?1,analysis_id FROM line_analysis_sources WHERE line_id=?2",params![new_line_id.to_string(),entry.id.to_string()])?;
             transaction.execute("UPDATE line_origins SET origin_id=(SELECT origin_id FROM line_origins WHERE line_id=?1) WHERE line_id=?2",params![entry.id.to_string(),new_line_id.to_string()])?;
             transaction.execute("INSERT INTO line_formulas(line_id,expression,variables_json) SELECT ?1,expression,variables_json FROM line_formulas WHERE line_id=?2",params![new_line_id.to_string(),entry.id.to_string()])?;

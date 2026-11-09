@@ -76,8 +76,8 @@ const panels = {
     "Acá ves los insumos por unidad y el precio calculado. «Agregar insumo» abre un formulario individual. Doble clic o Editar para cambiar un insumo. Su precio se comparte en este presupuesto; cada partida conserva su rendimiento.",
   ],
   resources: [
-    "Asignar insumos",
-    "Seleccioná una partida de la grilla y pulsá Asignar en el insumo que necesites. Ajustá el consumo por unidad y el precio en el formulario individual. Al guardar se recalcula la partida.",
+    "Insumos del presupuesto",
+    "Esta lista reúne solo los insumos usados por las partidas del presupuesto actual. Seleccioná una partida y pulsá Asignar para reutilizar uno. Con «Agregar insumo» podés buscar otros en la biblioteca. Ajustá su consumo por unidad y precio en el formulario.",
   ],
   takeoffs: [
     "Metrados",

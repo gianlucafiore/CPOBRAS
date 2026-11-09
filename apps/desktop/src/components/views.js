@@ -199,8 +199,6 @@ export function createViews({
       <button class="btn" data-action="modal-from-acu" ${locked()}>＋ Desde ACU</button>
       <button class="btn" data-action="open-patterns" ${est ? "" : "disabled"}>Patrones de cómputo</button>
       <span class="vline"></span>
-      <button class="btn ghost" data-action="duplicate-estimate" ${est ? "" : "disabled"}>Duplicar</button><button class="btn ghost" data-action="refresh-draft-costs" ${locked()}>↻ Actualizar precios ACU</button>
-      <button class="btn ghost" data-action="modal-comparison" ${state.estimates.length < 2 ? "disabled" : ""}>Comparar</button>
       <span class="grow"></span>
       <button class="btn" data-action="open-budget-printing" ${est ? "" : "disabled"}>Imprimir presupuesto</button><button class="btn" data-action="open-budget-tools" ${est ? "" : "disabled"}>Herramientas / exportar</button><button class="btn dark" data-action="${est?.issued ? "reopen-estimate" : "issue"}" ${!est || state.remoteProject ? "disabled" : ""}>${est?.issued ? "Volver a En elaboración" : "Emitir"}</button>
     </div>
@@ -245,10 +243,10 @@ export function createViews({
     const line = currentLine();
     if (state.panel === "summary") return summaryPane();
     if (state.panel === "resources")
-      return `<div class="detail-heading"><b>INSUMOS</b><span>${line ? e(line.description) : "Seleccioná una partida para asignar"}</span><button class="btn tiny primary" data-action="edit-line-resources" ${locked()} ${!line ? "disabled" : ""}>＋ Agregar insumo</button></div>
+      return `<div class="detail-heading"><b>INSUMOS DEL PRESUPUESTO</b><span>${line ? e(line.description) : "Seleccioná una partida para asignar"}</span><button class="btn tiny primary" data-action="edit-line-resources" ${locked()} ${!line ? "disabled" : ""}>＋ Agregar insumo</button></div>
     <div class="mini-scroll"><table class="mini-table"><thead><tr><th>TIPO</th><th>DESCRIPCIÓN</th><th>UND.</th><th class="number">PRECIO ${e(currentEstimate()?.currency || "ARS")}</th><th>ASIGNAR</th></tr></thead><tbody>
-    ${state.resources.map((r) => `<tr><td><span class="kind kind-${e(r.kind)}">${kindBadge(r.kind)}</span></td><td>${e(r.description)}</td><td>${e(r.unit)}</td><td class="number">${(state.estimateResourcePrices?.[r.id] ?? (currentEstimate()?.currency === "USD" ? null : r.price)) == null ? "—" : money(state.estimateResourcePrices?.[r.id] ?? r.price)}</td><td><button class="btn tiny" data-action="assign-resource" data-id="${e(r.id)}" ${locked()} ${!line || r.active === false ? "disabled" : ""}>Asignar</button></td></tr>`).join("")}
-    </tbody></table></div><div class="detail-footer"><span>El catálogo general se administra desde Inicio. Acá asignás sus insumos a esta partida.</span></div>`;
+    ${state.resources.filter(r => (state.estimateRequiredResourceIds || []).includes(r.id)).map((r) => `<tr><td><span class="kind kind-${e(r.kind)}">${kindBadge(r.kind)}</span></td><td>${e(r.description)}</td><td>${e(r.unit)}</td><td class="number">${(state.estimateResourcePrices?.[r.id] ?? (currentEstimate()?.currency === "USD" ? null : r.price)) == null ? "—" : money(state.estimateResourcePrices?.[r.id] ?? r.price)}</td><td><button class="btn tiny" data-action="assign-resource" data-id="${e(r.id)}" ${locked()} ${!line || r.active === false ? "disabled" : ""}>Asignar</button></td></tr>`).join("") || '<tr><td colspan="5" class="empty-cell">Todavía no hay insumos en este presupuesto. Usá «Agregar insumo» para incorporarlos a una partida.</td></tr>'}
+    </tbody></table></div><div class="detail-footer"><span>Solo se muestran los insumos usados por las partidas de este presupuesto. «Agregar insumo» permite elegir otros de la biblioteca.</span></div>`;
     if (!line)
       return `<div class="blank-state"><span>▧</span><strong>Seleccioná una partida</strong><p>Su análisis de costos y mediciones aparecerán acá.</p></div>`;
     if (state.panel === "takeoffs") return takeoffPane(line);

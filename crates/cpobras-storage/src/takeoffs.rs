@@ -1,6 +1,6 @@
 //! Dimension-based takeoffs. Decimal arithmetic and immutable issued budgets.
 use super::{LocalStore, Result, StorageError};
-use rusqlite::params;
+use rusqlite::{params, OptionalExtension};
 use rust_decimal::Decimal;
 use std::str::FromStr;
 use uuid::Uuid;
@@ -136,6 +136,22 @@ impl LocalStore {
             &self.conn,
             rusqlite::TransactionBehavior::Immediate,
         )?;
+        let current: String = tx.query_row(
+            "SELECT quantity FROM estimate_lines WHERE id=?1 AND estimate_id=?2",
+            params![line_id.to_string(), estimate_id.to_string()],
+            |r| r.get(0),
+        )?;
+        let previous: Option<(String, Option<String>)> = tx
+            .query_row(
+                "SELECT source,previous_quantity FROM measured_lines WHERE line_id=?1",
+                [line_id.to_string()],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        let manual = match previous {
+            Some((source, value)) if source == "takeoff" => value,
+            _ => Some(current),
+        };
         let changed = tx.execute(
             "UPDATE estimate_lines SET quantity=?1 WHERE id=?2 AND estimate_id=?3",
             params![
@@ -149,20 +165,48 @@ impl LocalStore {
         }
         crate::estimates::checked_budget_total(&tx, estimate_id)?;
         tx.execute(
-            "INSERT OR REPLACE INTO measured_lines(line_id,source) VALUES(?1,'takeoff')",
-            [line_id.to_string()],
+            "INSERT OR REPLACE INTO measured_lines(line_id,source,previous_quantity) VALUES(?1,'takeoff',?2)",
+            params![line_id.to_string(),manual],
         )?;
         tx.commit()?;
         Ok(quantity)
     }
 
     pub fn delete_takeoff_row(&mut self, id: Uuid) -> Result<()> {
-        let changed = self
+        let tx = self
             .conn
-            .execute("DELETE FROM takeoff_rows WHERE id=?1", [id.to_string()])?;
-        if changed == 0 {
-            return Err(StorageError::InvalidValue("takeoff not found".into()));
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let (line, estimate): (String, String) = tx
+            .query_row(
+                "SELECT line_id,estimate_id FROM takeoff_rows WHERE id=?1",
+                [id.to_string()],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?
+            .ok_or_else(|| StorageError::InvalidValue("takeoff not found".into()))?;
+        tx.execute("DELETE FROM takeoff_rows WHERE id=?1", [id.to_string()])?;
+        let remaining: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM takeoff_rows WHERE line_id=?1)",
+            [&line],
+            |r| r.get(0),
+        )?;
+        if !remaining {
+            let previous: Option<Option<String>> = tx.query_row("SELECT previous_quantity FROM measured_lines WHERE line_id=?1 AND source='takeoff'",[&line],|r|r.get(0)).optional()?;
+            if let Some(previous) = previous {
+                if let Some(quantity) = previous {
+                    tx.execute(
+                        "UPDATE estimate_lines SET quantity=?1 WHERE id=?2",
+                        params![quantity, line],
+                    )?;
+                    crate::estimates::checked_budget_total(&tx, Uuid::parse_str(&estimate)?)?;
+                }
+                tx.execute(
+                    "DELETE FROM measured_lines WHERE line_id=?1 AND source='takeoff'",
+                    [&line],
+                )?;
+            }
         }
+        tx.commit()?;
         Ok(())
     }
 }

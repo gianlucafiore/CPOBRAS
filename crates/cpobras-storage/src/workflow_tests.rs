@@ -1355,7 +1355,7 @@ fn upgrades_populated_schema_fifteen_and_deletes_its_preexisting_linked_line() {
             .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| r
                 .get::<_, i64>(0))
             .unwrap(),
-        31
+        32
     );
     upgraded.delete_estimate_item(e.id, line.id).unwrap();
     assert!(upgraded.estimate_items(e.id).unwrap().is_empty());
@@ -5035,4 +5035,81 @@ fn certificate_accumulated_quantity_preserves_exact_units_and_rejects_overruns()
     legacy.progress[0].accumulated_percent = 100.into();
     let saved = s.save_certificate_draft(&legacy).unwrap();
     assert_eq!(saved.operation.lines[0].quantity, 3.into());
+}
+
+#[test]
+fn deleting_last_takeoff_restores_manual_quantity_after_reapply_and_roundtrip() {
+    use crate::takeoffs::TakeoffRow;
+    let (mut s, _, e, line) = fixture();
+    let manual = line.quantity;
+    let row = TakeoffRow {
+        id: Uuid::new_v4(),
+        estimate_id: e.id,
+        line_id: line.id,
+        note: "Metrado".into(),
+        factor: 1.into(),
+        length: 3.into(),
+        width: 2.into(),
+        height: 1.into(),
+        sign: 1,
+        position: 0,
+    };
+    s.save_takeoff_row(&row).unwrap();
+    s.apply_takeoff_to_line(e.id, line.id).unwrap();
+    let second = TakeoffRow {
+        id: Uuid::new_v4(),
+        position: 1,
+        ..row.clone()
+    };
+    s.save_takeoff_row(&second).unwrap();
+    s.apply_takeoff_to_line(e.id, line.id).unwrap();
+    let copy = s.duplicate_estimate(e.id, "Copia").unwrap();
+    let exported = s.export_budget(e.id).unwrap();
+    assert_eq!(exported.takeoff_previous_quantities[&line.id], manual);
+    let imported = s.import_budget(e.project_id, &exported).unwrap();
+    for estimate in [e.id, copy.id, imported.id] {
+        let item = s.estimate_items(estimate).unwrap().remove(0);
+        let rows = s.list_takeoff_rows(estimate, item.id).unwrap();
+        s.delete_takeoff_row(rows[0].id).unwrap();
+        assert_eq!(s.estimate_items(estimate).unwrap()[0].quantity, 12.into());
+        assert_eq!(s.measured_lines(estimate).unwrap(), vec![item.id]);
+        s.delete_takeoff_row(rows[1].id).unwrap();
+        assert_eq!(s.estimate_items(estimate).unwrap()[0].quantity, manual);
+        assert!(s.measured_lines(estimate).unwrap().is_empty());
+    }
+}
+#[test]
+fn deleting_takeoffs_preserves_manual_changes_and_does_not_guess_legacy_values() {
+    use crate::takeoffs::TakeoffRow;
+    let (mut s, _, e, line) = fixture();
+    let row = TakeoffRow {
+        id: Uuid::new_v4(),
+        estimate_id: e.id,
+        line_id: line.id,
+        note: "Metrado".into(),
+        factor: 1.into(),
+        length: 3.into(),
+        width: 2.into(),
+        height: 1.into(),
+        sign: 1,
+        position: 0,
+    };
+    s.save_takeoff_row(&row).unwrap();
+    s.apply_takeoff_to_line(e.id, line.id).unwrap();
+    let mut edited = s.estimate_items(e.id).unwrap().remove(0);
+    edited.quantity = 9.into();
+    s.update_estimate_item(&edited).unwrap();
+    s.delete_takeoff_row(row.id).unwrap();
+    assert_eq!(s.estimate_items(e.id).unwrap()[0].quantity, 9.into());
+    s.save_takeoff_row(&row).unwrap();
+    s.apply_takeoff_to_line(e.id, line.id).unwrap();
+    s.conn
+        .execute(
+            "UPDATE measured_lines SET previous_quantity=NULL WHERE line_id=?1",
+            [line.id.to_string()],
+        )
+        .unwrap();
+    s.delete_takeoff_row(row.id).unwrap();
+    assert_eq!(s.estimate_items(e.id).unwrap()[0].quantity, 6.into());
+    assert!(s.measured_lines(e.id).unwrap().is_empty());
 }

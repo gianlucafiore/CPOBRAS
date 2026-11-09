@@ -2,6 +2,7 @@ export function createState() {
   return {
     view: "projects",
     measuredLineIds: [],
+    estimateRequiredResourceIds: [],
     organizations: [],
     externalProjects: [],
     remoteProject:null,

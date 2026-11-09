@@ -19,6 +19,9 @@ async function bridge(page, options={}) {
   const makePriceRow=(label,kind,role,percent='0')=>({id:crypto.randomUUID(),label,kind,role,enabled:true,subtract:false,percent,amount:'0',detail_mode:'reference',reference_percent:percent,items:[]});
   let priceDefinition={rows:[makePriceRow('Gastos generales','detailed','overhead'),makePriceRow('Beneficio','percent_direct','profit'),makePriceRow('Subtotal','subtotal','other'),makePriceRow('IVA','percent_subtotal','tax')]},priceRevision=0;const priceTemplates=[];
   function calculatePrice(definition){let running=Number(totals.direct),profit=0;const rows=[];for(const row of definition.rows){const item_totals={};let detail=0;for(const i of row.items.filter(i=>!i.group)){const v=Number(i.quantity)*Number(i.unit_price)*Number(i.participation_percent)/100;detail+=v;item_totals[i.id]=String(v);let parent=i.parent_id;while(parent){item_totals[parent]=String(Number(item_totals[parent]||0)+v);parent=row.items.find(i=>i.id===parent)?.parent_id;}}const base=row.kind==='percent_direct'?Number(totals.direct):row.kind==='percent_profit'?profit:running;const reference=Number(totals.direct)*Number(row.reference_percent)/100;const raw=row.kind==='subtotal'?running:row.kind==='fixed'?Number(row.amount):row.kind==='detailed'?row.detail_mode==='items'?detail:row.detail_mode==='manual'?Number(row.amount):reference:base*Number(row.percent)/100;const amount=row.enabled?raw*(row.subtract?-1:1):0;if(row.enabled&&row.kind!=='subtotal'){running+=amount;if(row.role==='profit')profit+=amount;}rows.push({...row,base:String(base),amount:String(amount),running_total:String(running),detail_total:String(detail),reference_total:String(reference),item_totals});}return {rows,breakdown:{...totals,total:String(running)}};}
+  let takeoffMeasured=Boolean(fixture.measured||fixture.restorableTakeoff);
+  const takeoffRows=fixture.restorableTakeoff?[{id:"takeoff-1",line_id:line.id,estimate_id:estimate.id,note:"Medición de prueba",factor:"1",length:"3",width:"2",height:"1",sign:1,quantity:"6"}]:[];
+  if(fixture.restorableTakeoff){line.quantity="6";line.total="600";totals.direct="600";totals.total="600";}
   const resources=[{ id: "resource-1", code: "MAT-1", description: "Acero", unit: "kg", kind: "material", price: "100" }];
   const resourcePrices={};const templates=[];
   const sourceProject={...project,id:'source-project',name:'Obra modelo'};
@@ -140,7 +143,9 @@ async function bridge(page, options={}) {
    if(command==='reopen_estimate'){estimate.issued=false;return null;}
    if(command==='issue_estimate'){estimate.issued=true;return null;}
    if(command==='save_line_as_analysis')return null;
-   if(command==='list_measured_lines')return fixture.measured?[line.id]:[];
+   if(command==='list_measured_lines')return takeoffMeasured?[line.id]:[];
+   if(command==='list_takeoffs')return takeoffRows.filter(r=>r.line_id===args.lineId);
+   if(command==='delete_takeoff'){takeoffRows.splice(takeoffRows.findIndex(r=>r.id===args.id),1);if(!takeoffRows.length){takeoffMeasured=false;line.quantity='2';line.total='200';totals.direct='200';totals.total='200';}return null;}
    if(command==='get_estimate_metadata')return {created_at:'2026-11-01 10:00:00',issued_at:null};
    if(command==='list_project_attachments')return [];
    if(command==='add_project_attachment'||command==='open_project_attachment'||command==='remove_project_attachment')return null;
@@ -279,7 +284,7 @@ test("double click edits a different line and right click opens software actions
 test("assigning a catalog resource directly recalculates the selected line",async({page})=>{
  await bridge(page);await page.getByRole('button',{name:'Abrir ›',exact:true}).click();await page.locator('[data-action=manage-dashboard-budget]').first().click();
  await page.getByRole('tab',{name:'Insumos',exact:true}).click();await expect(page.getByRole('tab',{name:'Insumos',exact:true})).toHaveAttribute('aria-selected','true');
- await page.getByRole('button',{name:'Asignar',exact:true}).click();await expect(page.getByRole('heading',{name:'Agregar insumo a la partida',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'＋ Agregar insumo',exact:true}).click();await page.getByRole('combobox',{name:'Buscar insumo 1'}).fill('acero');await page.getByRole('option',{name:'MAT-1 · Acero (kg)'}).click();await expect(page.getByRole('heading',{name:'Agregar insumo a la partida',exact:true})).toBeVisible();
  await page.getByLabel('Rendimiento / unidad',{exact:true}).fill('2.5');await page.getByRole('button',{name:'Guardar',exact:true}).click();
  await expect(page.locator('.detail-content')).toContainText('Precio calculado por insumos');
  await expect(page.locator('.line-row .partial')).toHaveText('500,00');
@@ -307,7 +312,7 @@ test("backdrop clicks preserve popup drafts and explicit closing confirms discar
 });
 
 test('fuzzy resource search creates a resource in a child popup and preserves composition',async({page})=>{
- await bridge(page);await page.getByRole('button',{name:'Abrir ›',exact:true}).click();await page.locator('[data-action=manage-dashboard-budget]').first().click();await page.getByRole('tab',{name:'Insumos',exact:true}).click();await page.getByRole('button',{name:'Asignar',exact:true}).click();
+ await bridge(page);await page.getByRole('button',{name:'Abrir ›',exact:true}).click();await page.locator('[data-action=manage-dashboard-budget]').first().click();await page.getByRole('tab',{name:'Insumos',exact:true}).click();await page.getByRole('button',{name:'＋ Agregar insumo',exact:true}).click();await page.getByRole('combobox',{name:'Buscar insumo 1'}).fill('acero');await page.getByRole('option',{name:'MAT-1 · Acero (kg)'}).click();
  await expect(page.getByRole('combobox',{name:'Buscar insumo 1'})).toHaveAttribute('aria-expanded','false');
  await page.getByLabel('Rendimiento / unidad',{exact:true}).fill('3');await page.getByRole('button',{name:'Guardar',exact:true}).click();
  await page.getByRole('button',{name:'＋ Agregar insumo',exact:true}).click();
@@ -341,7 +346,7 @@ test('operational drafts survive rejected navigation and are cleared only after 
 });
 
 test('double clicking one component opens only that item and preserves the rest on save',async({page})=>{
- await bridge(page);await page.getByRole('button',{name:'Abrir ›',exact:true}).click();await page.locator('[data-action=manage-dashboard-budget]').first().click();await page.getByRole('tab',{name:'Insumos',exact:true}).click();await page.getByRole('button',{name:'Asignar',exact:true}).click();await page.getByRole('button',{name:'Guardar',exact:true}).click();
+ await bridge(page);await page.getByRole('button',{name:'Abrir ›',exact:true}).click();await page.locator('[data-action=manage-dashboard-budget]').first().click();await page.getByRole('tab',{name:'Insumos',exact:true}).click();await page.getByRole('button',{name:'＋ Agregar insumo',exact:true}).click();await page.getByRole('combobox',{name:'Buscar insumo 1'}).fill('acero');await page.getByRole('option',{name:'MAT-1 · Acero (kg)'}).click();await page.getByRole('button',{name:'Guardar',exact:true}).click();
  await page.getByRole('button',{name:'＋ Agregar insumo',exact:true}).click();const search=page.getByRole('combobox',{name:'Buscar insumo 1'});await search.fill('Otro');await page.getByRole('option',{name:'＋ Agregar «Otro»'}).click();const child=page.getByRole('dialog',{name:'Crear insumo sin salir'});await child.getByLabel('Precio inicial ARS').fill('200');await child.getByRole('button',{name:'Guardar y seleccionar'}).click();await page.getByLabel('Rendimiento / unidad',{exact:true}).fill('2');await page.getByRole('button',{name:'Guardar',exact:true}).click();
  await page.locator('.line-resource-row').filter({hasText:'Acero'}).dblclick();await expect(page.getByRole('heading',{name:'Editar insumo de la partida'})).toBeVisible();await page.screenshot({path:'/workspace/cpobras-single-component.png'});await expect(page.locator('.component-row')).toHaveCount(1);await expect(page.getByRole('listbox')).toHaveCount(0);await page.getByLabel('Rendimiento / unidad',{exact:true}).fill('3');await page.getByRole('button',{name:'Guardar',exact:true}).click();
  const saved=await page.evaluate(()=>window.__calls.filter(c=>c.command==='save_line_resources').at(-1).args);expect(saved.components.map(c=>c.quantity)).toEqual(['3','2']);await expect(page.locator('.line-resource-row')).toHaveCount(2);await expect(page.locator('.line-row .partial')).toHaveText('1.400,00');
@@ -361,7 +366,7 @@ test('resource and unit dropdowns close on selection or an outside click without
 });
 
 test('deleting a line with assigned resources removes its composition from the view and keeps the catalog',async({page})=>{
- await bridge(page);await page.getByRole('button',{name:'Abrir ›',exact:true}).click();await page.locator('[data-action=manage-dashboard-budget]').first().click();await page.getByRole('tab',{name:'Insumos',exact:true}).click();await page.getByRole('button',{name:'Asignar',exact:true}).click();await page.getByRole('button',{name:'Guardar',exact:true}).click();await expect(page.locator('.line-resource-row')).toHaveCount(1);page.once('dialog',d=>d.accept());await page.getByRole('button',{name:'Eliminar partida',exact:true}).click();await expect(page.locator('.line-row')).toHaveCount(0);await expect(page.locator('.line-resource-row')).toHaveCount(0);await page.getByRole('button',{name:'← Inicio',exact:true}).click();await page.getByRole('button',{name:'Insumos',exact:true}).click();await expect(page.getByRole('cell',{name:'Acero',exact:true})).toBeVisible();
+ await bridge(page);await page.getByRole('button',{name:'Abrir ›',exact:true}).click();await page.locator('[data-action=manage-dashboard-budget]').first().click();await page.getByRole('tab',{name:'Insumos',exact:true}).click();await page.getByRole('button',{name:'＋ Agregar insumo',exact:true}).click();await page.getByRole('combobox',{name:'Buscar insumo 1'}).fill('acero');await page.getByRole('option',{name:'MAT-1 · Acero (kg)'}).click();await page.getByRole('button',{name:'Guardar',exact:true}).click();await expect(page.locator('.line-resource-row')).toHaveCount(1);page.once('dialog',d=>d.accept());await page.getByRole('button',{name:'Eliminar partida',exact:true}).click();await expect(page.locator('.line-row')).toHaveCount(0);await expect(page.locator('.line-resource-row')).toHaveCount(0);await page.getByRole('button',{name:'← Inicio',exact:true}).click();await page.getByRole('button',{name:'Insumos',exact:true}).click();await expect(page.getByRole('cell',{name:'Acero',exact:true})).toBeVisible();
 });
 
 test('patterns select rubros or individual lines in a tree and append quantities without duplicating selection',async({page})=>{
@@ -375,7 +380,7 @@ test('saved computation patterns can be selected and incorporated with prices',a
 });
 
 test('one resource price is reused and updating it recalculates all lines in the budget',async({page})=>{
- await bridge(page,{twoLines:true});await page.getByRole('button',{name:'Abrir ›',exact:true}).click();await page.locator('[data-action=manage-dashboard-budget]').first().click();await page.getByRole('tab',{name:'Insumos',exact:true}).click();await page.getByRole('button',{name:'Asignar',exact:true}).click();await expect(page.getByRole('combobox',{name:'Buscar insumo 1'})).toHaveValue('MAT-1 · Acero (kg)');await expect(page.locator('[data-resource-unit]')).toHaveText('Unidad: kg');await page.getByLabel('Rendimiento / unidad',{exact:true}).fill('2');await page.getByRole('button',{name:'Guardar',exact:true}).click();await page.locator('.line-row').filter({hasText:'Revoque'}).click();await page.getByRole('button',{name:'＋ Agregar insumo',exact:true}).click();await page.getByRole('combobox',{name:'Buscar insumo 1'}).fill('acero');await page.getByRole('option',{name:'MAT-1 · Acero (kg)'}).click();await expect(page.getByRole('combobox',{name:'Buscar insumo 1'})).toHaveValue('MAT-1 · Acero (kg)');await expect(page.locator('[data-resource-unit]')).toHaveText('Unidad: kg');await expect(page.getByLabel('Precio unitario ARS',{exact:true})).toHaveValue('100');await page.getByLabel('Rendimiento / unidad',{exact:true}).fill('3');await page.getByRole('button',{name:'Guardar',exact:true}).click();await page.locator('.line-row').filter({hasText:'Hormigón'}).click();await expect(page.getByRole('columnheader',{name:'UNIDAD',exact:true})).toBeVisible();await expect(page.locator('.line-resource-row .component-unit')).toHaveText('kg');await page.locator('.line-resource-row').dblclick();await expect(page.getByRole('combobox',{name:'Buscar insumo 1'})).toHaveValue('MAT-1 · Acero (kg)');await page.getByLabel('Precio unitario ARS',{exact:true}).fill('120');await page.getByRole('button',{name:'Guardar',exact:true}).click();await expect(page.locator('.line-row').filter({hasText:'Hormigón'}).locator('.partial')).toHaveText('480,00');await expect(page.locator('.line-row').filter({hasText:'Revoque'}).locator('.partial')).toHaveText('720,00');await page.locator('.line-row').filter({hasText:'Revoque'}).click();await page.locator('.line-resource-row').dblclick();await expect(page.getByLabel('Precio unitario ARS',{exact:true})).toHaveValue('120');await expect(page.getByLabel('Rendimiento / unidad',{exact:true})).toHaveValue('3');
+ await bridge(page,{twoLines:true});await page.getByRole('button',{name:'Abrir ›',exact:true}).click();await page.locator('[data-action=manage-dashboard-budget]').first().click();await page.getByRole('tab',{name:'Insumos',exact:true}).click();await page.getByRole('button',{name:'＋ Agregar insumo',exact:true}).click();await page.getByRole('combobox',{name:'Buscar insumo 1'}).fill('acero');await page.getByRole('option',{name:'MAT-1 · Acero (kg)'}).click();await expect(page.getByRole('combobox',{name:'Buscar insumo 1'})).toHaveValue('MAT-1 · Acero (kg)');await expect(page.locator('[data-resource-unit]')).toHaveText('Unidad: kg');await page.getByLabel('Rendimiento / unidad',{exact:true}).fill('2');await page.getByRole('button',{name:'Guardar',exact:true}).click();await page.locator('.line-row').filter({hasText:'Revoque'}).click();await page.getByRole('button',{name:'＋ Agregar insumo',exact:true}).click();await page.getByRole('combobox',{name:'Buscar insumo 1'}).fill('acero');await page.getByRole('option',{name:'MAT-1 · Acero (kg)'}).click();await expect(page.getByRole('combobox',{name:'Buscar insumo 1'})).toHaveValue('MAT-1 · Acero (kg)');await expect(page.locator('[data-resource-unit]')).toHaveText('Unidad: kg');await expect(page.getByLabel('Precio unitario ARS',{exact:true})).toHaveValue('100');await page.getByLabel('Rendimiento / unidad',{exact:true}).fill('3');await page.getByRole('button',{name:'Guardar',exact:true}).click();await page.locator('.line-row').filter({hasText:'Hormigón'}).click();await expect(page.getByRole('columnheader',{name:'UNIDAD',exact:true})).toBeVisible();await expect(page.locator('.line-resource-row .component-unit')).toHaveText('kg');await page.locator('.line-resource-row').dblclick();await expect(page.getByRole('combobox',{name:'Buscar insumo 1'})).toHaveValue('MAT-1 · Acero (kg)');await page.getByLabel('Precio unitario ARS',{exact:true}).fill('120');await page.getByRole('button',{name:'Guardar',exact:true}).click();await expect(page.locator('.line-row').filter({hasText:'Hormigón'}).locator('.partial')).toHaveText('480,00');await expect(page.locator('.line-row').filter({hasText:'Revoque'}).locator('.partial')).toHaveText('720,00');await page.locator('.line-row').filter({hasText:'Revoque'}).click();await page.locator('.line-resource-row').dblclick();await expect(page.getByLabel('Precio unitario ARS',{exact:true})).toHaveValue('120');await expect(page.getByLabel('Rendimiento / unidad',{exact:true})).toHaveValue('3');
 });
 
 test('issued budgets can supply saved patterns while incorporating into them remains disabled',async({page})=>{
@@ -630,7 +635,7 @@ test('unit composition can be saved as an ACU pattern from the budget',async({pa
  await expect(page.getByRole('button',{name:'＋ Partida ACU',exact:true})).toHaveCount(0);
  await expect(page.locator('.work-toolbar [data-action=modal-from-acu] + [data-action=open-patterns]')).toHaveCount(1);
  await expect(page.locator('.project-context')).toHaveCount(0);
- await page.getByRole('tab',{name:'Insumos',exact:true}).click();await page.getByRole('button',{name:'Asignar',exact:true}).click();await page.getByRole('button',{name:'Guardar',exact:true}).click();await page.getByRole('tab',{name:'ACU',exact:true}).click();
+ await page.getByRole('tab',{name:'Insumos',exact:true}).click();await page.getByRole('button',{name:'＋ Agregar insumo',exact:true}).click();await page.getByRole('combobox',{name:'Buscar insumo 1'}).fill('acero');await page.getByRole('option',{name:'MAT-1 · Acero (kg)'}).click();await page.getByRole('button',{name:'Guardar',exact:true}).click();await page.getByRole('tab',{name:'ACU',exact:true}).click();
  await page.getByRole('button',{name:'Guardar como patrón de ACU',exact:true}).click();
  await expect(page.getByLabel('Código del patrón',{exact:true})).toHaveAttribute('readonly','');await page.getByLabel('Descripción',{exact:true}).fill('Hormigón reutilizable');
  await page.getByRole('button',{name:'Guardar',exact:true}).click();
@@ -1099,4 +1104,35 @@ test('resource library blocks invalid and duplicate Excel rows before saving',as
  await expect(dialog.getByRole('button',{name:'Importar 2 insumos',exact:true})).toBeDisabled();
  expect(await page.evaluate(()=>window.__calls.some(c=>c.command==='import_resources'))).toBe(false);
  await page.keyboard.press('Escape');await expect(dialog).toHaveCount(0);
+});
+
+
+test('deleting the last takeoff refreshes the badge and restores the manual quantity',async({page})=>{
+ await bridge(page,{restorableTakeoff:true});await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.locator('[data-action=manage-dashboard-budget]').first().click();
+ const line=page.locator('.line-row').filter({hasText:'Hormigón'});
+ await expect(line.locator('.metrado-tag')).toBeVisible();
+ await expect(page.getByRole('button',{name:'Duplicar',exact:true})).toHaveCount(0);
+ await expect(page.locator('[data-action=refresh-draft-costs]')).toHaveCount(0);
+ await expect(page.getByRole('button',{name:'Comparar',exact:true})).toHaveCount(0);
+ await page.getByRole('tab',{name:'Metrados',exact:true}).click();
+ page.once('dialog',d=>d.accept());await page.locator('[data-action=delete-takeoff]').click();
+ await expect(line.locator('.metrado-tag')).toHaveCount(0);
+ await expect(line.locator('td').nth(3)).toHaveText('2');
+ await expect(page.getByText('Todavía no hay mediciones.',{exact:true})).toBeVisible();
+ await expect(line.locator('.partial')).toHaveText('200,00');
+});
+
+test('budget resource tab shows only resources used in this budget and keeps the full picker',async({page})=>{
+ await bridge(page);await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.locator('[data-action=manage-dashboard-budget]').first().click();
+ await page.getByRole('tab',{name:'Insumos',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Asignar',exact:true})).toHaveCount(0);
+ await expect(page.getByText('Todavía no hay insumos en este presupuesto.',{exact:false})).toBeVisible();
+ await page.getByRole('button',{name:'＋ Agregar insumo',exact:true}).click();
+ await page.getByRole('combobox',{name:'Buscar insumo 1'}).fill('acero');
+ await page.getByRole('option',{name:'MAT-1 · Acero (kg)'}).click();await page.getByRole('button',{name:'Guardar',exact:true}).click();
+ await page.evaluate(async()=>{await window.__TAURI_INTERNALS__.invoke('create_resource',{code:'UNUSED',description:'Material ajeno al presupuesto',unit:'kg',kind:'material',price:'50'});});
+ await page.getByRole('tab',{name:'Insumos',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Asignar',exact:true})).toHaveCount(1);
+ await expect(page.locator('.mini-table')).toContainText('Acero');
+ await expect(page.locator('.mini-table')).not.toContainText('Material ajeno al presupuesto');
 });
