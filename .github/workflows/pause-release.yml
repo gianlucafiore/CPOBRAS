@@ -1,0 +1,23 @@
+name: Pause desktop release
+on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/pause-release.yml"]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "ID del build de release que se debe cancelar"
+        required: true
+permissions:
+  actions: write
+jobs:
+  cancel:
+    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'Pause release v0.1.3 for library imports'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cancel requested release build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ inputs.run_id || '42619997338' }}
+        run: gh run cancel "$RUN_ID"
