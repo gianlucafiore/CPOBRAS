@@ -73,3 +73,14 @@ export function divideDecimals(left,right,precision=16){
  const digits=(value<0n?-value:value).toString().padStart(precision+1,"0");
  return ((value<0n?"-":"")+(precision?digits.slice(0,-precision)+"."+digits.slice(-precision):digits)).replace(/(\.\d*?)0+$/, "$1").replace(/\.$/,"");
 }
+
+// Presentation only: callers retain the original value for calculations.
+export function truncateDecimals(value, places = 2) {
+  const parsed = parse(value);
+  const coefficient = parsed.scale > places
+    ? parsed.coefficient / power(parsed.scale - places)
+    : parsed.coefficient * power(places - parsed.scale);
+  const digits = (coefficient < 0n ? -coefficient : coefficient).toString().padStart(places + 1, "0");
+  const result = (coefficient < 0n ? "-" : "") + (places ? digits.slice(0, -places) + "." + digits.slice(-places) : digits);
+  return places ? result.replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "") : result;
+}

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { money, numeric, sumDecimals, absoluteDecimal, divideDecimals } from "../src/decimal.js";
+import { money, numeric, sumDecimals, absoluteDecimal, divideDecimals, truncateDecimals } from "../src/decimal.js";
 
 test("money keeps cents above the IEEE-754 safe integer limit", () => {
   assert.equal(money("9007199254740993.01"), "9.007.199.254.740.993,01");
@@ -48,4 +48,12 @@ test("decimal division keeps fractional quantities and large values exact", () =
  assert.equal(divideDecimals("100", "3"), "33.3333333333333333");
  assert.equal(divideDecimals("9007199254740993", "1"), "9007199254740993");
  assert.throws(() => divideDecimals("1", "0"), TypeError);
+});
+
+test("presentation truncates at two decimals without rounding or binary conversion", () => {
+ assert.equal(truncateDecimals("23.6666666666666666"), "23.66");
+ assert.equal(truncateDecimals("71.00000000001"), "71");
+ assert.equal(truncateDecimals("-1.999"), "-1.99");
+ assert.equal(truncateDecimals("9007199254740993.129"), "9007199254740993.12");
+ assert.equal(truncateDecimals("-0.00001"), "0");
 });

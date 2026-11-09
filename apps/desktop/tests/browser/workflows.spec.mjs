@@ -5,7 +5,7 @@ async function bridge(page, options={}) {
  await page.route('https://nominatim.openstreetmap.org/reverse**',route=>options.geocodeFails?route.fulfill({status:503,body:'unavailable'}):route.fulfill({contentType:'application/json',body:JSON.stringify({address:{road:'Avenida de prueba',house_number:'123',city:'Rosario',state:'Santa Fe',country_code:'ar'}})}));
  await page.addInitScript((fixture) => {
   const project = { id: "10000000-0000-4000-8000-000000000001", name: "Obra de prueba", client_id: "client-1", currency: "Ars", organization_id:"org-own",organization_name:"Mi organización",organization_locked:true,read_only:false };
-  const line = { id: "10000000-0000-4000-8000-000000000002", description: "Hormigón", unit: "m³", quantity: "2", unit_cost: "100", total: "200", analysis_id: null };
+  const line = { id: "10000000-0000-4000-8000-000000000002", description: "Hormigón", unit: "m³", quantity: fixture.lineQuantity || "2", unit_cost: "100", total: "200", analysis_id: null };
   const lines=[line]; if(fixture.twoLines)lines.push({...line,id:"10000000-0000-4000-8000-000000000003",description:"Revoque"});
   const sections=fixture.twoLines?[{id:"10000000-0000-4000-8000-000000000004",code:"01",title:"Preliminares",parent_id:null,position:0}]:[];
   const sharedStatus={enabled:false,peer_id:'owner-key',shares:[],subscriptions:[],network_error:null};
@@ -32,7 +32,7 @@ async function bridge(page, options={}) {
   const normalizePerson=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]/g,'');
   let generalCalendar=structuredClone(fixture.generalCalendar||{revision:0,nonworking_weekdays:[5,6],exceptions:{}});
   const indexPoints=structuredClone(fixture.indexPoints||[]);let adjustmentAgreement={revision:0,definition:null};
-  const operations=[],warehouses=[];
+  const operations=structuredClone(fixture.operations || []),warehouses=[];
   const operationReport=()=>({project_id:project.id,name:project.name,as_of:"2026-11-05",estimate_id:estimate.id,summaries:[{currency:"ARS",budget_cost:"200",budget_sale:"200",committed:"0",accrued:"0",paid:"0",collected:"0",payable:"0",receivable:"0",overdue_payable:"0",overdue_receivable:"0",cash:"0",cost_to_finish:"200",expected_result:"0",physical_percent:"0",certified:"0"}],cash_flow:[],production:[],costs:[],quotes:[],needs:[],alerts:[],scheduled_finish:null,planned_percent:null});
   const records = fixture.context?[{id:'center-one',kind:'cost_center',name:'Centro obra de prueba',project_id:project.id,attributes:{},revision:1},{id:'center-two',kind:'cost_center',name:'Centro obra modelo',project_id:sourceProject.id,attributes:{},revision:1}]:[]; const nested = []; const calls = []; let plan = null;
   window.__calls = calls;
@@ -1006,4 +1006,47 @@ test('certificate accumulated quantity and percentage sync both ways and survive
  await page.getByRole('button',{name:'Modificar avances',exact:true}).click();
  await expect(quantity).toHaveValue('2');
  await expect(percent).toHaveValue('100');
+});
+
+
+test('certificate shows two decimal places without changing exact accumulated quantity',async({page})=>{
+ await bridge(page,{issued:true,lineQuantity:'3'});
+ await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();
+ await page.locator('[data-action=manage-dashboard-budget]').first().click();
+ await page.getByRole('button',{name:'Gestión de obra',exact:true}).click();
+ await page.getByRole('button',{name:'Certificaciones',exact:true}).click();
+ await page.getByRole('button',{name:'Modificar avances',exact:true}).click();
+ const quantity=page.getByLabel('Cantidad acumulada Hormigón',{exact:true});
+ const percent=page.getByLabel('Avance acumulado Hormigón',{exact:true});
+ await quantity.fill('1');await expect(percent).toHaveValue('33.33');
+ await expect(page.locator('[data-cert-period]')).toHaveText('33,33');
+ await page.getByRole('button',{name:'Guardar borrador',exact:true}).click();
+ await expect(percent).toHaveValue('33.33');await expect(quantity).toHaveValue('1');
+ await page.getByRole('button',{name:'Guardar borrador',exact:true}).click();
+ const saved=await page.evaluate(()=>window.__calls.filter(c=>c.command==='save_certificate_draft').at(-1).args.draft.progress[0]);
+ expect(saved.accumulated_quantity).toBe('1');expect(saved.accumulated_percent).toBe('33.3333333333333333');
+ await percent.fill('33.33');await expect(quantity).toHaveValue('0.99');
+ await page.getByRole('button',{name:'Guardar borrador',exact:true}).click();
+ const percentage=await page.evaluate(()=>window.__calls.filter(c=>c.command==='save_certificate_draft').at(-1).args.draft.progress[0]);
+ expect(percentage.accumulated_quantity).toBeNull();expect(percentage.accumulated_percent).toBe('33.33');
+});
+
+test('subcontract certificate popup keeps margins and actions within its scrollable table',async({page})=>{
+ const contract={id:'contract-layout',kind:'subcontract',number:'CONT-0001',project_id:'10000000-0000-4000-8000-000000000001',estimate_id:'estimate-1',partner_id:'supplier-1',amount:'200',currency:'ARS',lines:[],contract_terms:{start:'2026-11-01'}};
+ const certificate={id:'sub-layout',kind:'subcertificate',number:'SUB-0001',reference_id:contract.id,estimate_id:'estimate-1',amount:'100',currency:'ARS',period_start:'2026-11-01',period_end:'2026-11-09'};
+ await bridge(page,{issued:true,operations:[contract,certificate]});
+ await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();
+ await page.locator('[data-action=manage-dashboard-budget]').first().click();
+ await page.evaluate(contract=>{window.__supplierOrders=[{document:contract,lines:[],paid:'0',pending_payment:'200',payment_state:'Pendiente',delivery_state:'Parcial',editable:false,revision:0,files:[]}];},contract);
+ await page.getByRole('button',{name:'Gestión de obra',exact:true}).click();
+ await page.getByRole('button',{name:'Subcontrataciones',exact:true}).click();
+ await page.getByRole('button',{name:'Certificar avances / pagos',exact:true}).click();
+ const dialog=page.getByRole('dialog',{name:'Certificados del subcontrato',exact:true});
+ await expect(dialog).toBeVisible();await expect(dialog).toHaveCSS('padding-left','20px');
+ await expect(dialog.locator('.contract-certificates-table')).toHaveCSS('overflow-x','auto');
+ const bounds=await dialog.boundingBox(), close=await dialog.getByRole('button',{name:'Cerrar',exact:true}).boundingBox();
+ expect(bounds.width).toBeGreaterThan(620);expect(close.x+close.width).toBeLessThanOrEqual(bounds.x+bounds.width-15);
+ await expect(dialog.getByRole('button',{name:'Registrar pago del certificado',exact:true})).toBeVisible();
+ await page.setViewportSize({width:760,height:640});
+ const narrow=await dialog.boundingBox();expect(narrow.x).toBeGreaterThanOrEqual(15);expect(narrow.x+narrow.width).toBeLessThanOrEqual(745);
 });

@@ -1,5 +1,5 @@
 import { e, field, select, dateToday } from "./helpers.js";
-import { numeric, money, sumDecimals, multiplyDecimals, percentageOf, divideDecimals, compareDecimals } from "../decimal.js";
+import { numeric, money, sumDecimals, multiplyDecimals, percentageOf, divideDecimals, compareDecimals, truncateDecimals } from "../decimal.js";
 import { exportCertificate } from "../services/construction-export.js";
 export function createCertificateWorkflow({
   invoke,
@@ -51,6 +51,7 @@ export function createCertificateWorkflow({
       }),
     ]);
   }
+  const displayNumber = value => numeric(truncateDecimals(value));
   function read() {
     const form = document.querySelector("#certificate-workflow-form");
     if (!form || !view.draft) return;
@@ -68,8 +69,8 @@ export function createCertificateWorkflow({
       (row) => ({
         line_id: row.dataset.certProgress,
         accumulated_percent:
-          row.querySelector("[data-cert-percent]").value || "0",
-        accumulated_quantity: row.dataset.progressMode === "quantity" ? row.querySelector("[data-cert-quantity]").value || "0" : null,
+          row.dataset.exactPercent || "0",
+        accumulated_quantity: row.dataset.progressMode === "quantity" ? row.dataset.exactQuantity || "0" : null,
         use_approved: true,
       }),
     );
@@ -131,7 +132,7 @@ export function createCertificateWorkflow({
       return `<strong>Neto pendiente de cálculo</strong><small data-preview-status>${e(view.previewError)}</small>`;
     const op = view.sheet?.operation || {},
       c = op.calculated || {};
-    return `<div><span>Base del período <b>${money(c.base_work || "0")}</b></span><span>Anticipo (${numeric(op.advance_percent || "0")} %) <b>−${money(op.advance || "0")}</b></span><span>Ajuste <b>${money(c.index_adjustment || "0")}</b></span><span>Adicionales <b>${money(c.extras || "0")}</b></span><span>Diferencias <b>${money(c.adjustment_difference || "0")}</b></span><span>Reparo (${numeric(op.retention_percent || "0")} %) <b>−${money(c.retention || "0")}</b></span><strong>Neto ${e(op.currency || "ARS")} ${money(op.amount || "0")}</strong></div><small data-preview-status>${view.dirty ? "Vista previa · cambios sin guardar" : ""}</small>`;
+    return `<div><span>Base del período <b>${money(c.base_work || "0")}</b></span><span>Anticipo (${displayNumber(op.advance_percent || "0")} %) <b>−${money(op.advance || "0")}</b></span><span>Ajuste <b>${money(c.index_adjustment || "0")}</b></span><span>Adicionales <b>${money(c.extras || "0")}</b></span><span>Diferencias <b>${money(c.adjustment_difference || "0")}</b></span><span>Reparo (${displayNumber(op.retention_percent || "0")} %) <b>−${money(c.retention || "0")}</b></span><strong>Neto ${e(op.currency || "ARS")} ${money(op.amount || "0")}</strong></div><small data-preview-status>${view.dirty ? "Vista previa · cambios sin guardar" : ""}</small>`;
   }
   function livePreview() {
     clearTimeout(previewTimer);
@@ -155,10 +156,10 @@ export function createCertificateWorkflow({
             (r) => r.line_id === row.dataset.certProgress,
           );
           if (!r) continue;
-          row.querySelector("[data-cert-period]").textContent = numeric(
+          row.querySelector("[data-cert-period]").textContent = displayNumber(
             r.current_percent,
           );
-          row.querySelector("[data-cert-remaining]").textContent = numeric(
+          row.querySelector("[data-cert-remaining]").textContent = displayNumber(
             r.remaining_percent,
           );
           row.querySelector("[data-cert-amount]").textContent = money(
@@ -266,7 +267,7 @@ export function createCertificateWorkflow({
             .slice(0, 10)
         : c.contract_terms?.start || dateToday().slice(0, 7) + "-01";
     return (
-      `<section class="workflow-editor compact-editor contract-certificates" role="dialog" aria-modal="true" aria-label="Certificados del subcontrato"><button class="btn" data-action="ops-cert-contract-close">Cerrar</button><h2>Certificados del subcontrato ${e(c.number)}</h2><div class="feature-toolbar">${field("Inicio del período del contratista", "cert-start", start, 'type="date"')}${field("Fin del período del contratista", "cert-end", dateToday(), 'type="date"')}${state.remoteProject ? "" : `<button class="btn primary" data-action="ops-cert-open" data-contract="${c.id}">Modificar avances del contratista</button>`}</div><table class="data-grid"><thead><tr><th>Certificado</th><th>Período</th><th>Neto por pagar</th><th></th></tr></thead><tbody>${certs.map((d) => `<tr><td>${e(d.number)}</td><td>${e(d.period_start)} a ${e(d.period_end)}</td><td>${money(d.amount)}</td><td><button class="btn" data-action="ops-cert-pdf" data-id="${d.id}">Ver certificado / PDF</button>${state.remoteProject ? "" : `<button class="btn" data-action="ops-cert-pay" data-id="${d.id}">Registrar pago del certificado</button>`}</td></tr>`).join("")}</tbody></table></section>` +
+      `<section class="workflow-editor compact-editor contract-certificates" role="dialog" aria-modal="true" aria-label="Certificados del subcontrato"><div class="contract-certificates-heading"><h2>Certificados del subcontrato ${e(c.number)}</h2><button class="btn" data-action="ops-cert-contract-close">Cerrar</button></div><div class="feature-toolbar">${field("Inicio del período del contratista", "cert-start", start, 'type="date"')}${field("Fin del período del contratista", "cert-end", dateToday(), 'type="date"')}${state.remoteProject ? "" : `<button class="btn primary" data-action="ops-cert-open" data-contract="${c.id}">Modificar avances del contratista</button>`}</div><div class="contract-certificates-table"><table class="data-grid"><thead><tr><th>Certificado</th><th>Período</th><th>Neto por pagar</th><th></th></tr></thead><tbody>${certs.map((d) => `<tr><td>${e(d.number)}</td><td>${e(d.period_start)} a ${e(d.period_end)}</td><td>${money(d.amount)}</td><td class="contract-certificate-actions"><button class="btn" data-action="ops-cert-pdf" data-id="${d.id}">Ver certificado / PDF</button>${state.remoteProject ? "" : `<button class="btn" data-action="ops-cert-pay" data-id="${d.id}">Registrar pago del certificado</button>`}</td></tr>`).join("")}</tbody></table></div></section>` +
       editor() +
       paymentEditor()
     );
@@ -285,7 +286,7 @@ export function createCertificateWorkflow({
         const progress = d.progress.find((p) => p.line_id === r.line_id);
         const v = progress?.accumulated_percent || r.previous_percent;
         const quantity = progress?.accumulated_quantity ?? (compareDecimals(v, r.previous_percent) === 0 ? r.previous : percentageOf(r.quantity, v));
-        return `<tr data-cert-progress="${r.line_id}" data-progress-mode="${progress?.accumulated_quantity != null ? "quantity" : "percent"}" data-contract-quantity="${e(r.quantity)}"><td>${e(r.item)} · ${e(r.description)}</td><td class="certificate-unit">${e(r.unit)}</td><td class="certificate-quantity">${numeric(r.quantity)}</td><td>${numeric(r.previous_percent)}</td><td><input data-cert-percent aria-label="Avance acumulado ${e(r.description)}" type="number" min="${r.previous_percent}" max="100" step="any" value="${e(v)}" required></td><td><input data-cert-quantity aria-label="Cantidad acumulada ${e(r.description)}" type="number" min="${e(r.previous)}" max="${e(r.quantity)}" step="any" value="${e(quantity)}" required></td><td data-cert-period>${numeric(r.current_percent)}</td><td data-cert-remaining>${numeric(r.remaining_percent)}</td><td data-cert-amount>${money(r.period_amount)}</td></tr>`;
+        return `<tr data-cert-progress="${r.line_id}" data-progress-mode="${progress?.accumulated_quantity != null ? "quantity" : "percent"}" data-contract-quantity="${e(r.quantity)}" data-exact-percent="${e(v)}" data-exact-quantity="${e(quantity)}"><td>${e(r.item)} · ${e(r.description)}</td><td class="certificate-unit">${e(r.unit)}</td><td class="certificate-quantity">${displayNumber(r.quantity)}</td><td>${displayNumber(r.previous_percent)}</td><td><input data-cert-percent aria-label="Avance acumulado ${e(r.description)}" type="number" min="${e(truncateDecimals(r.previous_percent))}" max="100" step="any" value="${e(truncateDecimals(v))}" required></td><td><input data-cert-quantity aria-label="Cantidad acumulada ${e(r.description)}" type="number" min="${e(truncateDecimals(r.previous))}" max="${e(r.quantity)}" step="any" value="${e(truncateDecimals(quantity))}" required></td><td data-cert-period>${displayNumber(r.current_percent)}</td><td data-cert-remaining>${displayNumber(r.remaining_percent)}</td><td data-cert-amount>${money(r.period_amount)}</td></tr>`;
       })
       .join(
         "",
@@ -522,12 +523,18 @@ export function createCertificateWorkflow({
       if (t.matches?.("[data-cert-percent],[data-cert-quantity]")) {
         const row = t.closest("[data-cert-progress]");
         try {
+          const value = truncateDecimals(t.value || "0");
+          if (t.value && /[.,]\d{3,}/.test(t.value)) t.value = value;
           if (t.matches("[data-cert-quantity]")) {
             row.dataset.progressMode = "quantity";
-            row.querySelector("[data-cert-percent]").value = compareDecimals(row.dataset.contractQuantity, "0") === 0 ? "0" : divideDecimals(multiplyDecimals(t.value || "0", "100"), row.dataset.contractQuantity);
+            row.dataset.exactQuantity = value;
+            row.dataset.exactPercent = compareDecimals(row.dataset.contractQuantity, "0") === 0 ? "0" : divideDecimals(multiplyDecimals(value, "100"), row.dataset.contractQuantity);
+            row.querySelector("[data-cert-percent]").value = truncateDecimals(row.dataset.exactPercent);
           } else {
             row.dataset.progressMode = "percent";
-            row.querySelector("[data-cert-quantity]").value = percentageOf(row.dataset.contractQuantity, t.value || "0");
+            row.dataset.exactPercent = value;
+            row.dataset.exactQuantity = percentageOf(row.dataset.contractQuantity, value);
+            row.querySelector("[data-cert-quantity]").value = truncateDecimals(row.dataset.exactQuantity);
           }
         } catch { /* Keep transient edits until the input is a valid decimal. */ }
       }

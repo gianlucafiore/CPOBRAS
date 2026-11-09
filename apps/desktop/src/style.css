@@ -277,3 +277,16 @@ button.gantt-date { border:0; border-right:1px solid #e1e8ef; border-radius:0; c
 .order-dialog-heading{justify-content:space-between;align-items:center}.order-dialog-heading h2{font-size:17px}.order-edit-fields{border:0;margin:0;padding:0;min-width:0}.order-edit-fields:disabled button{display:none}.order-remove-item{width:27px;height:27px;min-height:0;padding:0;align-self:center;font-size:19px;color:#ac4444}.movement-actions{display:flex;justify-content:flex-end;gap:8px}.compact-editor form>button{align-self:flex-start}.order-edit-fields>.btn{margin-top:10px}.price-detail-table th.number{text-align:right!important}.price-detail-table th.price-actions,.price-detail-table td:last-child{white-space:nowrap;width:1%}
 
 .movement-quantity{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 8px;align-items:end}.movement-quantity>.field{margin-bottom:0}.movement-quantity>.btn{margin-bottom:2px}.movement-quantity-error{grid-column:1/-1;color:#b42318;min-height:1em}.movement-quantity input[aria-invalid="true"]{border-color:#b42318}
+
+.workflow-editor.contract-certificates{width:min(960px,calc(100vw - 32px));padding:20px;overflow:auto;max-height:calc(100vh - 32px)}
+.contract-certificates-heading{display:flex;gap:16px;align-items:center;justify-content:space-between;margin-bottom:18px}
+.contract-certificates-heading h2{font-size:18px;min-width:0;overflow-wrap:anywhere}
+.contract-certificates-heading>.btn{flex-shrink:0}
+.contract-certificates>.feature-toolbar{gap:14px;margin-bottom:18px;align-items:end}
+.contract-certificates>.feature-toolbar .field{flex:1 1 190px;min-width:0}
+.contract-certificates-table{overflow:auto;max-height:45vh}
+.contract-certificates-table .data-grid{min-width:0;width:100%}
+.contract-certificates-table td{white-space:normal;overflow-wrap:anywhere}
+.contract-certificate-actions{min-width:160px}
+.contract-certificate-actions .btn{display:inline-block;margin:3px;white-space:normal}
+@media(max-width:650px){.workflow-editor.contract-certificates{padding:16px}.contract-certificates-table .data-grid{min-width:520px}}

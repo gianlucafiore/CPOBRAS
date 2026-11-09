@@ -472,8 +472,11 @@ export async function exportCertificate(invoke, s) {
   );
   space(Math.min(105, liquidation.length * 5.8 + 15));
   const startY = y;
-  text("AJUSTE CONTRACTUAL", margin, y + 4, 8, true, navy);
-  y += 9;
+  const showAdjustment = Boolean(a) || o.kind !== "subcertificate";
+  if (showAdjustment) {
+    text("AJUSTE CONTRACTUAL", margin, y + 4, 8, true, navy);
+    y += 9;
+  }
   if (a) {
     text(
       `Período aplicado: ${a.applied_month} | Objetivo: ${a.target_month}`,
@@ -515,7 +518,7 @@ export async function exportCertificate(invoke, s) {
       );
       y += 6;
     }
-  } else {
+  } else if (showAdjustment) {
     text("Sin ajuste de índices pactado.", margin, y, 7);
     y += 6;
   }

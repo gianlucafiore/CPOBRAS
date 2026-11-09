@@ -3,7 +3,7 @@
 ## Descargar y ejecutar
 
 En [Releases](https://github.com/gianlucafiore/CPOBRAS/releases), descargá
-`CPOBRAS_0.1.2_amd64.AppImage`. Podés copiarlo por pendrive o descargar el mismo
+`CPOBRAS_0.1.3_amd64.AppImage`. Podés copiarlo por pendrive o descargar el mismo
 archivo en ambos equipos. Está destinado a Linux x86-64, en particular Mint
 21/22 y Ubuntu 22.04/24.04. No es un paquete para ARM, Windows o macOS.
 
@@ -14,8 +14,8 @@ instalar el código fuente ni herramientas de programación.
 Si aparece un error de FUSE, puede abrirse sin instalar FUSE:
 
 ```bash
-chmod +x CPOBRAS_0.1.2_amd64.AppImage
-./CPOBRAS_0.1.2_amd64.AppImage --appimage-extract-and-run
+chmod +x CPOBRAS_0.1.3_amd64.AppImage
+./CPOBRAS_0.1.3_amd64.AppImage --appimage-extract-and-run
 ```
 
 El proveedor de archivos de algunas distribuciones muestra la opción **Ejecutar**
@@ -63,14 +63,15 @@ El sistema anfitrión sigue aportando el kernel, la sesión gráfica y los contr
 
 ## Publicación
 
-Al publicar una etiqueta `v0.1.2`, el workflow de GitHub:
+Al publicar una etiqueta `v0.1.3`, el workflow de GitHub:
 
 1. Comprueba que la etiqueta coincida con la versión de la aplicación.
 2. Compila en Ubuntu 22.04 y ejecuta los tests del frontend.
 3. Abre el AppImage real en un contenedor Ubuntu 22.04 sin Node, Rust ni WebKit
    del sistema, usando Xvfb y su propio runtime sin FUSE.
 4. Genera `SHA256SUMS` y guarda también un artefacto de Actions.
-5. Crea una Release en borrador, carga los archivos y la publica al terminar.
+5. En paralelo, compila el ejecutable portable de Windows y comprueba que abra su ventana.
+6. Crea una Release en borrador y la publica con ambos paquetes y sus hashes solo cuando pasan las dos plataformas.
 
 Si falla la construcción o el arranque, no se publica la Release. El workflow
 puede volver a ejecutarse para una etiqueta existente; una versión ya publicada

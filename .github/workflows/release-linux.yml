@@ -1,4 +1,4 @@
-name: Linux AppImage release
+name: Desktop release
 on:
   push:
     tags: ["v*"]
@@ -7,11 +7,11 @@ on:
       tag:
         description: "Etiqueta existente, por ejemplo v0.1.2"
         required: true
-        default: "v0.1.2"
+        default: "v0.1.3"
 permissions:
   contents: write
 concurrency:
-  group: release-linux-${{ inputs.tag || github.ref_name }}
+  group: release-desktop-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 jobs:
   appimage:
@@ -78,6 +78,88 @@ jobs:
           name: CPOBRAS-${{ env.RELEASE_TAG }}-linux-x86_64
           path: release-assets/*
           if-no-files-found: error
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      CARGO_BUILD_JOBS: 4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.99.1"
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+      - name: Validate version
+        shell: pwsh
+        run: |
+          $version = (Get-Content apps/desktop/src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          if ($env:RELEASE_TAG -cne "v$version") { throw 'La etiqueta no coincide con la versión de la aplicación' }
+      - name: Install frontend dependencies
+        run: npm --prefix apps/desktop ci
+      - name: Build portable executable
+        working-directory: apps/desktop
+        run: npm run tauri -- build --no-bundle -- --locked
+      - name: Check and prepare portable executable
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path apps/desktop/src-tauri/target/release/cpobras-desktop.exe).Path
+          $process = Start-Process -FilePath $exe -PassThru
+          try {
+            $ready = $false
+            for ($i = 0; $i -lt 30; $i++) {
+              Start-Sleep -Seconds 1
+              $process.Refresh()
+              if ($process.HasExited) { throw "CPOBRAS terminó antes de abrir su ventana: $($process.ExitCode)" }
+              if ($process.MainWindowHandle -ne 0) { $ready = $true; break }
+            }
+            if (-not $ready) { throw 'CPOBRAS no abrió su ventana en Windows' }
+          } finally {
+            if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
+          }
+          New-Item -ItemType Directory -Path release-assets -Force | Out-Null
+          $name = "CPOBRAS_$($env:RELEASE_TAG.Substring(1))_windows_x86_64_portable.exe"
+          Copy-Item $exe "release-assets/$name"
+          $hash = (Get-FileHash "release-assets/$name" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $name" | Set-Content release-assets/SHA256SUMS-windows.txt -Encoding ascii
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CPOBRAS-${{ env.RELEASE_TAG }}-windows-x86_64
+          path: release-assets/*
+          if-no-files-found: error
+  publish:
+    needs: [appimage, windows]
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: CPOBRAS-${{ env.RELEASE_TAG }}-*
+          path: release-assets
+          merge-multiple: true
+      - name: Check release assets
+        shell: bash
+        run: |
+          test "$(find release-assets -maxdepth 1 -name '*.AppImage' | wc -l)" -eq 1
+          test "$(find release-assets -maxdepth 1 -name '*portable.exe' | wc -l)" -eq 1
+          cd release-assets
+          cat SHA256SUMS SHA256SUMS-windows.txt > SHA256SUMS-all.txt
+          sha256sum -c SHA256SUMS-all.txt
+          mv SHA256SUMS-all.txt SHA256SUMS
+          rm SHA256SUMS-windows.txt
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -85,7 +167,7 @@ jobs:
           if gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft > /tmp/release-draft.txt 2>/dev/null; then
             test "$(cat /tmp/release-draft.txt)" = true || { echo 'La versión ya está publicada; no se reemplazará.'; exit 1; }
           else
-            gh release create "$RELEASE_TAG" --verify-tag --draft --title "CPOBRAS $RELEASE_TAG — Linux" --notes-file "docs/releases/$RELEASE_TAG.md"
+            gh release create "$RELEASE_TAG" --verify-tag --draft --title "CPOBRAS $RELEASE_TAG — Linux y Windows" --notes-file "docs/releases/$RELEASE_TAG.md"
           fi
           gh release upload "$RELEASE_TAG" release-assets/* --clobber
           gh release edit "$RELEASE_TAG" --draft=false --latest

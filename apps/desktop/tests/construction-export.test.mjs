@@ -13,3 +13,15 @@ test('certificate PDF handles signed decimal zero returned by Rust', async()=>{
  await assert.doesNotReject(()=>exportCertificate(async(cmd,args)=>{assert.equal(cmd,'save_export_file');result=Uint8Array.from(args.bytes);return {path:'/tmp/cert.pdf'};},s));
  assert.match(new TextDecoder().decode(result),/PRELIMINAR/);
 });
+
+test('subcontractor PDF omits adjustment legend without agreement while client PDF retains it', async()=>{
+ const sheet={preliminary:false,profile:{},project_name:'Obra',budget_title:'Presupuesto',client_name:'Contratista',total_base:'100',physical_percent:'50',rows:[],operation:{kind:'subcertificate',number:'SUB-0001',currency:'ARS',date:'2026-11-09',period_start:'2026-11-01',period_end:'2026-11-09',due_date:'2026-11-13',amount:'100',advance:'0',advance_percent:'0',advance_before_index:true,discount:'0',retention_percent:'0',extras:[],calculated:{base_work:'100'}}};
+ async function pdfText(s){let bytes;await exportCertificate(async(cmd,args)=>{bytes=Uint8Array.from(args.bytes);return {path:'/tmp/cert.pdf'};},s);return new TextDecoder().decode(bytes);}
+ const subcontractor=await pdfText(sheet);
+ assert.doesNotMatch(subcontractor,/AJUSTE CONTRACTUAL|Sin ajuste de/);
+ assert.match(subcontractor,/NETO A PAGAR/);
+ assert.match(subcontractor,/Avance acumulado de obra/);
+ const client=await pdfText({...sheet,operation:{...sheet.operation,kind:'certificate'}});
+ assert.match(client,/AJUSTE CONTRACTUAL/);
+ assert.match(client,/Sin ajuste de/);
+});

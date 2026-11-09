@@ -4972,13 +4972,16 @@ fn supplier_delivery_requests_and_direct_receipts_share_the_remaining_capacity()
         payment.amount = 1000.into();
         s.post_operation(&payment).unwrap();
         if receive_first {
-            s.receive_material_order(p.id, order.id, &BTreeMap::from([(res, 3.into())])).unwrap();
+            s.receive_material_order(p.id, order.id, &BTreeMap::from([(res, 3.into())]))
+                .unwrap();
         }
         let listed = s.supplier_orders(p.id, "material").unwrap();
         let available = listed[0].lines[0].vendor_stock;
-        assert_eq!(available, Decimal::from(if receive_first {7} else {10}));
+        assert_eq!(available, Decimal::from(if receive_first { 7 } else { 10 }));
         let mut request = SupplierMovement {
-            order_id: order.id, project_id: p.id, kind: "request".into(),
+            order_id: order.id,
+            project_id: p.id,
+            kind: "request".into(),
             quantities: BTreeMap::from([(res, available + Decimal::ONE)]),
             ..Default::default()
         };
@@ -4987,10 +4990,16 @@ fn supplier_delivery_requests_and_direct_receipts_share_the_remaining_capacity()
         s.record_supplier_movement(&request).unwrap();
         let listed = s.supplier_orders(p.id, "material").unwrap();
         assert_eq!(listed[0].lines[0].requested, available);
-        s.receive_material_order_with_proof(p.id, order.id, &BTreeMap::from([(res, 2.into())]), None).unwrap();
+        s.receive_material_order_with_proof(
+            p.id,
+            order.id,
+            &BTreeMap::from([(res, 2.into())]),
+            None,
+        )
+        .unwrap();
         let listed = s.supplier_orders(p.id, "material").unwrap();
         let l = &listed[0].lines[0];
-        assert_eq!(l.received, Decimal::from(if receive_first {5} else {2}));
+        assert_eq!(l.received, Decimal::from(if receive_first { 5 } else { 2 }));
         assert_eq!(l.vendor_stock, available - Decimal::from(2));
         assert_eq!(l.requested, available - Decimal::from(2));
         assert_eq!(l.remaining, available - Decimal::from(2));
@@ -5002,9 +5011,12 @@ fn certificate_accumulated_quantity_preserves_exact_units_and_rejects_overruns()
     let (mut s, p, e, mut line) = fixture();
     line.quantity = 3.into();
     s.update_estimate_item(&line).unwrap();
-    s.save_project_plan(p.id, 0, financial_test_plan(line.id), "2026-11-05").unwrap();
+    s.save_project_plan(p.id, 0, financial_test_plan(line.id), "2026-11-05")
+        .unwrap();
     s.issue_estimate(e.id).unwrap();
-    let mut draft = s.open_certificate_draft(p.id, e.id, None, "2026-11-01", "2026-11-05").unwrap();
+    let mut draft = s
+        .open_certificate_draft(p.id, e.id, None, "2026-11-01", "2026-11-05")
+        .unwrap();
     draft.operation.date = "2026-11-05".into();
     draft.progress[0].accumulated_quantity = Some(Decimal::ONE);
     draft.progress[0].accumulated_percent = Decimal::from_str_exact("33.3333333333333333").unwrap();
