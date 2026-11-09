@@ -1345,7 +1345,7 @@ fn upgrades_populated_schema_fifteen_and_deletes_its_preexisting_linked_line() {
         old.execute_batch(&format!("DROP TRIGGER {name}")).unwrap();
     }
     undo_people_migration_for_fixture(&old);
-    old.execute_batch("ALTER TABLE operation_links DROP COLUMN archived_line_id; DROP TABLE deleted_estimate_lines; DROP TABLE line_analysis_sources; DROP TABLE estimate_resource_prices; DROP TABLE quotation_request_revisions;DROP TABLE quotation_response_files;DROP TABLE quotation_awards;DROP TABLE quotation_responses;DROP TABLE site_book_entries;DROP TABLE certificate_drafts;DROP TABLE certificate_sheets;DROP TABLE certified_sources;DROP TABLE quotation_requests;DROP TABLE estimate_adjustment_agreements;DROP TABLE index_points;DROP TABLE system_calendar;DROP TABLE estimate_price_definitions; DROP TABLE price_definition_templates;
+    old.execute_batch("DROP TABLE supplier_movements; DROP TABLE operation_files; ALTER TABLE operation_links DROP COLUMN archived_line_id; DROP TABLE deleted_estimate_lines; DROP TABLE line_analysis_sources; DROP TABLE estimate_resource_prices; DROP TABLE quotation_request_revisions;DROP TABLE quotation_response_files;DROP TABLE quotation_awards;DROP TABLE quotation_responses;DROP TABLE site_book_entries;DROP TABLE certificate_drafts;DROP TABLE certificate_sheets;DROP TABLE certified_sources;DROP TABLE quotation_requests;DROP TABLE estimate_adjustment_agreements;DROP TABLE index_points;DROP TABLE system_calendar;DROP TABLE estimate_price_definitions; DROP TABLE price_definition_templates;
              DROP TABLE print_profiles; DROP TRIGGER new_project_organization; DROP TRIGGER external_company_readonly_update; DROP TRIGGER external_company_readonly_delete; DROP TRIGGER clear_measured_quantity; DROP TABLE automatic_codes; DROP TABLE measured_lines; DROP TABLE project_attachments; DROP TABLE project_organizations; DROP TABLE organization_preferences; DROP TABLE organizations; DELETE FROM schema_migrations WHERE version>=16; CREATE TRIGGER operation_links_no_update BEFORE UPDATE ON operation_links BEGIN SELECT RAISE(ABORT,'operation links are immutable'); END;").unwrap();
     drop(old);
     let mut upgraded = LocalStore::open(&path).unwrap();
@@ -1355,7 +1355,7 @@ fn upgrades_populated_schema_fifteen_and_deletes_its_preexisting_linked_line() {
             .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| r
                 .get::<_, i64>(0))
             .unwrap(),
-        30
+        31
     );
     upgraded.delete_estimate_item(e.id, line.id).unwrap();
     assert!(upgraded.estimate_items(e.id).unwrap().is_empty());
@@ -2048,7 +2048,7 @@ fn custom_price_definition_revision_copy_export_and_issue_are_consistent() {
         Decimal::new(3025, 1)
     );
     let document = store.export_budget(estimate.id).unwrap();
-    assert_eq!(document.format_version, 4);
+    assert_eq!(document.format_version, 5);
     let json = serde_json::to_string(&document).unwrap();
     let imported = store
         .import_budget(project.id, &serde_json::from_str(&json).unwrap())
@@ -3434,6 +3434,7 @@ fn provisional_certificates_freeze_indices_and_extras_and_settle_positive_and_ne
         base_month: "2026-09".into(),
         lag_months: 0,
         weights: vec![IndexWeight {
+            base_month: None,
             series: "CAC".into(),
             weight: Decimal::ONE,
         }],
@@ -3815,6 +3816,7 @@ fn advance_is_recovered_before_index_and_new_terms_survive_exchange() {
             base_month: "2026-09".into(),
             lag_months: 0,
             weights: vec![IndexWeight {
+                base_month: None,
                 series: "CAC".into(),
                 weight: Decimal::ONE,
             }],
@@ -4426,4 +4428,314 @@ fn schema_thirty_brings_imported_legacy_offers_into_the_comparison() {
     assert_eq!(reopened.quotation_requests(p.id).unwrap().len(), 1);
     drop(reopened);
     std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn supplier_stock_partial_delivery_exchange_and_credit_preserve_cash_and_history() {
+    use crate::supplier_logistics::{Proof, SupplierMovement};
+    let (mut s, p, e, line, supplier, res, _) = stock_fixture();
+    let mut order = operation(p.id, "purchase_order");
+    order.partner_id = Some(supplier);
+    order.estimate_id = Some(e.id);
+    order.lines = vec![material_row(res, line.id, 10, 10000)];
+    let order = s.post_operation(&order).unwrap();
+    let movement = |kind: &str, revision, quantities, amount| SupplierMovement {
+        order_id: order.id,
+        project_id: p.id,
+        kind: kind.into(),
+        revision,
+        quantities,
+        amount,
+        reason: "Proveedor sin disponibilidad".into(),
+        ..Default::default()
+    };
+    assert!(s
+        .record_supplier_movement(&movement(
+            "reserve",
+            0,
+            BTreeMap::from([(res, 10.into())]),
+            0.into()
+        ))
+        .is_err());
+    let mut payment = operation(p.id, "payment");
+    payment.reference_id = Some(order.id);
+    payment.partner_id = Some(supplier);
+    payment.amount = 100000.into();
+    let proof = Proof {
+        name: "recibo.pdf".into(),
+        content: b"%PDF-1.4 prueba".to_vec(),
+    };
+    let payment = s
+        .material_payment_with_proof(&payment, Some(proof.clone()))
+        .unwrap();
+    s.record_supplier_movement(&movement(
+        "reserve",
+        0,
+        BTreeMap::from([(res, 10.into())]),
+        0.into(),
+    ))
+    .unwrap();
+    assert!(s
+        .record_supplier_movement(&movement(
+            "request",
+            0,
+            BTreeMap::from([(res, 4.into())]),
+            0.into()
+        ))
+        .is_err()); // stale
+    s.record_supplier_movement(&movement(
+        "request",
+        1,
+        BTreeMap::from([(res, 4.into())]),
+        0.into(),
+    ))
+    .unwrap();
+    let receipt = s
+        .receive_material_order_with_proof(
+            p.id,
+            order.id,
+            &BTreeMap::from([(res, 4.into())]),
+            Some(proof.clone()),
+        )
+        .unwrap();
+    let listed = s.supplier_orders(p.id, "material").unwrap();
+    let o = &listed[0];
+    assert!(!o.editable);
+    assert_eq!(o.lines[0].vendor_stock, Decimal::from(6));
+    assert_eq!(o.lines[0].requested, Decimal::ZERO);
+    assert_eq!(o.files.len(), 2);
+    assert!(o.files.iter().any(|f| f.document_id == payment.id));
+    assert!(o.files.iter().any(|f| f.document_id == receipt.id));
+    assert!(s
+        .record_supplier_movement(&movement(
+            "release",
+            2,
+            BTreeMap::from([(res, 7.into())]),
+            60000.into()
+        ))
+        .is_err());
+    s.record_supplier_movement(&movement(
+        "release",
+        2,
+        BTreeMap::from([(res, 6.into())]),
+        60000.into(),
+    ))
+    .unwrap();
+    assert_eq!(
+        s.supplier_credit(p.id, Some(supplier), "ARS").unwrap(),
+        Decimal::from(60000)
+    );
+    let updated = s.supplier_orders(p.id, "material").unwrap();
+    assert_eq!(updated[0].document.amount, Decimal::from(40000));
+    assert_eq!(updated[0].paid, Decimal::from(40000));
+    assert_eq!(updated[0].lines[0].vendor_stock, Decimal::ZERO);
+    let mut replacement = operation(p.id, "purchase_order");
+    replacement.partner_id = Some(supplier);
+    replacement.lines = vec![material_row(res, line.id, 1, 85000)];
+    let replacement = s.post_operation(&replacement).unwrap();
+    let mut credit = SupplierMovement {
+        order_id: replacement.id,
+        project_id: p.id,
+        kind: "apply".into(),
+        amount: 60000.into(),
+        ..Default::default()
+    };
+    s.record_supplier_movement(&credit).unwrap();
+    let new = s
+        .supplier_orders(p.id, "material")
+        .unwrap()
+        .into_iter()
+        .find(|o| o.document.id == replacement.id)
+        .unwrap();
+    assert_eq!(new.pending_payment, Decimal::from(25000));
+    assert_eq!(new.paid, Decimal::from(60000));
+    credit.revision = 1;
+    credit.amount = 1.into();
+    assert!(s.record_supplier_movement(&credit).is_err());
+    let docs = s.operation_documents(Some(p.id)).unwrap();
+    assert_eq!(
+        docs.iter()
+            .filter(|o| o.kind == "payment")
+            .map(|o| o.amount)
+            .sum::<Decimal>(),
+        Decimal::from(100000)
+    );
+    let raw: String = s
+        .conn
+        .query_row(
+            "SELECT payload FROM operation_documents WHERE id=?1",
+            [order.id.to_string()],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        serde_json::from_str::<crate::operations::Operation>(&raw)
+            .unwrap()
+            .amount,
+        Decimal::from(100000)
+    );
+    assert!(s
+        .conn
+        .execute("DELETE FROM supplier_movements", [])
+        .is_err());
+    s.verify_integrity().unwrap();
+}
+
+#[test]
+fn unpaid_order_edits_are_versioned_and_proof_validation_is_atomic() {
+    use crate::supplier_logistics::{Proof, SupplierMovement};
+    let (mut s, p, _, line, supplier, res, _) = stock_fixture();
+    let mut order = operation(p.id, "purchase_order");
+    order.partner_id = Some(supplier);
+    order.lines = vec![material_row(res, line.id, 10, 100)];
+    let order = s.post_operation(&order).unwrap();
+    let mut change = SupplierMovement {
+        project_id: p.id,
+        order_id: order.id,
+        kind: "edit".into(),
+        partner_id: Some(supplier),
+        lines: vec![material_row(res, line.id, 5, 120)],
+        ..Default::default()
+    };
+    s.record_supplier_movement(&change).unwrap();
+    assert_eq!(
+        s.supplier_orders(p.id, "material").unwrap()[0]
+            .document
+            .amount,
+        Decimal::from(600)
+    );
+    assert!(s.record_supplier_movement(&change).is_err());
+    let count = s.operation_documents(Some(p.id)).unwrap().len();
+    let invalid = Proof {
+        name: "../remito.pdf".into(),
+        content: b"%PDF-1.4".to_vec(),
+    };
+    assert!(s
+        .receive_material_order_with_proof(
+            p.id,
+            order.id,
+            &BTreeMap::from([(res, 1.into())]),
+            Some(invalid)
+        )
+        .is_err());
+    assert_eq!(s.operation_documents(Some(p.id)).unwrap().len(), count);
+    s.receive_material_order_with_proof(p.id, order.id, &BTreeMap::from([(res, 1.into())]), None)
+        .unwrap();
+    change.revision = 1;
+    assert!(s.record_supplier_movement(&change).is_err());
+}
+
+#[test]
+fn supplier_reservation_after_a_receipt_counts_only_later_deliveries_and_cannot_refund_delivered_value(
+) {
+    use crate::supplier_logistics::SupplierMovement;
+    let (mut s, p, _, line, supplier, res, _) = stock_fixture();
+    let mut order = operation(p.id, "purchase_order");
+    order.partner_id = Some(supplier);
+    order.lines = vec![material_row(res, line.id, 10, 100)];
+    let order = s.post_operation(&order).unwrap();
+    let mut payment = operation(p.id, "payment");
+    payment.reference_id = Some(order.id);
+    payment.partner_id = Some(supplier);
+    payment.amount = 600.into();
+    s.post_operation(&payment).unwrap();
+    s.receive_material_order(p.id, order.id, &BTreeMap::from([(res, 4.into())]))
+        .unwrap();
+    let mut m = SupplierMovement {
+        order_id: order.id,
+        project_id: p.id,
+        kind: "reserve".into(),
+        quantities: BTreeMap::from([(res, 2.into())]),
+        ..Default::default()
+    };
+    s.record_supplier_movement(&m).unwrap();
+    assert_eq!(
+        s.supplier_orders(p.id, "material").unwrap()[0].lines[0].vendor_stock,
+        Decimal::from(2)
+    );
+    m.kind = "release".into();
+    m.revision = 1;
+    m.amount = 300.into();
+    m.reason = "Cambio".into();
+    assert!(s.record_supplier_movement(&m).is_err()); // Only 200 of the payment backs undelivered goods.
+    s.receive_material_order(p.id, order.id, &BTreeMap::from([(res, 1.into())]))
+        .unwrap();
+    assert_eq!(
+        s.supplier_orders(p.id, "material").unwrap()[0].lines[0].vendor_stock,
+        Decimal::ONE
+    );
+}
+
+#[test]
+fn full_supplier_credit_replacement_keeps_a_balance_or_only_requires_the_difference() {
+    use crate::supplier_logistics::SupplierMovement;
+    for replacement_cost in [85000, 120000] {
+        let (mut s, p, _, line, supplier, res, _) = stock_fixture();
+        let mut old = operation(p.id, "purchase_order");
+        old.partner_id = Some(supplier);
+        old.lines = vec![material_row(res, line.id, 1, 100000)];
+        let old = s.post_operation(&old).unwrap();
+        let mut pay = operation(p.id, "payment");
+        pay.partner_id = Some(supplier);
+        pay.reference_id = Some(old.id);
+        pay.amount = 100000.into();
+        s.post_operation(&pay).unwrap();
+        s.record_supplier_movement(&SupplierMovement {
+            project_id: p.id,
+            order_id: old.id,
+            kind: "release".into(),
+            quantities: BTreeMap::from([(res, 1.into())]),
+            amount: 100000.into(),
+            reason: "Sin disponibilidad".into(),
+            ..Default::default()
+        })
+        .unwrap();
+        let mut new = operation(p.id, "purchase_order");
+        new.partner_id = Some(supplier);
+        new.lines = vec![material_row(res, line.id, 1, replacement_cost)];
+        let new = s.post_operation(&new).unwrap();
+        s.record_supplier_movement(&SupplierMovement {
+            project_id: p.id,
+            order_id: new.id,
+            kind: "apply".into(),
+            amount: replacement_cost.min(100000).into(),
+            ..Default::default()
+        })
+        .unwrap();
+        let report = s.operations_report(p.id, None, "2026-12-31").unwrap();
+        assert_eq!(
+            report
+                .cash_flow
+                .iter()
+                .map(|p| p.actual_out)
+                .sum::<Decimal>(),
+            Decimal::from(100000)
+        );
+        assert_eq!(
+            report
+                .cash_flow
+                .iter()
+                .map(|p| p.planned_out)
+                .sum::<Decimal>(),
+            Decimal::from((replacement_cost - 100000).max(0))
+        );
+        let orders = s.supplier_orders(p.id, "material").unwrap();
+        let new = orders.iter().find(|o| o.document.id == new.id).unwrap();
+        assert_eq!(
+            new.pending_payment,
+            Decimal::from((replacement_cost - 100000).max(0))
+        );
+        assert_eq!(
+            s.supplier_credit(p.id, Some(supplier), "ARS").unwrap(),
+            Decimal::from((100000 - replacement_cost).max(0))
+        );
+        assert_eq!(
+            s.operation_documents(Some(p.id))
+                .unwrap()
+                .iter()
+                .filter(|o| o.kind == "payment")
+                .count(),
+            1
+        );
+    }
 }

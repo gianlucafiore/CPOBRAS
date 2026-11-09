@@ -155,3 +155,70 @@ pub(crate) async fn choose_backup_folder<R: tauri::Runtime>(
     .await
     .map_err(|e| e.to_string())?
 }
+
+/// User-selected destination; cancellation never writes a file.
+#[tauri::command]
+pub(crate) async fn save_export_file<R: tauri::Runtime>(
+    window: tauri::WebviewWindow<R>,
+    name: String,
+    bytes: Vec<u8>,
+    open_after: bool,
+) -> Result<Option<serde_json::Value>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    if bytes.len() > 50_000_000
+        || name.len() > 200
+        || name.is_empty()
+        || name.contains(['/', '\\'])
+        || name.starts_with('.')
+    {
+        return Err("Nombre o tamaño de exportación inválido".into());
+    }
+    let ext = name.rsplit('.').next().unwrap_or("").to_lowercase();
+    if !["pdf", "xlsx"].contains(&ext.as_str()) || (open_after && ext != "pdf") {
+        return Err("Formato de exportación inválido".into());
+    }
+    if ext == "pdf" && !bytes.starts_with(b"%PDF-") {
+        return Err("El documento no es un PDF válido".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let selected = window
+            .dialog()
+            .file()
+            .set_parent(&window)
+            .set_title("Guardar documento")
+            .set_file_name(&name)
+            .add_filter(ext.to_uppercase(), &[ext.as_str()])
+            .blocking_save_file();
+        let Some(selected) = selected else {
+            return Ok(None);
+        };
+        let mut path = selected.into_path().map_err(|e| e.to_string())?;
+        if path.extension().is_none() {
+            path.set_extension(&ext);
+        }
+        if path
+            .extension()
+            .and_then(|s| s.to_str())
+            .map(str::to_lowercase)
+            .as_deref()
+            != Some(&ext)
+        {
+            return Err("Conservá la extensión del documento".into());
+        }
+        use std::io::Write;
+        let mut file = std::fs::File::create(&path).map_err(|e| e.to_string())?;
+        file.write_all(&bytes)
+            .and_then(|_| file.sync_all())
+            .map_err(|e| e.to_string())?;
+        let open_error = if open_after {
+            crate::commands::printing::open_saved_pdf(&path).err()
+        } else {
+            None
+        };
+        Ok(Some(
+            serde_json::json!({"path":path.to_string_lossy(),"open_error":open_error}),
+        ))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}

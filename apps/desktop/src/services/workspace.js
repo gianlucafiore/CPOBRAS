@@ -137,11 +137,11 @@ export function createWorkspaceService({ invoke,globalInvoke=invoke, state, curr
     state.estimates = [];
     state.selectedSectionId = null;
     state.projectId = id;
-    state.view = "workspace";
+    state.view = "management";
     state.panel = state.remoteProject?.data.permissions?.resources===false?"takeoffs":"acu";
     state.selectedLineId = null;
     await loadEstimates();
-    state.estimateId = state.estimates[0]?.id || null;
+
     state.search = "";
     await loadEstimate();
   }
@@ -151,6 +151,7 @@ export function createWorkspaceService({ invoke,globalInvoke=invoke, state, curr
     clearBudget();
     state.selectedSectionId = null;
     state.estimateId = id || null;
+    state.view = "workspace";
     state.selectedLineId = null;
     state.panel = "acu";
     await loadEstimate();
@@ -180,6 +181,7 @@ export function createWorkspaceService({ invoke,globalInvoke=invoke, state, curr
     loadEstimates,
     loadEstimate,
     loadPanel,
+    clearBudget,
     openProject,
     openEstimate,
     reloadCatalog,

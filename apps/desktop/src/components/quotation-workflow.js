@@ -37,6 +37,7 @@ export function createQuotationWorkflow({
     award: null,
     receive: null,
     payment: null,
+    movement: null,
   };
   const kind = () => (model.tab === "contracts" ? "work" : "material");
   const supplier = (id) =>
@@ -80,6 +81,7 @@ export function createQuotationWorkflow({
     v.award = null;
     v.receive = null;
     v.payment = null;
+    v.movement = null;
     v.dirty = false;
     const rows = v.requests.filter(
       (r) =>
@@ -181,7 +183,7 @@ export function createQuotationWorkflow({
       )
       .slice()
       .reverse();
-    return `<section class="workflow-card"><div class="feature-toolbar"><h2>Solicitudes de cotización</h2>${state.remoteProject ? "" : `<button class="btn primary" data-action="ops-rfq-new" data-kind="${kind()}">+ Nueva</button>`}</div><div class="quotation-layout"><aside class="quotation-list" aria-label="Solicitudes de cotización">${rows.map((r) => `<div class="quotation-list-row"><button class="quotation-item ${v.selected?.id === r.id ? "selected" : ""}" data-action="ops-rfq-select" data-id="${r.id}"><strong>${e(r.title)}</strong><small>${e(r.number)} · ${e(r.date)} · ${r.items.length} ítems</small></button>${state.remoteProject ? "" : `<button class="btn tiny" data-action="ops-rfq-edit" data-id="${r.id}" aria-label="Editar solicitud ${e(r.title)}">Editar solicitud</button>`}</div>`).join("") || "<p>Todavía no hay solicitudes.</p>"}</aside><div class="quotation-detail">${v.selected ? selected() : "<p>Creá o seleccioná una solicitud para ver sus respuestas.</p>"}</div></div></section>${orders()}${editor()}${awardEditor()}${receiveEditor()}${paymentEditor()}`;
+    return `<section class="workflow-card"><div class="feature-toolbar"><h2>Solicitudes de cotización</h2>${state.remoteProject ? "" : `<button class="btn primary" data-action="ops-rfq-new" data-kind="${kind()}">+ Nueva</button>`}</div><div class="quotation-layout"><aside class="quotation-list" aria-label="Solicitudes de cotización">${rows.map((r) => `<div class="quotation-list-row"><button class="quotation-item ${v.selected?.id === r.id ? "selected" : ""}" data-action="ops-rfq-select" data-id="${r.id}"><strong>${e(r.title)}</strong><small>${e(r.number)} · ${e(r.date)} · ${r.items.length} ítems</small></button>${state.remoteProject ? "" : `<button class="btn tiny quotation-edit" title="Editar solicitud ${e(r.title)}" data-action="ops-rfq-edit" data-id="${r.id}" aria-label="Editar solicitud ${e(r.title)}">✎</button>`}</div>`).join("") || "<p>Todavía no hay solicitudes.</p>"}</aside><div class="quotation-detail">${v.selected ? selected() : "<p>Creá o seleccioná una solicitud para ver sus respuestas.</p>"}</div></div></section>${orders()}${editor()}${awardEditor()}${receiveEditor()}${paymentEditor()}${movementEditor()}`;
   }
   function selected() {
     const r = v.selected;
@@ -216,7 +218,7 @@ export function createQuotationWorkflow({
   }
   function orders() {
     const material = kind() === "material";
-    return `<section class="workflow-card"><div class="feature-toolbar"><h2>${material ? "Pedidos a proveedores" : "Subcontratos adjudicados"}</h2>${material && !state.remoteProject ? '<button class="btn" data-action="ops-stock-declare">Declarar acopio existente</button>' : ""}</div><p>${material ? "Pago y entrega se siguen por separado. Las recepciones parciales actualizan el acopio." : "Los certificados aprobados reconocen el avance y el saldo por pagar del contratista."} Los importes adjudicados son sin IVA; los comprobantes fiscales y su conciliación se administran en Finanzas.</p><table class="data-grid"><thead><tr><th>Pedido / proveedor</th><th>Importe sin IVA</th><th>Pago</th><th>${material ? "Entrega" : "Avance"}</th><th></th></tr></thead><tbody>${v.orders.map((o) => `<tr><td>${e(o.document.number)} · ${e(supplier(o.document.partner_id))}<details><summary>${o.lines.length} ${material ? "materiales" : "tareas"}</summary>${o.lines.map((l) => `<p>${e(l.description)} · ${numeric(l.received)} de ${numeric(l.quantity)} ${material ? "recibidos" : "certificados"}</p>`).join("")}</details></td><td>${e(o.document.currency)} ${money(o.document.amount)}</td><td>${e(o.payment_state)}<small>Pagado: ${money(o.paid)} · Pendiente: ${money(o.pending_payment)}</small></td><td>${e(o.delivery_state)}</td><td>${state.remoteProject ? "" : material ? `<button class="btn" data-action="ops-rfq-receive" data-id="${o.document.id}" ${o.delivery_state === "Completa" ? "disabled" : ""}>Registrar entrega</button><button class="btn" data-action="ops-rfq-pay" data-id="${o.document.id}" ${Number(o.pending_payment) <= 0 ? "disabled" : ""}>Registrar pago</button>` : `<button class="btn" data-action="ops-cert-contract" data-contract="${o.document.id}">Certificar avances / pagos</button>`}</td></tr>`).join("") || '<tr><td colspan="5">Al distribuir una solicitud aparecerán aquí los pedidos adjudicados.</td></tr>'}</tbody></table>${material && model.stock.length ? `<details><summary>Acopio disponible de esta obra</summary><table class="data-grid"><thead><tr><th>Material</th><th>Cantidad</th></tr></thead><tbody>${model.stock.map((s) => `<tr><td>${e(state.resources.find((r) => r.id === s.resource_id)?.description || "Material")}</td><td>${numeric(s.quantity)}</td></tr>`).join("")}</tbody></table></details>` : ""}</section>`;
+    return `<section class="workflow-card"><div class="feature-toolbar"><h2>${material ? "Pedidos a proveedores" : "Subcontratos adjudicados"}</h2>${material && !state.remoteProject ? '<button class="btn" data-action="ops-stock-declare">Declarar acopio existente</button>' : ""}</div><p>${material ? "Pago y entrega se siguen por separado. Las recepciones parciales actualizan el acopio." : "Los certificados aprobados reconocen el avance y el saldo por pagar del contratista."} Los importes adjudicados son sin IVA; los comprobantes fiscales y su conciliación se administran en Finanzas.</p><table class="data-grid"><thead><tr><th>Pedido / proveedor</th><th>Importe sin IVA</th><th>Pago</th><th>${material ? "Entrega" : "Avance"}</th><th></th></tr></thead><tbody>${v.orders.map((o) => `<tr><td>${e(o.document.number)} · ${e(supplier(o.document.partner_id))}<details><summary>${o.lines.length} ${material ? "materiales" : "tareas"}</summary>${o.lines.map((l) => `<p>${e(l.description)} · ${numeric(l.received)} de ${numeric(l.quantity)} ${material ? "recibidos" : "certificados"}${material ? `<small>Acopio en proveedor: ${numeric(l.vendor_stock || "0")} · Entrega solicitada: ${numeric(l.requested || "0")}</small>` : ""}</p>`).join("")}</details></td><td>${e(o.document.currency)} ${money(o.document.amount)}</td><td>${e(o.payment_state)}<small>Cubierto: ${money(o.paid)} · Pendiente: ${money(o.pending_payment)}${o.cash_paid != null ? `<br>Pagos registrados: ${money(o.cash_paid)}` : ""}${Number(o.supplier_credit) > 0 ? `<br>Saldo a favor en proveedor: ${money(o.supplier_credit)}` : ""}</small></td><td>${e(o.delivery_state)}${(o.files || []).map((f) => `<button class="btn tiny" data-action="ops-rfq-proof-open" data-id="${f.id}" title="${e(f.date || "")} · ${e(f.document_number || "Comprobante")}">${e(f.document_number || "")} · ${e(f.name)}</button>`).join("")}</td><td>${state.remoteProject ? "" : material ? `<button class="btn" data-action="ops-rfq-receive" data-id="${o.document.id}" ${o.delivery_state === "Completa" ? "disabled" : ""}>Registrar entrega</button><button class="btn" data-action="ops-rfq-pay" data-id="${o.document.id}" ${Number(o.pending_payment) <= 0 ? "disabled" : ""}>Registrar pago</button><button class="btn" data-action="ops-rfq-movement" data-kind="edit" data-id="${o.document.id}" ${o.editable ? "" : "disabled"} title="Solo se edita antes de registrar movimientos">Editar pedido</button><button class="btn" data-action="ops-rfq-movement" data-kind="reserve" data-id="${o.document.id}">Acopiar en proveedor</button><button class="btn" data-action="ops-rfq-movement" data-kind="request" data-id="${o.document.id}">Solicitar entrega</button><button class="btn" data-action="ops-rfq-movement" data-kind="release" data-id="${o.document.id}">Canjear materiales</button>${Number(o.supplier_credit) > 0 && Number(o.pending_payment) > 0 ? `<button class="btn" data-action="ops-rfq-movement" data-kind="apply" data-id="${o.document.id}">Aplicar saldo (${money(o.supplier_credit)})</button>` : ""}<button class="btn" data-action="ops-rfq-movement" data-kind="history" data-id="${o.document.id}">Historial</button>` : `<button class="btn" data-action="ops-cert-contract" data-contract="${o.document.id}">Certificar avances / pagos</button>`}</td></tr>`).join("") || '<tr><td colspan="5">Al distribuir una solicitud aparecerán aquí los pedidos adjudicados.</td></tr>'}</tbody></table>${material && model.stock.length ? `<details><summary>Material recibido en obra</summary><table class="data-grid"><thead><tr><th>Material</th><th>Cantidad</th></tr></thead><tbody>${model.stock.map((s) => `<tr><td>${e(state.resources.find((r) => r.id === s.resource_id)?.description || "Material")}</td><td>${numeric(s.quantity)}</td></tr>`).join("")}</tbody></table></details>` : ""}</section>`;
   }
   function sourceRows(rows, selected, needed = false) {
     return rows
@@ -330,7 +332,7 @@ export function createQuotationWorkflow({
   }
   function receiveEditor() {
     if (!v.receive) return "";
-    return `<section class="workflow-editor" role="dialog" aria-label="Registrar entrega"><form id="quotation-receive-form"><h2>Registrar entrega · ${e(v.receive.document.number)}</h2><p>Ingresá solo las cantidades recibidas ahora. Las pendientes se conservan y lo recibido se incorpora al acopio de esta obra.</p>${v.receive.lines
+    return `<section class="workflow-editor compact-editor" role="dialog" aria-modal="true" aria-label="Registrar entrega"><form id="quotation-receive-form"><h2>Registrar entrega · ${e(v.receive.document.number)}</h2><p>Ingresá solo las cantidades recibidas ahora. Las pendientes se conservan y lo recibido se incorpora al acopio de esta obra.</p>${v.receive.lines
       .filter((l) => Number(l.remaining) > 0)
       .map(
         (l) =>
@@ -338,17 +340,147 @@ export function createQuotationWorkflow({
       )
       .join(
         "",
-      )}<button class="btn primary" type="submit">Confirmar recepción</button><button class="btn" type="button" data-action="ops-rfq-receive-close">Cancelar</button></form></section>`;
+      )}<label>Remito firmado (opcional)<input type="file" name="proof" accept="application/pdf,image/png,image/jpeg,image/webp"></label><button class="btn primary" type="submit">Confirmar recepción</button><button class="btn" type="button" data-action="ops-rfq-receive-close">Cancelar</button></form></section>`;
   }
   function paymentEditor() {
     if (!v.payment) return "";
-    return `<section class="workflow-editor" role="dialog" aria-label="Registrar pago"><form id="quotation-payment-form"><h2>Registrar pago · ${e(v.payment.document.number)}</h2><p>Saldo del pedido sin IVA: ${money(v.payment.pending_payment)}. Si ya registraste una factura, aplicá el pago desde Finanzas para conciliarla.</p>${field("Importe pagado", "amount", v.payment.pending_payment, `type="number" min="0.000001" max="${v.payment.pending_payment}" step="any" required`)}${field("Fecha del pago", "date", dateToday(), 'type="date" required')}<button class="btn primary" type="submit">Registrar pago</button><button class="btn" type="button" data-action="ops-rfq-pay-close">Cancelar</button></form></section>`;
+    return `<section class="workflow-editor compact-editor" role="dialog" aria-modal="true" aria-label="Registrar pago"><form id="quotation-payment-form"><h2>Registrar pago · ${e(v.payment.document.number)}</h2><p>Saldo del pedido sin IVA: ${money(v.payment.pending_payment)}. Si ya registraste una factura, aplicá el pago desde Finanzas para conciliarla.</p>${field("Importe pagado", "amount", v.payment.pending_payment, `type="number" min="0.000001" max="${v.payment.pending_payment}" step="any" required`)}${field("Fecha del pago", "date", dateToday(), 'type="date" required')}<label>Recibo de pago (opcional)<input type="file" name="proof" accept="application/pdf,image/png,image/jpeg,image/webp"></label><button class="btn primary" type="submit">Registrar pago</button><button class="btn" type="button" data-action="ops-rfq-pay-close">Cancelar</button></form></section>`;
+  }
+  const movementTitles = {
+    edit: "Editar pedido",
+    reserve: "Acopio en proveedor",
+    request: "Solicitar entrega",
+    release: "Canjear materiales / generar saldo",
+    apply: "Aplicar saldo a favor",
+    history: "Historial del pedido",
+  };
+  function movementEditor() {
+    const m = v.movement;
+    if (!m) return "";
+    const o = m.order;
+    return `<section class="workflow-editor compact-editor" role="dialog" aria-modal="true" aria-label="${movementTitles[m.kind]}"><form id="supplier-movement-form"><h2>${movementTitles[m.kind]} · ${e(o.document.number)}</h2><button type="button" class="btn" data-action="ops-rfq-movement-close">Cerrar</button>${
+      m.kind === "history"
+        ? `<ol>${
+            m.history
+              .map(
+                (h) =>
+                  `<li>${h.created_at ? e(new Date(h.created_at).toLocaleString("es-AR",{timeZone:"America/Buenos_Aires"})) + " · " : ""}${e(movementTitles[h.kind] || h.kind)} · ${e(h.reason)}${Object.entries(
+                    h.quantities || {},
+                  )
+                    .map(
+                      ([id, q]) =>
+                        ` · ${e(o.lines.find((l) => l.source_id === id)?.description || "Material")}: ${numeric(q)}`,
+                    )
+                    .join(
+                      "",
+                    )}${Number(h.amount) ? ` · ${money(h.amount)}` : ""}</li>`,
+              )
+              .join("") || "Sin modificaciones posteriores al pedido."
+          }</ol>`
+        : m.kind === "edit"
+          ? `${select(
+              "Proveedor",
+              "partner_id",
+              partners().map((p) => [p.id, p.name]),
+              o.document.partner_id,
+            )}${field("Fecha prevista de pago", "due_date", o.document.due_date, 'type="date" required')}<div>${m.lines
+              .map(
+                (l, i) =>
+                  `<div class="movement-edit-row" data-movement-row="${i}">${select(
+                    "Material",
+                    "resource_id",
+                    state.resources
+                      .filter(
+                        (r) => String(r.kind).toLowerCase() === "material",
+                      )
+                      .map((r) => [r.id, r.description]),
+                    l.resource_id,
+                  )}${field("Cantidad", "quantity", l.quantity, 'type="number" min="0.000001" step="any" required')}${field("Precio unitario sin IVA", "unit_price", l.unit_price, 'type="number" min="0" step="any" required')}<button class="btn" type="button" data-action="ops-rfq-movement-remove" data-index="${i}">Quitar</button></div>`,
+              )
+              .join(
+                "",
+              )}</div><button class="btn" type="button" data-action="ops-rfq-movement-add">Agregar material</button>`
+          : m.kind === "apply"
+            ? `<p>Saldo disponible en este proveedor y moneda: ${money(o.supplier_credit)}. Se aplica sin generar un nuevo pago.</p>${field("Saldo a aplicar", "amount", String(Math.min(Number(o.supplier_credit), Number(o.pending_payment))), 'type="number" min="0.000001" step="any" required')}`
+            : `<p>${m.kind === "reserve" ? "Registrá las cantidades pagadas que el proveedor confirma tener reservadas para esta obra." : m.kind === "request" ? "Indicá cuánto del acopio en proveedor pedís que sea enviado a la obra. La recepción se registra por separado." : "Solo se cancelan cantidades no entregadas. El pago original se conserva y el importe reconocido queda como saldo para otros materiales del mismo proveedor y moneda."}</p>${o.lines
+                .filter((l) => Number(l.remaining) > 0)
+                .map((l) =>
+                  field(
+                    l.description +
+                      " · Pendiente " +
+                      numeric(l.remaining) +
+                      " · En proveedor " +
+                      numeric(l.vendor_stock || "0"),
+                    "q:" + l.source_id,
+                    "0",
+                    'type="number" min="0" step="any"',
+                  ),
+                )
+                .join(
+                  "",
+                )}${m.kind === "release" ? field("Saldo reconocido por el proveedor (sin IVA)", "amount", "0", 'type="number" min="0" step="any" required') : ""}`
+    }${m.kind !== "history" ? `<label>Motivo / referencia<textarea name="reason" maxlength="2000" ${m.kind === "release" ? "required" : ""}></textarea></label><label>Comprobante (opcional)<input type="file" name="proof" accept="application/pdf,image/png,image/jpeg,image/webp"></label><button class="btn primary" type="submit">Confirmar</button>` : ""}</form></section>`;
+  }
+  function readMovementLines() {
+    if (v.movement?.kind !== "edit") return;
+    v.movement.lines = [
+      ...document.querySelectorAll("[data-movement-row]"),
+    ].map((row) => ({
+      resource_id: row.querySelector('[name="resource_id"]').value,
+      quantity: row.querySelector('[name="quantity"]').value,
+      unit_price: row.querySelector('[name="unit_price"]').value,
+    }));
+  }
+  async function proofFrom(form) {
+    const file = form.querySelector('[name="proof"]')?.files?.[0];
+    if (!file) return null;
+    if (file.size > 10 * 1024 * 1024)
+      throw new Error("Máximo 10 MB por comprobante");
+    return {
+      name: file.name,
+      content: [...new Uint8Array(await file.arrayBuffer())],
+    };
   }
   async function act(b) {
     const a = b.dataset.action;
     if (!a.startsWith("ops-rfq-")) return false;
     readRequest();
     readResponses();
+    if (a === "ops-rfq-proof-open") {
+      await invoke("open_operation_file", {
+        projectId: model.projectId,
+        id: b.dataset.id,
+      });
+    }
+    if (a === "ops-rfq-movement") {
+      if (!(await protect())) return true;
+      const order = v.orders.find((o) => o.document.id === b.dataset.id);
+      v.movement = {
+        kind: b.dataset.kind,
+        order,
+        lines: structuredClone(order.document.lines),
+        history: await invoke("list_supplier_movements", {
+          projectId: model.projectId,
+          orderId: order.document.id,
+        }),
+      };
+    }
+    if (a === "ops-rfq-movement-close") {
+      if (!(await protect())) return true;
+      v.movement = null;
+    }
+    if (a === "ops-rfq-movement-add") {
+      readMovementLines();
+      v.movement.lines.push({
+        resource_id: "",
+        quantity: "1",
+        unit_price: "0",
+      });
+    }
+    if (a === "ops-rfq-movement-remove") {
+      readMovementLines();
+      v.movement.lines.splice(Number(b.dataset.index), 1);
+    }
     if (a === "ops-rfq-new") {
       if (!(await protect())) return true;
       v.kind = kind();
@@ -461,10 +593,16 @@ export function createQuotationWorkflow({
     if (a === "ops-rfq-award-close") v.award = null;
     if (a === "ops-rfq-receive")
       v.receive = v.orders.find((o) => o.document.id === b.dataset.id);
-    if (a === "ops-rfq-receive-close") v.receive = null;
+    if (a === "ops-rfq-receive-close") {
+      if (!(await protect())) return true;
+      v.receive = null;
+    }
     if (a === "ops-rfq-pay")
       v.payment = v.orders.find((o) => o.document.id === b.dataset.id);
-    if (a === "ops-rfq-pay-close") v.payment = null;
+    if (a === "ops-rfq-pay-close") {
+      if (!(await protect())) return true;
+      v.payment = null;
+    }
     if (a === "ops-rfq-open-file")
       await invoke("open_quote_file", {
         projectId: model.projectId,
@@ -594,21 +732,61 @@ export function createQuotationWorkflow({
       state.message =
         "Adjudicación confirmada. Los precios del presupuesto no cambiaron.";
     }
+    if (form.id === "supplier-movement-form") {
+      readMovementLines();
+      const m = v.movement;
+      const quantities = Object.fromEntries(
+        [...data]
+          .filter(([k]) => k.startsWith("q:"))
+          .map(([k, q]) => [k.slice(2), String(q)]),
+      );
+      await invoke("record_supplier_movement", {
+        movement: {
+          order_id: m.order.document.id,
+          project_id: model.projectId,
+          kind: m.kind,
+          revision: m.order.revision,
+          quantities,
+          amount: String(data.get("amount") || "0"),
+          reason: String(data.get("reason") || ""),
+          lines:
+            m.kind === "edit"
+              ? m.lines.map((l) => ({
+                  ...l,
+                  description:
+                    state.resources.find((r) => r.id === l.resource_id)
+                      ?.description || "Material",
+                }))
+              : [],
+          partner_id: data.get("partner_id") || null,
+          due_date: data.get("due_date") || null,
+          proof: await proofFrom(form),
+        },
+      });
+      v.dirty = false;
+      await refresh();
+      await load();
+      state.message = "Movimiento del proveedor registrado.";
+    }
     if (form.id === "quotation-receive-form") {
       const quantities = Object.fromEntries(
-        [...data].map(([id, q]) => [id, String(q)]),
+        [...data]
+          .filter(([id]) => id !== "proof")
+          .map(([id, q]) => [id, String(q)]),
       );
-      await invoke("receive_material_order", {
+      await invoke("receive_material_order_with_proof", {
         projectId: model.projectId,
         orderId: v.receive.document.id,
         quantities,
+        proof: await proofFrom(form),
       });
       await refresh();
       await load();
     }
     if (form.id === "quotation-payment-form") {
       const o = v.payment.document;
-      await invoke("post_operation", {
+      await invoke("material_payment_with_proof", {
+        proof: await proofFrom(form),
         operation: {
           id: window.crypto.randomUUID(),
           project_id: model.projectId,
@@ -632,10 +810,8 @@ export function createQuotationWorkflow({
     readResponses();
     if (!v.dirty) return true;
     if (v.guardOpen) return false;
-    if (v.request) {
-      if (
-        !window.confirm("¿Descartar los cambios de la solicitud sin guardar?")
-      )
+    if (v.request || v.movement || v.receive || v.payment) {
+      if (!window.confirm("¿Descartar los cambios del formulario sin guardar?"))
         return false;
       v.dirty = false;
       return true;
@@ -676,7 +852,9 @@ export function createQuotationWorkflow({
     protect,
     input: (t) => {
       if (
-        t.closest?.("#quotation-request-form") ||
+        t.closest?.(
+          "#quotation-request-form,#supplier-movement-form,#quotation-receive-form,#quotation-payment-form",
+        ) ||
         t.matches?.("[data-quote-cell],[data-response-term]")
       ) {
         v.dirty = true;

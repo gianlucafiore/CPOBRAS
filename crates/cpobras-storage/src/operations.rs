@@ -247,7 +247,7 @@ fn document(conn: &rusqlite::Connection, id: Uuid) -> Result<Option<Operation>> 
             |r| r.get(0),
         )
         .optional()?;
-    json.map(|v| serde_json::from_str(&v).map_err(Into::into))
+    json.map(|v| crate::supplier_logistics::effective(conn, serde_json::from_str(&v)?))
         .transpose()
 }
 pub(crate) fn documents(
@@ -256,7 +256,7 @@ pub(crate) fn documents(
 ) -> Result<Vec<Operation>> {
     let rows=conn.prepare("SELECT payload FROM operation_documents WHERE (?1 IS NULL OR project_id=?1) ORDER BY date,created_at,rowid")?.query_map([project.map(|id|id.to_string())],|r|r.get::<_,String>(0))?.collect::<std::result::Result<Vec<_>,_>>()?;
     rows.iter()
-        .map(|v| serde_json::from_str(v).map_err(Into::into))
+        .map(|v| crate::supplier_logistics::effective(conn, serde_json::from_str(v)?))
         .collect()
 }
 fn warehouse(conn: &rusqlite::Connection, id: Uuid) -> Result<Warehouse> {
@@ -1112,6 +1112,14 @@ impl LocalStore {
                     .iter()
                     .filter(|p| p.kind == "advance_paid" && p.reference_id == Some(r.id))
                     .map(|p| p.amount))?;
+                let paid = add(
+                    paid,
+                    r.calculated
+                        .get("supplier_payment_adjustment")
+                        .copied()
+                        .unwrap_or_default(),
+                )?
+                .max(D::ZERO);
                 if add(paid, o.amount)? > r.amount {
                     return Err(err("Anticipos superiores al contrato"));
                 }
@@ -1844,6 +1852,14 @@ impl LocalStore {
                             })
                     })
                     .map(|p| p.amount))?;
+                let paid = add(
+                    paid,
+                    r.calculated
+                        .get("supplier_payment_adjustment")
+                        .copied()
+                        .unwrap_or_default(),
+                )?
+                .max(D::ZERO);
                 if add(paid, o.amount)? > r.amount {
                     return Err(err("El pago supera el saldo total del pedido"));
                 }
@@ -1857,6 +1873,18 @@ impl LocalStore {
                 .iter()
                 .filter(|p| p.kind == o.kind && p.reference_id == Some(r.id))
                 .map(|p| p.amount))?;
+            let paid = if r.kind == "purchase_order" {
+                add(
+                    paid,
+                    r.calculated
+                        .get("supplier_payment_adjustment")
+                        .copied()
+                        .unwrap_or_default(),
+                )?
+                .max(D::ZERO)
+            } else {
+                paid
+            };
             if o.amount <= D::ZERO || add(paid, o.amount)? > r.amount {
                 return Err(err("El pago/cobro debe ser positivo y no superar el saldo"));
             }
@@ -2434,6 +2462,13 @@ impl LocalStore {
                     .iter()
                     .filter(|p| p.kind == "payment" && p.reference_id == Some(o.id))
                     .map(|p| p.amount))?;
+                let direct_paid = add(
+                    direct_paid,
+                    o.calculated
+                        .get("supplier_payment_adjustment")
+                        .copied()
+                        .unwrap_or_default(),
+                )?;
                 let remaining = sub(
                     sub(sub(o.amount, invoiced.max(certified))?, advances)?,
                     direct_paid,

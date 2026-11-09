@@ -9,6 +9,8 @@ use uuid::Uuid;
 pub struct IndexWeight {
     pub series: String,
     pub weight: D,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_month: Option<String>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -90,6 +92,7 @@ impl AdjustmentAgreement {
         let mut seen = BTreeSet::new();
         let mut sum = D::ZERO;
         for w in &self.weights {
+            month(w.base_month.as_deref().unwrap_or(&self.base_month))?;
             if w.series.trim().is_empty()
                 || w.series.len() > 80
                 || w.series.trim() != w.series
@@ -105,6 +108,13 @@ impl AdjustmentAgreement {
         }
         Ok(())
     }
+    fn latest_base(&self) -> &str {
+        self.weights
+            .iter()
+            .map(|w| w.base_month.as_deref().unwrap_or(&self.base_month))
+            .max()
+            .unwrap_or(&self.base_month)
+    }
     pub fn target_month(&self, date: &str) -> Result<String, String> {
         let d = NaiveDate::parse_from_str(date, "%Y-%m-%d").map_err(|_| "Fecha inválida")?;
         let n = d.year() * 12 + d.month0() as i32 - self.lag_months as i32;
@@ -113,7 +123,7 @@ impl AdjustmentAgreement {
             return Err("Mes objetivo fuera de rango".into());
         }
         let s = format!("{:04}-{:02}", year, n.rem_euclid(12) + 1);
-        if s < self.base_month {
+        if s.as_str() < self.latest_base() {
             return Err("El mes de ajuste es anterior al mes base".into());
         }
         Ok(s)
@@ -126,7 +136,7 @@ impl AdjustmentAgreement {
     ) -> Result<AdjustmentSnapshot, String> {
         self.validate()?;
         month(target)?;
-        if target < self.base_month.as_str() {
+        if target < self.latest_base() {
             return Err("El ajuste precede al mes base".into());
         }
         let find = |series: &str, period: &str| {
@@ -141,7 +151,7 @@ impl AdjustmentAgreement {
             .iter()
             .filter(|p| {
                 p.period.as_str() <= target
-                    && p.period >= self.base_month
+                    && p.period.as_str() >= self.latest_base()
                     && p.publication_date.as_str() <= as_of
             })
             .map(|p| p.period.clone())
@@ -151,7 +161,10 @@ impl AdjustmentAgreement {
             let mut factor = D::ZERO;
             for w in &self.weights {
                 if let (Some(base), Some(current)) = (
-                    find(&w.series, &self.base_month),
+                    find(
+                        &w.series,
+                        w.base_month.as_deref().unwrap_or(&self.base_month),
+                    ),
                     find(&w.series, &candidate),
                 ) {
                     let ratio = current
@@ -204,10 +217,12 @@ mod tests {
             lag_months: 1,
             weights: vec![
                 IndexWeight {
+                    base_month: None,
                     series: "CAC".into(),
                     weight: "0.6".parse().unwrap(),
                 },
                 IndexWeight {
+                    base_month: None,
                     series: "IPC".into(),
                     weight: "0.4".parse().unwrap(),
                 },
@@ -237,11 +252,42 @@ mod tests {
         assert!(a.resolve("2026-11", "2026-09-01", &points).is_err());
     }
     #[test]
+    fn basket_accepts_independent_loaded_base_periods() {
+        let a = AdjustmentAgreement {
+            base_month: "2026-08".into(),
+            lag_months: 0,
+            weights: vec![
+                IndexWeight {
+                    series: "CAC".into(),
+                    weight: "0.5".parse().unwrap(),
+                    base_month: Some("2026-09".into()),
+                },
+                IndexWeight {
+                    series: "IPC".into(),
+                    weight: "0.5".parse().unwrap(),
+                    base_month: Some("2026-08".into()),
+                },
+            ],
+        };
+        let points = vec![
+            p("CAC", "2026-09", 100, "2026-10-01"),
+            p("IPC", "2026-08", 200, "2026-09-01"),
+            p("CAC", "2026-10", 150, "2026-11-01"),
+            p("IPC", "2026-10", 220, "2026-11-01"),
+        ];
+        let snapshot = a.resolve("2026-10", "2026-11-05", &points).unwrap();
+        assert_eq!(snapshot.factor, "1.30".parse::<D>().unwrap());
+        assert_eq!(snapshot.indices[0].base.period, "2026-09");
+        assert_eq!(snapshot.indices[1].base.period, "2026-08");
+        assert!(a.target_month("2026-08-31").is_err());
+    }
+    #[test]
     fn agreement_rejects_duplicate_series_bad_weights_missing_base_and_invalid_points() {
         let mut a = AdjustmentAgreement {
             base_month: "2026-09".into(),
             lag_months: 0,
             weights: vec![IndexWeight {
+                base_month: None,
                 series: "CAC".into(),
                 weight: D::ONE,
             }],

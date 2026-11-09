@@ -13,6 +13,10 @@ function setup() {
   const calls = [];
   const responses = {
     get_estimate_resource_prices:()=>({"resource-1":"2000"}),
+    get_project_plan:()=>null,
+    list_operations:()=>[],
+    list_project_attachments:()=>[],
+    get_estimate_metadata:()=>({}),
     list_management_records: () => [],
     p2p_projects:()=>[],
     list_persons:({role})=>role==="client"?[{id:"client-1",name:"Cliente demo",cuit:null,email:"",phone:"",address:"",code:"",role:"client",revision:1,supplier_record_id:null}]:[],
@@ -85,6 +89,7 @@ test("renders compact project list, budget grid and ACU breakdown", async () => 
   assert.match(app.root.innerHTML, /Obras y presupuestos/);
   assert.match(app.root.innerHTML, /Nave industrial/);
   await app.click("open-project", "project-1");
+  await app.click("manage-dashboard-budget", "estimate-1");
   assert.match(app.root.innerHTML, /workspace-columns/);
   assert.match(app.root.innerHTML, /ESTRUCTURA/);
   assert.match(app.root.innerHTML, /Montaje de estructura/);
@@ -106,6 +111,7 @@ test("opens a new-line popup and saves through Tauri, then returns to the grid",
   const app = setup();
   await new Promise(resolve => setImmediate(resolve));
   await app.click("open-project", "project-1");
+  await app.click("manage-dashboard-budget", "estimate-1");
   await app.click("modal-line");
   assert.match(app.root.innerHTML, /Agregar partida/);
   assert.doesNotMatch(app.root.innerHTML, /<h2>Editar partida<\/h2>/);
@@ -163,6 +169,7 @@ test("ACU edits expose component prices without mutating the issued estimate", a
   assert.ok(app.calls.some(([name]) => name === "update_analysis"));
   assert.doesNotMatch(app.root.innerHTML, /class="modal-overlay"/);
   await app.click("open-project", "project-1");
+  await app.click("manage-dashboard-budget", "estimate-1");
   await app.click("refresh-draft-costs");
   assert.ok(app.calls.some(([name]) => name === "refresh_draft_analysis_costs"));
   assert.match(app.root.innerHTML, /partidas actualizadas/);

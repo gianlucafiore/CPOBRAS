@@ -18,6 +18,7 @@ async function handleSubmit(form) {
   } else if (kind === "estimate") {
     const created = await invoke("create_estimate", { projectId: state.projectId, title: v("title") });
     state.estimateId = created.id;
+    state.view = "workspace";
   } else if (kind === "section") {
     const savedSection = await invoke("save_budget_section", { id: item.id || null, estimateId, code: v("code"), title: v("title"), parentId: v("parentId") || null, position: Number(v("position")) });
     state.selectedSectionId = savedSection?.id || item.id || null;

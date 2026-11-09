@@ -153,7 +153,8 @@ export function createOperationsWorkspace({
     draft: null,
     dirty: false,
     detail: null,
-    lastExport: "",
+    get lastExport() { return this._lastExport || ""; },
+    set lastExport(path) { this._lastExport = path; if (path) state.message = "Guardado en " + path; },
     cashSettings: null,
   };
   const book = createSiteBook({
@@ -1065,7 +1066,7 @@ export function createOperationsWorkspace({
   }
   function markup() {
     if (state.view === "portfolio")
-      return `<main class="feature-page"><div class="feature-toolbar"><h1>Cartera de obras</h1>${field("Fecha de corte", "portfolio-asof", model.asOf, 'type="date" required')}<button class="btn" data-action="ops-portfolio-refresh">Actualizar cartera</button><button class="btn" data-action="ops-export" data-format="xlsx">Informe Excel</button><button class="btn" data-action="ops-export" data-format="pdf">Informe PDF</button></div>${dashboard()}${model.lastExport ? `<p role="status">Guardado en ${e(model.lastExport)}</p>` : ""}</main>`;
+      return `<main class="feature-page"><div class="feature-toolbar"><h1>Cartera de obras</h1>${field("Fecha de corte", "portfolio-asof", model.asOf, 'type="date" required')}<button class="btn" data-action="ops-portfolio-refresh">Actualizar cartera</button><button class="btn" data-action="ops-export" data-format="xlsx">Informe Excel</button><button class="btn" data-action="ops-export" data-format="pdf">Informe PDF</button></div>${dashboard()}</main>`;
     return `<section class="feature-page operations-page"><nav class="operations-tabs" aria-label="Etapas de gestión">${[
       ["purchases", "Materiales y Acopio"],
       ["contracts", "Subcontrataciones"],
@@ -1124,7 +1125,7 @@ export function createOperationsWorkspace({
             model.exportScope || "summary",
           )}<button class="btn" data-action="ops-export" data-format="xlsx">Informe Excel</button><button class="btn" data-action="ops-export" data-format="pdf">Informe PDF</button></div>`
         : ""
-    }${model.lastExport ? `<p role="status">Guardado en ${e(model.lastExport)}</p>` : ""}${model.report?.alerts.map((a) => `<p class="operations-alert">${e(a)}</p>`).join("") || ""}${model.tab === "dashboard" ? dashboard() : !model.projectId ? "<p>Seleccioná una obra para comenzar.</p>" : `${model.tab === "purchases" ? quotations.markup() : model.tab === "contracts" ? quotations.markup() + certificates.contracts() : model.tab === "production" ? book.markup() : model.tab === "finance" ? `<div class="feature-toolbar">${field("Consultar al", "ops-asof", model.asOf, 'type="date" required')}<button class="btn" data-action="ops-refresh">Actualizar</button></div>` + financeDashboard() + certificates.overview() + finances() : model.tab === "certificates" ? certificates.markup() : summary(model.report)}${state.remoteProject || (!["finance"].includes(model.tab) && model.draft?.kind !== "stock_opening") ? "" : formMarkup()}${model.tab === "finance" ? "<h3>Historial de documentos</h3>" + documentRows() : ""}`}${detail()}</section>`;
+    }${model.report?.alerts.map((a) => `<p class="operations-alert">${e(a)}</p>`).join("") || ""}${model.tab === "dashboard" ? dashboard() : !model.projectId ? "<p>Seleccioná una obra para comenzar.</p>" : `${model.tab === "purchases" ? quotations.markup() : model.tab === "contracts" ? quotations.markup() + certificates.contracts() : model.tab === "production" ? book.markup() : model.tab === "finance" ? `<div class="feature-toolbar">${field("Consultar al", "ops-asof", model.asOf, 'type="date" required')}<button class="btn" data-action="ops-refresh">Actualizar</button></div>` + financeDashboard() + certificates.overview() + finances() : model.tab === "certificates" ? certificates.markup() : summary(model.report)}${state.remoteProject || (!["finance"].includes(model.tab) && model.draft?.kind !== "stock_opening") ? "" : model.draft?.kind === "stock_opening" ? `<section class="workflow-editor compact-editor stock-opening-editor" role="dialog" aria-modal="true" aria-label="Declarar acopio existente"><button class="btn" data-action="ops-stock-close">Cancelar</button>${formMarkup()}</section>` : formMarkup()}${model.tab === "finance" ? "<h3>Historial de documentos</h3>" + documentRows() : ""}`}${detail()}</section>`;
   }
   async function act(button) {
     const a = button.dataset.action;
@@ -1234,6 +1235,11 @@ export function createOperationsWorkspace({
           await quotations.load();
         if (model.tab === "production") await book.load();
       }
+    }
+    if (a === "ops-stock-close") {
+      if (model.dirty && !window.confirm("¿Descartar los cambios del acopio?")) return;
+      model.draft = null;
+      model.dirty = false;
     }
     if (a === "ops-stock-declare") {
       let warehouse = model.warehouses.find(
@@ -1544,6 +1550,7 @@ export function createOperationsWorkspace({
         "quotation-award-form",
         "quotation-receive-form",
         "quotation-payment-form",
+        "supplier-movement-form",
       ].includes(form.id)
     )
       return quotations.submit(form);

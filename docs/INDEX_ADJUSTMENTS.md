@@ -6,7 +6,7 @@
    CAC de octubre. Se registra una vez en **Inicio → Datos generales**.
 2. **Acuerdo del presupuesto:** define mes base, índices, pesos y desfase. Se
    configura desde **Determinación de precio → Acuerdo de ajuste del presupuesto**
-   o desde la tarjeta de certificaciones de Planificación. Cada presupuesto puede
+   o desde Certificaciones en Gestión de obra. Cada presupuesto puede
    tener una fórmula distinta. Los pesos deben sumar 100 %.
 3. **Certificado:** registra las cantidades que se cobran, el ajuste utilizado,
    adicionales y diferencias anteriores. Al emitirlo, sus valores quedan guardados:
@@ -19,8 +19,7 @@ feriados, nombres y si se trabaja en esas fechas. El calendario permanece abiert
 para seleccionar varios días y pasar entre meses. Un feriado puede declararse
 laborable también con carácter general.
 
-Las obras heredan ese calendario. En **Planificación → Seguimiento y excepciones
-de esta obra** permanecen el inicio de obra y la fecha de seguimiento. Allí podés
+Las obras heredan ese calendario. En **Planificación → Calendario de la obra** permanecen el inicio de obra y la fecha de seguimiento. Allí podés
 cambiar una fecha únicamente para esa obra o personalizar su semana. La excepción
 local tiene prioridad sobre el criterio general. Quitar una excepción local
 restaura el criterio general; no elimina el feriado de las otras obras.
@@ -81,8 +80,10 @@ La fórmula compara cada índice con su propio mes base:
 
 `coeficiente = 0,60 × CAC aplicado / CAC base + 0,40 × IPC aplicado / IPC base`
 
-El mes base sugerido es el mes de creación del presupuesto y puede cambiarse
-según lo pactado. Desfase 0 usa el mes del corte; desfase 1, el anterior. El acuerdo
+Cada índice permite seleccionar su **Período base del índice** entre los meses
+cargados en Datos generales. Se muestra su puntaje base sin permitir modificarlo
+en el acuerdo. Las series también se eligen de las existentes. Los componentes
+pueden usar distintos períodos base. Desfase 0 usa el mes del corte; desfase 1, el anterior. El acuerdo
 se edita con el presupuesto en borrador; para cambiarlo después de emitir, volvé
 el presupuesto a borrador o utilizá una versión revisada. Los certificados ya
 emitidos conservan su acuerdo original. Los presupuestos duplicados y los
@@ -139,3 +140,6 @@ El detalle del certificado y sus exportaciones incluyen adicionales, autorizaci�
 publicaciones utilizadas y diferencias vinculadas. Los importes y ponderaciones
 se calculan con Decimal. Las nuevas reglas se guardan en el esquema 27 y se incluyen
 en las copias de seguridad. La transmisión P2P respeta los permisos del propietario.
+
+Los fines de semana no laborables se distinguen mediante rayado gris en el
+Gantt. Una excepción laborable quita ese rayado para la fecha correspondiente.

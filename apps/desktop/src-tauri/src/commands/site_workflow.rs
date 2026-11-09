@@ -197,3 +197,49 @@ pub(crate) fn add_quote_supplier(
         .add_quote_supplier(request_id, supplier_id)
         .map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub(crate) fn record_supplier_movement(
+    db: tauri::State<'_, Db>,
+    movement: cpobras_storage::supplier_logistics::SupplierMovement,
+) -> Result<cpobras_storage::supplier_logistics::SupplierMovement, String> {
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .record_supplier_movement(&movement)
+        .map_err(|e| e.to_string())
+}
+#[tauri::command]
+pub(crate) fn list_supplier_movements(
+    db: tauri::State<'_, Db>,
+    project_id: Uuid,
+    order_id: Uuid,
+) -> Result<Vec<cpobras_storage::supplier_logistics::SupplierMovement>, String> {
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .supplier_movements(project_id, order_id)
+        .map_err(|e| e.to_string())
+}
+#[tauri::command]
+pub(crate) fn receive_material_order_with_proof(
+    db: tauri::State<'_, Db>,
+    project_id: Uuid,
+    order_id: Uuid,
+    quantities: std::collections::BTreeMap<Uuid, rust_decimal::Decimal>,
+    proof: Option<cpobras_storage::supplier_logistics::Proof>,
+) -> Result<cpobras_storage::operations::Operation, String> {
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .receive_material_order_with_proof(project_id, order_id, &quantities, proof)
+        .map_err(|e| e.to_string())
+}
+#[tauri::command]
+pub(crate) fn material_payment_with_proof(
+    db: tauri::State<'_, Db>,
+    operation: cpobras_storage::operations::Operation,
+    proof: Option<cpobras_storage::supplier_logistics::Proof>,
+) -> Result<cpobras_storage::operations::Operation, String> {
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .material_payment_with_proof(&operation, proof)
+        .map_err(|e| e.to_string())
+}

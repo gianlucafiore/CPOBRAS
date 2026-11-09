@@ -48,15 +48,22 @@ pub struct OrderLine {
     pub unit_price: D,
     pub received: D,
     pub remaining: D,
+    pub vendor_stock: D,
+    pub requested: D,
 }
 #[derive(Serialize)]
 pub struct SupplierOrder {
     pub document: Operation,
     pub lines: Vec<OrderLine>,
     pub paid: D,
+    pub cash_paid: D,
     pub pending_payment: D,
     pub payment_state: String,
     pub delivery_state: String,
+    pub editable: bool,
+    pub revision: u32,
+    pub supplier_credit: D,
+    pub files: Vec<crate::supplier_logistics::FileInfo>,
 }
 impl LocalStore {
     fn quotation_request(&self, id: Uuid) -> Result<QuotationRequest> {
@@ -206,9 +213,15 @@ impl LocalStore {
         let r = self.quotation_request(request)?;
         let data = self
             .conn
-            .prepare("SELECT row_id,quantity FROM quotation_awards WHERE request_id=?1")?
+            .prepare(
+                "SELECT row_id,quantity,document_id FROM quotation_awards WHERE request_id=?1",
+            )?
             .query_map([request.to_string()], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         r.items
@@ -216,8 +229,25 @@ impl LocalStore {
             .map(|i| {
                 let used = sum(data
                     .iter()
-                    .filter(|(id, _)| id == &i.id.to_string())
-                    .map(|(_, q)| q.parse().map_err(|_| invalid("Cantidad inválida")))
+                    .filter(|(id, _, _)| id == &i.id.to_string())
+                    .map(|(_, q, order)| {
+                        let doc = self
+                            .operation_documents(Some(r.project_id))?
+                            .into_iter()
+                            .find(|d| d.id.to_string() == *order)
+                            .ok_or_else(|| invalid("Pedido inexistente"))?;
+                        let effective = doc
+                            .lines
+                            .iter()
+                            .find(|l| {
+                                l.resource_id == Some(i.source_id) || l.line_id == Some(i.source_id)
+                            })
+                            .map(|l| l.quantity)
+                            .unwrap_or_default();
+                        Ok(q.parse::<D>()
+                            .map_err(|_| invalid("Cantidad inválida"))?
+                            .min(effective))
+                    })
                     .collect::<Result<Vec<_>>>()?
                     .into_iter())?;
                 Ok(AwardBalance {
@@ -303,7 +333,7 @@ impl LocalStore {
                 let response = responses.iter().find(|p| p.id == response_id).unwrap();
                 let date = self
                     .conn
-                    .query_row("SELECT date('now','localtime')", [], |r| {
+                    .query_row("SELECT date('now','-3 hours')", [], |r| {
                         r.get::<_, String>(0)
                     })?;
                 let quote = self.post_operation(&Operation {
@@ -382,6 +412,7 @@ impl LocalStore {
                     "subcontract"
                 }
         }) {
+            let history = crate::supplier_logistics::movements(&self.conn, order.id)?;
             let children: BTreeSet<Uuid> = docs
                 .iter()
                 .filter(|o| o.reference_id == Some(order.id))
@@ -406,6 +437,16 @@ impl LocalStore {
                         })
                 })
                 .map(|o| o.amount))?;
+            let cash_paid = paid;
+            let paid = add(
+                paid,
+                order
+                    .calculated
+                    .get("supplier_payment_adjustment")
+                    .copied()
+                    .unwrap_or_default(),
+            )?
+            .max(D::ZERO);
             let lines = order
                 .lines
                 .iter()
@@ -438,7 +479,24 @@ impl LocalStore {
                             }
                         })
                         .map(|r| r.quantity))?;
+                    let position = history.iter().rev().find_map(|m| m.stock.get(&id));
+                    let since = position
+                        .map(|p| add(received, -p.received))
+                        .transpose()?
+                        .unwrap_or_default()
+                        .max(D::ZERO);
                     Ok(OrderLine {
+                        vendor_stock: position
+                            .map(|p| add(p.vendor_stock, -since))
+                            .transpose()?
+                            .unwrap_or_default()
+                            .max(D::ZERO)
+                            .min(add(l.quantity, -received)?.max(D::ZERO)),
+                        requested: position
+                            .map(|p| add(p.requested, -since))
+                            .transpose()?
+                            .unwrap_or_default()
+                            .max(D::ZERO),
                         source_id: id,
                         description: l.description.clone(),
                         quantity: l.quantity,
@@ -451,9 +509,18 @@ impl LocalStore {
             let any = lines.iter().any(|l| l.received > D::ZERO);
             let done = !lines.is_empty() && lines.iter().all(|l| l.remaining == D::ZERO);
             out.push(SupplierOrder {
+                editable: children.is_empty() && history.iter().all(|m| m.kind == "edit"),
+                revision: history.len() as u32,
+                supplier_credit: self.supplier_credit(
+                    project,
+                    order.partner_id,
+                    &order.currency,
+                )?,
+                files: self.operation_file_list(project, order.id)?,
                 document: order.clone(),
                 lines,
                 paid,
+                cash_paid,
                 pending_payment: add(order.amount, -paid)?.max(D::ZERO),
                 payment_state: if paid >= order.amount {
                     "Pagado"
@@ -505,7 +572,9 @@ impl LocalStore {
                 })
             })
             .collect::<Result<Vec<_>>>()?;
-        self.conn.execute_batch("BEGIN IMMEDIATE")?;
+        self.conn.execute_batch(
+            "SAVEPOINT receive_material; UPDATE automatic_codes SET last_value=last_value WHERE 0",
+        )?;
         let result = (|| {
             let warehouse = if let Some(w) = self
                 .operation_warehouses()?
@@ -533,7 +602,7 @@ impl LocalStore {
                 currency: o.currency,
                 date: self
                     .conn
-                    .query_row("SELECT date('now','localtime')", [], |r| {
+                    .query_row("SELECT date('now','-3 hours')", [], |r| {
                         r.get::<_, String>(0)
                     })?,
                 lines,
@@ -542,11 +611,12 @@ impl LocalStore {
         })();
         match result {
             Ok(v) => {
-                self.conn.execute_batch("COMMIT")?;
+                self.conn.execute_batch("RELEASE receive_material")?;
                 Ok(v)
             }
             Err(e) => {
-                self.conn.execute_batch("ROLLBACK")?;
+                self.conn
+                    .execute_batch("ROLLBACK TO receive_material; RELEASE receive_material")?;
                 Err(e)
             }
         }

@@ -59,12 +59,13 @@ export async function readQuotedFile(file) {
   return parseQuotedRows(await parseExcel(await file.arrayBuffer()));
 }
 async function save(invoke, name, bytes, pdf = false) {
-  const path = await invoke("write_export", {
+  const result = await invoke("save_export_file", {
     name: safe(name) + (pdf ? ".pdf" : ".xlsx"),
     bytes: [...bytes],
+    openAfter: pdf,
   });
-  if (pdf) await invoke("open_export_pdf", { path });
-  return path;
+  if (!result) return "";
+  return result.path + (result.open_error ? " · " + result.open_error : "");
 }
 async function pdfTable(
   title,
@@ -260,7 +261,7 @@ export async function exportCertificate(invoke, s) {
     );
     for (const i of a.indices)
       footer.push(
-        `${i.series} · Peso ${numeric(multiplyDecimals(i.weight, "100"))} % · Puntaje base ${numeric(i.base.value)} · Actual ${numeric(i.current.value)} · Cociente ${Number(i.current.value) / Number(i.base.value)}`,
+        `${i.series} · Peso ${numeric(multiplyDecimals(i.weight, "100"))} % · Puntaje base (${i.base.period || a.agreement.base_month}) ${numeric(i.base.value)} · Actual (${i.current.period || a.applied_month}) ${numeric(i.current.value)} · Cociente ${Number(i.current.value) / Number(i.base.value)}`,
       );
     footer.push(
       `Coeficiente ponderado: ${numeric(a.factor)} · Ajuste monetario: ${money(c.index_adjustment || "0")}`,

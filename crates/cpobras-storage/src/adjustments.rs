@@ -173,6 +173,19 @@ impl LocalStore {
         }
         if let Some(a) = &definition {
             math(a.validate())?;
+            let available = points(&self.conn)?;
+            for w in &a.weights {
+                if let Some(base) = &w.base_month {
+                    if !available
+                        .iter()
+                        .any(|p| p.series == w.series && &p.period == base)
+                    {
+                        return Err(invalid(
+                            "Seleccioná un período base cargado para cada índice",
+                        ));
+                    }
+                }
+            }
         }
         let tx = self
             .conn

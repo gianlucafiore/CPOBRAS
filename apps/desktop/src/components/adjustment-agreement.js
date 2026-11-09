@@ -44,6 +44,7 @@ export function createAdjustmentAgreement({
             .querySelector('[name="series"]')
             .value.trim()
             .toUpperCase(),
+          base_month: row.querySelector('[name="index_base_month"]').value,
           weight: percentageOf(
             row.querySelector('[name="weight"]').value || "0",
             "1",
@@ -51,13 +52,41 @@ export function createAdjustmentAgreement({
         }),
       ),
     };
+    model.definition.base_month =
+      model.definition.weights
+        .map((w) => w.base_month)
+        .filter(Boolean)
+        .sort()[0] || model.definition.base_month;
   };
+  const options = (values, current) =>
+    '<option value="">Seleccionar…</option>' +
+    values
+      .map(
+        (value) =>
+          `<option value="${e(value)}" ${value === current ? "selected" : ""}>${e(value)}</option>`,
+      )
+      .join("");
+  function indexRow(w, i, disabled) {
+    const series = [...new Set(model.points.map((p) => p.series))].sort();
+    const periods = [
+      ...new Set(
+        model.points.filter((p) => p.series === w.series).map((p) => p.period),
+      ),
+    ]
+      .sort()
+      .reverse();
+    const base = w.base_month || model.definition.base_month;
+    const point = model.points
+      .filter((p) => p.series === w.series && p.period === base)
+      .sort((a, b) => b.publication_date.localeCompare(a.publication_date))[0];
+    return `<div class="index-weight" data-agreement-weight><label>Índice<select aria-label="Índice" name="series" required ${disabled}>${options(series, w.series)}</select></label><label>Período base del índice<select aria-label="Período base del índice" name="index_base_month" required ${disabled}>${options(periods, base)}</select></label><label>Puntaje base<input readonly value="${e(point?.value || "Sin publicación")}"></label>${field("Peso %", "weight", multiplyDecimals(w.weight, "100"), 'type="number" min="0.000001" max="100" step="any" required ' + disabled)}<button class="btn" type="button" data-action="agreement-remove" data-index="${i}" ${disabled}>Quitar índice</button></div>`;
+  }
   function markup() {
     if (!model.open) return "";
     const a = model.definition,
       disabled =
         currentEstimate()?.issued || state.remoteProject ? "disabled" : "";
-    return `<div class="modal-overlay"><section class="dialog-shell" role="dialog" aria-modal="true" aria-label="Acuerdo de ajuste del presupuesto" style="width:min(760px,94vw)"><form id="adjustment-agreement-form"><div class="dialog-header"><h2>Acuerdo de ajuste del presupuesto</h2><button class="close-dialog" type="button" data-action="agreement-close" aria-label="Cerrar acuerdo">×</button></div><div class="compact-editor-body"><p>${currentEstimate()?.issued ? "Presupuesto emitido: el acuerdo es de solo lectura. Volvé a borrador o creá una nueva versión para cambiarlo. " : ""}Este acuerdo pertenece únicamente al presupuesto activo. Los puntajes mensuales se cargan en Inicio → Datos generales. Al emitir se conserva la fórmula y los valores utilizados.</p><div class="form-grid">${field("Recuperación de anticipo % (antes del ajuste)", "advance_recovery_percent", model.terms.advance_recovery_percent, 'type="number" min="0" max="100" step="any" ' + disabled)}${field("Fondo de reparo %", "retention_percent", model.terms.retention_percent, 'type="number" min="0" max="100" step="any" ' + disabled)}${field("Días desde emisión hasta cobro", "collection_delay_days", model.terms.collection_delay_days, 'type="number" min="0" max="365" ' + disabled)}</div><label><input type="checkbox" name="enabled" ${model.enabled ? "checked" : ""} ${disabled}> Aplicar ajuste de índices</label><div class="form-grid">${field("Mes base del presupuesto", "base_month", a.base_month, 'type="month" required ' + disabled)}${field("Meses de desfase respecto del corte", "lag_months", a.lag_months, 'type="number" min="0" max="24" required ' + disabled)}</div><datalist id="agreement-series">${[...new Set(["CAC", "IPC", "INDEC", ...model.points.map((p) => p.series), ...a.weights.map((w) => w.series)])].map((s) => `<option value="${e(s)}"></option>`).join("")}</datalist>${a.weights.map((w, i) => `<div class="index-weight" data-agreement-weight>${field("Índice", "series", w.series, 'list="agreement-series" required maxlength="80" ' + disabled)}${field("Peso %", "weight", multiplyDecimals(w.weight, "100"), 'type="number" min="0.000001" max="100" step="any" required ' + disabled)}<button class="btn" type="button" data-action="agreement-remove" data-index="${i}" ${disabled}>Quitar índice</button></div>`).join("")}<button class="btn" type="button" data-action="agreement-add" ${disabled}>Agregar índice</button><p>Los pesos deben sumar 100 %. Si falta una publicación, se toma el último mes común disponible y queda un ajuste provisorio. Las diferencias posteriores se proponen para otro certificado.</p><p class="feature-error" role="alert"></p></div><div class="dialog-actions"><button class="btn" type="button" data-action="agreement-close">Cerrar</button><button class="btn primary" type="submit" ${disabled}>Guardar acuerdo</button></div></form></section></div>`;
+    return `<div class="modal-overlay"><section class="dialog-shell" role="dialog" aria-modal="true" aria-label="Acuerdo de ajuste del presupuesto" style="width:min(760px,94vw)"><form id="adjustment-agreement-form"><div class="dialog-header"><h2>Acuerdo de ajuste del presupuesto</h2><button class="close-dialog" type="button" data-action="agreement-close" aria-label="Cerrar acuerdo">×</button></div><div class="compact-editor-body"><p>${currentEstimate()?.issued ? "Presupuesto emitido: el acuerdo es de solo lectura. Volvé a borrador o creá una nueva versión para cambiarlo. " : ""}Este acuerdo pertenece únicamente al presupuesto activo. Los puntajes mensuales se cargan en Inicio → Datos generales. Al emitir se conserva la fórmula y los valores utilizados.</p><div class="form-grid">${field("Recuperación de anticipo % (antes del ajuste)", "advance_recovery_percent", model.terms.advance_recovery_percent, 'type="number" min="0" max="100" step="any" ' + disabled)}${field("Fondo de reparo %", "retention_percent", model.terms.retention_percent, 'type="number" min="0" max="100" step="any" ' + disabled)}${field("Días desde emisión hasta cobro", "collection_delay_days", model.terms.collection_delay_days, 'type="number" min="0" max="365" ' + disabled)}</div><label><input type="checkbox" name="enabled" ${model.enabled ? "checked" : ""} ${disabled}> Aplicar ajuste de índices</label><div class="form-grid">${field("Meses de desfase respecto del corte", "lag_months", a.lag_months, 'type="number" min="0" max="24" required ' + disabled)}</div>${a.weights.map((w, i) => indexRow(w, i, disabled || (!model.enabled ? "disabled" : ""))).join("")}<button class="btn" type="button" data-action="agreement-add" ${disabled}>Agregar índice</button><p>Los pesos deben sumar 100 %. Si falta una publicación, se toma el último mes común disponible y queda un ajuste provisorio. Las diferencias posteriores se proponen para otro certificado.</p><p class="feature-error" role="alert"></p></div><div class="dialog-actions"><button class="btn" type="button" data-action="agreement-close">Cerrar</button><button class="btn primary" type="submit" ${disabled}>Guardar acuerdo</button></div></form></section></div>`;
   }
   async function act(button) {
     const a = button.dataset.action;
@@ -132,12 +161,19 @@ export function createAdjustmentAgreement({
     change: (target) => {
       if (target.closest?.("#adjustment-agreement-form")) {
         model.dirty = true;
+        if (["series", "index_base_month"].includes(target.name)) {
+          read();
+          if (target.name === "series") {
+            const row = [
+              ...document.querySelectorAll("[data-agreement-weight]"),
+            ].indexOf(target.closest("[data-agreement-weight]"));
+            model.definition.weights[row].base_month = "";
+          }
+          render();
+        }
         if (target.name === "enabled") {
-          model.enabled = target.checked;
-          for (const input of document.querySelectorAll(
-            "#adjustment-agreement-form [required]",
-          ))
-            input.required = model.enabled;
+          read();
+          render();
         }
       }
     },

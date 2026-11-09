@@ -203,7 +203,8 @@ export function createWorkspaceApp({
     "go-home": "projects",
     backups: "backups",
     navigate: null,
-    "open-project": "workspace",
+    "open-project": "management",
+    "manage-dashboard-budget": "workspace",
     "open-workspace": "workspace",
     "open-operations": "operations",
     "open-portfolio": "portfolio",
@@ -309,7 +310,16 @@ export function createWorkspaceApp({
       } else if (["open-operations", "open-portfolio"].includes(action))
         await operations.act(button);
       else if (action === "open-planning") await planning.act(button);
-      else if (action === "open-management") await management.act(button);
+      else if (action === "open-management") {
+        service.clearBudget();
+        await management.act(button);
+      } else if (action === "open-project") {
+        await service.openProject(button.dataset.id);
+        await management.act({dataset:{action:"open-management"}});
+      } else if (action === "manage-dashboard-budget") {
+        await service.openEstimate(button.dataset.id);
+        state.view = "workspace";
+      }
       else if (action === "open-costing") {
         costing.model.editing = null;
         await costing.act(button);
@@ -344,6 +354,7 @@ export function createWorkspaceApp({
   async function openExternalProject(id){
     const remote=await nativeInvoke('p2p_read',{id});state.remoteProject={...remote,id};
     await service.loadCollections();await service.openProject(remote.data.project.id);
+    await service.openEstimate(state.estimates[0]?.id || null);
     await showExternalView('workspace');render();
   }
   async function refreshExternalSession(){
@@ -564,7 +575,7 @@ export function createWorkspaceApp({
         pricing,
         ["price-item-form", "price-template-form", "price-export-form"],
       ],
-      [operations, ["operation-form", "warehouse-form", "certificate-workflow-form", "quotation-request-form", "workflow-cash-form", "site-book-form","site-book-print-form","quotation-award-form","quotation-receive-form","quotation-payment-form","certificate-payment-form"]],
+      [operations, ["operation-form", "warehouse-form", "certificate-workflow-form", "quotation-request-form", "workflow-cash-form", "site-book-form","site-book-print-form","quotation-award-form","quotation-receive-form","quotation-payment-form","supplier-movement-form","certificate-payment-form"]],
       [
         budgetTools,
         [
@@ -785,7 +796,7 @@ export function createWorkspaceApp({
     });
   });
   document.addEventListener("pointerdown", (evt) => {if(!management.pointerDown(evt))planning.pointerDown(evt);});
-  document.addEventListener("wheel",event=>planning.wheel(event),{passive:false});
+  document.addEventListener("wheel",event=>management.wheel(event) || planning.wheel(event),{passive:false});
   document.addEventListener("pointermove",evt=>{if(!management.pointerMove(evt))planning.pointerMove(evt);});
   document.addEventListener("pointercancel",()=>{planning.cancelPointer();management.cancelPointer();});
   document.addEventListener("pointerup", async (evt) => {

@@ -406,3 +406,12 @@ frontend y las comprobaciones de formato Rust son correctas.
 - Navegador: 77 escenarios; guardar al navegar, cancelar, descartar, guardado fallido sin pérdida, edición desde la lista y retirada/recuperación de proveedores.
 - JavaScript: 43 pruebas. Núcleo: 28. Nativas Tauri: 13. Vite compila correctamente.
 - Sin generación de AppImage ni release.
+
+## Proyecto, planificación y acopio en proveedor (2026-11-09)
+
+- Esquema 31: movimientos inmutables de pedidos y comprobantes de pagos/recepciones. Intercambio de presupuestos versión 5, compatible con importaciones 1 a 4.
+- Núcleo: 29 pruebas. Almacenamiento: 106. JavaScript: 43. Tauri: 13.
+- Navegador: 79 recorridos correctos en la ejecución general; el recorrido restante de comprobantes pasó al esperar correctamente la lectura asíncrona del archivo. No se repitió la suite completa después de esa corrección de prueba.
+- Casos nuevos: navegación Proyecto/presupuesto, rueda en mapas y PERT, borrado reversible de nodos/dependencias, formularios compactos con comprobantes, períodos base independientes, edición de pedidos sin movimientos y canjes sin duplicar pagos.
+- Verificados: pago $100.000 con reemplazo $85.000 deja $15.000 a favor; reemplazo $120.000 deja $20.000 pendientes. El flujo de caja conserva el pago original y proyecta solo la diferencia.
+- Vite compiló durante esta edición. Sin AppImage ni release. Por preferencia del usuario, las verificaciones siguientes se limitarán a los circuitos modificados.

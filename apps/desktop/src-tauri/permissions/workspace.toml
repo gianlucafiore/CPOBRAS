@@ -47,6 +47,12 @@ commands.allow = [
   "award_quotation",
   "list_supplier_orders",
   "receive_material_order",
+  "record_supplier_movement",
+  "list_supplier_movements",
+  "receive_material_order_with_proof",
+  "material_payment_with_proof",
+  "open_operation_file",
+
 
   "list_certificate_drafts",
   "open_certificate_draft",
@@ -119,6 +125,7 @@ commands.allow = [
   "open_backup_folder",
   "verify_database",
   "write_export",
+  "save_export_file",
   "create_backup",
   "list_backups",
   "restore_backup",

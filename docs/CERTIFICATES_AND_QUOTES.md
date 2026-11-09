@@ -109,3 +109,37 @@ no consumen numeración ni cantidades. El formato de intercambio 4 agrega
 condiciones de certificación; se siguen aceptando formatos 1, 2 y 3.
 Las copias P2P no incluyen borradores. Los PDF de certificados solo se incluyen
 cuando todos sus apartados de datos están autorizados por el propietario.
+
+## Pedidos, acopio en proveedor y canjes
+
+Los pedidos sin pagos ni recepciones permiten **Editar pedido**. Cada edición se
+conserva como una revisión; al registrar movimientos el pedido queda fijado.
+**Registrar entrega**, **Registrar pago** y **Declarar acopio existente** usan
+ventanas compactas. Entregas y pagos aceptan un PDF o imagen de hasta 10 MB,
+guardado junto al movimiento y accesible desde el pedido.
+
+**Acopiar en proveedor** registra cantidades pagadas y reservadas, con comprobante
+opcional. **Solicitar entrega** deja constancia del retiro solicitado; la recepción
+se confirma cuando el material llega. El acopio del proveedor y **Material recibido
+en obra** son cantidades distintas. Una recepción parcial reduce el primero y
+agrega al segundo.
+
+**Canjear materiales** cancela únicamente cantidades pendientes de entrega,
+registra el motivo y el importe reconocido por el proveedor. Ese importe queda
+como saldo en la misma obra, proveedor y moneda. **Aplicar saldo** lo utiliza en
+otro pedido sin generar un pago nuevo. El historial conserva el pedido y el pago
+originales. Los materiales cancelados vuelven a quedar pendientes en la solicitud.
+Los documentos fiscales se siguen conciliando desde Finanzas.
+
+Ejemplo: un pedido pagado por $100.000 se cancela antes de entregarse y el
+proveedor reconoce $100.000. Si el reemplazo cuesta $85.000 quedan $15.000 a favor;
+si cuesta $120.000, deben pagarse $20.000 adicionales.
+
+El lápiz de edición de solicitudes aparece dentro de cada fila al pasar el mouse
+o darle foco con el teclado. Los precios de la comparativa siguen siendo
+unitarios sin IVA y se confirman con **Guardar precios**.
+
+**PDF para enviar** pide destino y nombre mediante el diálogo del sistema y abre
+el PDF después de guardarlo. La planilla pide destino sin abrirla. Cancelar el
+diálogo no guarda un documento. La ruta guardada aparece en la notificación
+inferior derecha. Si falta un lector PDF, el archivo permanece guardado.

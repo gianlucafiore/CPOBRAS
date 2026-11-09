@@ -1,4 +1,4 @@
-const appLogo=new URL("../../src-tauri/icons/icon.png",import.meta.url).href;
+const appLogo = new URL("../../src-tauri/icons/icon.png", import.meta.url).href;
 import { helpBox } from "./help.js";
 import { money, numeric, sumDecimals, absoluteDecimal } from "../decimal.js";
 import {
@@ -24,6 +24,8 @@ export function createViews({
 }) {
   function chrome(content) {
     const work = Boolean(state.projectId);
+    const budget =
+      work && Boolean(state.estimateId) && state.view !== "management";
     const active =
       state.modal?.kind === "backups"
         ? "backups"
@@ -40,7 +42,7 @@ export function createViews({
       <div class="brand"><img class="brand-mark" src="${appLogo}" alt="Yacaré de CPOBRAS"><b>CPOBRAS</b><small>estudio de costos</small></div>
       <div class="context-title">${
         work
-          ? `<span>${e(currentProject()?.name)}</span><i class="breadcrumb-arrow">›</i><b>${e(currentEstimate()?.title || "Sin presupuesto")}</b>`
+          ? `<span>${e(currentProject()?.name)}</span>${budget ? `<i class="breadcrumb-arrow">›</i><b>${e(currentEstimate()?.title)}</b>` : ""}`
           : `<b>${
               {
                 "price-determination": "Determinación de precio",
@@ -63,9 +65,9 @@ export function createViews({
       }</div>
       <div class="header-right">${
         work && currentEstimate()
-          ? `<span class="status-pill ${currentEstimate().issued ? "issued" : ""}">${currentEstimate().issued ? "● Emitido" : "● En elaboración"}${state.remoteProject?" · Solo lectura":""}</span>
+          ? `<span class="status-pill ${currentEstimate().issued ? "issued" : ""}">${currentEstimate().issued ? "● Emitido" : "● En elaboración"}${state.remoteProject ? " · Solo lectura" : ""}</span>
         <span class="total-head"><small>${state.view === "price-determination" && state.pricePreview?.dirty ? "VISTA PREVIA" : "TOTAL"}</small> ${e(currentEstimate()?.currency)} <strong>${state.view === "price-determination" && state.pricePreview ? (state.pricePreview.total == null ? "—" : money(state.pricePreview.total)) : state.totals?.pricing_error ? "—" : money(state.totals?.total)}</strong></span>`
-          : `<span class="connection">${state.remoteProject?"Solo lectura · Obra externa":"● SQLite local"}</span>`
+          : `<span class="connection">${state.remoteProject ? "Solo lectura · Obra externa" : "● SQLite local"}</span>`
       }</div>
     </header>
     <nav class="menu-bar" aria-label="Navegación principal">
@@ -80,8 +82,13 @@ export function createViews({
               ],
               ["open-planning", "Planificación", "planning"],
               ["open-operations", "Gestión de obra", "operations"],
-              ["open-management", "Datos de obra", "management"],
+              [
+                "open-management",
+                budget ? "← Volver al proyecto" : "Proyecto",
+                "management",
+              ],
             ]
+              .filter(([, , view]) => budget || view === "management")
               .map(
                 ([action, label, view]) =>
                   `<button class="menu-item ${state.view === view || (view === "workspace" && ["budget-tools", "budget-printing"].includes(state.view)) ? "active" : ""}" aria-current="${state.view === view || (view === "workspace" && ["budget-tools", "budget-printing"].includes(state.view)) ? "page" : "false"}" data-action="${action}" ${view === "price-determination" && !currentEstimate() ? "disabled" : ""}>${label}</button>`,
@@ -102,8 +109,8 @@ export function createViews({
               )}<button class="menu-item ${active === "costing" ? "active" : ""}" aria-current="${active === "costing" ? "page" : "false"}" data-action="open-costing">Costos y precios</button><button class="menu-item ${active === "portfolio" ? "active" : ""}" aria-current="${active === "portfolio" ? "page" : "false"}" data-action="open-portfolio">Cartera de obras</button><button class="menu-item ${active === "organizations" ? "active" : ""}" aria-current="${active === "organizations" ? "page" : "false"}" data-action="open-organizations">Organizaciones</button><button class="menu-item ${active === "sharing" ? "active" : ""}" aria-current="${active === "sharing" ? "page" : "false"}" data-action="open-sharing">Vinculación P2P</button><button class="menu-item ${active === "system-settings" ? "active" : ""}" data-action="open-system-settings">Datos generales</button><button class="menu-item ${active === "backups" ? "active" : ""}" data-action="backups">Copias de seguridad</button>`
       }<span class="grow"></span><span class="kbd-hint">ESC cierra ventanas</span>
     </nav>
-    ${work ? `<div class="project-context" role="region" aria-label="Contexto de la obra"><strong>Obra: ${e(currentProject()?.name)}</strong><span class="organization-context">${e(currentProject()?.organization_name || "")}${currentProject()?.read_only ? " · Externa · solo lectura" : ""}</span><label>Presupuesto activo <select name="estimate-picker" aria-label="Presupuesto activo">${state.estimates.map((est) => `<option value="${e(est.id)}" ${est.id === state.estimateId ? "selected" : ""}>${e(est.title)} · ${est.issued ? "Emitido" : "Borrador"}</option>`).join("") || '<option value="">Sin presupuestos</option>'}</select></label><button class="btn" data-action="modal-estimate" ${state.remoteProject ? "disabled" : ""}>＋ Presupuesto</button><span>${state.view === "planning" ? "Cronograma de la obra · los vínculos indican su presupuesto de origen" : state.view === "operations" ? "Documentos de esta obra · informe del presupuesto activo" : "Datos de la obra abierta"}</span></div>` : ""}
-    ${state.remoteProject?`<div class="remote-context" role="status"><strong>Obra externa de solo lectura</strong> · ${e(currentProject()?.organization_name)} · Copia recibida ${e(new Date(state.remoteProject.received_at*1000).toLocaleString('es-AR'))}${state.remoteProject.revoked?' · Acceso revocado':state.remoteProject.error?' · Sin actualizar':''}. Las modificaciones corresponden al propietario.</div>`:''}
+
+    ${state.remoteProject ? `<div class="remote-context" role="status"><strong>Obra externa de solo lectura</strong> · ${e(currentProject()?.organization_name)} · Copia recibida ${e(new Date(state.remoteProject.received_at * 1000).toLocaleString("es-AR"))}${state.remoteProject.revoked ? " · Acceso revocado" : state.remoteProject.error ? " · Sin actualizar" : ""}. Las modificaciones corresponden al propietario.</div>` : ""}
     <datalist id="unit-library">${state.units.map((unit) => `<option value="${e(unit.attributes.symbol || unit.code || unit.name)}">${e(unit.name)}</option>`).join("")}</datalist>
     ${helpBox(state.modal?.kind === "backups" ? "backups" : state.view === "management" && state.projectId ? "project-data" : state.view)}
     ${content}
@@ -139,7 +146,7 @@ export function createViews({
       line,
       code = "",
     ) => `<tr class="line-row ${line.id === state.selectedLineId ? "selected" : ""}" data-drop-line="true" data-action="select-line" data-id="${e(line.id)}" data-searchable="${e((line.description + " " + line.unit).toLowerCase())}" tabindex="0">
-    <td class="col-code muted"><button type="button" class="line-drag-handle" draggable="${editable()}" aria-label="Arrastrar partida ${e(line.description)}" title="Arrastrar para mover" ${locked()}>⋮⋮</button>${e(code)}</td><td class="col-desc">${e(line.description)} ${line.analysis_id ? '<span class="acu-tag">ACU</span>' : ""} ${(state.measuredLineIds||[]).includes(line.id)?'<span class="metrado-tag" title="Cantidad calculada y aplicada desde un metrado">Metrado</span>':""}</td>
+    <td class="col-code muted"><button type="button" class="line-drag-handle" draggable="${editable()}" aria-label="Arrastrar partida ${e(line.description)}" title="Arrastrar para mover" ${locked()}>⋮⋮</button>${e(code)}</td><td class="col-desc">${e(line.description)} ${line.analysis_id ? '<span class="acu-tag">ACU</span>' : ""} ${(state.measuredLineIds || []).includes(line.id) ? '<span class="metrado-tag" title="Cantidad calculada y aplicada desde un metrado">Metrado</span>' : ""}</td>
     <td class="col-unit">${e(line.unit)}</td><td class="number">${numeric(line.quantity)}</td>
     <td class="number">${money(line.unit_cost)}</td><td class="number partial">${money(line.total)}</td></tr>`;
     const sectionSum = (id) => {
@@ -334,7 +341,8 @@ export function createViews({
       inspector = "";
     if (state.view === "projects") {
       title = "Obras";
-      subtitle = "Obras propias y vinculadas. Las externas se consultan en modo de solo lectura.";
+      subtitle =
+        "Obras propias y vinculadas. Las externas se consultan en modo de solo lectura.";
       action = btn("＋ Nueva obra", "modal-project", "primary");
       headers = ["OBRA", "ORGANIZACIÓN", "CLIENTE", "MONEDA", ""];
       rows = state.projects
@@ -343,7 +351,12 @@ export function createViews({
             `<tr data-searchable="${e((p.name + " " + (p.organization_name || "") + " " + clientName(p.client_id)).toLowerCase())}"><td><strong>${e(p.name)}</strong></td><td>${e(p.organization_name || "—")}${p.read_only ? ' <span class="organization-badge external">Externa · solo lectura</span>' : ""}</td><td>${e(clientName(p.client_id))}</td><td>${e(p.currency === "Usd" ? "USD" : "ARS")}</td><td class="actions-cell"><button class="btn tiny" data-action="edit-project" data-id="${e(p.id)}" ${p.read_only ? "disabled" : ""}>Editar</button><button class="btn tiny primary" data-action="open-project" data-id="${e(p.id)}">Abrir ›</button></td></tr>`,
         )
         .join("");
-      rows+=(state.externalProjects||[]).map(p=>`<tr class="external-project-row" data-searchable="${e([p.name,p.organization_name,p.client_name,p.owner].filter(Boolean).join(' ').toLowerCase())}"><td><strong>${e(p.name)}</strong> <span class="organization-badge external">Externa · Solo lectura</span><small class="project-origin">${p.has_snapshot?`Última copia: ${e(new Date(p.received_at*1000).toLocaleString('es-AR'))}`:'Pendiente de recibir'}${p.revoked?' · Acceso revocado':p.error?' · Sin actualizar':''}</small></td><td>${e(p.organization_name||'Origen pendiente')}<small class="project-origin">Equipo propietario: ${e(p.owner?.slice(0,12)||'—')}…</small></td><td>${e(p.client_name||'—')}</td><td>${e(p.currency?String(p.currency).toUpperCase():'—')}</td><td class="actions-cell"><button class="btn tiny primary" data-action="open-external-project" data-id="${e(p.id)}" ${p.has_snapshot?'':'disabled'}>Abrir ›</button></td></tr>`).join('');
+      rows += (state.externalProjects || [])
+        .map(
+          (p) =>
+            `<tr class="external-project-row" data-searchable="${e([p.name, p.organization_name, p.client_name, p.owner].filter(Boolean).join(" ").toLowerCase())}"><td><strong>${e(p.name)}</strong> <span class="organization-badge external">Externa · Solo lectura</span><small class="project-origin">${p.has_snapshot ? `Última copia: ${e(new Date(p.received_at * 1000).toLocaleString("es-AR"))}` : "Pendiente de recibir"}${p.revoked ? " · Acceso revocado" : p.error ? " · Sin actualizar" : ""}</small></td><td>${e(p.organization_name || "Origen pendiente")}<small class="project-origin">Equipo propietario: ${e(p.owner?.slice(0, 12) || "—")}…</small></td><td>${e(p.client_name || "—")}</td><td>${e(p.currency ? String(p.currency).toUpperCase() : "—")}</td><td class="actions-cell"><button class="btn tiny primary" data-action="open-external-project" data-id="${e(p.id)}" ${p.has_snapshot ? "" : "disabled"}>Abrir ›</button></td></tr>`,
+        )
+        .join("");
     } else if (state.view === "clients") {
       title = "Clientes";
       subtitle = "Comitentes registrados en la base local.";

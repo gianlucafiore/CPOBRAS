@@ -58,16 +58,19 @@ prueba, el circuito de documentos y las reglas de cálculo están en
 
 **Inicio / Obras** concentra clientes, catálogos de insumos y ACU, listas de
 precios, organizaciones y sus directorios, cartera global y copias de seguridad. Al abrir
-una obra, el menú cambia a sus secciones: presupuesto, determinación de precio, gestión,
-planificación y datos de obra. Todas conservan la misma obra; para abrir otra,
-volvé a **← Inicio**.
+una obra se abre **Proyecto**, con sus datos, ubicación, presupuestos y legajos.
+Desde la lista podés crear **+ Nuevo presupuesto** o abrir uno existente. Al entrar
+en un presupuesto aparecen su desglose, determinación de precio, planificación y
+gestión. **← Volver al proyecto** permite elegir otra versión, sin un selector
+permanente. Los formularios con cambios pendientes protegen su contenido antes
+de salir. El cronograma pertenece a la obra y sus vínculos identifican el
+presupuesto de origen.
 
-La barra **Presupuesto activo** muestra la versión y si está en borrador o
-emitida. Cambiarla pide confirmación y actualiza los informes de esa obra.
-Si tenés un documento, ficha, tarea o determinación sin guardar, podés cancelar
-la salida y conservar lo cargado. Los documentos históricos indican su
-presupuesto de origen. El cronograma pertenece a la obra y sus vínculos con
-partidas identifican la versión correspondiente.
+En PERT, la rueda del mouse acerca o aleja y arrastrar el fondo desplaza la vista.
+**Añadir** coloca una partida en el centro visible. **Quitar** activa una goma para
+retirar nodos o dependencias: **Listo** guarda y **Cancelar** restaura el diagrama.
+Retirar un nodo también quita sus dependencias y devuelve la partida a la lista.
+El mini mapa y el mapa ampliado también aceptan zoom con la rueda.
 
 ## Reutilizar cómputos y precios de insumos
 

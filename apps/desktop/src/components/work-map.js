@@ -134,6 +134,28 @@ export function createWorkMap({ document, state, onSave }) {
       model.zoom,
     );
   }
+  function wheel(event) {
+    const host = event.target.closest?.("[data-work-map]");
+    if (!host) return false;
+    event.preventDefault();
+    if (model.saving || !event.deltaY) return true;
+    const anchor = pointAt(event, host),
+      rect = host.getBoundingClientRect();
+    model.zoom = Math.max(
+      2,
+      Math.min(19, model.zoom + (event.deltaY < 0 ? 1 : -1)),
+    );
+    const projected = projectPoint(anchor, model.zoom);
+    model.center = unprojectPoint(
+      {
+        x: projected.x - (event.clientX - rect.left - host.clientWidth / 2),
+        y: projected.y - (event.clientY - rect.top - host.clientHeight / 2),
+      },
+      model.zoom,
+    );
+    draw();
+    return true;
+  }
   function pointerDown(event) {
     const host = event.target.closest?.("[data-work-map]");
     if (!host || event.button !== 0) return false;
@@ -237,6 +259,7 @@ export function createWorkMap({ document, state, onSave }) {
     markup,
     draw,
     act,
+    wheel,
     pointerDown,
     pointerMove,
     pointerUp,

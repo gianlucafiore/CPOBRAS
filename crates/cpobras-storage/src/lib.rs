@@ -30,6 +30,7 @@ pub mod quotation_workflow;
 pub mod resource_catalog;
 pub mod sharing;
 pub mod site_book;
+pub mod supplier_logistics;
 pub mod system_settings;
 pub mod takeoffs;
 
@@ -107,6 +108,7 @@ impl LocalStore {
             include_str!("../migrations/0028_construction_workflow.sql"),
             include_str!("../migrations/0029_site_book_and_procurement.sql"),
             include_str!("../migrations/0030_quotation_edits.sql"),
+            include_str!("../migrations/0031_supplier_logistics.sql"),
         ];
         let latest: i64 = conn.query_row(
             "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",

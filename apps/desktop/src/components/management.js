@@ -269,14 +269,7 @@ export function createManagementWorkspace({
     )
       model.mode = "dashboard";
     if (scoped() && model.mode === "dashboard")
-      return `<main class="feature-page"><div class="feature-toolbar"><h1>Datos de la obra</h1><button class="btn" data-action="manage-directories">Directorios y fichas</button><button class="btn primary" data-action="manage-dashboard-profile">${state.remoteProject ? "Consultar ficha" : "Editar datos de obra"}</button>${select(
-        "Directorio",
-        "management-kind",
-        Object.entries(directoryKinds).filter(([k]) =>
-          projectKinds.includes(k),
-        ),
-        model.kind,
-      )}<button class="btn" data-action="manage-new">Nuevo registro</button></div>${dashboard.markup(model.catalogs)}</main>`;
+      return `<main class="feature-page"><div class="feature-toolbar"><h1>Proyecto</h1><button class="btn primary" data-action="manage-dashboard-profile">${state.remoteProject ? "Consultar ficha" : "Editar proyecto"}</button></div>${dashboard.markup(model.catalogs)}</main>`;
     return `<main class="feature-page"><div class="feature-toolbar">${scoped() ? '<button class="btn" data-action="manage-dashboard">← Tablero de obra</button>' : ""}<h1>${scoped() ? "Datos de la obra" : organization() ? "Directorios de " + e(organization().name) : "Directorios"}</h1>${select(
       "Directorio",
       "management-kind",
@@ -458,6 +451,7 @@ export function createManagementWorkspace({
     submit,
     model,
     afterRender: dashboard.afterRender,
+    wheel: dashboard.wheel,
     pointerDown: dashboard.pointerDown,
     pointerMove: dashboard.pointerMove,
     pointerUp: dashboard.pointerUp,

@@ -37,6 +37,7 @@ export function createPlanningWorkspace({
     cutMode: false,
     viewport: { x: 40, y: 40, zoom: 1 },
     splitting: null,
+    erasing: null,
     connectFrom: null,
     pertQuery: "",
     revision: 0,
@@ -235,7 +236,7 @@ export function createPlanningWorkspace({
           const critical =
             model.schedule?.tasks.find((v) => v.id === t.id)?.critical &&
             model.schedule?.tasks.find((v) => v.id === d.task_id)?.critical;
-          return `<g class="pert-edge ${critical ? "critical" : ""}"><path d="M${x},${y} C${x + curve},${y} ${tx - curve},${ty} ${tx},${ty}" marker-end="url(#pert-arrow)"/><text x="${(x + tx) / 2}" y="${(y + ty) / 2 - 7}">${e(d.kind)}${d.lag_days ? " " + d.lag_days + " d" : ""}</text></g>`;
+          return `<g data-action="plan-erase-edge" data-from="${e(d.task_id)}" data-to="${e(t.id)}" class="pert-edge ${critical ? "critical" : ""}"><path d="M${x},${y} C${x + curve},${y} ${tx - curve},${ty} ${tx},${ty}" marker-end="url(#pert-arrow)"/><text x="${(x + tx) / 2}" y="${(y + ty) / 2 - 7}">${e(d.kind)}${d.lag_days ? " " + d.lag_days + " d" : ""}</text></g>`;
         }),
       )
       .join("");
@@ -255,7 +256,7 @@ export function createPlanningWorkspace({
             `<div class="pert-source" draggable="${!state.remoteProject}" data-pert-line="${e(l.id)}"><span>${e(l.description)}</span><button class="btn tiny" data-action="plan-add-line" data-id="${e(l.id)}">Añadir</button></div>`,
         )
         .join("") || "<p>No hay partidas disponibles.</p>"
-    }</div><p>${available.length} partidas disponibles</p></aside><section><div class="feature-toolbar"><p id="pert-instructions" role="status">${model.connectFrom ? "Elegí la entrada de la tarea sucesora, o cancelá la conexión." : "Mové los nodos desde su cabecera. Arrastrá una salida hacia una entrada para conectar tareas (fin → inicio)."}</p><button class="btn" data-action="plan-connect-cancel">Cancelar conexión</button><button class="btn" data-action="plan-arrange">Organizar nodos</button><div class="pert-camera" role="group" aria-label="Vista del PERT"><button class="btn" data-action="plan-zoom-out" aria-label="Alejar PERT">−</button><output data-pert-zoom>${Math.round(model.viewport.zoom * 100)} %</output><button class="btn" data-action="plan-zoom-in" aria-label="Acercar PERT">+</button><button class="btn" data-action="plan-center">Centrar / ver todo</button></div></div><div class="pert-scroll" data-pert-viewport aria-label="Lienzo PERT, arrastrá el fondo para desplazar"><div class="pert-canvas" data-pert-canvas style="transform:translate(${model.viewport.x}px,${model.viewport.y}px) scale(${model.viewport.zoom})"><svg class="pert-connections" width="1" height="1" aria-label="Conexiones de precedencia"><defs><marker id="pert-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#547387"/></marker></defs><g class="pert-edge-layer">${pertEdges(pos)}</g><path class="pert-wire-preview" hidden fill="none" stroke="#fb8a27" stroke-width="3"/></svg>${model.plan.tasks
+    }</div><p>${available.length} partidas disponibles</p></aside><section><div class="feature-toolbar"><p id="pert-instructions" role="status">${model.connectFrom ? "Elegí la entrada de la tarea sucesora, o cancelá la conexión." : "Mové los nodos desde su cabecera. Arrastrá una salida hacia una entrada para conectar tareas (fin → inicio)."}</p><button class="btn ${model.erasing ? "primary" : ""}" data-action="plan-connect-cancel" aria-pressed="${Boolean(model.erasing)}">${model.erasing ? "Listo" : "Quitar"}</button>${model.erasing ? '<button class="btn" data-action="plan-erase-cancel">Cancelar</button><span>Tocá nodos o líneas para quitarlos. Listo guarda los cambios.</span>' : ""}<button class="btn" data-action="plan-arrange">Organizar nodos</button><div class="pert-camera" role="group" aria-label="Vista del PERT"><button class="btn" data-action="plan-zoom-out" aria-label="Alejar PERT">−</button><output data-pert-zoom>${Math.round(model.viewport.zoom * 100)} %</output><button class="btn" data-action="plan-zoom-in" aria-label="Acercar PERT">+</button><button class="btn" data-action="plan-center">Centrar / ver todo</button></div></div><div class="pert-scroll ${model.erasing ? "erasing" : ""}" data-pert-viewport aria-label="Lienzo PERT, arrastrá el fondo para desplazar"><div class="pert-canvas" data-pert-canvas style="transform:translate(${model.viewport.x}px,${model.viewport.y}px) scale(${model.viewport.zoom})"><svg class="pert-connections" width="1" height="1" aria-label="Conexiones de precedencia"><defs><marker id="pert-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#547387"/></marker></defs><g class="pert-edge-layer">${pertEdges(pos)}</g><path class="pert-wire-preview" hidden fill="none" stroke="#fb8a27" stroke-width="3"/></svg>${model.plan.tasks
       .map((t) => {
         const p = pos[t.id],
           scheduled = model.schedule?.tasks.find((v) => v.id === t.id);
@@ -390,7 +391,7 @@ export function createPlanningWorkspace({
       !model.projectId
         ? "<p>Seleccioná una obra para planificar.</p>"
         : `
-      <nav class="planning-tabs" aria-label="Vistas de planificación"><button class="btn ${model.tab === "pert" ? "active" : ""}" role="tab" aria-selected="${model.tab === "pert"}" data-action="plan-view" data-view="pert">PERT</button><button class="btn ${model.tab === "gantt" ? "active" : ""}" role="tab" aria-selected="${model.tab === "gantt"}" data-action="plan-view" data-view="gantt">Gantt</button></nav><div class="planning-overview-row"><details class="planning-options planning-calendar" ${model.calendarOpen ? "open" : ""}><summary>Seguimiento y excepciones de esta obra</summary><form id="planning-settings" class="feature-toolbar">${field("Inicio del proyecto", "start_date", model.plan.calendar.start_date, 'type="date" required')}${field("Fecha de seguimiento", "as_of", model.asOf, 'type="date" required')}<p>Los feriados generales se administran en Inicio → Datos generales. Aquí solo modificás esta obra.</p><label><input type="checkbox" name="custom_week" ${model.plan.calendar_overrides?.nonworking_weekdays ? "checked" : ""}> Personalizar semana laborable de esta obra</label><fieldset><legend>Días laborables (si se personaliza la semana)</legend>${["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"].map((day, index) => `<label><input type="checkbox" name="workday" value="${index}" ${model.plan.calendar.nonworking_weekdays.includes(index) ? "" : "checked"}>${day}</label>`).join("")}</fieldset><details><summary>Feriados heredados del calendario general</summary>${
+      <nav class="planning-tabs" aria-label="Vistas de planificación"><button class="btn ${model.tab === "pert" ? "active" : ""}" role="tab" aria-selected="${model.tab === "pert"}" data-action="plan-view" data-view="pert">PERT</button><button class="btn ${model.tab === "gantt" ? "active" : ""}" role="tab" aria-selected="${model.tab === "gantt"}" data-action="plan-view" data-view="gantt">Gantt</button></nav><div class="planning-overview-row"><details class="planning-options planning-calendar" ${model.calendarOpen ? "open" : ""}><summary>Calendario de la obra</summary><form id="planning-settings" class="feature-toolbar">${field("Inicio del proyecto", "start_date", model.plan.calendar.start_date, 'type="date" required')}${field("Fecha de seguimiento", "as_of", model.asOf, 'type="date" required')}<p>Los feriados generales se administran en Inicio → Datos generales. Aquí solo modificás esta obra.</p><label><input type="checkbox" name="custom_week" ${model.plan.calendar_overrides?.nonworking_weekdays ? "checked" : ""}> Personalizar semana laborable de esta obra</label><fieldset><legend>Días laborables (si se personaliza la semana)</legend>${["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"].map((day, index) => `<label><input type="checkbox" name="workday" value="${index}" ${model.plan.calendar.nonworking_weekdays.includes(index) ? "" : "checked"}>${day}</label>`).join("")}</fieldset><details><summary>Feriados heredados del calendario general</summary>${
         Object.entries(model.generalCalendar.exceptions || {})
           .sort(([a], [b]) => a.localeCompare(b))
           .map(
@@ -436,7 +437,9 @@ export function createPlanningWorkspace({
       not_before: value("not_before") || null,
       finish_by: value("finish_by") || null,
       budget: value("budget"),
-      actual_progress: model.plan.tasks.find(t=>t.id===model.editing.id)?.actual_progress || "0",
+      actual_progress:
+        model.plan.tasks.find((t) => t.id === model.editing.id)
+          ?.actual_progress || "0",
     };
     task.predecessors = task.predecessors.map((_, index) => ({
       task_id: value("predecessor-" + index),
@@ -457,6 +460,15 @@ export function createPlanningWorkspace({
   }
   async function act(button) {
     const action = button.dataset.action;
+    if (
+      model.erasing &&
+      !["plan-connect-cancel", "plan-erase-cancel", "plan-erase-edge"].includes(
+        action,
+      )
+    ) {
+      if (action === "open-planning") model.erasing = null;
+      else return;
+    }
     if (
       state.pageDirty &&
       ["plan-finance-mark", "plan-cut-date"].includes(action)
@@ -648,7 +660,17 @@ export function createPlanningWorkspace({
       model.connectFrom = null;
     }
     if (action === "plan-add-line") {
-      await addLine(button.dataset.id, 35, 35 + model.plan.tasks.length * 145);
+      const host = document.querySelector("[data-pert-viewport]"),
+        rect = host?.getBoundingClientRect();
+      const point = rect
+        ? worldPoint(
+            model.viewport,
+            rect,
+            rect.left + host.clientWidth / 2,
+            rect.top + host.clientHeight / 2,
+          )
+        : { x: 150, y: 100 };
+      await addLine(button.dataset.id, point.x - 115, point.y - 48);
       return;
     }
     if (action === "plan-arrange") {
@@ -671,7 +693,38 @@ export function createPlanningWorkspace({
         return;
       }
     }
-    if (action === "plan-connect-cancel") model.connectFrom = null;
+    if (action === "plan-connect-cancel") {
+      model.connectFrom = null;
+      if (model.erasing) {
+        await save();
+        model.erasing = null;
+        state.pageDirty = false;
+      } else if (!state.remoteProject) {
+        model.erasing = structuredClone(model.plan);
+      }
+      render();
+      return;
+    }
+    if (action === "plan-erase-cancel") {
+      model.plan = model.erasing || model.plan;
+      model.erasing = null;
+      model.dirty = false;
+      state.pageDirty = false;
+      render();
+      return;
+    }
+    if (action === "plan-erase-edge") {
+      if (model.erasing) {
+        const task = model.plan.tasks.find((t) => t.id === button.dataset.to);
+        task.predecessors = task.predecessors.filter(
+          (d) => d.task_id !== button.dataset.from,
+        );
+        model.dirty = true;
+        state.pageDirty = true;
+        render();
+      }
+      return;
+    }
     if (
       (action.startsWith("plan-add-") || action.startsWith("plan-remove-")) &&
       model.editing
@@ -689,6 +742,7 @@ export function createPlanningWorkspace({
       model.splitting = null;
       model.baselineId = "";
       model.historyRevision = "";
+      model.erasing = null;
       model.plan = empty();
       model.schedule = null;
       model.baselines = [];
@@ -830,6 +884,7 @@ export function createPlanningWorkspace({
     }
   }
   async function submit(form) {
+    if (model.erasing) throw new Error("Confirmá con Listo o cancelá el modo Quitar antes de guardar otro formulario.");
     const data = new FormData(form),
       value = (name) => String(data.get(name) || "").trim();
     if (form.id === "planning-finance") {
@@ -937,6 +992,24 @@ export function createPlanningWorkspace({
   function pointerDown(event) {
     if (ganttView.pointerDown(event)) return;
     if (event.button !== 0) return;
+    if (model.erasing) {
+      const node = event.target.closest?.("[data-pert-node]");
+      if (node) {
+        event.preventDefault();
+        const id = node.dataset.pertNode;
+        model.plan.tasks = model.plan.tasks.filter((t) => t.id !== id);
+        for (const task of model.plan.tasks) {
+          task.predecessors = task.predecessors.filter((d) => d.task_id !== id);
+          if (task.parent_id === id) task.parent_id = null;
+        }
+        delete model.plan.presentation[id];
+        delete model.plan.segments[id];
+        model.dirty = true;
+        state.pageDirty = true;
+        render();
+      }
+      return;
+    }
     const background = event.target.closest?.("[data-pert-viewport]");
     if (background && !event.target.closest?.("[data-pert-node]")) {
       event.preventDefault();
@@ -1137,7 +1210,29 @@ export function createPlanningWorkspace({
     change,
     submit,
     afterRender,
-    wheel: ganttView.wheel,
+    wheel: (event) => {
+      const host = event.target.closest?.("[data-pert-viewport]");
+      if (!host) return ganttView.wheel(event);
+      event.preventDefault();
+      const rect = host.getBoundingClientRect();
+      const anchor = worldPoint(
+        model.viewport,
+        rect,
+        event.clientX,
+        event.clientY,
+      );
+      const zoom = Math.max(
+        0.15,
+        Math.min(2.5, model.viewport.zoom * Math.exp(-event.deltaY * 0.002)),
+      );
+      model.viewport = {
+        zoom,
+        x: event.clientX - rect.left - anchor.x * zoom,
+        y: event.clientY - rect.top - anchor.y * zoom,
+      };
+      syncViewport();
+      return true;
+    },
     pointerDown,
     cancelPointer,
     pointerMove,

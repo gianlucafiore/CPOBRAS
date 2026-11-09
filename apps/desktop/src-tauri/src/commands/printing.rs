@@ -60,7 +60,10 @@ pub(crate) fn open_export_pdf(
         .ok_or("Directorio de datos inválido")?
         .join("exports");
     let path = owned_pdf(&root, std::path::Path::new(&path))?;
-    let mut command = pdf_command(&path);
+    open_saved_pdf(&path)
+}
+pub(crate) fn open_saved_pdf(path: &std::path::Path) -> Result<(), String> {
+    let mut command = pdf_command(path);
     let status = command
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())

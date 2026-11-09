@@ -50,10 +50,10 @@ export async function exportSiteBook(invoke, model, entries) {
     pdf.text(`${i} / ${pages}`, 185, height - 7);
   }
   const name = `Libro de obra ${entries[0].number} a ${entries.at(-1).number}.pdf`,
-    path = await invoke("write_export", {
+    result = await invoke("save_export_file", {
       name,
+      openAfter: true,
       bytes: [...new Uint8Array(pdf.output("arraybuffer"))],
     });
-  await invoke("open_export_pdf", { path });
-  return path;
+  return result ? result.path + (result.open_error ? " · " + result.open_error : "") : "";
 }

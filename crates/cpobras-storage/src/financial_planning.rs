@@ -279,6 +279,13 @@ impl LocalStore {
                 .iter()
                 .filter(|p| p.kind == "payment" && p.reference_id == Some(o.id))
                 .map(|p| p.amount))?;
+            let direct_paid = add(
+                direct_paid,
+                o.calculated
+                    .get("supplier_payment_adjustment")
+                    .copied()
+                    .unwrap_or_default(),
+            )?;
             let remaining = sub(
                 sub(sub(o.amount, billed.max(certified))?, direct_paid)?,
                 sub(advances, recovered)?.max(D::ZERO),

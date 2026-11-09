@@ -57,8 +57,8 @@ const pages = {
     "Gantt y PERT son dos vistas del mismo cronograma. En PERT arrastrá partidas al lienzo y conectá salida con entrada para definir precedencias. Mover un nodo solo cambia su posición visual. Configurá el calendario y guardá líneas base para comparar avances.",
   ],
   "project-data": [
-    "Datos de la obra",
-    "El tablero reúne los datos físicos, ubicación, cuadrillas, equipos, presupuestos y legajos de esta obra. Los directorios y fichas siguen disponibles desde el botón superior. Los clientes y datos base se administran desde Inicio.",
+    "Proyecto",
+    "Consultá los datos físicos, ubicación, presupuestos y legajos del proyecto. Elegí un presupuesto o creá uno nuevo para trabajar en su desglose, precio, planificación y gestión. Los clientes y datos generales se administran desde Inicio.",
   ],
   management: [
     "Organización y directorios",
