@@ -1061,7 +1061,7 @@ async function resourceImportWorkbook(rows){
 
 test('resource library downloads an Excel template and imports materials and labor after preview',async({page})=>{
  const headers=['Código','Descripción','Tipo','Unidad','Precio ARS'];
- const buffer=await resourceImportWorkbook([headers,['MAT-NUEVO','Cemento para prueba','Material','bolsa','1234.56'],['','Oficial para prueba','Mano de obra','h','']]);
+ const buffer=await resourceImportWorkbook([headers,['MAT-NUEVO','Cemento para prueba','MAT','bolsa','1234.56'],['','Oficial para prueba','MO','h','']]);
  await bridge(page);await page.getByRole('button',{name:'Insumos',exact:true}).first().click();
  await page.getByRole('button',{name:'Descargar plantilla Excel',exact:true}).click();
  const {parseExcel}=await import('../../src/services/exchange.js');

@@ -34,3 +34,10 @@ test("resource file import rejects wrong format and oversized files before readi
  await assert.rejects(()=>readResourceWorkbook({name:"listado.xls",size:10}),/xlsx/);
  await assert.rejects(()=>readResourceWorkbook({name:"listado.xlsx",size:10_000_001}),/10 MB/);
 });
+
+test("resource import accepts catalog abbreviations, names and common MO punctuation",()=>{
+ const aliases=[['MAT','material'],['mat','material'],[' MO ','labor'],['mo','labor'],['M.O.','labor'],['M O','labor'],['EQ','equipment'],['eq','equipment'],['SC','subcontract'],['sc','subcontract'],['SUB','subcontract'],['sub','subcontract'],['Material','material'],['Mano de obra','labor'],['Equipo','equipment'],['Subcontrato','subcontract']];
+ const rows=parseResourceRows([resourceHeaders,...aliases.map(([type],i)=>['TEST-'+i,'Insumo '+i,type,'un','0'])]);
+ assert.deepEqual(rows.map(r=>r.kind),aliases.map(([,kind])=>kind));
+ assert.ok(rows.every(r=>r.errors.length===0));
+});

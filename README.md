@@ -30,7 +30,7 @@ del usuario; copiar el ejecutable no traslada la base de datos.
 En **Inicio → Insumos**:
 
 1. Seleccioná **Descargar plantilla Excel** y completá la hoja **Insumos**.
-2. Indicá **Descripción**, **Tipo** (Material, Mano de obra, Equipo o Subcontrato) y **Unidad**. El código y el precio por unidad en ARS son opcionales; un código vacío se genera automáticamente y un precio vacío crea el insumo sin precio.
+2. Indicá **Descripción**, **Tipo** (Material/MAT, Mano de obra/MO, Equipo/EQ o Subcontrato/SC/SUB) y **Unidad**. El código y el precio por unidad en ARS son opcionales; un código vacío se genera automáticamente y un precio vacío crea el insumo sin precio.
 3. Seleccioná **Importar Excel**, elegí el archivo `.xlsx` y la fecha de los precios.
 4. Revisá la vista previa y confirmá **Importar insumos**. Si hay errores o duplicados, corregí el Excel y volvé a seleccionarlo.
 

@@ -2,7 +2,13 @@ import { compareDecimals } from "../decimal.js";
 import { parseExcel } from "./exchange.js";
 export const resourceHeaders = ["Código", "Descripción", "Tipo", "Unidad", "Precio ARS"];
 const normalize = value => String(value ?? "").trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-const kinds = new Map([["material","material"],["materiales","material"],["mano de obra","labor"],["labor","labor"],["equipo","equipment"],["equipos","equipment"],["equipment","equipment"],["subcontrato","subcontract"],["subcontract","subcontract"]]);
+const normalizeKind = value => normalize(value).replace(/[.\s_-]+/g, "");
+const kinds = new Map([
+ ["material","material"],["materiales","material"],["MAT","material"],
+ ["mano de obra","labor"],["labor","labor"],["MO","labor"],
+ ["equipo","equipment"],["equipos","equipment"],["equipment","equipment"],["EQ","equipment"],
+ ["subcontrato","subcontract"],["subcontract","subcontract"],["SC","subcontract"],["SUB","subcontract"],
+].map(([alias, kind]) => [normalizeKind(alias), kind]));
 export const resourceKindLabels = {material:"Material",labor:"Mano de obra",equipment:"Equipo",subcontract:"Subcontrato"};
 function priceDecimal(value) {
  let text=String(value).trim();
@@ -35,9 +41,9 @@ export function parseResourceRows(sheet, existing=[]) {
   const cells=sheet[index].map(v=>String(v??"").trim());
   if(cells.every(v=>!v))continue;
   const get=name=>cells[header.indexOf(name)]||"";
-  const row={row_number:index+1,code:get("codigo"),description:get("descripcion"),kind:kinds.get(normalize(get("tipo")))||"",unit:get("unidad"),price:null,errors:[]};
+  const row={row_number:index+1,code:get("codigo"),description:get("descripcion"),kind:kinds.get(normalizeKind(get("tipo")))||"",unit:get("unidad"),price:null,errors:[]};
   if(!row.description || row.description.length>500)row.errors.push("Descripción obligatoria, hasta 500 caracteres");
-  if(!row.kind)row.errors.push("Tipo: Material, Mano de obra, Equipo o Subcontrato");
+  if(!row.kind)row.errors.push("Tipo: MAT (Material), MO (Mano de obra), EQ (Equipo) o SC/SUB (Subcontrato)");
   if(!row.unit || row.unit.length>50)row.errors.push("Unidad obligatoria, hasta 50 caracteres");
   if(row.code.length>100)row.errors.push("Código: hasta 100 caracteres");
   if(row.code && codes.has(row.code.toLowerCase()))row.errors.push("El código ya existe o está repetido");
@@ -59,7 +65,7 @@ export async function resourceTemplateBytes() {
   ["Cómo completar la plantilla"],
   ["Completá la primera hoja, Insumos. Una fila por insumo. No cambies los encabezados."],
   ["Descripción, Tipo y Unidad son obligatorios. Código y Precio ARS son opcionales."],
-  ["Tipos: Material, Mano de obra, Equipo o Subcontrato."],
+  ["Tipos: MAT o Material; MO o Mano de obra; EQ o Equipo; SC, SUB o Subcontrato. Se aceptan mayúsculas y minúsculas."],
   ["Código vacío: CPOBRAS asigna un código automático. No repitas insumos ni códigos existentes."],
   ["Precio vacío: se crea sin precio. El número 0 es un precio válido. Los precios son por unidad, en ARS."],
   ["Los precios se registran con la fecha que elijas al importar. No se modifican presupuestos ni precios anteriores."],
