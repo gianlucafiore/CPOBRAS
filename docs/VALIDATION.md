@@ -398,3 +398,11 @@ frontend y las comprobaciones de formato Rust son correctas.
 - Navegación: una sola tabla de certificaciones, filtro histórico solo en Finanzas, separación de materiales/subcontrataciones y formularios antiguos fuera de la vista principal.
 - P2P: solo partes confirmados y retirada de perfiles/hojas impresas cuando se restringen sus datos.
 - Migración 29 preserva los partes diarios anteriores como históricos confirmados. Sin AppImage ni release.
+
+## Edición de cotizaciones y precios pendientes (2026-11-09)
+
+- Esquema 30: revisiones de solicitudes, retirada reversible de columnas y conservación de ofertas importadas.
+- Almacenamiento: 102 pruebas, incluidas identidad de renglones, precios conservados, cantidades adjudicadas protegidas y varios materiales en una misma adjudicación.
+- Navegador: 77 escenarios; guardar al navegar, cancelar, descartar, guardado fallido sin pérdida, edición desde la lista y retirada/recuperación de proveedores.
+- JavaScript: 43 pruebas. Núcleo: 28. Nativas Tauri: 13. Vite compila correctamente.
+- Sin generación de AppImage ni release.

@@ -28,6 +28,11 @@ commands.allow = [
 
   "list_operations",
   "post_operation",
+  "get_editable_quotation_request",
+  "update_quotation_request",
+  "hide_quote_response",
+  "add_quote_supplier",
+
   "open_quote_file",
   "list_site_entries",
   "save_site_entry",

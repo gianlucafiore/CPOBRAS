@@ -164,7 +164,7 @@ impl LocalStore {
             .ok_or_else(|| invalid("Solicitud no generada"))
     }
     pub fn quotation_requests(&self, project: Uuid) -> Result<Vec<QuotationRequest>> {
-        let data=self.conn.prepare("SELECT q.request_json FROM quotation_requests q JOIN operation_documents o ON o.id=q.id WHERE o.project_id=?1 ORDER BY o.date,o.rowid")?.query_map([project.to_string()],|r|r.get::<_,String>(0))?.collect::<std::result::Result<Vec<_>,_>>()?;
+        let data=self.conn.prepare("SELECT COALESCE((SELECT r.request_json FROM quotation_request_revisions r WHERE r.request_id=q.id ORDER BY r.revision DESC LIMIT 1),q.request_json) FROM quotation_requests q JOIN operation_documents o ON o.id=q.id WHERE o.project_id=?1 ORDER BY o.date,o.rowid")?.query_map([project.to_string()],|r|r.get::<_,String>(0))?.collect::<std::result::Result<Vec<_>,_>>()?;
         data.into_iter()
             .map(|j| serde_json::from_str(&j).map_err(Into::into))
             .collect()
@@ -178,12 +178,7 @@ impl LocalStore {
         date: &str,
         reference: &str,
     ) -> Result<Operation> {
-        let json: String = self.conn.query_row(
-            "SELECT request_json FROM quotation_requests WHERE id=?1",
-            [request.to_string()],
-            |r| r.get(0),
-        )?;
-        let request: QuotationRequest = serde_json::from_str(&json)?;
+        let request = crate::quotation_edits::current(&self.conn, request)?.request;
         if prices.len() > request.items.len() || prices.is_empty() {
             return Err(invalid(
                 "La oferta no corresponde a los renglones de la solicitud",

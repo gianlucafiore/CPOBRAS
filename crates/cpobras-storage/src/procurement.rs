@@ -60,26 +60,43 @@ pub struct SupplierOrder {
 }
 impl LocalStore {
     fn quotation_request(&self, id: Uuid) -> Result<QuotationRequest> {
-        let json: String = self.conn.query_row(
-            "SELECT request_json FROM quotation_requests WHERE id=?1",
-            [id.to_string()],
-            |r| r.get(0),
-        )?;
-        Ok(serde_json::from_str(&json)?)
+        Ok(crate::quotation_edits::current(&self.conn, id)?.request)
     }
     pub fn quote_responses(&self, request: Uuid) -> Result<Vec<QuoteResponse>> {
         let data = self
             .conn
             .prepare(
-                "SELECT payload_json FROM quotation_responses WHERE request_id=?1 ORDER BY rowid",
+                "SELECT payload_json FROM quotation_responses WHERE request_id=?1 AND hidden=0 ORDER BY rowid",
             )?
             .query_map([request.to_string()], |r| r.get::<_, String>(0))?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         data.into_iter()
-            .map(|j| serde_json::from_str(&j).map_err(Into::into))
+            .map(|j| {
+                let mut response: QuoteResponse = serde_json::from_str(&j)?;
+                let request = self.quotation_request(request)?;
+                response.prices = request
+                    .items
+                    .iter()
+                    .map(|i| {
+                        response
+                            .prices
+                            .iter()
+                            .find(|p| p.row_id == i.id)
+                            .cloned()
+                            .unwrap_or(crate::quotation_workflow::QuotedPrice {
+                                row_id: i.id,
+                                unit_price: None,
+                                notes: String::new(),
+                            })
+                    })
+                    .collect();
+                Ok(response)
+            })
             .collect()
     }
     pub fn save_quote_response(&mut self, input: &QuoteResponse) -> Result<QuoteResponse> {
+        let request_revision =
+            crate::quotation_edits::current(&self.conn, input.request_id)?.revision;
         let r = self.quotation_request(input.request_id)?;
         if input.id.is_nil()
             || input.reference.len() > 150
@@ -111,6 +128,20 @@ impl LocalStore {
         let tx = self
             .conn
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        if crate::quotation_edits::current(&tx, input.request_id)?.revision != request_revision {
+            return Err(invalid(
+                "La solicitud cambió. Recargá antes de guardar precios",
+            ));
+        }
+        if tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM quotation_responses WHERE id=?1 AND hidden=1)",
+            [input.id.to_string()],
+            |r| r.get::<_, bool>(0),
+        )? {
+            return Err(invalid(
+                "El proveedor fue quitado; volvé a agregarlo antes de guardar",
+            ));
+        }
         let old:Option<(String,u32)>=tx.query_row("SELECT id,revision FROM quotation_responses WHERE request_id=?1 AND supplier_id=?2",params![input.request_id.to_string(),input.supplier_id.to_string()],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
         if old
             .as_ref()

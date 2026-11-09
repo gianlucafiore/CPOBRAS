@@ -724,10 +724,36 @@ impl LocalStore {
         {
             return Err(err("Seleccioná una contraparte"));
         }
-        let reference = o
+        let mut reference = o
             .reference_id
             .map(|id| document(&tx, id)?.ok_or_else(|| err("Documento de origen inexistente")))
             .transpose()?;
+        if let Some(r) = reference.as_mut() {
+            if r.kind == "rfq" && r.quotation_request.is_some() {
+                let current = crate::quotation_edits::current(&tx, r.id)?.request;
+                r.lines = current
+                    .items
+                    .iter()
+                    .map(|i| OperationLine {
+                        resource_id: if current.kind == "material" {
+                            Some(i.source_id)
+                        } else {
+                            None
+                        },
+                        line_id: if current.kind == "work" {
+                            Some(i.source_id)
+                        } else {
+                            None
+                        },
+                        description: i.description.clone(),
+                        quantity: i.quantity,
+                        unit_price: D::ZERO,
+                        ..Default::default()
+                    })
+                    .collect();
+                r.quotation_request = Some(current);
+            }
+        }
         if let Some(r) = &reference {
             if r.project_id != o.project_id || r.currency != o.currency || r.date > o.date {
                 return Err(err(

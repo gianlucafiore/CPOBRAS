@@ -218,11 +218,11 @@ export function createWorkspaceApp({
     "open-external-project": "workspace",
     "open-budget-printing": "budget-printing",
   };
-  function protectContext() {
+  async function protectContext() {
     if (state.busy || state.navigating) return false;
     if (state.modal && !closeModal()) return false;
     if (state.view === "price-determination" && !pricing.leave()) return false;
-    if (state.view === "operations" && !operations.protect()) return false;
+    if (state.view === "operations" && !(await operations.protect())) return false;
     const pending =
       state.pageDirty || (state.view === "planning" && planning.model.dirty);
     if (
@@ -273,7 +273,7 @@ export function createWorkspaceApp({
       ].includes(action)
     )
       throw new Error("Abrí una obra desde Inicio");
-    if (!protectContext()) return true;
+    if (!(await protectContext())) return true;
     state.message = "";
     if (destination !== "organizations") state.organizationId = null;
     state.navigating = true;
@@ -374,7 +374,7 @@ export function createWorkspaceApp({
       !window.confirm(
         `¿Cambiar de presupuesto «${selectors.currentEstimate()?.title || "Sin presupuesto"}» a «${target.title}» (${target.issued ? "emitido" : "borrador"}) dentro de la misma obra? Los informes pasarán a usar la versión elegida.`,
       ) ||
-      !protectContext()
+      !(await protectContext())
     ) {
       if (picker) picker.value = previous || "";
       return;

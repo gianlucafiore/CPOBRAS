@@ -149,3 +149,51 @@ pub(crate) fn receive_material_order(
         .receive_material_order(project_id, order_id, &quantities)
         .map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub(crate) fn get_editable_quotation_request(
+    db: tauri::State<'_, Db>,
+    id: Uuid,
+) -> Result<cpobras_storage::quotation_edits::EditableRequest, String> {
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .editable_quotation_request(id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub(crate) fn update_quotation_request(
+    db: tauri::State<'_, Db>,
+    request: cpobras_storage::quotation_workflow::QuotationRequest,
+    revision: u32,
+) -> Result<cpobras_storage::quotation_edits::EditableRequest, String> {
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .update_quotation_request(&request, revision)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub(crate) fn hide_quote_response(
+    db: tauri::State<'_, Db>,
+    request_id: Uuid,
+    id: Uuid,
+    revision: u32,
+) -> Result<(), String> {
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .hide_quote_response(request_id, id, revision)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub(crate) fn add_quote_supplier(
+    db: tauri::State<'_, Db>,
+    request_id: Uuid,
+    supplier_id: Uuid,
+) -> Result<cpobras_storage::procurement::QuoteResponse, String> {
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .add_quote_supplier(request_id, supplier_id)
+        .map_err(|e| e.to_string())
+}

@@ -1345,7 +1345,7 @@ fn upgrades_populated_schema_fifteen_and_deletes_its_preexisting_linked_line() {
         old.execute_batch(&format!("DROP TRIGGER {name}")).unwrap();
     }
     undo_people_migration_for_fixture(&old);
-    old.execute_batch("ALTER TABLE operation_links DROP COLUMN archived_line_id; DROP TABLE deleted_estimate_lines; DROP TABLE line_analysis_sources; DROP TABLE estimate_resource_prices; DROP TABLE quotation_response_files;DROP TABLE quotation_awards;DROP TABLE quotation_responses;DROP TABLE site_book_entries;DROP TABLE certificate_drafts;DROP TABLE certificate_sheets;DROP TABLE certified_sources;DROP TABLE quotation_requests;DROP TABLE estimate_adjustment_agreements;DROP TABLE index_points;DROP TABLE system_calendar;DROP TABLE estimate_price_definitions; DROP TABLE price_definition_templates;
+    old.execute_batch("ALTER TABLE operation_links DROP COLUMN archived_line_id; DROP TABLE deleted_estimate_lines; DROP TABLE line_analysis_sources; DROP TABLE estimate_resource_prices; DROP TABLE quotation_request_revisions;DROP TABLE quotation_response_files;DROP TABLE quotation_awards;DROP TABLE quotation_responses;DROP TABLE site_book_entries;DROP TABLE certificate_drafts;DROP TABLE certificate_sheets;DROP TABLE certified_sources;DROP TABLE quotation_requests;DROP TABLE estimate_adjustment_agreements;DROP TABLE index_points;DROP TABLE system_calendar;DROP TABLE estimate_price_definitions; DROP TABLE price_definition_templates;
              DROP TABLE print_profiles; DROP TRIGGER new_project_organization; DROP TRIGGER external_company_readonly_update; DROP TRIGGER external_company_readonly_delete; DROP TRIGGER clear_measured_quantity; DROP TABLE automatic_codes; DROP TABLE measured_lines; DROP TABLE project_attachments; DROP TABLE project_organizations; DROP TABLE organization_preferences; DROP TABLE organizations; DELETE FROM schema_migrations WHERE version>=16; CREATE TRIGGER operation_links_no_update BEFORE UPDATE ON operation_links BEGIN SELECT RAISE(ABORT,'operation links are immutable'); END;").unwrap();
     drop(old);
     let mut upgraded = LocalStore::open(&path).unwrap();
@@ -1355,7 +1355,7 @@ fn upgrades_populated_schema_fifteen_and_deletes_its_preexisting_linked_line() {
             .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| r
                 .get::<_, i64>(0))
             .unwrap(),
-        29
+        30
     );
     upgraded.delete_estimate_item(e.id, line.id).unwrap();
     assert!(upgraded.estimate_items(e.id).unwrap().is_empty());
@@ -4265,4 +4265,165 @@ fn hidden_project_data_is_not_reintroduced_by_request_profiles_or_frozen_certifi
     let data = json!({"quotation_requests":[{"profile":{"address":"SECRET"}}],"operations":[{"kind":"rfq","quotation_request":{"profile":{"address":"SECRET"}}}],"budgets":[{"certificate_sheets":[{"profile":{"address":"SECRET"}}],"report":{}}]});
     let shared = restrict_shared_document(data, &permissions);
     assert!(!shared.to_string().contains("SECRET"));
+}
+
+#[test]
+fn editing_requests_preserves_prices_and_issued_orders_and_allows_new_materials() {
+    use crate::procurement::AwardChoice;
+    use crate::quotation_workflow::RequestItem;
+    let (mut s, p, _, r, supplier, _) = procurement_fixture();
+    let mut response = s.add_quote_supplier(r.id, supplier).unwrap();
+    response.prices[0].unit_price = Some(5.into());
+    let response = s.save_quote_response(&response).unwrap();
+    let resource = Uuid::new_v4();
+    s.save_resource(&crate::resource_catalog::Resource {
+        id: resource,
+        code: "NEW-MAT".into(),
+        description: "Otro material".into(),
+        unit: "kg".into(),
+        kind: cpobras_core::ResourceKind::Material,
+        active: true,
+    })
+    .unwrap();
+    let mut edit = r.clone();
+    edit.title = "Pedido actualizado".into();
+    edit.items[0].quantity = 8.into();
+    edit.items.push(RequestItem {
+        id: Uuid::new_v4(),
+        source_id: resource,
+        code: String::new(),
+        description: String::new(),
+        unit: "kg".into(),
+        quantity: 3.into(),
+    });
+    let saved = s.update_quotation_request(&edit, 0).unwrap();
+    assert_eq!(saved.revision, 1);
+    assert!(s.update_quotation_request(&edit, 0).is_err());
+    assert_eq!(
+        s.quotation_requests(p.id).unwrap()[0].title,
+        "Pedido actualizado"
+    );
+    let original: String = s
+        .conn
+        .query_row(
+            "SELECT request_json FROM quotation_requests WHERE id=?1",
+            [r.id.to_string()],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        serde_json::from_str::<crate::quotation_workflow::QuotationRequest>(&original)
+            .unwrap()
+            .items[0]
+            .quantity,
+        10.into()
+    );
+    let mut response = s.quote_responses(r.id).unwrap().remove(0);
+    assert_eq!(response.prices[0].unit_price, Some(5.into()));
+    assert_eq!(response.prices[1].unit_price, None);
+    assert_eq!(response.revision, 2);
+    response.prices[1].unit_price = Some(7.into());
+    let response = s.save_quote_response(&response).unwrap();
+    let choices = saved
+        .request
+        .items
+        .iter()
+        .map(|row| AwardChoice {
+            row_id: row.id,
+            response_id: response.id,
+            response_revision: response.revision,
+            quantity: row.quantity,
+        })
+        .collect::<Vec<_>>();
+    let orders = s
+        .award_quotation(r.id, &choices, "2099-01-01", None)
+        .unwrap();
+    assert_eq!(orders[0].amount, 61.into());
+    let mut invalid = saved.request.clone();
+    invalid.items.remove(0);
+    assert!(s.update_quotation_request(&invalid, 1).is_err());
+    let mut invalid = saved.request.clone();
+    invalid.items[0].quantity = 7.into();
+    assert!(s.update_quotation_request(&invalid, 1).is_err());
+    assert_eq!(
+        s.supplier_orders(p.id, "material").unwrap()[0]
+            .document
+            .amount,
+        61.into()
+    );
+}
+#[test]
+fn removing_and_restoring_supplier_columns_preserves_awards_attachments_and_prices() {
+    use crate::procurement::AwardChoice;
+    let (mut s, p, _, r, supplier, _) = procurement_fixture();
+    let mut response = s.add_quote_supplier(r.id, supplier).unwrap();
+    response.prices[0].unit_price = Some(5.into());
+    let response = s.save_quote_response(&response).unwrap();
+    s.attach_quote_file(response.id, "Oferta.pdf", b"%PDF-1.4\nexample")
+        .unwrap();
+    let orders = s
+        .award_quotation(
+            r.id,
+            &[AwardChoice {
+                row_id: r.items[0].id,
+                response_id: response.id,
+                response_revision: response.revision,
+                quantity: 2.into(),
+            }],
+            "2099-01-01",
+            None,
+        )
+        .unwrap();
+    s.hide_quote_response(r.id, response.id, response.revision)
+        .unwrap();
+    assert!(s.quote_responses(r.id).unwrap().is_empty());
+    assert!(s.save_quote_response(&response).is_err());
+    assert_eq!(
+        s.supplier_orders(p.id, "material").unwrap()[0].document.id,
+        orders[0].id
+    );
+    let restored = s.add_quote_supplier(r.id, supplier).unwrap();
+    assert_eq!(restored.id, response.id);
+    assert_eq!(restored.prices[0].unit_price, Some(5.into()));
+    assert!(restored.revision > response.revision);
+    assert_eq!(s.quote_files(r.id).unwrap()[0].name, "Oferta.pdf");
+    assert!(s
+        .hide_quote_response(r.id, response.id, response.revision)
+        .is_err());
+}
+#[test]
+fn schema_thirty_brings_imported_legacy_offers_into_the_comparison() {
+    let (mut s, p, _, r, supplier, _) = procurement_fixture();
+    let op = s
+        .preview_quotation_import(
+            r.id,
+            supplier,
+            &[crate::quotation_workflow::QuotedPrice {
+                row_id: r.items[0].id,
+                unit_price: Some(4.into()),
+                notes: String::new(),
+            }],
+            Uuid::new_v4(),
+            "2099-01-01",
+            "",
+        )
+        .unwrap();
+    s.post_operation(&op).unwrap();
+    let path = std::env::temp_dir().join(format!("cpobras-schema29-{}.db", Uuid::new_v4()));
+    s.backup_to(&path).unwrap();
+    let old = rusqlite::Connection::open(&path).unwrap();
+    let triggers:Vec<String>=old.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND (name LIKE 'audit_quotation_responses_%' OR name LIKE 'audit_quotation_request_revisions_%')").unwrap().query_map([],|r|r.get(0)).unwrap().collect::<std::result::Result<_,_>>().unwrap();
+    for trigger in triggers {
+        old.execute_batch(&format!("DROP TRIGGER {trigger}"))
+            .unwrap();
+    }
+    old.execute_batch("DROP TABLE quotation_request_revisions; ALTER TABLE quotation_responses DROP COLUMN hidden;DELETE FROM schema_migrations WHERE version=30;").unwrap();
+    drop(old);
+    let reopened = LocalStore::open(&path).unwrap();
+    let rows = reopened.quote_responses(r.id).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].prices[0].unit_price, Some(4.into()));
+    assert_eq!(reopened.quotation_requests(p.id).unwrap().len(), 1);
+    drop(reopened);
+    std::fs::remove_file(path).unwrap();
 }

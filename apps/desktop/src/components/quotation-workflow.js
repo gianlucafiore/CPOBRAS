@@ -1,3 +1,4 @@
+import { askUnsavedPrices } from "./unsaved-prices.js";
 import { e, field, select, dateToday } from "./helpers.js";
 import {
   numeric,
@@ -31,6 +32,8 @@ export function createQuotationWorkflow({
     balances: [],
     orders: [],
     dirty: false,
+    editRevision: null,
+    guardOpen: false,
     award: null,
     receive: null,
     payment: null,
@@ -55,30 +58,6 @@ export function createQuotationWorkflow({
       invoke("list_quote_files", { requestId: id }),
       invoke("award_balances", { requestId: id }),
     ]);
-    // Existing imported offers remain visible when opening a request created before this edition.
-    for (const quote of model.docs.filter(
-      (d) => d.kind === "quote" && d.reference_id === id,
-    )) {
-      if (v.responses.some((r) => r.supplier_id === quote.partner_id)) continue;
-      v.responses.push({
-        id: window.crypto.randomUUID(),
-        request_id: id,
-        supplier_id: quote.partner_id,
-        revision: 0,
-        reference: quote.number,
-        terms: quote.terms || "",
-        prices: v.selected.items.map((row) => ({
-          row_id: row.id,
-          unit_price:
-            quote.lines.find((l) =>
-              v.selected.kind === "material"
-                ? l.resource_id === row.source_id
-                : l.line_id === row.source_id,
-            )?.unit_price ?? null,
-          notes: "",
-        })),
-      });
-    }
   }
   async function load() {
     const selected = v.selected?.id;
@@ -97,6 +76,7 @@ export function createQuotationWorkflow({
         v.kind === "material" || o.document.estimate_id === model.estimateId,
     );
     v.request = null;
+    v.editRevision = null;
     v.award = null;
     v.receive = null;
     v.payment = null;
@@ -128,7 +108,7 @@ export function createQuotationWorkflow({
       "validity",
       "currency",
     ])
-      v.request[k] = String(f.get(k) || "").trim();
+      v.request[k] = String(f.get(k) ?? v.request[k] ?? "").trim();
     v.request.taxes = "Precios unitarios sin IVA";
     v.request.partner_id = f.get("partner_id") || null;
     const selected = new Map(v.request.items.map((i) => [i.source_id, i]));
@@ -175,6 +155,7 @@ export function createQuotationWorkflow({
         response: v.responses[i],
       });
     v.dirty = false;
+    updateSaveState();
   }
   function price(response, row) {
     return response.prices.find((p) => p.row_id === row)?.unit_price ?? null;
@@ -200,7 +181,7 @@ export function createQuotationWorkflow({
       )
       .slice()
       .reverse();
-    return `<section class="workflow-card"><div class="feature-toolbar"><h2>Solicitudes de cotización</h2>${state.remoteProject ? "" : `<button class="btn primary" data-action="ops-rfq-new" data-kind="${kind()}">${kind() === "material" ? "Por materiales" : "Por subcontratos"}</button>`}</div><div class="quotation-layout"><aside class="quotation-list" aria-label="Solicitudes de cotización">${rows.map((r) => `<button class="quotation-item ${v.selected?.id === r.id ? "selected" : ""}" data-action="ops-rfq-select" data-id="${r.id}"><strong>${e(r.title)}</strong><small>${e(r.number)} · ${e(r.date)} · ${r.items.length} ítems</small></button>`).join("") || "<p>Todavía no hay solicitudes.</p>"}</aside><div class="quotation-detail">${v.selected ? selected() : "<p>Creá o seleccioná una solicitud para ver sus respuestas.</p>"}</div></div></section>${orders()}${editor()}${awardEditor()}${receiveEditor()}${paymentEditor()}`;
+    return `<section class="workflow-card"><div class="feature-toolbar"><h2>Solicitudes de cotización</h2>${state.remoteProject ? "" : `<button class="btn primary" data-action="ops-rfq-new" data-kind="${kind()}">+ Nueva</button>`}</div><div class="quotation-layout"><aside class="quotation-list" aria-label="Solicitudes de cotización">${rows.map((r) => `<div class="quotation-list-row"><button class="quotation-item ${v.selected?.id === r.id ? "selected" : ""}" data-action="ops-rfq-select" data-id="${r.id}"><strong>${e(r.title)}</strong><small>${e(r.number)} · ${e(r.date)} · ${r.items.length} ítems</small></button>${state.remoteProject ? "" : `<button class="btn tiny" data-action="ops-rfq-edit" data-id="${r.id}" aria-label="Editar solicitud ${e(r.title)}">Editar solicitud</button>`}</div>`).join("") || "<p>Todavía no hay solicitudes.</p>"}</aside><div class="quotation-detail">${v.selected ? selected() : "<p>Creá o seleccioná una solicitud para ver sus respuestas.</p>"}</div></div></section>${orders()}${editor()}${awardEditor()}${receiveEditor()}${paymentEditor()}`;
   }
   function selected() {
     const r = v.selected;
@@ -217,8 +198,8 @@ export function createQuotationWorkflow({
                 .map((p) => [p.id, p.name]),
             ],
             "",
-          )}<button class="btn" data-action="ops-rfq-add-provider">Agregar proveedor</button><button class="btn" data-action="ops-rfq-save-prices">Guardar precios</button><button class="btn primary" data-action="ops-rfq-distribute">Distribuir pedido</button><span>${v.dirty ? "Cambios sin guardar" : ""}</span></div>`
-    }<div class="quotation-matrix"><table class="data-grid"><thead><tr><th>${r.kind === "material" ? "Material" : "Tarea"}</th><th>Unidad</th><th>Cantidad solicitada</th>${v.responses.map((p) => `<th>${e(supplier(p.supplier_id))}<small>Precio unitario sin IVA</small></th>`).join("")}</tr></thead><tbody>${r.items.map((row) => `<tr><td>${e(row.description)}</td><td>${e(row.unit)}</td><td>${numeric(row.quantity)}<small>Pendiente de asignar: ${numeric(pending(row.id))}</small></td>${v.responses.map((p) => `<td class="${cheapest(row.id) === p.id ? "quote-best" : ""}"><input type="number" min="0" step="any" data-quote-cell data-response="${p.id}" data-row="${row.id}" value="${e(price(p, row.id) ?? "")}" aria-label="Precio sin IVA ${e(row.description)} de ${e(supplier(p.supplier_id))}" ${state.remoteProject ? "readonly" : ""}></td>`).join("")}</tr>`).join("")}<tr><th colspan="3">Subtotal cotizado sin IVA</th>${v.responses.map((p) => `<td><strong data-quote-total="${p.id}">${money(sumDecimals(r.items.filter((i) => price(p, i.id) !== null).map((i) => multiplyDecimals(i.quantity, price(p, i.id)))))}</strong><small>${p.prices.filter((x) => x.unit_price !== null).length} de ${r.items.length} cotizados</small></td>`).join("")}</tr><tr><th colspan="3">Referencia y condiciones</th>${v.responses.map((p) => `<td><input data-response-term="reference" data-response="${p.id}" value="${e(p.reference)}" placeholder="Referencia" aria-label="Referencia de ${e(supplier(p.supplier_id))}"><textarea data-response-term="terms" data-response="${p.id}" placeholder="Pago, entrega, validez" aria-label="Condiciones de ${e(supplier(p.supplier_id))}">${e(p.terms)}</textarea>${state.remoteProject ? "" : `<button class="btn" data-action="ops-rfq-distribute" data-response="${p.id}">Asignar todo a este proveedor</button>`}</td>`).join("")}</tr><tr><th colspan="3">Presupuestos adjuntos / importar precios</th>${v.responses
+          )}<button class="btn" data-action="ops-rfq-add-provider">Agregar proveedor</button><button class="btn" data-action="ops-rfq-save-prices">Guardar precios</button><button class="btn primary" data-action="ops-rfq-distribute">Distribuir pedido</button><span role="status" aria-live="polite" data-quote-save-state class="quote-save-state ${v.dirty ? "dirty" : ""}">${v.dirty ? "Cambios sin guardar" : v.responses.length ? "Precios guardados" : ""}</span></div>`
+    }<div class="quotation-matrix"><table class="data-grid"><thead><tr><th>${r.kind === "material" ? "Material" : "Tarea"}</th><th>Unidad</th><th>Cantidad solicitada</th>${v.responses.map((p) => `<th>${e(supplier(p.supplier_id))}<small>Precio unitario sin IVA</small>${state.remoteProject ? "" : `<button class="btn tiny" data-action="ops-rfq-remove-provider" data-id="${p.id}">Quitar proveedor</button>`}</th>`).join("")}</tr></thead><tbody>${r.items.map((row) => `<tr><td>${e(row.description)}</td><td>${e(row.unit)}</td><td>${numeric(row.quantity)}<small>Pendiente de asignar: ${numeric(pending(row.id))}</small></td>${v.responses.map((p) => `<td class="${cheapest(row.id) === p.id ? "quote-best" : ""}"><input type="number" min="0" step="any" data-quote-cell data-response="${p.id}" data-row="${row.id}" value="${e(price(p, row.id) ?? "")}" aria-label="Precio sin IVA ${e(row.description)} de ${e(supplier(p.supplier_id))}" ${state.remoteProject ? "readonly" : ""}></td>`).join("")}</tr>`).join("")}<tr><th colspan="3">Subtotal cotizado sin IVA</th>${v.responses.map((p) => `<td><strong data-quote-total="${p.id}">${money(sumDecimals(r.items.filter((i) => price(p, i.id) !== null).map((i) => multiplyDecimals(i.quantity, price(p, i.id)))))}</strong><small>${p.prices.filter((x) => x.unit_price !== null).length} de ${r.items.length} cotizados</small></td>`).join("")}</tr><tr><th colspan="3">Referencia y condiciones</th>${v.responses.map((p) => `<td><input data-response-term="reference" data-response="${p.id}" value="${e(p.reference)}" placeholder="Referencia" aria-label="Referencia de ${e(supplier(p.supplier_id))}"><textarea data-response-term="terms" data-response="${p.id}" placeholder="Pago, entrega, validez" aria-label="Condiciones de ${e(supplier(p.supplier_id))}">${e(p.terms)}</textarea>${state.remoteProject ? "" : `<button class="btn" data-action="ops-rfq-distribute" data-response="${p.id}">Asignar todo a este proveedor</button>`}</td>`).join("")}</tr><tr><th colspan="3">Presupuestos adjuntos / importar precios</th>${v.responses
       .map(
         (p) =>
           `<td>${v.files
@@ -268,7 +249,7 @@ export function createQuotationWorkflow({
           (n) => n.resource_id === s.id && Number(n.required) > 0,
         ),
       );
-    return `<section class="workflow-editor" role="dialog" aria-modal="true" aria-label="Solicitud de cotización"><form id="quotation-request-form"><div class="feature-toolbar"><h2>${v.kind === "material" ? "Cotizar materiales" : "Cotizar subcontratos"}</h2><button type="button" class="btn" data-action="ops-rfq-close">Cancelar</button><button type="submit" class="btn primary">Guardar solicitud</button></div><div class="workflow-grid">${field("Nombre de la solicitud", "title", r.title, 'required maxlength="150"')}${select(
+    return `<section class="workflow-editor" role="dialog" aria-modal="true" aria-label="Solicitud de cotización"><form id="quotation-request-form"><div class="feature-toolbar"><h2>${v.editRevision !== null ? "Editar solicitud" : v.kind === "material" ? "Cotizar materiales" : "Cotizar subcontratos"}</h2><button type="button" class="btn" data-action="ops-rfq-close">Cancelar</button><button type="submit" class="btn primary">${v.editRevision !== null ? "Guardar cambios" : "Guardar solicitud"}</button></div><div class="workflow-grid">${field("Nombre de la solicitud", "title", r.title, 'required maxlength="150"')}${select(
       "Moneda",
       "currency",
       [
@@ -276,7 +257,7 @@ export function createQuotationWorkflow({
         ["USD", "USD"],
       ],
       r.currency,
-    )}${select("Destinatario (opcional)", "partner_id", [["", "Sin destinatario"], ...partners().map((p) => [p.id, p.name])], r.partner_id)}${field("Alcance", "scope", r.scope, 'required maxlength="4000"')}${field("Entrega / plazo", "delivery", r.delivery)}${field("Condiciones de pago", "payment", r.payment)}${field("Validez solicitada", "validity", r.validity)}</div><p>Todos los precios se solicitarán por unidad y sin IVA.</p>${field("Buscar materiales / tareas", "rfq-query", v.query, 'type="search"')}<button type="button" class="btn" data-action="ops-rfq-filter">Buscar</button><div class="workflow-scroll">${
+    )}${select("Destinatario (opcional)", "partner_id", [["", "Sin destinatario"], ...partners().map((p) => [p.id, p.name])], r.partner_id)}${field("Alcance", "scope", r.scope, 'required maxlength="4000"')}${field("Entrega / plazo", "delivery", r.delivery)}${field("Condiciones de pago", "payment", r.payment)}${field("Validez solicitada", "validity", r.validity)}</div><p>Todos los precios se solicitarán por unidad y sin IVA. ${v.editRevision !== null ? "Los materiales ya adjudicados no pueden quitarse ni reducirse por debajo de lo pedido." : ""}</p>${field("Buscar materiales / tareas", "rfq-query", v.query, 'type="search"')}<button type="button" class="btn" data-action="ops-rfq-filter">Buscar</button><div class="workflow-scroll">${
       v.kind === "material"
         ? `<h3>Materiales necesarios para esta obra</h3>${sourceRows(needed, chosen, true) || "<p>Sin materiales calculados para esta selección. Vinculá ACU a las partidas para obtener necesidades.</p>"}<details open><summary>Otros materiales del catálogo</summary>${sourceRows(
             rows.filter((s) => !needed.some((n) => n.id === s.id)),
@@ -369,8 +350,9 @@ export function createQuotationWorkflow({
     readRequest();
     readResponses();
     if (a === "ops-rfq-new") {
-      if (!protect()) return true;
+      if (!(await protect())) return true;
       v.kind = kind();
+      v.editRevision = null;
       v.query = "";
       v.request = {
         id: window.crypto.randomUUID(),
@@ -395,14 +377,41 @@ export function createQuotationWorkflow({
       };
     }
     if (a === "ops-rfq-close") {
-      if (!protect()) return true;
+      if (!(await protect())) return true;
       v.request = null;
       v.dirty = false;
+    }
+    if (a === "ops-rfq-edit") {
+      if (!(await protect())) return true;
+      const saved = await invoke("get_editable_quotation_request", {
+        id: b.dataset.id,
+      });
+      v.request = structuredClone(saved.request);
+      v.kind = v.request.kind;
+      v.editRevision = saved.revision;
+      v.query = "";
+      v.dirty = false;
+    }
+    if (a === "ops-rfq-remove-provider") {
+      if (!(await protect())) return true;
+      const response = v.responses.find((r) => r.id === b.dataset.id);
+      if (
+        !window.confirm(
+          "¿Quitar este proveedor de la comparativa? Sus pedidos adjudicados, precios históricos y adjuntos se conservarán.",
+        )
+      )
+        return true;
+      await invoke("hide_quote_response", {
+        requestId: v.selected.id,
+        id: response.id,
+        revision: response.revision,
+      });
+      v.responses = v.responses.filter((r) => r.id !== response.id);
     }
     if (a === "ops-rfq-filter")
       v.query = document.querySelector('[name="rfq-query"]').value;
     if (a === "ops-rfq-select") {
-      if (!protect()) return true;
+      if (!(await protect())) return true;
       await selectRequest(b.dataset.id);
       v.dirty = false;
     }
@@ -411,20 +420,12 @@ export function createQuotationWorkflow({
       if (!id) throw new Error("Elegí un proveedor");
       if (v.responses.some((r) => r.supplier_id === id))
         throw new Error("El proveedor ya está agregado");
-      const response = {
-        id: window.crypto.randomUUID(),
-        request_id: v.selected.id,
-        supplier_id: id,
-        revision: 0,
-        reference: "",
-        terms: "",
-        prices: v.selected.items.map((i) => ({
-          row_id: i.id,
-          unit_price: null,
-          notes: "",
-        })),
-      };
-      v.responses.push(await invoke("save_quote_response", { response }));
+      v.responses.push(
+        await invoke("add_quote_supplier", {
+          requestId: v.selected.id,
+          supplierId: id,
+        }),
+      );
     }
     if (a === "ops-rfq-save-prices") {
       await saveResponses();
@@ -470,6 +471,12 @@ export function createQuotationWorkflow({
         id: b.dataset.id,
       });
     render();
+    if (v.editRevision !== null) {
+      const currency = document.querySelector(
+        '#quotation-request-form [name="currency"]',
+      );
+      if (currency) currency.disabled = true;
+    }
     return true;
   }
   async function change(t) {
@@ -528,10 +535,17 @@ export function createQuotationWorkflow({
     const data = new FormData(form);
     if (form.id === "quotation-request-form") {
       readRequest();
-      const saved = await invoke("create_quotation_request", {
-        request: v.request,
-      });
+      const saved =
+        v.editRevision === null
+          ? await invoke("create_quotation_request", { request: v.request })
+          : (
+              await invoke("update_quotation_request", {
+                request: v.request,
+                revision: v.editRevision,
+              })
+            ).request;
       v.request = null;
+      v.editRevision = null;
       v.dirty = false;
       await refresh();
       v.requests = await invoke("list_quotation_requests", {
@@ -613,19 +627,45 @@ export function createQuotationWorkflow({
     }
     render();
   }
-  function protect() {
+  async function protect() {
     readRequest();
     readResponses();
     if (!v.dirty) return true;
-    if (
-      !window.confirm(
-        "¿Descartar los cambios de la solicitud o los precios sin guardar?",
+    if (v.guardOpen) return false;
+    if (v.request) {
+      if (
+        !window.confirm("¿Descartar los cambios de la solicitud sin guardar?")
       )
-    )
-      return false;
-    v.dirty = false;
-    return true;
+        return false;
+      v.dirty = false;
+      return true;
+    }
+    v.guardOpen = true;
+    try {
+      const choice = await askUnsavedPrices({
+        document,
+        onSave: saveResponses,
+      });
+      if (choice === "cancel") return false;
+      if (choice === "discard") {
+        await selectRequest(v.selected.id);
+        v.dirty = false;
+      }
+      return true;
+    } finally {
+      v.guardOpen = false;
+    }
   }
+  function updateSaveState() {
+    const status = document.querySelector("[data-quote-save-state]");
+    if (status) {
+      status.textContent = v.dirty
+        ? "Cambios sin guardar"
+        : "Precios guardados";
+      status.classList.toggle("dirty", v.dirty);
+    }
+  }
+
   return {
     v,
     load,
@@ -638,8 +678,10 @@ export function createQuotationWorkflow({
       if (
         t.closest?.("#quotation-request-form") ||
         t.matches?.("[data-quote-cell],[data-response-term]")
-      )
+      ) {
         v.dirty = true;
+        updateSaveState();
+      }
       if (t.matches?.("[data-quote-cell]")) {
         readResponses();
         try {

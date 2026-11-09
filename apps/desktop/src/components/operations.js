@@ -408,9 +408,9 @@ export function createOperationsWorkspace({
         }),
       );
   }
-  function protect() {
+  async function protect() {
     read();
-    if (!book.protect() || !certificates.protect() || !quotations.protect())
+    if (!book.protect() || !certificates.protect() || !(await quotations.protect()))
       return false;
     if (!model.dirty) return true;
     if (
@@ -1159,7 +1159,7 @@ export function createOperationsWorkspace({
     )
       return true;
     if (a === "open-operations") {
-      if (state.view === "operations" && !protect()) return;
+      if (state.view === "operations" && !(await protect())) return;
       if (!state.projectId) throw new Error("Abrí una obra desde Inicio");
       model.projectId = state.projectId;
       model.projectName =
@@ -1221,7 +1221,7 @@ export function createOperationsWorkspace({
     }
     read();
     if (a === "ops-tab") {
-      if (!protect()) return;
+      if (!(await protect())) return;
       model.tab = button.dataset.tab;
       model.draft =
         model.tab === "finance" ? draft(operationGroups.finance[0]) : null;
@@ -1255,7 +1255,7 @@ export function createOperationsWorkspace({
       model.dirty = false;
     }
     if (a === "ops-new") {
-      if (!protect()) return;
+      if (!(await protect())) return;
       model.draft = draft(
         document.querySelector('[name="ops-kind"]')?.value ||
           operationGroups[model.tab][0],
@@ -1360,7 +1360,7 @@ export function createOperationsWorkspace({
       return;
     }
     if (name === "ops-kind") {
-      if (!protect()) {
+      if (!(await protect())) {
         render();
         return;
       }

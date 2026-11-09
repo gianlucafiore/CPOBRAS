@@ -108,3 +108,26 @@ archivos binarios mediante P2P.
 Migración 29: Libro de obra, respuestas de cotización con revisión, archivos y
 adjudicaciones inmutables. Se conservan los documentos anteriores y los respaldos
 incluyen las tablas nuevas automáticamente.
+
+## Editar solicitudes y confirmar precios
+
+El botón **+ Nueva** crea una solicitud en la pestaña correspondiente. Cada entrada
+de la lista tiene **Editar solicitud**, que abre el mismo popup con sus materiales,
+cantidades y condiciones. **Guardar cambios** conserva el número, fecha y moneda
+originales, así como los identificadores de los renglones y sus precios cotizados.
+Los materiales agregados aparecen sin precio en cada proveedor. No se pueden
+quitar materiales adjudicados ni reducirlos por debajo de la cantidad ya pedida;
+los pedidos existentes conservan sus precios e historial.
+
+El indicador **Cambios sin guardar** aparece al escribir precios o condiciones.
+**Guardar precios** lo cambia a **Precios guardados**. Al intentar salir con cambios,
+un diálogo ofrece **Guardar y continuar**, **Descartar** o **Cancelar**. Si el guardado
+falla, no se abandona la pantalla ni se pierden los valores ingresados.
+
+**Quitar proveedor**, en el encabezado de cada columna, retira esa respuesta de la
+comparativa con confirmación. Se conservan sus pedidos adjudicados y adjuntos.
+Al volver a agregar el mismo proveedor se recuperan la columna y sus valores.
+
+La migración 30 conserva revisiones de las solicitudes y permite varios materiales
+dentro de un mismo pedido adjudicado. También incorpora las ofertas importadas
+anteriormente a la comparativa editable.
