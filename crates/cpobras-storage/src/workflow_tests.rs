@@ -4873,3 +4873,86 @@ fn batch_planning_only_permissions_remove_money_and_module_payloads() {
         json!(["2026-11-05"])
     );
 }
+
+#[test]
+fn certificate_bugfix_open_rebuilds_saved_progress_without_revising_and_issues_before_planned_cut()
+{
+    use crate::construction_workflow::CertificateTerms;
+    let (mut s, p, e, _) = fixture();
+    s.save_adjustment_agreement_with_terms(
+        e.id,
+        0,
+        None,
+        Some(CertificateTerms {
+            advance_recovery_percent: 50.into(),
+            retention_percent: 5.into(),
+            collection_delay_days: 3,
+        }),
+    )
+    .unwrap();
+    let mut d = s
+        .open_certificate_draft(p.id, e.id, None, "2026-11-01", "2026-11-13")
+        .unwrap();
+    d.operation.date = "2026-11-09".into();
+    d.progress[0].accumulated_percent = 50.into();
+    // Older drafts may contain saved percentages with missing/outdated derived lines.
+    s.conn
+        .execute(
+            "UPDATE certificate_drafts SET payload_json=?1 WHERE id=?2",
+            params![serde_json::to_string(&d).unwrap(), d.id.to_string()],
+        )
+        .unwrap();
+    let before = serde_json::to_string(&s.certificate_drafts(p.id, e.id).unwrap()).unwrap();
+    let sheet = s.certificate_editor_sheet(d.id).unwrap();
+    assert_eq!(sheet.operation.calculated["base_work"], Decimal::from(100));
+    assert_eq!(sheet.operation.advance, Decimal::from(50));
+    assert_eq!(sheet.operation.calculated["retention"], Decimal::from(5));
+    assert_eq!(sheet.operation.amount, Decimal::from(45));
+    assert_eq!(sheet.operation.date, "2026-11-09");
+    assert_eq!(
+        before,
+        serde_json::to_string(&s.certificate_drafts(p.id, e.id).unwrap()).unwrap()
+    );
+    let saved = s.save_certificate_draft(&d).unwrap();
+    assert!(s
+        .issue_certificate_draft(d.id, saved.revision, "2026-11-09")
+        .is_err());
+    s.issue_estimate(e.id).unwrap();
+    let emitted = s
+        .issue_certificate_draft(d.id, saved.revision, "2026-11-09")
+        .unwrap();
+    assert_eq!(emitted.amount, sheet.operation.amount);
+    assert_eq!(emitted.advance, Decimal::from(50));
+    assert_eq!(emitted.period_end, "2026-11-13");
+    assert_eq!(emitted.date, "2026-11-09");
+    let docs = s.operation_documents(Some(p.id)).unwrap();
+    assert!(!docs.iter().any(|o| o.kind == "advance_received"));
+    let report = s.operations_report(p.id, Some(e.id), "2026-11-09").unwrap();
+    assert_eq!(report.summaries[0].collected, Decimal::ZERO);
+    assert_eq!(report.summaries[0].advance_received_balance, Decimal::ZERO);
+    assert!(report
+        .alerts
+        .iter()
+        .any(|a| a.contains("pendiente de conciliar")));
+}
+
+#[test]
+fn certificate_bugfix_early_issue_still_rejects_dates_before_period_start() {
+    let (mut s, p, e, _) = fixture();
+    s.issue_estimate(e.id).unwrap();
+    let mut d = s
+        .open_certificate_draft(p.id, e.id, None, "2026-11-08", "2026-11-13")
+        .unwrap();
+    d.operation.date = "2026-11-07".into();
+    d.progress[0].accumulated_percent = 50.into();
+    let d = s.save_certificate_draft(&d).unwrap();
+    assert!(s.preview_certificate_draft(d.id).is_err());
+    assert!(s
+        .issue_certificate_draft(d.id, d.revision, "2026-11-07")
+        .is_err());
+    assert!(s
+        .operation_documents(Some(p.id))
+        .unwrap()
+        .iter()
+        .all(|o| o.kind != "certificate"));
+}

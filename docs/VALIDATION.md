@@ -431,3 +431,21 @@ Verificación limitada a los cambios, sin repetir la suite completa:
 - Una comprobación adicional del acuerdo de anticipo/reparo en la vista previa.
 - Compilación de los comandos nativos con `cargo check`; sin suite nativa, AppImage
   ni release en esta edición.
+
+## Regresiones de certificados y detalle de pedidos
+
+- Reproducción y corrección de `TypeError: Decimal inválido` al negar por
+  concatenación un cero con signo (`-0` → `--0`) para el PDF. Se usa aritmética
+  decimal exacta; no se ocultan importes inválidos.
+- Reapertura con porcentajes guardados y renglones derivados vacíos: reconstruye
+  la vista previa sin guardar ni cambiar la revisión. Si no puede calcular, el
+  editor informa el motivo y permite reparar; no presenta un cero aparente.
+- Recuperación contractual del anticipo del comitente independiente del registro
+  del cobro, con tope contractual y conciliación financiera separada.
+- La emisión anticipada al corte previsto conserva su fecha real; sigue prohibida
+  una fecha anterior al inicio del período y la emisión con presupuesto sin emitir.
+- Verificaciones: nueve casos de dominio de certificados, cuatro de PDF/planillas,
+  dos recorridos de navegador enfocados y compilación nativa. Sin suite completa.
+- Presentación: Unidad/Cantidad contratada en columnas legibles del certificado;
+  Unidad/Cantidad solicitada compactas en cotizaciones; precio unitario y subtotal
+  sin IVA discriminados por material en el detalle del pedido.

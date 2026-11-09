@@ -444,7 +444,7 @@ export async function exportCertificate(invoke, s) {
   ];
   const advance = [
     `Recuperación de anticipo (${numeric(o.advance_percent ?? c.recovery_percent ?? "0")} %)`,
-    "-" + (o.advance || "0"),
+    multiplyDecimals(o.advance || "0", "-1"),
   ];
   if (o.advance_before_index) liquidation.push(advance);
   liquidation.push(
@@ -457,17 +457,17 @@ export async function exportCertificate(invoke, s) {
         base,
         extraBase,
         c.index_adjustment || "0",
-        o.advance_before_index ? "-" + (o.advance || "0") : "0",
+        o.advance_before_index ? multiplyDecimals(o.advance || "0", "-1") : "0",
       ]),
     ],
     ["Diferencias de certificados anteriores", c.adjustment_difference || "0"],
   );
   if (!o.advance_before_index) liquidation.push(advance);
   liquidation.push(
-    ["Otros descuentos", "-" + (o.discount || "0")],
+    ["Otros descuentos", multiplyDecimals(o.discount || "0", "-1")],
     [
       `Fondo de reparo (${numeric(o.retention_percent || "0")} %)`,
-      "-" + (c.retention || "0"),
+      multiplyDecimals(c.retention || "0", "-1"),
     ],
   );
   space(Math.min(105, liquidation.length * 5.8 + 15));

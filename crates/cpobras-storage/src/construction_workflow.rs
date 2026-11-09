@@ -723,17 +723,18 @@ impl LocalStore {
         result
     }
     pub fn certificate_editor_sheet(&mut self, id: Uuid) -> Result<CertificateSheet> {
-        match self.preview_certificate_draft(id) {
+        let json: String = self.conn.query_row(
+            "SELECT payload_json FROM certificate_drafts WHERE id=?1",
+            [id.to_string()],
+            |r| r.get(0),
+        )?;
+        let d: CertificateDraft = serde_json::from_str(&json)?;
+        if let Some(id) = d.issued_id {
+            return self.issued_certificate_sheet(id);
+        }
+        match self.calculate_certificate_preview(&d) {
             Ok(s) => Ok(s),
-            Err(_) => {
-                let json: String = self.conn.query_row(
-                    "SELECT payload_json FROM certificate_drafts WHERE id=?1",
-                    [id.to_string()],
-                    |r| r.get(0),
-                )?;
-                let d: CertificateDraft = serde_json::from_str(&json)?;
-                sheet(&self.conn, &d.operation, true)
-            }
+            Err(_) => sheet(&self.conn, &d.operation, true),
         }
     }
     pub fn preview_certificate_draft(&mut self, id: Uuid) -> Result<CertificateSheet> {
@@ -754,9 +755,6 @@ impl LocalStore {
             op.advance_before_index = true;
         }
         let known = op.date.clone();
-        if op.date < op.period_end {
-            op.date = op.period_end.clone();
-        }
         op.due_date = op.due_date.clone().max(op.date.clone());
         let monetary_contract = op
             .reference_id

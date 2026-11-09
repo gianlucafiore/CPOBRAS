@@ -67,8 +67,10 @@ así como anterior, bruto, acumulado, pendiente, reparo y neto del documento.
 Los certificados de obra aplican la determinación de precio del presupuesto emitido;
 los de subcontratista usan los precios y límites de su contrato.
 
-Registrá primero el anticipo recibido o pagado en Finanzas. Su descuento en los
-certificados no puede superar el saldo pendiente de recuperar. El reparo se
+El certificado del comitente descuenta el porcentaje de anticipo acordado, con
+el tope contractual pendiente de recuperar. El cobro real se registra por separado
+en Finanzas. Los anticipos pagados a subcontratistas/cuadrillas se recuperan contra
+su saldo registrado. El reparo se
 retiene con el porcentaje indicado y se libera con un documento financiero
 vinculado al certificado; la liberación crea el saldo a pagar/cobrar correspondiente.
 

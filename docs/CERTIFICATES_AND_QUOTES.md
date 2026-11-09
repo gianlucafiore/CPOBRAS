@@ -154,8 +154,10 @@ inferior derecha. Si falta un lector PDF, el archivo permanece guardado.
 - La tabla y los adicionales se desplazan dentro del popup. El pie permanece
   visible con base, anticipo, ajuste, adicionales, diferencias, reparo y neto.
 - El acuerdo vigente de anticipo y reparo se aplica a los certificados abiertos;
-  los ya emitidos conservan sus valores. La recuperación de anticipo se limita
-  al anticipo efectivamente registrado, no genera un descuento ficticio.
+  los ya emitidos conservan sus valores. En certificados del comitente, la
+  recuperación aplica el porcentaje contractual hasta el tope del acuerdo.
+  El registro del cobro en Finanzas se mantiene separado; si falta conciliarlo,
+  el informe lo indica sin inventar un ingreso de caja.
 - Los certificados de subcontrato se consultan en un popup. Sus adicionales
   requieren descripción e importe, con motivo opcional y sin autorización del
   comitente. No consumen cantidades físicas adicionales de la partida.

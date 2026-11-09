@@ -1202,12 +1202,13 @@ impl LocalStore {
                     |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
                 )
                 .optional()?;
-            if relation
-                != Some((
-                    o.project_id.to_string(),
-                    "issued".into(),
-                    o.currency.clone(),
-                ))
+            if !relation
+                .as_ref()
+                .is_some_and(|(project, status, currency)| {
+                    project == &o.project_id.to_string()
+                        && currency == &o.currency
+                        && (status == "issued" || (preview && status == "draft"))
+                })
             {
                 return Err(err(
                     "La certificación requiere un presupuesto emitido de esta obra y moneda",
@@ -1215,9 +1216,9 @@ impl LocalStore {
             }
             date(&o.period_start)?;
             date(&o.period_end)?;
-            if o.date < o.period_end {
+            if o.date < o.period_start {
                 return Err(err(
-                    "La fecha de emisión no puede preceder al fin del período",
+                    "La fecha de emisión no puede preceder al inicio del período",
                 ));
             }
             if prior.iter().any(|p| {
@@ -1392,6 +1393,7 @@ impl LocalStore {
                     .iter()
                     .filter(|p| {
                         p.kind == o.kind
+                            && p.estimate_id == o.estimate_id
                             && p.currency == o.currency
                             && p.partner_id == o.partner_id
                             && (o.kind == "certificate" || p.reference_id == o.reference_id)
@@ -1405,8 +1407,22 @@ impl LocalStore {
                         .filter(|e| e.recover_advance)
                         .map(|e| e.amount))?,
                 )?;
+                let contractual = o.kind == "certificate";
+                let available = if contractual {
+                    div(mul(sale, percent)?, 100.into())?
+                } else {
+                    received
+                };
                 o.advance = div(mul(eligible, percent)?, 100.into())?
-                    .min(add(received, -recovered)?.max(D::ZERO));
+                    .min(add(available, -recovered)?.max(D::ZERO));
+                if contractual {
+                    o.calculated
+                        .insert("contractual_advance_limit".into(), available);
+                    o.calculated.insert(
+                        "advance_recovery_unrecorded".into(),
+                        add(add(recovered, o.advance)?, -received)?.max(D::ZERO),
+                    );
+                }
             }
             if o.advance > D::ZERO {
                 let advance_kind = if o.kind == "certificate" {
@@ -1427,13 +1443,24 @@ impl LocalStore {
                     .iter()
                     .filter(|p| {
                         p.kind == o.kind
+                            && p.estimate_id == o.estimate_id
                             && p.currency == o.currency
                             && p.partner_id == o.partner_id
                             && (o.kind == "certificate" || p.reference_id == o.reference_id)
                     })
                     .map(|p| p.advance))?;
+                let available = if o.kind == "certificate" {
+                    o.calculated
+                        .get("contractual_advance_limit")
+                        .copied()
+                        .unwrap_or(available)
+                } else {
+                    available
+                };
                 if add(recovered, o.advance)? > available {
-                    return Err(err("El descuento de anticipo supera el anticipo registrado pendiente de recuperar"));
+                    return Err(err(
+                        "El descuento de anticipo supera el anticipo pendiente de recuperar",
+                    ));
                 }
             }
             if o.kind == "certificate" {
@@ -2803,6 +2830,12 @@ impl LocalStore {
                 }
                 certified_percent = mul(div(certified, total)?, 100.into())?;
                 approved_pending_percent = mul(div(pending, total)?, 100.into())?;
+            }
+        }
+        for s in summaries.values_mut() {
+            if s.advance_received_balance < D::ZERO {
+                alerts.push(format!("Recuperación contractual de anticipo pendiente de conciliar en Finanzas: {} {}",s.currency,-s.advance_received_balance));
+                s.advance_received_balance = D::ZERO;
             }
         }
         Ok(ProjectOperationsReport {

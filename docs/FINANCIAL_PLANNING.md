@@ -53,9 +53,11 @@ para poder vincular cada uno con su previsión.
 ## Anticipos y liquidaciones
 
 Los anticipos son movimientos reales de caja: registrá **Anticipo recibido** del
-comitente o **Anticipo pagado** a la cuadrilla/contratista. La previsión descuenta
-el porcentaje configurado hasta agotar el anticipo pendiente; no supone un
-anticipo que todavía no fue registrado ni vuelve a pagar uno ya entregado.
+comitente o **Anticipo pagado** a la cuadrilla/contratista. La recuperación
+contractual en el certificado del comitente aplica el porcentaje pactado, aunque
+el cobro todavía no esté conciliado; no crea un nuevo ingreso de caja. Si se
+recuperó más de lo registrado, el informe muestra lo pendiente de conciliar.
+Los anticipos a cuadrillas y contratistas mantienen su límite financiero registrado.
 
 Para liquidar una cuadrilla directamente, registrá una **Factura por pagar** con
 esa contraparte, período, importe bruto, anticipo a recuperar y vencimiento. Se
