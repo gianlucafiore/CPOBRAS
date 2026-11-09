@@ -49,9 +49,10 @@ export function searchResources(resources, query) {
     .slice(0, 30)
     .map((x) => x.r);
 }
+const resourceLabel = r => `${r.code} · ${r.description} (${r.unit})`;
 export function resourcePicker(resources, id, index) {
   const selected = resources.find((r) => r.id === id);
-  return `<label class="field resource-picker"><span>Insumo</span><select name="resource" hidden aria-hidden="true" tabindex="-1"><option value="">Seleccioná un insumo</option>${resources.map((r) => `<option value="${e(r.id)}" ${r.id === id ? "selected" : ""}>${e(r.code + " · " + r.description + " (" + r.unit + ")")}</option>`).join("")}</select><input class="resource-search" role="combobox" aria-label="Buscar insumo ${index + 1}" aria-autocomplete="list" aria-expanded="false" aria-controls="resource-results-${index}" autocomplete="off" value="${e(selected ? selected.code + " · " + selected.description : "")}" placeholder="Buscar por código o descripción…"><span class="resource-results" id="resource-results-${index}" role="listbox" hidden></span></label>`;
+  return `<label class="field resource-picker"><span>Insumo</span><select name="resource" hidden aria-hidden="true" tabindex="-1"><option value="">Seleccioná un insumo</option>${resources.map((r) => `<option value="${e(r.id)}" ${r.id === id ? "selected" : ""}>${e(resourceLabel(r))}</option>`).join("")}</select><input class="resource-search" role="combobox" aria-label="Buscar insumo ${index + 1}" aria-autocomplete="list" aria-expanded="false" aria-controls="resource-results-${index}" autocomplete="off" value="${e(selected ? resourceLabel(selected) : "")}" placeholder="Buscar por código o descripción…"><span class="resource-results" id="resource-results-${index}" role="listbox" hidden></span><small data-resource-unit ${selected ? "" : "hidden"}>${selected ? "Unidad: " + e(selected.unit) : ""}</small></label>`;
 }
 export function createResourcePicker({
   invoke,
@@ -71,7 +72,7 @@ export function createResourcePicker({
       matches
         .map(
           (r) =>
-            `<button type="button" role="option" data-action="pick-resource" data-id="${e(r.id)}">${e(r.code + " · " + r.description + " (" + r.unit + ")")}</button>`,
+            `<button type="button" role="option" data-action="pick-resource" data-id="${e(r.id)}">${e(resourceLabel(r))}</button>`,
         )
         .join("") +
       `<button type="button" role="option" data-action="quick-resource">＋ Agregar${input.value.trim() ? ` «${e(input.value.trim())}»` : " nuevo insumo"}</button>`;
@@ -89,10 +90,12 @@ export function createResourcePicker({
   function selectResource(row, r) {
     const select = row.querySelector('[name="resource"]');
     if (![...select.options].some((o) => o.value === r.id))
-      select.add(new window.Option(r.description, r.id));
+      select.add(new window.Option(resourceLabel(r), r.id));
     select.value = r.id;
     row.querySelector(".resource-search").value =
-      r.code + " · " + r.description;
+      resourceLabel(r);
+    const unit = row.querySelector("[data-resource-unit]");
+    if (unit) {unit.textContent = "Unidad: " + r.unit;unit.hidden = false;}
     const price = row.querySelector('[name="unitPrice"]');
     if (price)
       price.value =
