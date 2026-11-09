@@ -58,6 +58,7 @@ async function bridge(page, options={}) {
    if (command === "list_clients") return persons.filter(p=>p.role!=="supplier").map(p=>({id:p.id,name:p.name,cuit:p.cuit}));
    if (command === "list_projects") return projectList;
    if (command === "list_resources") return resources;
+   if(command==='import_resources'){const imported=args.rows.map(row=>({id:crypto.randomUUID(),...row,code:row.code||"INS-"+String(resources.length+1).padStart(4,"0"),active:true}));resources.push(...imported);return {created:imported.length,resource_ids:imported.map(r=>r.id)};}
    if(command==='create_resource'){const r={id:'resource-'+(resources.length+1),...args,code:args.code||'INS-'+String(resources.length+1).padStart(4,'0')};resources.push(r);return r;}
    if(command==='get_general_calendar')return structuredClone(generalCalendar);
    if(command==='save_general_calendar'){if(args.calendar.revision!==generalCalendar.revision)throw new Error('Recargá');generalCalendar={...structuredClone(args.calendar),revision:generalCalendar.revision+1};return structuredClone(generalCalendar);}
@@ -1049,4 +1050,52 @@ test('subcontract certificate popup keeps margins and actions within its scrolla
  await expect(dialog.getByRole('button',{name:'Registrar pago del certificado',exact:true})).toBeVisible();
  await page.setViewportSize({width:760,height:640});
  const narrow=await dialog.boundingBox();expect(narrow.x).toBeGreaterThanOrEqual(15);expect(narrow.x+narrow.width).toBeLessThanOrEqual(745);
+});
+
+
+async function resourceImportWorkbook(rows){
+ const {default:writeExcelFile}=await import('write-excel-file/universal');
+ const blob=await writeExcelFile([{sheet:'Insumos',data:rows.map(row=>row.map(value=>({value:String(value),type:String})))}]).toBlob();
+ return Buffer.from(await blob.arrayBuffer());
+}
+
+test('resource library downloads an Excel template and imports materials and labor after preview',async({page})=>{
+ const headers=['Código','Descripción','Tipo','Unidad','Precio ARS'];
+ const buffer=await resourceImportWorkbook([headers,['MAT-NUEVO','Cemento para prueba','Material','bolsa','1234.56'],['','Oficial para prueba','Mano de obra','h','']]);
+ await bridge(page);await page.getByRole('button',{name:'Insumos',exact:true}).first().click();
+ await page.getByRole('button',{name:'Descargar plantilla Excel',exact:true}).click();
+ const {parseExcel}=await import('../../src/services/exchange.js');
+ await expect.poll(()=>page.evaluate(()=>window.__calls.filter(c=>c.command==='save_export_file').length)).toBe(1);
+ const template=await page.evaluate(()=>window.__calls.find(c=>c.command==='save_export_file').args);
+ expect(template.name).toBe('Plantilla_insumos_CPOBRAS.xlsx');
+ expect(await parseExcel(Uint8Array.from(template.bytes))).toEqual([headers]);
+ await page.getByRole('button',{name:'Importar Excel',exact:true}).click();
+ const dialog=page.getByRole('dialog',{name:'Importar biblioteca de insumos',exact:true});
+ await dialog.getByLabel('Fecha de los precios',{exact:true}).fill('2026-11-09');
+ await dialog.getByLabel('Archivo Excel (.xlsx)',{exact:true}).setInputFiles({name:'insumos.xlsx',mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buffer});
+ await expect(dialog.getByRole('button',{name:'Importar 2 insumos',exact:true})).toBeEnabled();
+ await expect(dialog.locator('tbody')).toContainText('Mano de obra');
+ await expect(dialog.locator('tbody')).toContainText('Sin precio');
+ expect(await page.evaluate(()=>window.__calls.some(c=>c.command==='import_resources'))).toBe(false);
+ await page.screenshot({path:'/workspace/cpobras-resource-import.png',fullPage:true});
+ await dialog.getByRole('button',{name:'Importar 2 insumos',exact:true}).click();
+ await expect(dialog).toHaveCount(0);
+ await expect(page.locator('.list-table-pane')).toContainText('Cemento para prueba');
+ await expect(page.locator('.list-table-pane')).toContainText('Oficial para prueba');
+ const imported=await page.evaluate(()=>window.__calls.find(c=>c.command==='import_resources').args);
+ expect(imported.rows).toEqual([{code:'MAT-NUEVO',description:'Cemento para prueba',kind:'material',unit:'bolsa',price:'1234.56'},{code:'',description:'Oficial para prueba',kind:'labor',unit:'h',price:null}]);
+ expect(imported.effectiveDate).toBe('2026-11-09');
+});
+
+test('resource library blocks invalid and duplicate Excel rows before saving',async({page})=>{
+ const buffer=await resourceImportWorkbook([['Código','Descripción','Tipo','Unidad','Precio ARS'],['MAT-1','Repetido','Material','kg','10'],['OTRO','Precio negativo','Material','kg','-5']]);
+ await bridge(page);await page.getByRole('button',{name:'Insumos',exact:true}).first().click();
+ await page.getByRole('button',{name:'Importar Excel',exact:true}).click();
+ const dialog=page.getByRole('dialog',{name:'Importar biblioteca de insumos',exact:true});
+ await dialog.getByLabel('Archivo Excel (.xlsx)',{exact:true}).setInputFiles({name:'errores.xlsx',mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buffer});
+ await expect(dialog).toContainText('El código ya existe o está repetido');
+ await expect(dialog).toContainText('Precio inválido');
+ await expect(dialog.getByRole('button',{name:'Importar 2 insumos',exact:true})).toBeDisabled();
+ expect(await page.evaluate(()=>window.__calls.some(c=>c.command==='import_resources'))).toBe(false);
+ await page.keyboard.press('Escape');await expect(dialog).toHaveCount(0);
 });

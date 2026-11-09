@@ -25,6 +25,17 @@ archivo `CPOBRAS_0.1.3_windows_x86_64_portable.exe` y abrilo directamente. Requi
 Windows 10/11 y Microsoft Edge WebView2 Runtime. Los datos se guardan en el perfil
 del usuario; copiar el ejecutable no traslada la base de datos.
 
+## Cargar materiales y mano de obra desde Excel
+
+En **Inicio → Insumos**:
+
+1. Seleccioná **Descargar plantilla Excel** y completá la hoja **Insumos**.
+2. Indicá **Descripción**, **Tipo** (Material, Mano de obra, Equipo o Subcontrato) y **Unidad**. El código y el precio por unidad en ARS son opcionales; un código vacío se genera automáticamente y un precio vacío crea el insumo sin precio.
+3. Seleccioná **Importar Excel**, elegí el archivo `.xlsx` y la fecha de los precios.
+4. Revisá la vista previa y confirmá **Importar insumos**. Si hay errores o duplicados, corregí el Excel y volvé a seleccionarlo.
+
+Se admiten hasta 5000 insumos por archivo y 10 MB. La importación agrega el lote completo o no guarda ninguno; no sobrescribe insumos existentes ni modifica presupuestos. Los precios importados se incorporan al historial. Después podés asignar los insumos a las partidas desde su composición.
+
 ## Actualizar y probar en Linux Mint
 
 Desde la carpeta del repositorio:

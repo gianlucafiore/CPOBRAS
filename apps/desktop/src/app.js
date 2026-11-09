@@ -1,3 +1,4 @@
+import { createResourceImport } from "./components/resource-import.js";
 import { createAdjustmentAgreement } from "./components/adjustment-agreement.js";
 import { createSystemSettings } from "./components/system-settings.js";
 import {createRemoteInvoke,protectRemoteControls,remoteActionAllowed} from "./services/remote-workspace.js";
@@ -59,6 +60,7 @@ export function createWorkspaceApp({
   };
   const unitPicker = createUnitPicker(context);
   const resourcePicker = createResourcePicker(context);
+  const resourceImport = createResourceImport(context);
   const modalMarkup = createModalRenderer(context);
   const operations = createOperationsWorkspace(context);
   const management = createManagementWorkspace(context);
@@ -145,6 +147,7 @@ export function createWorkspaceApp({
                       : state.view === "workspace"
                         ? workspace()
                         : listViews();
+    if (resourceImport.model.open) root.innerHTML += resourceImport.markup();
     if (agreement.model.open) root.innerHTML += agreement.markup();
     if (patterns.model.active) {
       root.innerHTML += patterns.markup();
@@ -489,6 +492,7 @@ export function createWorkspaceApp({
     try {
       if(!remoteActionAllowed(state,button))return;
       if (await route(button)) return;
+      if (button.dataset.action.startsWith("resource-import-")) {await resourceImport.act(button);return;}
       if (button.dataset.action.startsWith("share-")) {await sharing.act(button);return;}
       if (button.dataset.action.startsWith("person-")) {
         await people.act(button);
@@ -700,6 +704,7 @@ export function createWorkspaceApp({
       }
     }
     try {
+      await resourceImport.change(evt.target);
       await pricing.change(evt.target);
       await patterns.change(evt.target);
       await operations.change(evt.target);
@@ -817,6 +822,7 @@ export function createWorkspaceApp({
     }
   });
   document.addEventListener("keydown", (evt) => {
+    if(evt.key === "Escape" && resourceImport.model.open){evt.preventDefault();resourceImport.act({dataset:{action:"resource-import-close"}});return;}
     if(evt.key==='Escape' && agreement.model.open){evt.preventDefault();agreement.act({dataset:{action:'agreement-close'}}).catch(error=>{state.message=String(error);render();});return;}
     if(evt.key==='Escape'&&state.view==='planning'&&(document.querySelector('#planning-task-form')||document.querySelector('#planning-split-form'))){evt.preventDefault();const action=document.querySelector('#planning-split-form')?'plan-split-cancel':'plan-cancel';planning.act({dataset:{action}}).catch(error=>{state.message=String(error);render();});return;}
     if (people.keyDown(evt)) return;

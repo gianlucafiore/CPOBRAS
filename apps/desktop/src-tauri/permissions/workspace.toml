@@ -2,6 +2,7 @@
 identifier = "workspace"
 description = "Local workspace operations, granted only to the main window."
 commands.allow = [
+  "import_resources",
   "list_persons",
   "save_person",
   "add_person_role",

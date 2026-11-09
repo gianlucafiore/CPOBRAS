@@ -28,6 +28,7 @@ pub mod procurement;
 pub mod quotation_edits;
 pub mod quotation_workflow;
 pub mod resource_catalog;
+pub mod resource_import;
 pub mod sharing;
 pub mod site_book;
 pub mod supplier_logistics;

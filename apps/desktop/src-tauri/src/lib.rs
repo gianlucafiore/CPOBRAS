@@ -195,6 +195,7 @@ pub(crate) fn configure<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri:
             commands::budgets::save_line_as_analysis,
             commands::resources::list_resources,
             commands::resources::create_resource,
+            commands::resources::import_resources,
             commands::analyses::list_analyses,
             commands::analyses::create_analysis,
             commands::analyses::update_analysis,

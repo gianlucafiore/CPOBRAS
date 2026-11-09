@@ -290,3 +290,7 @@ button.gantt-date { border:0; border-right:1px solid #e1e8ef; border-radius:0; c
 .contract-certificate-actions{min-width:160px}
 .contract-certificate-actions .btn{display:inline-block;margin:3px;white-space:normal}
 @media(max-width:650px){.workflow-editor.contract-certificates{padding:16px}.contract-certificates-table .data-grid{min-width:520px}}
+
+.resource-import-dialog{width:min(1100px,96vw)}.resource-import-preview{overflow:auto;max-height:46vh;margin-top:12px}.resource-import-preview table{min-width:760px}.resource-import-preview td{white-space:normal;overflow-wrap:anywhere}.resource-import-dialog .workflow-grid{margin-top:16px}.resource-import-dialog .dialog-actions{flex-shrink:0}
+
+.resource-import-dialog>.dialog-actions{padding:12px 18px;margin:0;flex-shrink:0;background:#f7f9fc}

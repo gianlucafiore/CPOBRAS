@@ -205,3 +205,16 @@ pub(crate) fn update_resource(
         .map(|price| price.amount.to_string());
     Ok(resource_view(resource, price))
 }
+
+#[tauri::command]
+pub(crate) fn import_resources(
+    db: tauri::State<'_, Db>,
+    rows: Vec<cpobras_storage::resource_import::ResourceImportRow>,
+    effective_date: String,
+    source: String,
+) -> Result<cpobras_storage::resource_import::ResourceImportResult, String> {
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .import_resources(&rows, &effective_date, &source)
+        .map_err(|e| e.to_string())
+}
