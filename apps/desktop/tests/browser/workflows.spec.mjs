@@ -52,7 +52,7 @@ async function bridge(page, options={}) {
    if(command==='create_project'){const o=organizations.find(o=>o.id===(args.organizationId||organizations.find(x=>x.is_default).id));const p={id:crypto.randomUUID(),name:args.projectName,client_id:args.clientId,currency:'Ars',organization_id:o.id,organization_name:o.name,organization_locked:false,read_only:false,supplier_ids:args.supplierIds||[]};projectList.push(p);return p;}
    if(command==='get_print_profile')return structuredClone(publicPrint);
    if(command==='save_print_profile'){if(args.revision!==publicPrint.revision)throw new Error('Recargá');publicPrint={revision:publicPrint.revision+1,profile:structuredClone(args.profile)};return structuredClone(publicPrint);}
-   if(command==='save_export_file')return fixture.cancelSave?null:{path:'/elegido/'+args.name,open_error:fixture.readerFails?'No hay lector PDF asociado':null};
+   if(command==='save_export_file'){if(typeof args.openAfter!=='boolean')throw new Error('save_export_file requiere openAfter');return fixture.cancelSave?null:{path:'/elegido/'+args.name,open_error:fixture.readerFails?'No hay lector PDF asociado':null};}
    if(command==='open_export_pdf'){if(fixture.readerFails)throw new Error('No hay lector PDF asociado');return null;}
    if(command==='get_budget_print_data'){const calculation=calculatePrice(priceDefinition),direct=Number(totals.direct),total=Number(calculation.breakdown.total);let cumulative=0,allocated=0,pct=0;const printLines=lines.map(l=>{const cost=Number(l.total);cumulative+=cost;const next=direct?Math.round(cumulative/direct*total*100)/100:0,sale=next-allocated;allocated=next;const nextPct=total?Math.round(next/total*1000000)/10000:0,incidence=nextPct-pct;pct=nextPct;return{id:l.id,direct_total:l.total,sale_total:String(sale),sale_unit:String(Number(l.quantity)?sale/Number(l.quantity):0),incidence_percent:String(incidence),cumulative_percent:String(nextPct)};});return {document:{title:estimate.title,currency:'Ars',lines:lines.map(l=>({...l,unit_cost_snapshot:l.unit_cost})),sections,assignments:assignments.map(a=>[a.line_id,a.section_id])},estimate,project,client:{id:'client-1',name:'Comitente',cuit:null},profile:structuredClone(organizations.find(o=>o.id===project.organization_id).profile),calculation,lines:printLines,final_total:String(total),unallocated_total:direct?'0':String(total)};}
    if (command === "list_clients") return persons.filter(p=>p.role!=="supplier").map(p=>({id:p.id,name:p.name,cuit:p.cuit}));
@@ -1068,6 +1068,7 @@ test('resource library downloads an Excel template and imports materials and lab
  await expect.poll(()=>page.evaluate(()=>window.__calls.filter(c=>c.command==='save_export_file').length)).toBe(1);
  const template=await page.evaluate(()=>window.__calls.find(c=>c.command==='save_export_file').args);
  expect(template.name).toBe('Plantilla_insumos_CPOBRAS.xlsx');
+ expect(template.openAfter).toBe(false);
  expect(await parseExcel(Uint8Array.from(template.bytes))).toEqual([headers]);
  await page.getByRole('button',{name:'Importar Excel',exact:true}).click();
  const dialog=page.getByRole('dialog',{name:'Importar biblioteca de insumos',exact:true});

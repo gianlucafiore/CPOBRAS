@@ -18,7 +18,7 @@ export function createResourceImport({invoke,state,document,render,reloadCatalog
   try{
    if(action==="resource-import-template"){
     const bytes=await resourceTemplateBytes();
-    const result=await invoke("save_export_file",{name:"Plantilla_insumos_CPOBRAS.xlsx",bytes:Array.from(bytes)});
+    const result=await invoke("save_export_file",{name:"Plantilla_insumos_CPOBRAS.xlsx",bytes:Array.from(bytes),openAfter:false});
     if(result?.path)state.message=`Plantilla guardada en ${result.path}`;
    }
    if(action==="resource-import-confirm"){
