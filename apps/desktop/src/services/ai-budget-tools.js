@@ -48,7 +48,7 @@ function olderThanYear(date,asOf){
 }
 export function auditBudget({lines=[],resources=[],asOf='2026-11-10',estimateTitle='Presupuesto'}={}){
  const catalog=new Map(resources.map(r=>[r.id,r]));
- const totals={lines:lines.length,without_acu:0,zero_cost:0,missing_cost:0,component_issues:0,older_price:0};
+ const totals={lines:lines.length,without_acu:0,zero_cost:0,missing_cost:0,component_issues:0,older_price:0,unit_warnings:0};
  const findings=[];
  for(const line of lines){
   const flags=[];
@@ -56,11 +56,14 @@ export function auditBudget({lines=[],resources=[],asOf='2026-11-10',estimateTit
   const status=valueStatus(line.unit_cost);
   if(status==='zero'){totals.zero_cost++;flags.push('costo unitario cero (puede ser intencional)');}
   if(['missing','invalid'].includes(status)){totals.missing_cost++;flags.push('precio unitario ausente o inválido');}
+  const seenResources=new Set();
   for(const component of line.components||[]){
+   if(seenResources.has(component.resource_id)){totals.component_issues++;flags.push('insumo repetido en el ACU: '+component.resource_id);}seenResources.add(component.resource_id);
    const resource=catalog.get(component.resource_id);
    if(!resource){totals.component_issues++;flags.push('insumo sin identidad de catálogo');continue;}
    if(valueStatus(component.quantity)!=='nonzero'){totals.component_issues++;flags.push('consumo no positivo de '+resource.description);}
    if(valueStatus(resource.price)==='missing'){totals.component_issues++;flags.push('sin precio verificable: '+resource.description);}
+   if(resource.kind==='equipment'&&/\b(?:x|por)\s*(?:dia|día|jornada)\b/i.test(resource.description||'')&&!/^(?:dia|día|jornada|h|hs|hora|horas)$/i.test(resource.unit||'')){totals.unit_warnings++;flags.push('unidad de equipo a revisar: '+resource.description+' se describe por día pero figura en '+resource.unit);}
    if(olderThanYear(resource.effective_date,asOf)){totals.older_price++;flags.push('precio con más de 12 meses: '+resource.description);}
   }
   if(flags.length)findings.push({id:line.id,description:line.description,flags:[...new Set(flags)]});
@@ -71,6 +74,7 @@ export function auditBudget({lines=[],resources=[],asOf='2026-11-10',estimateTit
  if(totals.missing_cost)counts.push(totals.missing_cost+' sin precio unitario válido');
  if(totals.component_issues)counts.push(totals.component_issues+' observaciones de insumos');
  if(totals.older_price)counts.push(totals.older_price+' precios con más de 12 meses');
+ if(totals.unit_warnings)counts.push(totals.unit_warnings+' unidades de equipos inconsistentes');
  const details=findings.slice(0,6).map(x=>x.description+': '+x.flags.join(', '));
  return {answer:'Auditoría de '+estimateTitle+' ('+totals.lines+' partidas): '+(counts.join('; ')||'sin incidencias básicas')+'.'+(details.length?' Revisá: '+details.join(' · ')+'.':'')+' Estas señales requieren criterio técnico, no demuestran precios o rendimientos incorrectos.',
   data:{totals,findings},read_only:true};
