@@ -60,8 +60,8 @@ function oneEditApart(a,b){
 const dimensions=value=>new Set((foldCatalogText(value).match(/\d+(?:[.,]\d+)?/g)||[]).map(number=>number.replace(',','.')));
 function kindPreference(question,kind){
  const text=foldCatalogText(question);
+ if(/\bmaterial(?:es)?\b/.test(text)&&!/\bmano de obra\b/.test(text))return kind==='material'?35:0;
  if(/\b(?:mano de obra|colocacion|instalacion|instalar|jornal)\b/.test(text))return kind==='labor'?35:0;
- if(/\bmaterial(?:es)?\b/.test(text))return kind==='material'?20:0;
  return 0;
 }
 function relatedTerms(requested,entry){
