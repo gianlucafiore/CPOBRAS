@@ -70,7 +70,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     const originalTopic=original.normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
     const asksComposition=/\b(?:acus?|rendimientos?|consumos?|composicion|dosificacion|metrado)\b|\binsumos?\b.*\bpartidas?\b|\bpartidas?\b.*\binsumos?\b/.test(originalTopic);
     const request=message?.acuRequest||acuChatRequest(brief,history)||(asksComposition?acuChatRequest('cargalos',history):null);
-    const resolved=request||{mode:'create',brief,lineIds:[]},addition=resolved.mode==='fill'?appendRequest(resolved.brief,state.lines,state.selectedLineId):null;
+    const resolved=request||{mode:'create',brief,lineIds:[]},addition=resolved.mode==='fill'&&!resolved.lineIds?.length?appendRequest(resolved.brief,state.lines,state.selectedLineId):null;
     return {request:addition?{...resolved,...addition}:resolved,isAcu:!!request,outline:request?.mode==='fill'?null:message?.planRows||(message?.proposal?.kind==='line'?[{description:message.proposal.description,unit:message.proposal.unit,quantity:message.proposal.quantity??null,unit_price:message.proposal.unit_price??null,section:''}]:null)};
   }
   async function reviewAcuMessage(index){
