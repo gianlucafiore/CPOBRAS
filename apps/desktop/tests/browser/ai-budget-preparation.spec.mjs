@@ -24,7 +24,7 @@ const invoke=async(name,args={})=>{
  if(name==='ai_chat'){
   const question=args.messages.at(-1).content;
   if(question.includes('Presupuestame'))return {text:JSON.stringify({answer:'Armo partidas y ACU',tool_call:{name:'prepare_budget',args:{brief:'Presupuestar vivienda de 120 m2 construcción tradicional, terminación media'}}})};
-  if(question.includes('Agregá adhesivo'))return {text:JSON.stringify({answer:'Busco insumos',tool_call:{name:'prepare_acu',args:{brief:'Agregar adhesivo al revestimiento de baños existente',scope:'selected'}}})};
+  if(question.includes('Necesito incluir adhesivo'))return {text:JSON.stringify({answer:'Busco insumos',tool_call:{name:'prepare_acu',args:{brief:'Agregar adhesivo al revestimiento de baños existente',scope:'selected'}}})};
   if(args.mode==='plan'){
    return {text:JSON.stringify({answer:'Plan por rubros',proposal_lines:[{description:'Piso de vivienda',unit:'m2',quantity:'120',unit_price:null,section:'Pisos'}]})};
   }
@@ -71,7 +71,7 @@ test('full housing budget request prepares an ACU and a new line without a separ
 });
 test('model prepares materials into conversationally selected ACU without overwriting labor',async({page})=>{
  await begin(page,'acu');
- await ask(page,'Agregá adhesivo para porcelanato a esta partida seleccionada');
+ await ask(page,'Necesito incluir adhesivo para porcelanato en esta partida');
  const preview=page.locator('.ai-ingredient-preview');
  await expect(preview).toContainText('Adhesivo para porcelanato');
  await expect(preview).toContainText('Se conservan 2 insumos existentes');
