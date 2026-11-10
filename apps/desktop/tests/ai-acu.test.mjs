@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {acuSeed,emptyAcu,parseAcuProposals,measurementQuantity,acuTotals,copyAcuExample,acuPromptContext,acuBatch} from '../src/services/ai-acu.js';
+import {acuSeed,emptyAcu,parseAcuProposals,measurementQuantity,acuTotals,acuPreapprovalErrors,copyAcuExample,acuPromptContext,acuBatch} from '../src/services/ai-acu.js';
 const resource={id:'10000000-0000-4000-8000-000000000001',code:'MAT',description:'Mortero',unit:'kg',kind:'material',price:'20',price_source:'catálogo:price-1'};
 const seed=acuSeed({id:'10000000-0000-4000-8000-000000000002',description:'Revoque',unit:'m²',quantity:'10',unit_cost:'0',analysis_id:null,expected_recipe:null,section_id:null,section:'',takeoffs:[],formula:null,components:[]});
 const text=JSON.stringify({acu_proposals:[{line_id:seed.id,components:[{resource_id:resource.id,quantity:'0.25',unit_price:'99999'}],assumptions:['Hipótesis de espesor a revisar'],measurements:[],missing_resources:[]}]});
@@ -140,4 +140,102 @@ test('UTF-8 limits do not break Unicode and deeply nested pending notes stay pen
  assert.ok(new TextEncoder().encode(row.assumptions.join('\n')).length<4500);
  assert.ok(row.missing_resources.length>0);
  assert.ok(acuTotals(row,[resource]).errors.length>0);
+});
+
+function evidenceRow(component={},catalog=resource,target=seed){
+ return parseAcuProposals(JSON.stringify({acu_proposals:[{
+  line_id:target.id,components:[{resource_id:catalog.id,quantity:'1',quantity_unit:catalog.unit,requested_description:catalog.description,consumption_support:'Consumo estimado por unidad de partida; revisar espesor y desperdicio.',...component}],missing_resources:[],
+ }]}),[target],[catalog])[0];
+}
+
+test('preapproval requires explicit unit, intended resource and consumption criteria without blocking legacy manual review',()=>{
+ const legacy=parseAcuProposals(text,[seed],[resource])[0];
+ assert.equal(acuTotals(legacy,[resource]).unit_cost,'5.00');
+ assert.ok(acuTotals(legacy,[resource]).warnings.some(warning=>warning.includes('Unidad de consumo no declarada')));
+ const pending=acuPreapprovalErrors(legacy,[resource]);
+ assert.equal(pending.length,3);assert.ok(pending.every(error=>error.includes('preaprobada')));
+ const complete=evidenceRow();
+ assert.deepEqual(acuPreapprovalErrors(complete,[resource]),[]);
+ assert.equal(acuTotals(complete,[resource]).unit_cost,'20');
+ complete.components[0].consumption_support='';
+ assert.ok(acuPreapprovalErrors(complete,[resource]).some(error=>error.includes('fundamento')));
+ assert.equal(acuTotals(complete,[resource]).unit_cost,'20');
+ const malicious=JSON.parse(text);Object.assign(malicious.acu_proposals[0].components[0],{human_reviewed:true,manually_reviewed:true});
+ const stillLegacy=parseAcuProposals(JSON.stringify(malicious),[seed],[resource])[0];
+ assert.equal(stillLegacy.components[0].human_reviewed,undefined);
+ assert.equal(acuPreapprovalErrors(stillLegacy,[resource]).length,3);
+});
+
+test('explicit units are checked against the real catalog without kg/bag or hours/jornal aliases',()=>{
+ const bag={...resource,description:'Cemento bolsa 25 kg',unit:'Bolsa'};
+ const wrong=evidenceRow({quantity:'15',quantity_unit:'kg'},bag);
+ assert.ok(acuTotals(wrong,[bag]).errors.some(error=>error.includes('Unidad de consumo incompatible')));
+ assert.equal(acuTotals(wrong,[bag]).unit_cost,null);
+ wrong.selected=true;wrong.missing_resolved=true;
+ assert.throws(()=>acuBatch({rows:[wrong],context:{resources:[bag],currency:'ARS'},estimate:{id:'e'},batchId:'b',asOf:'2026-11-10'}),/Unidad de consumo incompatible/);
+ assert.ok(acuPreapprovalErrors(wrong,[bag]).some(error=>error.includes('Unidad de consumo incompatible')));
+ assert.deepEqual(acuPreapprovalErrors(evidenceRow({quantity_unit:'bolsas'},bag),[bag]),[]);
+ assert.deepEqual(acuPreapprovalErrors(evidenceRow({quantity_unit:'kilogramos'}),[resource]),[]);
+ const labor={...resource,kind:'labor',description:'Oficial albañil',unit:'jor'};
+ assert.ok(acuTotals(evidenceRow({quantity_unit:'horas'},labor),[labor]).errors.some(error=>error.includes('Unidad de consumo incompatible')));
+ assert.deepEqual(acuPreapprovalErrors(evidenceRow({quantity_unit:'jornales'},labor),[labor]),[]);
+ const area={...resource,unit:'m²'};
+ assert.deepEqual(acuPreapprovalErrors(evidenceRow({quantity_unit:'m2'},area),[area]),[]);
+ assert.ok(acuTotals(evidenceRow({quantity_unit:'m³'},area),[area]).errors.some(error=>error.includes('Unidad de consumo incompatible')));
+});
+
+test('source consumption verifies exact bag mass from the catalog and never trusts a model conversion factor',()=>{
+ const bag={...resource,description:'Cemento Portland x25kg',unit:'bolsa'};
+ const correct=evidenceRow({quantity:'0.6',quantity_unit:'bolsa',source_quantity:'15',source_unit:'kg',conversion_factor:'999'},bag);
+ assert.equal(correct.components[0].conversion_factor,undefined);
+ assert.deepEqual(acuPreapprovalErrors(correct,[bag]),[]);
+ assert.equal(acuTotals(correct,[bag]).unit_cost,'12.0');
+ const wrong=evidenceRow({quantity:'15',source_quantity:'15',source_unit:'kg',conversion_factor:'1'},bag);
+ assert.ok(acuTotals(wrong,[bag]).errors.some(error=>error.includes('Consumo de origen incompatible')));
+ for(const description of ['Cemento sin peso de envase','Cemento bolsa 25kg / 50kg']){
+  const unknownWeight={...bag,description};
+  assert.ok(acuTotals(evidenceRow({quantity:'0.6',source_quantity:'15',source_unit:'kg'},unknownWeight),[unknownWeight]).errors.some(error=>error.includes('Consumo de origen incompatible')));
+ }
+ const halfKilogram=evidenceRow({quantity:'0.5',source_quantity:'0.6',source_unit:'kg'});
+ assert.ok(acuTotals(halfKilogram,[resource]).errors.some(error=>error.includes('Consumo de origen incompatible')));
+ halfKilogram.components[0].source_quantity='0.5';
+ assert.deepEqual(acuPreapprovalErrors(halfKilogram,[resource]),[]);
+ const noSourceUnit=evidenceRow({source_quantity:'1'});
+ assert.ok(acuTotals(noSourceUnit,[resource]).errors.some(error=>error.includes('Falta cantidad o unidad')));
+ const noSourceQuantity=evidenceRow({source_unit:'kg'});
+ assert.ok(acuTotals(noSourceQuantity,[resource]).errors.some(error=>error.includes('Falta cantidad o unidad')));
+});
+
+test('clear ceramic masonry substitutions remain blocked even with valid IDs, units and preapproval metadata',()=>{
+ const wall={...seed,description:'Mampostería de ladrillo cerámico 12x30x18'};
+ const block={...resource,description:'Bloque de cemento 20x20x40',unit:'un'};
+ const wrong=evidenceRow({},block,wall);
+ assert.ok(acuTotals(wrong,[block]).errors.some(error=>error.includes('Material incompatible')));
+ assert.ok(acuPreapprovalErrors(wrong,[block]).some(error=>error.includes('Material incompatible')));
+ wrong.missing_resolved=true;wrong.components[0].human_reviewed=true;
+ assert.equal(acuTotals(wrong,[block]).unit_cost,null);
+ const brick={...block,id:'10000000-0000-4000-8000-000000000005',description:'Ladrillo cerámico hueco 12x30x18'};
+ wrong.components[0]={...wrong.components[0],resource_id:brick.id,requested_description:brick.description};
+ assert.deepEqual(acuPreapprovalErrors(wrong,[brick]),[]);
+ const requested=evidenceRow({requested_description:'Ladrillo cerámico hueco'},block,{...seed,description:'Pared a completar'});
+ assert.ok(acuTotals(requested,[block]).errors.some(error=>error.includes('Material incompatible')));
+});
+
+test('masonry checks do not mistake mortar ingredients or ceramic substrates for a primary brick order',()=>{
+ const wall={...seed,description:'Muro de ladrillos cerámicos huecos'};
+ const cement={...resource,description:'Cemento Portland x25kg',unit:'bolsa'};
+ assert.deepEqual(acuPreapprovalErrors(evidenceRow({},cement,wall),[cement]),[]);
+ const block={...resource,description:'Bloque de hormigón 20x20x40',unit:'un'};
+ for(const description of ['Revoque sobre muro de ladrillo cerámico','Revestimiento sobre ladrillo cerámico','Pintura de pared de ladrillo cerámico']){
+  assert.deepEqual(acuPreapprovalErrors(evidenceRow({},block,{...seed,description}),[block]),[]);
+ }
+});
+
+test('consumption metadata is optional but typed, bounded and preserved for preview correction',()=>{
+ const row=evidenceRow({quantity_unit:' kg ',source_quantity:'1,0',source_unit:' kg ',requested_description:' Mortero ',consumption_support:' Consumo orientativo '});
+ assert.deepEqual(row.components[0],{resource_id:resource.id,quantity:'1',quantity_unit:'kg',requested_description:'Mortero',consumption_support:'Consumo orientativo',source_unit:'kg',source_quantity:'1.0'});
+ assert.deepEqual(acuPreapprovalErrors(row,[resource]),[]);
+ for(const bad of [{quantity_unit:15},{quantity_unit:'u'.repeat(51)},{requested_description:'x'.repeat(501)},{consumption_support:{quantity:15,unit:'kg'}},{consumption_support:'x'.repeat(1501)},{source_quantity:'0'},{source_quantity:15}]){
+  assert.throws(()=>evidenceRow(bad));
+ }
 });

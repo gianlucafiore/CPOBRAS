@@ -67,7 +67,7 @@ async function ask(page,question){
 test('a structured ACU handoff opens the exact existing targets and ignores an unrelated invalid outline',async({page})=>{
  await chatFixture(page);
  await ask(page,'¿Qué recomendás revisar en este presupuesto?');
- const handoff=page.getByRole('button',{name:'Completar insumos y rendimientos',exact:true});
+ const handoff=page.getByRole('button',{name:'Revisar antes de cargar',exact:true});
  await expect(handoff).toBeVisible();
  await expect(page.locator('.ai-transcript')).not.toContainText('La lista de partidas no es válida');
  await expect(page.locator('[data-ai=review-plan]')).toHaveCount(0);
@@ -92,6 +92,11 @@ test('a short confirmation completes existing ACU with the original criteria ins
  expect(await page.evaluate(()=>window.__aiAcuHarness.calls.filter(call=>call.name==='ai_chat').length)).toBe(1);
 
  await ask(page,'perfecto, cargalos');
+ await expect(page.getByRole('button',{name:'Revisar antes de cargar',exact:true})).toBeVisible();
+ await expect(page.locator('[data-acu-field=mode]')).toHaveCount(0);
+ expect(await page.evaluate(()=>window.__aiAcuHarness.batches)).toHaveLength(0);
+ expect(await page.evaluate(()=>window.__aiAcuHarness.calls.filter(call=>call.name==='ai_chat').length)).toBe(1);
+ await page.getByRole('button',{name:'Revisar antes de cargar',exact:true}).click();
  await expect(page.locator('[data-acu-field=mode]')).toHaveValue('fill');
  expect(await page.locator('[data-acu-field=brief]').inputValue()).toContain(legacyBrief);
  await expect(page.locator('[data-acu-seed]')).toHaveCount(0);
@@ -115,7 +120,7 @@ test('a short confirmation completes existing ACU with the original criteria ins
 test('a handoff with a foreign line id clears the selection instead of generating ACU for every line',async({page})=>{
  await chatFixture(page,{reply:'foreign'});
  await ask(page,'¿Qué recomendás revisar en este presupuesto?');
- await page.getByRole('button',{name:'Completar insumos y rendimientos',exact:true}).click();
+ await page.getByRole('button',{name:'Revisar antes de cargar',exact:true}).click();
  await expect(page.locator('[data-acu-field=mode]')).toHaveValue('fill');
  await expect(page.locator('.acu-body > .acu-error')).toContainText('no corresponden a este presupuesto');
  await expect(page.locator('[data-acu-target]')).toHaveCount(2);

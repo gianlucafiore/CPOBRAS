@@ -50,6 +50,70 @@ function acuNotes(value,pending=false){
  if(truncated)notes.push(marker);
  return notes;
 }
+// These are identity aliases only: kg/bolsa and hora/jornal are never aliases.
+function consumptionUnit(value){
+ const unit=normalize(value);
+ const aliases={kilogramo:'kg',kilogramos:'kg',kilo:'kg',kilos:'kg',gramo:'g',gramos:'g',gr:'g',bolsas:'bolsa',hora:'h',horas:'h',hr:'h',hs:'h',jornal:'jor',jornales:'jor',jorn:'jor',unidad:'un',unidades:'un',u:'un',ud:'un',uds:'un',metro:'m',metros:'m',metro2:'m2',metro3:'m3'};
+ return aliases[unit]||unit;
+}
+function componentEvidence(component){
+ const evidence={};
+ for(const [field,label,max] of [['quantity_unit','Unidad del consumo',50],['requested_description','Descripción del insumo requerido',500],['consumption_support','Fundamento del consumo',1500],['source_unit','Unidad del consumo de origen',50]]){
+  if(component[field]==null)continue;
+  if(typeof component[field]!=='string'||component[field].length>max)throw new Error(`${label} inválida`);
+  evidence[field]=component[field].trim();
+ }
+ if(component.source_quantity!=null&&component.source_quantity!==''){
+  evidence.source_quantity=decimal(component.source_quantity,'Consumo de origen');
+  if(compareDecimals(evidence.source_quantity,'0')<=0)throw new Error('El consumo de origen debe ser mayor que cero');
+ }
+ return evidence;
+}
+function masonryFamily(description){
+ const text=normalize(description);
+ if(/\bladrillos?\b(?:\s+\w+){0,3}\s+ceramicos?\b/.test(text))return 'ceramic';
+ if(/\bbloques?\b(?:\s+\w+){0,3}\s+(?:cemento|hormigon)\b/.test(text))return 'concrete';
+ return '';
+}
+function masonryTarget(description){
+ const text=normalize(description);
+ // A ceramic substrate mentioned in a plaster/finish item is not a brick order.
+ if(/\b(?:revoques?|revestimientos?|pinturas?|impermeabilizacion|azotados?|enlucidos?)\b/.test(text))return '';
+ return /\b(?:mamposteria|pared|paredes|muros?|ladrillos?|bloques?)\b/.test(text)?masonryFamily(text):'';
+}
+function catalogBagWeight(resource){
+ // Read only an unambiguous package mass from the real catalog description.
+ // A model-supplied conversion factor or package description is never trusted.
+ const description=String(resource.description||'').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+ const weights=[...description.matchAll(/(?:^|[^\d.,])(\d+(?:[.,]\d+)?)\s*(?:kg|kilogramos?|kilos?)\b/g)];
+ if(weights.length!==1)return null;
+ try{const weight=decimal(weights[0][1],'Peso del envase');return compareDecimals(weight,'0')>0?weight:null;}catch{return null;}
+}
+function componentSafetyErrors(row,component,resource){
+ const errors=[],label=resource.description,unit=consumptionUnit(resource.unit);
+ const declared=consumptionUnit(component.quantity_unit||'');
+ if(declared&&declared!==unit)errors.push(`Unidad de consumo incompatible: ${label} declara ${component.quantity_unit}, pero el catálogo usa ${resource.unit}. Corregí el consumo en la unidad del catálogo.`);
+ const sourceUnit=consumptionUnit(component.source_unit||''),sourceQuantity=component.source_quantity;
+ if(sourceUnit||sourceQuantity!=null&&sourceQuantity!==''){
+  if(!sourceUnit||sourceQuantity==null||sourceQuantity==='')errors.push(`Falta cantidad o unidad del consumo de origen: ${label}`);
+  else{
+   let matches=false;
+   try{
+    const quantity=decimal(String(component.quantity),'Consumo'),source=decimal(String(sourceQuantity),'Consumo de origen');
+    if(sourceUnit===unit)matches=compareDecimals(quantity,source)===0;
+    else if(unit==='bolsa'&&sourceUnit==='kg'){
+     const weight=catalogBagWeight(resource);
+     matches=!!weight&&compareDecimals(multiplyDecimals(quantity,weight),source)===0;
+    }
+   }catch{}
+   if(!matches)errors.push(`Consumo de origen incompatible: ${label}. Revisá la cantidad y su conversión de ${component.source_unit} a ${resource.unit}; no se aplica una conversión automática.`);
+  }
+ }
+ const actual=masonryFamily(resource.description);
+ const requested=masonryFamily(component.requested_description||''),target=masonryTarget(row.seed.description);
+ if(actual&&[requested,target].some(family=>family&&family!==actual))errors.push(`Material incompatible: ${label} no corresponde a la mampostería requerida en ${row.seed.description}. Elegí el insumo compatible; no se sustituye ladrillo cerámico por bloque de cemento u hormigón.`);
+ return errors;
+}
 export function parseAcuProposals(text,seeds,allowedResources){
  let value;try{value=JSON.parse(text.trim().replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,''));}catch{throw new Error('La respuesta de ACU está incompleta o no tiene el formato esperado. Acotá los criterios y volvé a solicitar las partidas pendientes');}
  if(!Array.isArray(value.acu_proposals)||!value.acu_proposals.length||value.acu_proposals.length>5)throw new Error('La IA no devolvió una lista completa de ACU (máximo 5 por consulta)');
@@ -59,13 +123,14 @@ export function parseAcuProposals(text,seeds,allowedResources){
   if(!Array.isArray(p.components)||p.components.length>100)throw new Error('Lista de insumos inválida');
   const resources=new Set();let unknown=false,repeated=false;const components=p.components.map(c=>{
    const quantity=decimal(c.quantity,'Consumo');if(compareDecimals(quantity,'0')<=0)throw new Error('Los consumos deben ser mayores que cero');
+   const evidence=componentEvidence(c);
    if(!allowed.has(c.resource_id)){
     unknown=true;
     const hint=[c.description,c.resource_code,c.resource_id].find(value=>typeof value==='string'&&value.trim())||'Insumo pendiente de identificar';
-    return {resource_id:'',quantity,description:hint.replace(/[\u0000-\u001F\u007F]/g,' ').trim().slice(0,500)||'Insumo pendiente de identificar'};
+    return {resource_id:'',quantity,description:hint.replace(/[\u0000-\u001F\u007F]/g,' ').trim().slice(0,500)||'Insumo pendiente de identificar',...evidence};
    }
    if(resources.has(c.resource_id))repeated=true;resources.add(c.resource_id);
-   return {resource_id:c.resource_id,quantity};
+   return {resource_id:c.resource_id,quantity,...evidence};
   });
   if(p.measurements!=null&&!Array.isArray(p.measurements)||p.measurements?.length>100)throw new Error('Mediciones inválidas');
   const measurements=(p.measurements||[]).map(m=>{
@@ -101,6 +166,8 @@ export function acuTotals(row,resources){
   const r=map.get(c.resource_id);
   if(!r){errors.push('Hay un insumo no disponible');continue;}
   if(seen.has(r.id)){errors.push('Insumo repetido: '+r.description);continue;}seen.add(r.id);
+  errors.push(...componentSafetyErrors(row,c,r));
+  if(!c.quantity_unit)warnings.push('Unidad de consumo no declarada por IA: '+r.description+'. Revisá el consumo manualmente.');
   if(r.price==null){errors.push('Sin precio: '+r.description);continue;}
   if(compareDecimals(r.price,'0')===0)warnings.push('Precio cero: '+r.description);
   try{const q=decimal(String(c.quantity),'Consumo');if(compareDecimals(q,'0')<=0)throw new Error();cost=sumDecimals([cost,multiplyDecimals(q,r.price)]);}catch{errors.push('Consumo inválido: '+r.description);}
@@ -110,6 +177,19 @@ export function acuTotals(row,resources){
  if(row.apply_measurements){try{quantity=measurementQuantity(row.measurements);if(quantity==null||compareDecimals(quantity,'0')<0)throw new Error();}catch{errors.push('La medición está incompleta o su resultado es negativo');}}
  try{quantity=decimal(String(quantity),'Cantidad total');}catch{errors.push('Cantidad total inválida');quantity='0';}
  return {errors,warnings,unit_cost:errors.length?null:cost,quantity,total:errors.length?null:multiplyDecimals(quantity,cost)};
+}
+// Preapproval waives per-row confirmation, not catalog, unit or material checks.
+// Legacy recipes remain manually reviewable but cannot be automatically saved
+// without explicit consumption units, requested identity and supporting criteria.
+export function acuPreapprovalErrors(row,resources){
+ const errors=[...acuTotals(row,resources).errors],catalog=new Map(resources.map(resource=>[resource.id,resource]));
+ for(const component of row.components){
+  const resource=catalog.get(component.resource_id),label=resource?.description||component.description||'Insumo pendiente';
+  for(const [field,description] of [['quantity_unit','unidad de consumo'],['requested_description','descripción del insumo requerido'],['consumption_support','fundamento del consumo']]){
+   if(typeof component[field]!=='string'||!component[field].trim())errors.push(`Falta ${description} explícita para la carga preaprobada: ${label}`);
+  }
+ }
+ return [...new Set(errors)];
 }
 export function copyAcuExample(seed,example){
  if(normalize(seed.unit)!==normalize(example.unit))throw new Error('La unidad de la receta no coincide con la partida. Adaptá los consumos explícitamente antes de reutilizarla');

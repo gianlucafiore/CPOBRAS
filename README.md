@@ -650,3 +650,28 @@ revisa sus consumos y resuelve los faltantes antes de guardar. Los borradores se
 conservan en memoria durante la sesión. La generación en lote usa la misma
 conexión de IA guardada y requiere autorizar el envío de esa lista; no envía el
 catálogo ni el historial del chat.
+
+
+El chat permite elegir **Revisar antes de cargar** o **Sí, aprobar y cargar**.
+La segunda opción autoriza solo ese pedido y ejecuta la carga desde el chat, sin
+abrir la ventana de ACU ni pedir otra confirmación por fila. Muestra progreso,
+permite detener antes del guardado y luego informa lo cargado y lo pendiente.
+Cerrar el chat o cambiar de sección detiene la carga que aún no empezó a guardarse.
+Las propuestas de partidas simples se pueden crear con ese mismo botón, sin
+otra consulta al proveedor; las cantidades o precios no informados se guardan
+en cero. Las propuestas de edición o eliminación conservan su revisión habitual.
+
+La preaprobación de ACU conserva cantidades y metrados existentes, fija las
+partidas de esa ejecución y realiza una sola escritura para las recetas válidas.
+No permite omitir insumos inexistentes, falta de precios, consumos inválidos o
+incompatibilidades explícitas de material/unidad. Las recetas que no se pueden
+cargar quedan disponibles en **Ver pendientes**. El resto se puede editar desde
+el ACU de cada partida. La autorización no se reutiliza al retomar un borrador,
+cambiar el catálogo o cambiar de obra o presupuesto.
+
+Cada componente generado declara la unidad del consumo, el insumo requerido y
+el fundamento del rendimiento. Cuando hay conversión, también declara cantidad
+y unidad de origen. Se comprueban las unidades y las sustituciones explícitas
+de ladrillo cerámico/bloque de cemento; una conversión de kg a bolsas solo se
+acepta cuando coincide con el peso inequívoco del envase en el catálogo real.
+Estas comprobaciones no certifican la exactitud técnica del rendimiento estimado.
