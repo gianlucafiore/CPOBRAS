@@ -143,8 +143,8 @@ export function materialAdditionConfirmation(question,messages=[],context={}){
  if(!/\b(?:puedo|podemos|prepar|carg|agreg|incorpor|aprob|revis|queres|avanz|hacer)\w*\b/.test(chatFold(messageText(last))))return null;
  const boundary=messages.findLastIndex(message=>message?.role==='assistant'&&message.approval?.result?.committed===true);
  const recent=messages.slice(boundary+1).filter(message=>message?.role==='user'&&typeof message.content==='string');
- const request=[...recent].reverse().find(message=>!isApprovalReply(message.content)&&!/[¿?]/.test(message.content));
- if(!request)return null;
+ const request=[...recent].reverse().find(message=>!isApprovalReply(message.content));
+ if(!request||/[¿?]/.test(request.content))return null;
  return materialAdditionFollowup(request.content,messages,context);
 }
 
