@@ -48,3 +48,28 @@ export function screenContext(document) {
   const text=parts.join(" | ");
   return text.length>7000?`${text.slice(0,6900)}\n[Vista recortada: hay más filas o datos que no se incluyeron.]`:text;
 }
+
+// UI watchdog is independent from native HTTP timeouts and IPC task failures.
+export function createAiRequest(invoke,args,options={}) {
+  const requestId=options.requestId??globalThis.crypto.randomUUID();
+  const schedule=options.setTimer??globalThis.setTimeout;
+  const unschedule=options.clearTimer??globalThis.clearTimeout;
+  let pending=true,dispatched=false,timer,resolveRequest,rejectRequest;
+  const promise=new Promise((resolve,reject)=>{resolveRequest=resolve;rejectRequest=reject;});
+  function finish(error,result){
+    if(!pending)return;pending=false;unschedule(timer);
+    if(error)rejectRequest(error);else resolveRequest(result);
+  }
+  function cancel(message="Consulta cancelada. Si el proveedor ya la recibió, puede haber consumo."){
+    if(!pending)return;
+    finish(new Error(message));
+    if(dispatched)void Promise.resolve().then(()=>invoke("ai_cancel",{requestId})).catch(()=>{});
+  }
+  timer=schedule(()=>cancel("La conexión no respondió a tiempo. Se canceló la espera y se conservó tu consulta. No hubo reintento automático."),options.timeoutMs??65000);
+  void Promise.resolve().then(()=>{
+    if(!pending)return;
+    dispatched=true;
+    return invoke("ai_chat",{...args,requestId});
+  }).then(result=>{if(pending)finish(null,result);},error=>finish(error));
+  return {promise,cancel,requestId};
+}

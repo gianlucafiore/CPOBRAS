@@ -1,16 +1,59 @@
 //! Opt-in, read-only paid AI. Credentials and conversation never enter the project DB.
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Mutex,
-};
 use std::time::Duration;
+use std::{collections::VecDeque, sync::Mutex};
+use tokio::sync::oneshot;
+use uuid::Uuid;
 
 #[derive(Default)]
 pub struct AiSession {
     credentials: Mutex<Option<Credentials>>,
-    busy: AtomicBool,
+    requests: Mutex<Requests>,
+}
+#[derive(Default)]
+struct Requests {
+    active: Option<ActiveRequest>,
+    // A cancellation can reach IPC before its async chat command starts.
+    cancelled: VecDeque<Uuid>,
+}
+struct ActiveRequest {
+    id: Uuid,
+    cancel: Option<oneshot::Sender<()>>,
+}
+impl Requests {
+    fn begin(&mut self, id: Uuid) -> Result<oneshot::Receiver<()>, String> {
+        if self.cancelled.contains(&id) {
+            return Err("Consulta cancelada".into());
+        }
+        if self.active.is_some() {
+            return Err("Hay una consulta en curso. Cancelala o esperá a que termine".into());
+        }
+        let (sender, receiver) = oneshot::channel();
+        self.active = Some(ActiveRequest {
+            id,
+            cancel: Some(sender),
+        });
+        Ok(receiver)
+    }
+    fn cancel(&mut self, id: Uuid) {
+        if !self.cancelled.contains(&id) {
+            self.cancelled.push_back(id);
+            if self.cancelled.len() > 32 {
+                self.cancelled.pop_front();
+            }
+        }
+        if let Some(active) = self.active.as_mut().filter(|a| a.id == id) {
+            if let Some(sender) = active.cancel.take() {
+                let _ = sender.send(());
+            }
+        }
+    }
+    fn finish(&mut self, id: Uuid) {
+        if self.active.as_ref().is_some_and(|a| a.id == id) {
+            self.active = None;
+        }
+    }
 }
 struct Credentials {
     provider: String,
@@ -165,23 +208,34 @@ fn decode(provider: &str, body: Value) -> Result<AiReply, String> {
         output_tokens: body["usage"]["output_tokens"].as_u64(),
     })
 }
-struct BusyGuard<'a>(&'a AtomicBool);
+struct BusyGuard<'a> {
+    requests: &'a Mutex<Requests>,
+    id: Uuid,
+}
 impl Drop for BusyGuard<'_> {
     fn drop(&mut self) {
-        self.0.store(false, Ordering::Release);
+        if let Ok(mut requests) = self.requests.lock() {
+            requests.finish(self.id);
+        }
     }
+}
+#[tauri::command]
+pub fn ai_cancel(session: tauri::State<'_, AiSession>, request_id: Uuid) -> Result<(), String> {
+    session
+        .requests
+        .lock()
+        .map_err(|_| "No se pudo cancelar la consulta")?
+        .cancel(request_id);
+    Ok(())
 }
 #[tauri::command]
 pub async fn ai_chat(
     session: tauri::State<'_, AiSession>,
+    request_id: Uuid,
     messages: Vec<Message>,
     context: String,
 ) -> Result<AiReply, String> {
     validate_messages(&messages, &context)?;
-    if session.busy.swap(true, Ordering::AcqRel) {
-        return Err("Hay una consulta en curso".into());
-    }
-    let _busy = BusyGuard(&session.busy);
     let (provider, model, key) = {
         let guard = session
             .credentials
@@ -192,12 +246,58 @@ pub async fn ai_chat(
             .ok_or("Configurá tu clave de API para esta sesión")?;
         (c.provider.clone(), c.model.clone(), c.key.clone())
     };
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(90))
-        .connect_timeout(Duration::from_secs(15))
+    let cancelled = session
+        .requests
+        .lock()
+        .map_err(|_| "No se pudo iniciar la consulta")?
+        .begin(request_id)?;
+    let _busy = BusyGuard {
+        requests: &session.requests,
+        id: request_id,
+    };
+    // A worker panic must become an IPC error instead of leaving the UI promise pending.
+    let mut task =
+        tokio::spawn(async move { perform_request(provider, model, key, messages, context).await });
+    tokio::select! {
+        biased;
+        _=cancelled=>{task.abort();Err("Consulta cancelada. Si el proveedor ya la recibió, puede haber consumo".into())},
+        result=&mut task=>result.map_err(|_| "No se pudo inicializar o completar la conexión de IA. La consulta se interrumpió; revisá la configuración".to_string())?,
+        _=tokio::time::sleep(Duration::from_secs(60))=>{task.abort();Err("El proveedor no respondió dentro de 60 segundos. Se interrumpió la espera; no se reintentó automáticamente".into())},
+    }
+}
+fn http_client() -> Result<reqwest::Client, String> {
+    // reqwest rustls-no-provider panics unless a provider is explicitly installed.
+    // Reuse an existing default, otherwise install the ring backend already used by P2P.
+    if rustls::crypto::CryptoProvider::get_default().is_none() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    }
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(60))
+        .connect_timeout(Duration::from_secs(10))
+        .read_timeout(Duration::from_secs(30))
         .redirect(reqwest::redirect::Policy::none())
         .build()
-        .map_err(|_| "No se pudo iniciar la conexión segura")?;
+        .map_err(|_| "No se pudo iniciar la conexión HTTPS segura".into())
+}
+fn connection_error(error: reqwest::Error) -> String {
+    // Never expose URLs, headers, credentials or provider response bodies.
+    if error.is_timeout() {
+        "Se agotó el tiempo de espera de la conexión. Revisá Internet o el proxy; no se reintentó automáticamente".into()
+    } else if error.is_connect() {
+        "No se pudo establecer la conexión HTTPS. Revisá Internet, proxy y certificados del sistema"
+            .into()
+    } else {
+        "Se interrumpió la comunicación con el proveedor. La aplicación no reintenta automáticamente".into()
+    }
+}
+async fn perform_request(
+    provider: String,
+    model: String,
+    key: String,
+    messages: Vec<Message>,
+    context: String,
+) -> Result<AiReply, String> {
+    let client = http_client()?;
     let request = if provider == "openai" {
         client
             .post("https://api.openai.com/v1/responses")
@@ -208,7 +308,11 @@ pub async fn ai_chat(
             .header("x-api-key", key)
             .header("anthropic-version", "2023-06-01")
     };
-    let mut response=request.json(&payload(&provider,&model,&messages,&context)).send().await.map_err(|_| "No se pudo conectar con el proveedor. Revisá Internet y volvé a intentar; la aplicación no reintenta automáticamente")?;
+    let mut response = request
+        .json(&payload(&provider, &model, &messages, &context))
+        .send()
+        .await
+        .map_err(connection_error)?;
     if !response.status().is_success() {
         return Err(match response.status().as_u16() {
             401 | 403 => "El proveedor rechazó la clave o sus permisos",
@@ -221,11 +325,7 @@ pub async fn ai_chat(
         .into());
     }
     let mut bytes = Vec::new();
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|_| "Se interrumpió la respuesta del proveedor")?
-    {
+    while let Some(chunk) = response.chunk().await.map_err(connection_error)? {
         if bytes.len() + chunk.len() > 128_000 {
             return Err("La respuesta superó el tamaño permitido".into());
         }
@@ -240,6 +340,26 @@ pub async fn ai_chat(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn initializes_https_without_needing_p2p_to_install_crypto_first() {
+        let _client = http_client().expect("HTTPS client must not panic in a fresh process");
+        assert!(rustls::crypto::CryptoProvider::get_default().is_some());
+    }
+    #[test]
+    fn cancellation_is_scoped_and_handles_cancel_before_start() {
+        let mut requests = Requests::default();
+        let first = Uuid::new_v4();
+        let second = Uuid::new_v4();
+        requests.cancel(first);
+        assert!(requests.begin(first).is_err());
+        let mut receiver = requests.begin(second).unwrap();
+        requests.finish(first); // late cleanup must not release a different request
+        assert!(requests.begin(Uuid::new_v4()).is_err());
+        requests.cancel(second);
+        assert_eq!(receiver.try_recv(), Ok(()));
+        requests.finish(second);
+        assert!(requests.begin(Uuid::new_v4()).is_ok());
+    }
     #[test]
     fn rejects_injected_roles_and_large_context() {
         assert!(validate_messages(

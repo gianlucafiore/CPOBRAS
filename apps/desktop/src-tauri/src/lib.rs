@@ -53,6 +53,7 @@ pub(crate) fn configure<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri:
             commands::ai::ai_status,
             commands::ai::ai_forget,
             commands::ai::ai_chat,
+            commands::ai::ai_cancel,
             commands::p2p::p2p_status,
             commands::p2p::p2p_projects,
             commands::p2p::p2p_set_permissions,

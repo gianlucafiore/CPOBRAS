@@ -6,6 +6,7 @@ commands.allow = [
   "ai_status",
   "ai_forget",
   "ai_chat",
+  "ai_cancel",
   "import_resources",
   "set_entity_archived",
   "delete_unused_person",

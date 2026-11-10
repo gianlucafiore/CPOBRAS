@@ -486,7 +486,12 @@ pulsa Enviar y se acepta el aviso de envío y posibles cargos. El contexto de la
 pantalla está desactivado de forma predeterminada: capturalo, revisá o editá su
 texto y marcá Incluir estos datos para compartirlo. Se limita el tamaño del
 contexto y la respuesta, sin reintentos automáticos; esto no constituye un tope
-monetario. Configurá límites de gasto en la cuenta del proveedor. Las políticas
+monetario. La espera de respuesta se limita a 60 segundos y la interfaz tiene
+un corte independiente a los 65 segundos si IPC no responde. Podés usar
+**Cancelar consulta**; se conserva la pregunta y no se reintenta. Cancelar no
+garantiza que el proveedor no haya procesado o cobrado una solicitud ya recibida.
+Configurar una clave no verifica la conexión: el panel confirma la primera
+respuesta recibida. Configurá límites de gasto en la cuenta del proveedor. Las políticas
 de tratamiento y retención del proveedor siguen aplicándose; en OpenAI se envía
 `store: false`. No se envían archivos, adjuntos ni la base de datos.
 
