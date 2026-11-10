@@ -222,6 +222,7 @@ pub(crate) fn configure<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri:
             commands::resources::register_resource_price,
             commands::analyses::reprice_analysis,
             commands::sections::save_budget_section,
+            commands::sections::apply_budget_section_edits,
             commands::sections::list_budget_sections,
             commands::sections::list_line_sections,
             commands::analyses::get_analysis_details,
