@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {parseAiReply,draftFromProposal,createAiRequest,budgetScreenContext,acuChatRequest,resolvedPendingApproval,isApprovalReply,materialAdditionFollowup,materialAdditionConfirmation,selectedAcuRequest} from '../src/services/ai-assistant.js';
+import {parseAiReply,draftFromProposal,createAiRequest,budgetScreenContext,acuChatRequest,resolvedPendingApproval,isApprovalReply,materialAdditionFollowup,materialAdditionConfirmation,selectedAcuRequest,affirmativeMissingMaterialRequest} from '../src/services/ai-assistant.js';
 test('unstructured responses remain text; only whitelisted proposals become drafts',()=>{
   assert.deepEqual(parseAiReply('<script>bad()</script>'),{answer:'<script>bad()</script>',proposal:null});
   const reply=parseAiReply(JSON.stringify({answer:'Revisá este borrador',proposal:{kind:'line',description:'Excavación',unit:'m³',quantity:'15.25',unit_price:'30000',id:'existing-id',execute:'delete',sectionId:'secret'}}));
@@ -321,4 +321,23 @@ test('natural selected-partida requests target exactly one existing line without
  assert.equal(selectedAcuRequest('crear partida de baños 35m2',line),null);
  assert.equal(selectedAcuRequest('No cargues materiales',line),null);
  assert.equal(selectedAcuRequest('cargar insumos',null),null);
+});
+
+test('sí agregalos is a single-line append based on named missing materials, not an ACU replacement',()=>{
+ const line={id:acuLineId,description:'Revestimiento de baños',components:[{resource_id:'tile',quantity:'1'},{resource_id:'labor',quantity:'1'}]};
+ const messages=[
+  {role:'user',content:'y qué me falta?'},
+  {role:'assistant',answer:'El catálogo local tiene porcelanatos y colocación, pero faltan adhesivos y pastinas; especificá si querés buscarlos.'}
+ ];
+ const request=affirmativeMissingMaterialRequest('si agregalos',messages,line);
+ assert.equal(request?.mode,'fill');
+ assert.equal(request?.operation,'append');
+ assert.deepEqual(request?.lineIds,[acuLineId]);
+ assert.match(request.brief,/adhesivo/);
+ assert.match(request.brief,/pastina/);
+ assert.match(request.brief,/conserva/i);
+ assert.equal(affirmativeMissingMaterialRequest('si agregalos',messages,null),null);
+ assert.equal(affirmativeMissingMaterialRequest('si agregalos',[{role:'assistant',answer:'Podés agregar insumos.'}],line),null);
+ assert.equal(affirmativeMissingMaterialRequest('si agregalos',[{role:'assistant',answer:'Faltan pastina.',approval:{state:'done'}}],line),null);
+ assert.equal(affirmativeMissingMaterialRequest('si sacalos',messages,line),null);
 });
