@@ -89,11 +89,20 @@ export function additionMissingFixtures(brief,seed,additions,resources){
 
 /** Merge only positive additions. Existing rows and original section are fixed. */
 export function mergeAcuAddition(row,resources,brief=''){
- const existing=structuredClone(row.seed.components||[]),additions=structuredClone(row.components);
+ const existing=structuredClone(row.seed.components||[]),proposed=structuredClone(row.components);
+ // Allow a partial, explicitly catalog-scoped addition: missing resources are
+ // disclosed but cannot prevent saving *other* real, compatible resources.
+ // Unrelated invalid quantities/units/prices still fail the normal validation.
+ const partial=/\b(?:solo|solamente)\b.{0,90}\b(?:disponibles|identificados|encontrados|biblioteca)\b|\b(?:agrega|suma|carga|anade)\w*\b.{0,70}\b(?:disponibles|encontrados)\b/.test(fold(brief));
+ const unknown=partial?proposed.filter(item=>!resources.some(resource=>resource.id===item.resource_id)):[];
+ const additions=partial?proposed.filter(item=>resources.some(resource=>resource.id===item.resource_id)):proposed;
  const required=additionMissingFixtures(brief,row.seed,additions,resources);
- const result={...row,components:existing,measurements:[],apply_measurements:false,section_id:row.seed.section_id||null,section_title:row.seed.section||'',selected:false,missing_resources:[...row.missing_resources,...required]};
- const errors=acuTotals({...row,missing_resources:result.missing_resources},resources).errors;
- if(!additions.length)errors.push('La propuesta no indicó ningún insumo adicional.');
+ const warnings=partial?[...(row.missing_resources||[]),...unknown.map(item=>'Sin coincidencia verificable en biblioteca: '+(item.description||item.requested_description||'insumo no identificado'))].map(item=>'Pendiente: '+item).slice(0,16):[];
+ const result={...row,components:existing,measurements:[],apply_measurements:false,section_id:row.seed.section_id||null,section_title:row.seed.section||'',selected:false,
+  assumptions:[...row.assumptions,...warnings],advisories:[...(row.advisories||[]),...warnings],
+  missing_resources:[...(partial?[]:row.missing_resources),...required]};
+ const errors=acuTotals({...row,components:additions,missing_resources:result.missing_resources},resources).errors;
+ if(!additions.length)errors.push('La propuesta no indicó ningún insumo real disponible para agregar.');
  if(errors.length){
   result.components.push(...additions);result.missing_resources=[...result.missing_resources,'La adición necesita revisión; no se modificó la composición existente. '+errors.join(' · ')];return result;
  }
