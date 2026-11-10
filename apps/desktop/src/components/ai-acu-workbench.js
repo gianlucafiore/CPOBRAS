@@ -127,6 +127,7 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
      });
      return {line_id:row.id,description:row.seed.description,unit:row.seed.unit,mode:model.operation||'fill',items,warnings:[...(row.advisories||[]),...(acuTotals(row,model.context.resources).warnings||[])],unit_cost:acuTotals(row,model.context.resources).unit_cost};
     });
+    if(previewRows.some(row=>!row.items.length))throw new Error('El listado no contiene modificaciones concretas para todas las partidas; no se habilitó una aprobación a ciegas.');
     const preview={rows:previewRows,pending:authorization.targetIds.size-batch.acus.length,
      pendingReasons:model.rows.filter(row=>!row.selected).map(row=>({description:row.seed.description,reasons:[...(row.missing_resources||[]),...acuPreapprovalErrors(row,model.context.resources)].slice(0,6)})),
      estimateId:model.estimate.id,scope:authorization.scope,id:globalThis.crypto.randomUUID()};
