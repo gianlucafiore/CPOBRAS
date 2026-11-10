@@ -1,0 +1,35 @@
+name: AI chat regression
+on:
+  push:
+    paths:
+      - "apps/desktop/src/**"
+      - "apps/desktop/tests/ai-*.test.mjs"
+      - "apps/desktop/tests/browser/ai-sanitario-append.spec.mjs"
+      - ".github/workflows/ai-chat-regression.yml"
+  pull_request:
+    paths:
+      - "apps/desktop/src/**"
+      - "apps/desktop/tests/ai-*.test.mjs"
+      - "apps/desktop/tests/browser/ai-sanitario-append.spec.mjs"
+      - ".github/workflows/ai-chat-regression.yml"
+
+jobs:
+  sanitary-addition:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+      - name: Install frontend dependencies
+        working-directory: apps/desktop
+        run: npm ci
+      - name: Unit tests for AI requests and ACU additions
+        working-directory: apps/desktop
+        run: node --test tests/ai-assistant.test.mjs tests/ai-acu-addition.test.mjs
+      - name: Install Chromium
+        working-directory: apps/desktop
+        run: npx playwright install --with-deps chromium
+      - name: End-to-end chat ACU addition
+        working-directory: apps/desktop
+        run: npm run test:browser -- ai-sanitario-append.spec.mjs
