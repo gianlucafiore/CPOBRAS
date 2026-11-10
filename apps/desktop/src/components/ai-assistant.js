@@ -4,6 +4,7 @@ import {createAiBudgetImport} from "./ai-budget-import.js";
 import {e,dateToday} from "./helpers.js";
 import {buildCatalogContext,parseCatalogQuery} from "../services/ai-catalog-context.js";
 import {appendRequest} from "../services/ai-acu-addition.js";
+import {productivityEditRequest} from "../services/ai-acu-productivity.js";
 import {parseAiReply,draftFromProposal,screenContext,createAiRequest,budgetScreenContext,acuChatRequest,resolvedPendingApproval,isApprovalReply,materialAdditionFollowup,materialAdditionConfirmation} from "../services/ai-assistant.js";
 const defaults={openai:"gpt-4.1-mini",anthropic:"claude-haiku-4-5"};
 export function createAiAssistant({invoke,state,document,window,openModal,editable,loadEstimate,loadEstimates,openEstimate,openResourceLibrary}) {
@@ -44,7 +45,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
   function actionContext(){
     const message=model.lastAction;if(!message)return '\nESTADO DE CARGAS DE CPOBRAS: no hay una ejecución registrada en este chat.';
     const approval=message.approval,result=approval?.result;
-    return '\nESTADO DE CARGAS REGISTRADO POR CPOBRAS (no es una afirmación del modelo):\n'+JSON.stringify({state:approval?.state||(message.actionError?'rejected':'pending'),committed:result?.committed===true,created:result?.created||0,saved:result?.saved||0,pending:result?.pending||0,estimate_id:result?.estimateId||null,line_ids:result?.lineIds||[],message:approval?.message||message.actionError||'La propuesta no se ejecutó. Espera aprobación.'});
+    return '\nESTADO DE CARGAS REGISTRADO POR CPOBRAS (no es una afirmación del modelo):\n'+JSON.stringify({state:approval?.state||(message.actionError?'rejected':'pending'),committed:result?.committed===true,created:result?.created||0,saved:result?.saved||0,pending:result?.pending||0,estimate_id:result?.estimateId||null,line_ids:result?.lineIds||[],warnings:result?.warnings||[],message:approval?.message||message.actionError||'La propuesta no se ejecutó. Espera aprobación.'});
   }
   function showActionState(question){
     const message=model.lastAction;
@@ -88,7 +89,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     const name=state.estimates.find(e=>e.id===state.estimateId)?.title||'un presupuesto nuevo de esta obra';
     const resolved=acuMessageRequest(index),isAcu=resolved.isAcu;
     const request=resolved.request,targets=request?.lineIds?.length?request.lineIds.map(id=>state.lines.find(line=>line.id===id)?.description||id):[];
-    const scopeHint=isAcu?(request?.mode==='create'?'Se crearán partidas nuevas con su ACU.':targets.length?'Partidas indicadas: '+targets.join(', ')+(request.operation==='append'?'. Se agregarán los insumos solicitados conservando la composición actual.':'. Si ya tienen ACU, se reemplazará su composición.'):'Se completarán las partidas que todavía no tengan ACU.'):'';
+    const scopeHint=isAcu?(request?.mode==='create'?'Se crearán partidas nuevas con su ACU.':targets.length?'Partidas indicadas: '+targets.join(', ')+(request.operation==='append'?'. Se agregarán los insumos solicitados conservando la composición actual.':request.operation==='productivity'?'. Se ajustará solo el consumo del equipo indicado; los demás insumos se conservan. Si la unidad del catálogo no coincide con el uso por día, se guardará una advertencia.':'. Si ya tienen ACU, se reemplazará su composición.'):'Se completarán las partidas que todavía no tengan ACU.'):'';
     return `<p>${isAcu?'La autorización permite generar y cargar los ACU de este pedido; las cantidades y los metrados existentes se conservan.':'La autorización agrega estas partidas nuevas. Cantidades o precios sin informar se cargan en 0.'} Destino: ${e(name)}. ${e(scopeHint)} Podés ajustar los datos después.</p><button type="button" class="ai-approve" data-ai="approve-load" data-index="${index}" ${canPlan()&&model.configured&&model.consent&&!model.busy?'':'disabled'}>Sí, aprobar y cargar</button>`;
   }
   async function approveMessage(index){
@@ -107,7 +108,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       const saved=result.saved||0,created=result.created||0,pending=result.pending||0;
       const counts=[saved?`${saved} ACU ${saved===1?'cargado':'cargados'}`:'',created?`${created} ${created===1?'partida nueva creada':'partidas nuevas creadas'}`:''].filter(Boolean).join(' y ');
       const summary=result.committed?`Carga terminada: ${counts||'guardado confirmado'}${pending?`; ${pending} ${pending===1?'pendiente':'pendientes'}`:''}.`:`${result.cancelled?'Carga detenida. ':''}No hay un guardado confirmado para este pedido${pending?`; ${pending} ${pending===1?'pendiente':'pendientes'}`:''}.`;
-      const notice=[summary,result.error,result.refreshError].filter(Boolean).join(' ');
+      const notice=[summary,...(result.warnings||[]),result.error,result.refreshError].filter(Boolean).join(' ');
       message.answer=notice;message.approval={...message.approval,state:'done',message:notice,result};
       message.content=JSON.stringify({answer:message.answer+'\nResultado registrado por CPOBRAS: '+notice});model.notice=notice;
     }catch(error){if(run.scope===scope()){message.answer='La carga se detuvo: '+String(error);message.approval={...message.approval,state:'stopped',message:message.answer};message.content=JSON.stringify({answer:message.answer});}}
@@ -154,11 +155,13 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       model.question='';await approveMessage(index);return;
     }
     const additionContext={selectedLineId:state.selectedLineId,lines:state.lines,lastAction:model.lastAction};
-    const addition=materialAdditionFollowup(question,model.messages,additionContext);
+    const selectedLine=state.lines.find(line=>line.id===state.selectedLineId);
+    const productivity=productivityEditRequest(question,selectedLine);
+    const addition=productivity?null:materialAdditionFollowup(question,model.messages,additionContext);
     const recovered=addition?null:materialAdditionConfirmation(question,model.messages,additionContext);
-    const acuRequest=addition||recovered||acuChatRequest(question,model.messages);
+    const acuRequest=productivity||addition||recovered||acuChatRequest(question,model.messages);
     if(canPlan()&&acuRequest){
-      const answer='Pedido listo para revisar o aprobar. No se guardó nada todavía.';
+      const answer=productivity?'Rendimiento identificado. Voy a ajustar solo el equipo seleccionado; cualquier diferencia de unidad se informará. Falta aprobar.':'Pedido listo para revisar o aprobar. No se guardó nada todavía.';
       addReply(question,{answer,acuRequest});model.notice='La aprobación se aplica únicamente a este pedido.';
       // A plain-language offer from the model isn't an approval card: after
       // recovering it, show a real local card and require a fresh approval.
