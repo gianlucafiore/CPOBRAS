@@ -74,12 +74,14 @@ export function prepareSectionBatch(call,{state,sourceLineIds=[]}){
   }
  } else if(action==='rename'){
   const from=call.args.from_name,to=call.args.to_name;
-  if(!nonempty(from)||!nonempty(to)||to.length>100)fail('Para renombrar un rubro indicá el nombre actual y el nuevo');
+  if(!nonempty(from)||!nonempty(to)||to.length>100)fail('Para editar un rubro indicá el nombre actual y el nuevo nombre o código');
   const section=byTitle(sections,from);
-  if(norm(section.title)===norm(to))fail('El rubro ya tiene ese nombre');
+  if(norm(section.title)===norm(to)&&!call.args.new_code)fail('El rubro ya tiene ese nombre');
   if(known.has(norm(to)))fail('Ya existe un rubro con el nombre propuesto');
-  batch.renames.push({id:section.id,expected:expectedSection(section),title:to.trim()});
-  preview.renamed.push({from:section.title,to:to.trim()});
+  const newCode=call.args.new_code?.trim();
+  if(newCode&&(newCode.length>64||sections.some(item=>item.id!==section.id&&norm(item.code)===norm(newCode))))fail('El código ya existe o no es válido');
+  batch.renames.push({id:section.id,expected:expectedSection(section),title:to.trim(),...(newCode?{code:newCode}:{})});
+  preview.renamed.push({from:section.title,to:to.trim(),...(newCode?{code:newCode}:{})});
  } else {
   const names=parseNames(call.args.names||call.args.name);
   if(!names.length||names.length>60)fail('Indicá uno o más rubros existentes para eliminar');
@@ -87,15 +89,17 @@ export function prepareSectionBatch(call,{state,sourceLineIds=[]}){
   for(const name of names){
    const section=byTitle(sections,name);
    if(ids.has(section.id))continue;ids.add(section.id);
-   if(sections.some(s=>s.parent_id===section.id)||Object.values(state.assignments||{}).includes(section.id))
-    fail('El rubro «'+section.title+'» contiene subrubros o partidas. No se borrará hasta que su contenido sea reasignado.');
-   batch.deletes.push({id:section.id,expected:expectedSection(section)});
+   const expected_lines=Object.values(state.assignments||{}).filter(id=>id===section.id).length;
+   const expected_children=sections.filter(s=>s.parent_id===section.id).length;
+   batch.deletes.push({id:section.id,expected:expectedSection(section),expected_lines,expected_children});
    preview.deleted.push(section.title);
+   if(expected_lines)preview.warnings.push('Se conservan '+expected_lines+' partidas; quedarán sin rubro.');
+   if(expected_children)preview.warnings.push('Se conservan '+expected_children+' subrubros; pasan al rubro superior.');
   }
  }
  if(!batch.creates.length&&!batch.renames.length&&!batch.deletes.length&&!batch.converts.length)
   fail('Esos rubros ya existen. No se crearon partidas ni rubros duplicados.');
  if(preview.converted.length)preview.warnings.push('La conversión archivará solo las partidas genéricas de la última carga, sin costo ni ACU. Las otras partidas se conservan.');
- if(preview.deleted.length)preview.warnings.push('Se eliminarán solo rubros vacíos, sin partidas ni subrubros asociados.');
+ if(preview.deleted.length)preview.warnings.push('Eliminar rubros no elimina partidas ni subrubros: se desasignan o reubican.');
  return {batch,preview};
 }
