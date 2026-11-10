@@ -239,3 +239,18 @@ test('consumption metadata is optional but typed, bounded and preserved for prev
   assert.throws(()=>evidenceRow(bad));
  }
 });
+
+test('ACU context highlights existing semantically related resources without inventing IDs or substituting materials',()=>{
+ const resources=[
+  {...resource,id:'adh-1',description:'Adhesivo cementicio para porcelanato',unit:'bolsa'},
+  {...resource,id:'cem-2',description:'Cemento Portland',unit:'kg'},
+ ];
+ const work={...seed,description:'Colocación con pegamento'};
+ const payload=JSON.parse(acuPromptContext([work],resources,[],'Preparar la colocación con pegamento'));
+ assert.equal(payload.task,'acu');
+ assert.equal(payload.resource_candidates[0].line_id,work.id);
+ assert.ok(payload.resource_candidates[0].candidates.some(item=>item.resource_id==='adh-1'&&item.match==='semantic_related'));
+ assert.ok(!payload.resource_candidates[0].candidates.some(item=>item.resource_id==='cem-2'));
+ assert.ok(payload.resources.some(item=>item.resource_id==='cem-2'));
+ assert.match(payload.candidate_rule,/NO equivalencias automáticas/);
+});
