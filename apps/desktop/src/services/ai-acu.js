@@ -7,7 +7,7 @@ export function emptyAcu(seed){return {id:seed.id,seed,selected:false,components
 function decimal(value,label){if(typeof value!=='string')throw new Error(`${label}: usá un decimal como texto`);const v=importDecimal(value.trim().replace(',','.'),'decimal',true);if(v==null)throw new Error(`${label}: falta el dato`);return v;}
 // Notes are explanatory text, not a write schema. Providers sometimes return a
 // string or descriptive objects despite the requested array format. Normalize
-// them without relaxing the strict resource IDs, consumptions or prices below.
+// them without relaxing consumptions, target IDs or the rules for saving below.
 function acuNotes(value,pending=false){
  if(value==null)return [];
  const notes=[],encoder=new TextEncoder(),limit=4000,maxEntries=40;
@@ -57,9 +57,15 @@ export function parseAcuProposals(text,seeds,allowedResources){
  const proposals=value.acu_proposals.map(p=>{
   const seed=seeds.find(s=>s.id===p.line_id);if(!seed||seen.has(p.line_id))throw new Error('La IA indicó una partida ajena a la consulta o repetida');seen.add(p.line_id);
   if(!Array.isArray(p.components)||p.components.length>100)throw new Error('Lista de insumos inválida');
-  const resources=new Set();const components=p.components.map(c=>{
-   if(!allowed.has(c.resource_id)||resources.has(c.resource_id))throw new Error('La IA usó un insumo desconocido o repetido; no se incorporó esa consulta');resources.add(c.resource_id);
-   const quantity=decimal(c.quantity,'Consumo');if(compareDecimals(quantity,'0')<=0)throw new Error('Los consumos deben ser mayores que cero');return {resource_id:c.resource_id,quantity};
+  const resources=new Set();let unknown=false,repeated=false;const components=p.components.map(c=>{
+   const quantity=decimal(c.quantity,'Consumo');if(compareDecimals(quantity,'0')<=0)throw new Error('Los consumos deben ser mayores que cero');
+   if(!allowed.has(c.resource_id)){
+    unknown=true;
+    const hint=[c.description,c.resource_code,c.resource_id].find(value=>typeof value==='string'&&value.trim())||'Insumo pendiente de identificar';
+    return {resource_id:'',quantity,description:hint.replace(/[\u0000-\u001F\u007F]/g,' ').trim().slice(0,500)||'Insumo pendiente de identificar'};
+   }
+   if(resources.has(c.resource_id))repeated=true;resources.add(c.resource_id);
+   return {resource_id:c.resource_id,quantity};
   });
   if(p.measurements!=null&&!Array.isArray(p.measurements)||p.measurements?.length>100)throw new Error('Mediciones inválidas');
   const measurements=(p.measurements||[]).map(m=>{
@@ -68,7 +74,10 @@ export function parseAcuProposals(text,seeds,allowedResources){
   });
   const notes=key=>acuNotes(p[key],key==='missing_resources');
   if(p.section!=null&&(typeof p.section!=='string'||p.section.length>100))throw new Error('Rubro inválido');
-  const proposal={...emptyAcu(seed),components,measurements,assumptions:['Consumos propuestos por IA: revisar por unidad y condiciones de ejecución.',...notes('assumptions')],missing_resources:notes('missing_resources')};
+  const review=[];
+  if(unknown)review.push('La IA indicó insumos fuera del catálogo seleccionado. Elegí un insumo real para cada campo pendiente y revisá sus consumos antes de guardar.');
+  if(repeated)review.push('La IA repitió insumos; sus consumos se conservaron por separado, sin sumarlos. Quitá o cambiá los repetidos después de revisarlos.');
+  const proposal={...emptyAcu(seed),components,measurements,assumptions:['Consumos propuestos por IA: revisar por unidad y condiciones de ejecución.',...review,...notes('assumptions')],missing_resources:notes('missing_resources')};
   if(p.section&&normalize(p.section)!==normalize(seed.section)){proposal.section_id=null;proposal.section_title=p.section;}
   return proposal;
  });

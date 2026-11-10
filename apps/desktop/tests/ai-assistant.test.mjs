@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {parseAiReply,draftFromProposal,createAiRequest,budgetScreenContext} from '../src/services/ai-assistant.js';
+import {parseAiReply,draftFromProposal,createAiRequest,budgetScreenContext,acuChatRequest} from '../src/services/ai-assistant.js';
 test('unstructured responses remain text; only whitelisted proposals become drafts',()=>{
   assert.deepEqual(parseAiReply('<script>bad()</script>'),{answer:'<script>bad()</script>',proposal:null});
   const reply=parseAiReply(JSON.stringify({answer:'Revisá este borrador',proposal:{kind:'line',description:'Excavación',unit:'m³',quantity:'15.25',unit_price:'30000',id:'existing-id',execute:'delete',sectionId:'secret'}}));
@@ -60,4 +60,49 @@ test('zero prices, absent prices and prices outside budget scope remain distinct
   assert.equal(summary.precio_cero,2);assert.equal(summary.precio_sin_dato,2);assert.equal(summary.precio_positivo,1);
   assert.ok(!context.includes('PRIVATE CATALOG'));
   assert.equal(budgetScreenContext({...state,view:'clients'},'visible contacts'),'visible contacts');
+});
+
+
+const acuLineId='10000000-0000-4000-8000-000000000001';
+test('a valid ACU handoff takes priority over proposed material lines',()=>{
+  const reply=parseAiReply(JSON.stringify({answer:'Prepará los ACU existentes',acu_request:{mode:'fill',brief:'Revoque de dos caras de 20 m × 3 m',line_ids:[acuLineId]},proposal_lines:[{description:'Agregar cemento',unit:'kg'}],proposal:{kind:'resource',description:'Cemento',unit:'kg'}}));
+  assert.deepEqual(reply.acuRequest,{mode:'fill',brief:'Revoque de dos caras de 20 m × 3 m',lineIds:[acuLineId]});
+  assert.equal(reply.proposal,null);assert.equal(reply.planRows,undefined);assert.equal(reply.changeProposals,undefined);
+  assert.deepEqual(parseAiReply(JSON.stringify({answer:'Revisá',acu_request:{mode:'fill',brief:'Completar los ACU faltantes'}})).acuRequest.lineIds,[]);
+  assert.equal(parseAiReply(JSON.stringify({answer:'Revisá',acu_request:{mode:'create',brief:'Crear una vivienda con ACU'}})).acuRequest.mode,'create');
+});
+test('invalid ACU handoffs cannot fall back to actionable line or resource cards',()=>{
+  for(const request of [null,[],{mode:'delete',brief:'x'},{mode:'fill',brief:''},{mode:'fill',brief:'x'.repeat(3001)},{mode:'create',brief:'x',line_ids:[]},{mode:'fill',brief:'x',line_ids:['foreign']},{mode:'fill',brief:'x',line_ids:[acuLineId,acuLineId]},{mode:'fill',brief:'x',line_ids:Array(61).fill(acuLineId)},{mode:'fill',brief:'x',sql:'UPDATE x'}]){
+    const reply=parseAiReply(JSON.stringify({answer:'Propuesta',acu_request:request,proposal_lines:[{description:'Material',unit:'kg'}],proposal:{kind:'resource',description:'Cemento',unit:'kg'}}));
+    assert.equal(reply.acuRequest,undefined);assert.equal(reply.planRows,undefined);assert.equal(reply.changeProposals,undefined);assert.equal(reply.proposal,null);assert.match(reply.answer,/No se preparó ninguna acción de ACU/);
+  }
+});
+test('direct ACU requests open preparation while informational and catalog questions do not',()=>{
+  for(const q of ['Completá los ACU existentes del presupuesto','¿Podés cargar los insumos y rendimientos en todas las partidas?','Preparame los ACUs de revoque','Quiero que cargues los insumos en cada partida','Necesito que completes sus ACUs','Dimensioná los revoques de los muros'])assert.equal(acuChatRequest(q,[])?.mode,'fill');
+  assert.equal(acuChatRequest('Creá 3 partidas nuevas con ACU',[])?.mode,'create');
+  for(const q of ['¿Por qué no puede cargar los ACU?','¿Cuántos insumos hay?','¿Qué rendimiento tiene el revoque?','Explicame los ACU de esta pantalla','Agregá un insumo Cemento a la biblioteca','Cargá insumos en el catálogo','Creá las partidas para esta obra'])assert.equal(acuChatRequest(q,[]),null);
+});
+test('a short confirmation retains user geometry and criteria, not erroneous assistant material lines',()=>{
+  const history=[{role:'user',content:'Muros de ladrillo de 30 cm, dos caras de revoque en 20 m por 3 m. Agregá los consumos a cada partida.'},{role:'assistant',answer:'No puedo cargar insumos directamente en las partidas. Puedo preparar una lista.',planRows:[{description:'Agregar cemento',unit:'kg'},{description:'Agregar arena',unit:'m³'}]}];
+  const request=acuChatRequest('perfecto, cargalos',history);
+  assert.equal(request.mode,'fill');assert.match(request.brief,/30 cm/);assert.match(request.brief,/20 m por 3 m/);assert.ok(!request.brief.includes('Agregar cemento'));assert.notEqual(request.brief,'perfecto, cargalos');
+  assert.equal(acuChatRequest('sí, hacelo',history)?.mode,'fill');
+  assert.equal(acuChatRequest('perfecto, cargalos',[]),null);
+  assert.equal(acuChatRequest('sí, hacelo',[{role:'user',content:'Creá la lista de clientes'},{role:'assistant',answer:'Puedo crear esa lista'}]),null);
+});
+test('a confirmation preserves an explicit selection and create intent from a validated ACU card',()=>{
+  const history=[{role:'user',content:'Revoque de 20 m por 3 m, con espesor de 2 cm.'},{role:'assistant',answer:'Podemos preparar sus ACU',acuRequest:{mode:'fill',brief:'Completar el ACU del revoque indicado',lineIds:[acuLineId]}}];
+  const request=acuChatRequest('sí, hacelo',history);assert.equal(request.mode,'fill');assert.deepEqual(request.lineIds,[acuLineId]);assert.match(request.brief,/20 m por 3 m/);assert.match(request.brief,/2 cm/);
+  const created=acuChatRequest('dale',[{role:'assistant',answer:'Propuesta de ACU',acuRequest:{mode:'create',brief:'Crear partidas nuevas para una obra de mampostería',lineIds:[]}}]);
+  assert.equal(created.mode,'create');assert.deepEqual(created.lineIds,[]);
+});
+test('the latest fill request overrides an old generic request to create budget lines',()=>{
+  const history=[{role:'user',content:'Creá las partidas nuevas de una vivienda.'},{role:'assistant',answer:'Lista de partidas preparada.'},{role:'user',content:'Ahora completá los ACU existentes usando rendimientos de la biblioteca.'},{role:'assistant',answer:'Puedo preparar insumos para cada partida.'}];
+  const request=acuChatRequest('perfecto, cargalos',history);assert.equal(request.mode,'fill');assert.match(request.brief,/rendimientos de la biblioteca/);
+  const noDuplicate=acuChatRequest('No crees partidas nuevas, completá los ACU existentes',history);assert.equal(noDuplicate.mode,'fill');
+});
+test('new direct criteria do not silently reuse an old targeted selection',()=>{
+  const history=[{role:'assistant',answer:'Preparar ACU',acuRequest:{mode:'fill',brief:'Completar solo una partida',lineIds:[acuLineId]}}];
+  const request=acuChatRequest('Completá todos los ACU faltantes',history);assert.equal(request.mode,'fill');assert.deepEqual(request.lineIds,[]);
+  assert.equal(acuChatRequest('Completá los ACU con estos criterios: '+'x'.repeat(3001),[]),null);
 });

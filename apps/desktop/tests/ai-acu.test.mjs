@@ -10,10 +10,57 @@ test('unit prices come from the local catalog, never the model response',()=>{
  row.selected=true;const batch=acuBatch({rows:[row],context:{resources:[resource],currency:'ARS'},estimate:{id:'e'},newEstimate:null,batchId:'batch',asOf:'2026-11-10'});
  assert.equal(batch.acus[0].components[0].expected_resource.price,'20');assert.equal(batch.acus[0].expected.quantity,'10');assert.equal(batch.acus[0].measurements,null);
 });
-test('unknown resources, duplicate IDs and non-positive consumption are rejected',()=>{
- const bad=JSON.parse(text);bad.acu_proposals[0].components[0].resource_id='unknown';assert.throws(()=>parseAcuProposals(JSON.stringify(bad),[seed],[resource]));
- bad.acu_proposals[0].components=[{resource_id:resource.id,quantity:'0'}];assert.throws(()=>parseAcuProposals(JSON.stringify(bad),[seed],[resource]));
- bad.acu_proposals[0].components=[{resource_id:resource.id,quantity:'1'},{resource_id:resource.id,quantity:'1'}];assert.throws(()=>parseAcuProposals(JSON.stringify(bad),[seed],[resource]));
+test('non-positive consumption, malformed decimals and invalid target IDs are still rejected',()=>{
+ for(const quantity of ['0','-1','1.234,50',0.25]){
+  const bad=JSON.parse(text);bad.acu_proposals[0].components[0].quantity=quantity;
+  assert.throws(()=>parseAcuProposals(JSON.stringify(bad),[seed],[resource]));
+ }
+ const bad=JSON.parse(text);bad.acu_proposals[0].line_id='unknown-target';
+ assert.throws(()=>parseAcuProposals(JSON.stringify(bad),[seed],[resource]),/partida ajena/);
+ bad.acu_proposals=[JSON.parse(text).acu_proposals[0],JSON.parse(text).acu_proposals[0]];
+ assert.throws(()=>parseAcuProposals(JSON.stringify(bad),[seed],[resource]),/partida ajena.*repetida/);
+});
+test('unknown and repeated resources preserve the preview without making invalid recipes saveable',()=>{
+ const unknownSeed={...seed,id:'10000000-0000-4000-8000-000000000003',description:'Revoque a completar'};
+ const repeatedSeed={...seed,id:'10000000-0000-4000-8000-000000000004',description:'Revoque con repetidos'};
+ const proposals=[
+  JSON.parse(text).acu_proposals[0],
+  {line_id:unknownSeed.id,components:[{resource_id:'unknown',description:'Cal hidratada',quantity:'0.75'}]},
+  {line_id:repeatedSeed.id,components:[{resource_id:resource.id,quantity:'0.25'},{resource_id:resource.id,quantity:'0.5'}]}
+ ];
+ const rows=parseAcuProposals(JSON.stringify({acu_proposals:proposals}),[seed,unknownSeed,repeatedSeed],[resource]);
+ assert.equal(rows.length,3);assert.ok(rows.every(row=>!row.selected));
+ assert.equal(acuTotals(rows[0],[resource]).unit_cost,'5.00');
+ assert.deepEqual(rows[1].components,[{resource_id:'',quantity:'0.75',description:'Cal hidratada'}]);
+ assert.ok(rows[1].assumptions.some(note=>note.includes('Elegí un insumo real')));
+ assert.equal(acuTotals(rows[1],[resource]).unit_cost,null);
+ assert.ok(acuTotals(rows[1],[resource]).errors.includes('Hay un insumo no disponible'));
+ assert.deepEqual(rows[2].components,[{resource_id:resource.id,quantity:'0.25'},{resource_id:resource.id,quantity:'0.5'}]);
+ assert.ok(rows[2].assumptions.some(note=>note.includes('sin sumarlos')));
+ assert.equal(acuTotals(rows[2],[resource]).unit_cost,null);
+ assert.ok(acuTotals(rows[2],[resource]).errors.some(error=>error.startsWith('Insumo repetido:')));
+ const args={rows,context:{resources:[resource],currency:'ARS'},estimate:{id:'e'},newEstimate:null,batchId:'batch',asOf:'2026-11-10'};
+ for(const row of rows.slice(1)){
+  row.selected=true;assert.throws(()=>acuBatch(args),/insumo no disponible|Insumo repetido/);row.selected=false;
+ }
+ rows[0].selected=true;
+ const batch=acuBatch(args);assert.equal(batch.acus.length,1);assert.equal(batch.acus[0].line_id,seed.id);assert.equal(batch.creates.length,0);
+ rows[1].selected=true;assert.throws(()=>acuBatch(args),/insumo no disponible/);
+ rows[1].components[0].resource_id=resource.id;
+ assert.equal(acuBatch(args).acus.length,2);
+});
+test('unknown resource hints use description, code or raw ID and are bounded for manual matching',()=>{
+ const value=JSON.parse(text);
+ value.acu_proposals[0].components=[
+  {resource_id:'unknown-1',resource_code:'CAL-01',description:' Cal hidratada ',quantity:'1'},
+  {resource_id:'unknown-2',resource_code:'ARENA-01',quantity:'2'},
+  {resource_id:'unknown-3',quantity:'3'},
+  {resource_id:'unknown-4',description:'x'.repeat(800),quantity:'4'}
+ ];
+ const row=parseAcuProposals(JSON.stringify(value),[seed],[resource])[0];
+ assert.deepEqual(row.components.map(component=>component.resource_id),['','','','']);
+ assert.deepEqual(row.components.map(component=>component.description),['Cal hidratada','ARENA-01','unknown-3','x'.repeat(500)]);
+ assert.equal(acuTotals(row,[resource]).unit_cost,null);
 });
 test('missing prices and pending recipe data never look like a complete zero-priced ACU',()=>{
  const row=parseAcuProposals(text,[seed],[resource])[0];assert.equal(acuTotals(row,[{...resource,price:null}]).unit_cost,null);

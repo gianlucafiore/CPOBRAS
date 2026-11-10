@@ -622,3 +622,15 @@ propuestas que no se aplicaron y permite terminar sin volver a generarlas.
 También se conservan en memoria si se cierra y retoma el panel durante la misma
 sesión. Al trasladar una lista propuesta desde el chat se conserva el texto
 original de la consulta para no perder las medidas y criterios de trabajo.
+
+El chat puede derivar una solicitud al panel con **Completar insumos y
+rendimientos**. Para completar partidas existentes se conservan sus
+identificadores y cantidades; no se convierten los materiales en partidas
+nuevas. Confirmaciones como «perfecto, cargalos» recuperan los criterios de la
+conversación para abrir esa preparación. La generación y el guardado siguen
+siendo pasos explícitos del panel.
+
+Si una receta contiene un insumo sin correspondencia en el catálogo o repetido,
+se conserva en la vista previa con el error visible. Elegí el insumo correcto o
+corregí el repetido antes de marcarla y guardarla; no se suman consumos ni se
+crean insumos automáticamente. Las otras recetas permanecen disponibles.

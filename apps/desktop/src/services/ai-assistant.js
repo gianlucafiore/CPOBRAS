@@ -1,9 +1,77 @@
 import {parsePlan,changeProposals} from "./ai-budget-import.js";
+const acuUuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function readAcuRequest(raw){
+ if(!raw||typeof raw!=='object'||Array.isArray(raw)||Object.keys(raw).some(key=>!['mode','brief','line_ids'].includes(key)))throw new Error('Usá una solicitud de ACU con objetivo, criterios y selección de partidas válidos.');
+ if(!['fill','create'].includes(raw.mode)||typeof raw.brief!=='string'||!raw.brief.trim()||raw.brief.length>3000)throw new Error('Indicá completar ACU existentes o crear partidas con ACU, con criterios de hasta 3000 caracteres.');
+ const hasIds=Object.hasOwn(raw,'line_ids');
+ if(raw.mode==='create'&&hasIds)throw new Error('Una solicitud de partidas nuevas no puede indicar partidas existentes.');
+ const lineIds=hasIds?raw.line_ids:[];
+ if(!Array.isArray(lineIds)||lineIds.length>60||lineIds.some(id=>typeof id!=='string'||!acuUuid.test(id)))throw new Error('La selección de partidas para ACU no es válida. Volvé a seleccionar las partidas en la preparación.');
+ const normalized=lineIds.map(id=>id.toLowerCase());if(new Set(normalized).size!==normalized.length)throw new Error('La solicitud de ACU contiene partidas repetidas.');
+ return {mode:raw.mode,brief:raw.brief.trim(),lineIds:normalized};
+}
+const chatFold=text=>String(text||'').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+const acuTopic=text=>/\b(?:acus?|composicion(?:es)?|rendimientos?|consumos?|metrado|dosificacion)\b/.test(text)||/\binsumos?\b.*\b(?:partidas?|presupuesto)\b|\bpartidas?\b.*\binsumos?\b/.test(text);
+const constructionCriteria=text=>/\b(?:acus?|partidas?|presupuesto|revoques?|mamposteria|muros?|ladrillos?|hormigon|mortero|cemento|arena|cal|techo|cubierta|perfil|estructura|dosificacion|espesor|desperdicio|rendimientos?|consumos?|metrado|caras?|jornal|medidas?|largo|ancho|alto|altura|m2|m3|metros?)\b/.test(text);
+function messageText(message){
+ if(typeof message?.answer==='string')return message.answer;
+ const text=typeof message?.content==='string'?message.content:'';
+ try{const parsed=JSON.parse(text);if(typeof parsed?.answer==='string')return parsed.answer;}catch{}
+ return text;
+}
+function previousRequest(message){
+ const r=message?.acuRequest;if(!r)return null;
+ try{return readAcuRequest({mode:r.mode,brief:r.brief,...(r.mode==='fill'?{line_ids:r.lineIds??[]}:{...(r.lineIds?.length?{line_ids:r.lineIds}:{})})});}catch{return null;}
+}
+function acuMode(text,fallback='fill'){
+ if(/\b(?:no|sin)\s+(?:crees|crear|crear nuevas|generes|generar|agregues|agregar)\b/.test(text))return 'fill';
+ if(/\b(?:completa|completar|rellena|rellenar|carga|cargar|asigna|asignar)\b.*\b(?:existentes|cargadas|faltantes|sin acu)\b/.test(text))return 'fill';
+ if(/\b(?:crea(?:r|me)?|genera(?:r|me)?|arma(?:r|me)?|prepara(?:r|me)?|agrega(?:r|me)?|incorpora(?:r|me)?)\s+(?:(?:las|unas|varias|algunas|nuevas|estas|todas|una|un|el|\d+)\s+)*(?:partidas|presupuesto)\b/.test(text)||/\b(?:partidas nuevas|nuevas partidas|presupuesto nuevo|obra nueva)\b/.test(text))return 'create';
+ return fallback;
+}
+// Route only a concrete preparation request. This opens a review workflow; it never writes.
+export function acuChatRequest(question,messages=[]){
+ if(typeof question!=='string'||!question.trim())return null;
+ const q=chatFold(question),recent=Array.isArray(messages)?messages.slice(-8):[],last=recent.at(-1),prior=previousRequest(last);
+ const action='(?:prepara|completa|arma|crea|carga|calcula|dimensiona|rellena|genera|propone|asigna|incorpora|aplica|reutiliza|usa|agrega|hace)(?:r(?:lo|la|los|las|le|les)?|me|nos|lo|la|los|las|le|les|s)?';
+ const direct=new RegExp('^(?:(?:por favor|podes|podrias|me podes|me podrias|quiero(?: que)?|necesito(?: que)?|quisiera(?: que)?|te pido que|solo|solamente|ahora|ya|me|nos)\\s+)*'+action+'\\b');
+ const segments=[q,...question.split(/[;,]/).slice(1).map(chatFold)];
+ const requestedSubjunctive=/^(?:quiero|necesito|quisiera|te pido)\s+que\s+(?:(?:me|nos)\s+)?(?:cargues|completes|armes|prepares|hagas)\b/;
+ const explicit=segments.some(segment=>direct.test(segment)||requestedSubjunctive.test(segment));
+ const scope=acuTopic(q)||/\b(?:dimensiona|dimensionar|calcula|calcular)\b.*\b(?:revoques?|mamposteria|muros?)\b/.test(q);
+ const catalogOnly=/\b(?:a|en)\s+(?:la|el)\s+(?:biblioteca|catalogo)\b/.test(q)&&!acuTopic(q);
+ if(/\bpor que\b/.test(q)||/^(?:que|cual|cuales|cuanto|cuantos|cuanta|cuantas|como|donde|cuando|para que)\b/.test(q)||catalogOnly)return null;
+ const shortAction=/^(?:(?:perfecto|si|dale|bueno|ok|bien|de acuerdo|adelante)\s+)*(?:hacelo|hazlo|hace|cargalos|cargalas|cargalo|cargala|completalos|completalas|completalo|completala|preparalos|preparalas|armalos|armalas|aplicalos|aplicalas|procede|continua|segui)(?:\s+por favor)?$/.test(q);
+ const bare=/^(?:si|dale|perfecto|ok|bueno|de acuerdo|adelante)$/.test(q);
+ const lastText=chatFold(messageText(last));
+ const recentUser=recent.filter(m=>m?.role==='user');
+ const latestUser=recentUser.at(-1),latestUserText=chatFold(messageText(latestUser));
+ const conversationAcu=acuTopic(lastText)||acuTopic(latestUserText);
+ const confirmation=(shortAction&&(prior||conversationAcu))||(bare&&(prior||conversationAcu&&/\b(?:puedo|queres|preparar|completar|cargar|armar|propongo)\b/.test(lastText)));
+ if(!(explicit&&scope)||catalogOnly){if(!confirmation)return null;}
+ const criteria=[];
+ const add=value=>{const text=String(value||'').trim();if(!text||criteria.some(existing=>existing.includes(text)))return;for(let index=criteria.length-1;index>=0;index--)if(text.includes(criteria[index]))criteria.splice(index,1);criteria.push(text);};
+ for(const message of recentUser.slice(-4)){
+  const text=messageText(message),folded=chatFold(text);
+  if(constructionCriteria(folded)&&!(/^(?:por que|que|cual|cuales|cuanto|cuantos|cuanta|cuantas|como|donde|cuando)\b/.test(folded)))add(text);
+ }
+ if(prior&&confirmation)add(prior.brief);
+ if(!confirmation)add(question);
+ if(!criteria.length)return null;
+ const brief=criteria.join('\n\n');if(brief.length>3000)return null;
+ const modeText=explicit&&scope?q:[...recentUser].reverse().map(message=>chatFold(messageText(message))).find(acuTopic)||'';
+ const mode=acuMode(modeText,prior?.mode||'fill');
+ return {mode,brief,lineIds:confirmation&&mode==='fill'&&prior?.mode==='fill'?prior.lineIds:[]};
+}
 // Only this allowlist can become a draft. Never execute model output as code/HTML.
 export function parseAiReply(text) {
   let value;
   try { value=JSON.parse(text.trim().replace(/^```(?:json)?\s*/i,"").replace(/\s*```$/,"")); } catch { return {answer:text,proposal:null}; }
   if (!value || typeof value!=="object" || typeof value.answer!=="string") return {answer:text,proposal:null};
+  if(Object.hasOwn(value,'acu_request')){
+    try{return {answer:value.answer,proposal:null,acuRequest:readAcuRequest(value.acu_request)};}
+    catch(error){return {answer:value.answer+"\nNo se preparó ninguna acción de ACU. "+error.message,proposal:null};}
+  }
   if(value.proposal_lines||value.proposal_changes){
     try{return {answer:value.answer,proposal:null,...(value.proposal_lines?{planRows:parsePlan(text)}:{}),...(value.proposal_changes?{changeProposals:changeProposals(text)}:{})};}
     catch{return {answer:value.answer+"\nLa lista de partidas no es válida o está incompleta. Pedí una propuesta más acotada.",proposal:null};}

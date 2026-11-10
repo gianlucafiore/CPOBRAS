@@ -98,12 +98,17 @@ test('saving creates the selected lines and ACU, then focuses the result in the 
  await expect(page.locator('#app [data-shown-line]')).toHaveText('Revoque grueso');
 });
 
-test('an invalid resource still blocks saving and clears the stale preparing status',async({page})=>{
+test('unknown resources preserve the previews and block saving until matched to real inputs',async({page})=>{
  await componentFixture(page,{invalidResource:true});
  await page.locator('[data-acu=generate]').click();
- await expect(page.locator('.acu-body > .acu-error')).toContainText(/insumo desconocido/);
+ await expect(page.locator('.acu-body > .acu-error')).toBeEmpty();
  await expect(page.locator('.acu-body > [role=status]')).not.toContainText('Preparando consultas');
- await expect(page.locator('[data-acu-proposal]')).toHaveCount(0);
+ await expect(page.locator('[data-acu-proposal]')).toHaveCount(2);
+ await expect(page.locator('[data-acu-proposal]').first().locator('[data-acu-errors]')).toContainText('Hay un insumo no disponible');
+ await expect(page.locator('[data-acu-component=resource_id]').first()).toHaveValue('unavailable-resource');
+ await expect(page.locator('[data-acu-proposal]').first().locator('summary strong')).toHaveText('ACU incompleto');
+ await page.locator('[data-acu-row=selected]').nth(0).check();
+ await page.locator('[data-acu-row=selected]').nth(1).check();
  await expect(page.locator('footer [data-acu=apply]')).toBeDisabled();
  expect(await page.evaluate(()=>window.__acuHarness.batches)).toHaveLength(0);
 });
@@ -125,7 +130,7 @@ test('partial saving preserves the remaining recipe without another AI request a
  const remaining=page.locator(`[data-acu-proposal="${secondNewLineId}"]`);
  await expect(page.locator('[data-acu-proposal]')).toHaveCount(1);
  await expect(remaining).toBeVisible();
- await expect(remaining.locator('summary')).toContainText('Revoque fino');
+ await expect(remaining.locator(':scope > summary')).toContainText('Revoque fino');
  await expect(remaining.locator('[data-acu-row=selected]')).not.toBeChecked();
  await expect(remaining.locator('[data-acu-component=quantity]')).toHaveValue('0.25');
  await expect(remaining.locator('[data-acu-row=assumptions]')).toHaveValue(/Consumo preliminar por m²/);
