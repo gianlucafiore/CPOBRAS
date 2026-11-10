@@ -11,6 +11,7 @@ pub mod assisted_budget;
 pub mod budget_patterns;
 pub mod budget_pricing;
 pub mod budget_sections;
+pub mod section_batches;
 pub mod budget_tools;
 pub mod construction_workflow;
 pub mod estimate_comparison;
