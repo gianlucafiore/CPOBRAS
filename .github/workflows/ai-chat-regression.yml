@@ -19,6 +19,7 @@ on:
       - "crates/cpobras-storage/src/section_batches.rs"
       - "apps/desktop/src-tauri/src/commands/sections.rs"
       - "apps/desktop/src-tauri/src/lib.rs"
+      - "apps/desktop/src-tauri/permissions/workspace.toml"
       - ".github/workflows/ai-chat-regression.yml"
   pull_request:
     paths:
@@ -35,6 +36,7 @@ on:
       - "crates/cpobras-storage/src/section_batches.rs"
       - "apps/desktop/src-tauri/src/commands/sections.rs"
       - "apps/desktop/src-tauri/src/lib.rs"
+      - "apps/desktop/src-tauri/permissions/workspace.toml"
       - ".github/workflows/ai-chat-regression.yml"
 
 jobs:
@@ -50,7 +52,7 @@ jobs:
         run: npm ci
       - name: Unit tests for AI requests and ACU additions
         working-directory: apps/desktop
-        run: node --test tests/ai-assistant.test.mjs tests/ai-acu.test.mjs tests/ai-acu-addition.test.mjs tests/ai-acu-productivity.test.mjs tests/ai-budget-tools.test.mjs tests/ai-section-operations.test.mjs
+        run: node --test tests/ai-assistant.test.mjs tests/ai-acu.test.mjs tests/ai-acu-addition.test.mjs tests/ai-acu-productivity.test.mjs tests/ai-budget-tools.test.mjs tests/ai-section-operations.test.mjs tests/ai-native-permissions.test.mjs
       - name: Install Chromium
         working-directory: apps/desktop
         run: npx playwright install --with-deps chromium
