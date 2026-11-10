@@ -13,7 +13,149 @@ pub struct BudgetSection {
     pub position: i64,
 }
 
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SectionEdit {
+    pub action: String,
+    #[serde(default)]
+    pub section_id: Option<Uuid>,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub code: Option<String>,
+    #[serde(default)]
+    pub expected_title: Option<String>,
+    #[serde(default)]
+    pub expected_lines: Option<i64>,
+    #[serde(default)]
+    pub expected_children: Option<i64>,
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct SectionEditResult {
+    pub created: usize,
+    pub updated: usize,
+    pub deleted: usize,
+    pub preserved_lines: i64,
+    pub reparented_subsections: i64,
+}
+
 impl LocalStore {
+    /// Apply conversational rubro changes atomically. Deleting a rubro never
+    /// deletes a budget line: assigned lines become ungrouped, and subrubros
+    /// move to the deleted rubro's parent. Stale confirmations are rejected.
+    pub fn apply_budget_section_edits(
+        &mut self,
+        estimate_id: Uuid,
+        edits: &[SectionEdit],
+    ) -> Result<SectionEditResult> {
+        if edits.is_empty() || edits.len() > 20 {
+            return Err(StorageError::InvalidValue("invalid section plan size".into()));
+        }
+        let tx = self.conn.transaction()?;
+        let state: Option<String> = tx.query_row(
+            "SELECT status FROM estimates WHERE id=?1",
+            [estimate_id.to_string()],
+            |row| row.get(0),
+        ).optional()?;
+        if state.as_deref() != Some("draft") {
+            return Err(StorageError::InvalidValue("estimate is not an editable draft".into()));
+        }
+        let mut summary = SectionEditResult::default();
+        for edit in edits {
+            match edit.action.as_str() {
+                "create" => {
+                    let title = edit.title.as_deref().unwrap_or("").trim();
+                    if title.is_empty() || title.chars().count() > 100 {
+                        return Err(StorageError::InvalidValue("invalid section title".into()));
+                    }
+                    let duplicate: i64 = tx.query_row(
+                        "SELECT COUNT(*) FROM budget_sections WHERE estimate_id=?1 AND lower(title)=lower(?2)",
+                        params![estimate_id.to_string(), title], |row| row.get(0),
+                    )?;
+                    if duplicate > 0 {
+                        return Err(StorageError::InvalidValue("section already exists".into()));
+                    }
+                    let mut code_number = 1;
+                    let code = loop {
+                        if code_number > 9999 {
+                            return Err(StorageError::InvalidValue("no section code available".into()));
+                        }
+                        let candidate = format!("{code_number:02}");
+                        let taken: i64 = tx.query_row(
+                            "SELECT COUNT(*) FROM budget_sections WHERE estimate_id=?1 AND code=?2",
+                            params![estimate_id.to_string(), candidate], |row| row.get(0),
+                        )?;
+                        if taken == 0 { break candidate; }
+                        code_number += 1;
+                    };
+                    let position: i64 = tx.query_row(
+                        "SELECT COALESCE(MAX(position),-1)+1 FROM budget_sections WHERE estimate_id=?1",
+                        [estimate_id.to_string()], |row| row.get(0),
+                    )?;
+                    tx.execute(
+                        "INSERT INTO budget_sections(id,estimate_id,parent_id,code,title,position) VALUES(?1,?2,NULL,?3,?4,?5)",
+                        params![Uuid::new_v4().to_string(), estimate_id.to_string(), code, title, position],
+                    )?;
+                    summary.created += 1;
+                }
+                "update" | "delete" => {
+                    let id = edit.section_id.ok_or_else(|| StorageError::InvalidValue("missing section ID".into()))?;
+                    let previous: Option<(String, Option<String>, String)> = tx.query_row(
+                        "SELECT title,parent_id,code FROM budget_sections WHERE id=?1 AND estimate_id=?2",
+                        params![id.to_string(), estimate_id.to_string()],
+                        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                    ).optional()?;
+                    let (previous_title,parent_id,previous_code) = previous
+                        .ok_or_else(|| StorageError::InvalidValue("section no longer exists in this estimate".into()))?;
+                    if edit.expected_title.as_deref() != Some(previous_title.as_str()) {
+                        return Err(StorageError::InvalidValue("section was modified since preview".into()));
+                    }
+                    if edit.action == "update" {
+                        let title = edit.title.as_deref().unwrap_or(&previous_title).trim();
+                        let code = edit.code.as_deref().unwrap_or(&previous_code).trim();
+                        if title.is_empty() || title.chars().count() > 100 ||
+                            code.is_empty() || code.chars().count() > 30 {
+                            return Err(StorageError::InvalidValue("invalid section title or code".into()));
+                        }
+                        tx.execute(
+                            "UPDATE budget_sections SET title=?1,code=?2 WHERE id=?3 AND estimate_id=?4",
+                            params![title, code, id.to_string(), estimate_id.to_string()],
+                        )?;
+                        summary.updated += 1;
+                    } else {
+                        let assigned: i64 = tx.query_row(
+                            "SELECT COUNT(*) FROM estimate_line_sections WHERE section_id=?1",
+                            [id.to_string()], |row| row.get(0),
+                        )?;
+                        let children: i64 = tx.query_row(
+                            "SELECT COUNT(*) FROM budget_sections WHERE parent_id=?1",
+                            [id.to_string()], |row| row.get(0),
+                        )?;
+                        if edit.expected_lines != Some(assigned) || edit.expected_children != Some(children) {
+                            return Err(StorageError::InvalidValue("section membership changed since preview".into()));
+                        }
+                        tx.execute("DELETE FROM estimate_line_sections WHERE section_id=?1", [id.to_string()])?;
+                        tx.execute(
+                            "UPDATE budget_sections SET parent_id=?1 WHERE parent_id=?2 AND estimate_id=?3",
+                            params![parent_id, id.to_string(), estimate_id.to_string()],
+                        )?;
+                        tx.execute(
+                            "DELETE FROM budget_sections WHERE id=?1 AND estimate_id=?2",
+                            params![id.to_string(), estimate_id.to_string()],
+                        )?;
+                        summary.deleted += 1;
+                        summary.preserved_lines += assigned;
+                        summary.reparented_subsections += children;
+                    }
+                }
+                _ => return Err(StorageError::InvalidValue("unknown section action".into())),
+            }
+        }
+        tx.commit()?;
+        Ok(summary)
+    }
+
     pub fn save_budget_section(&mut self, section: &BudgetSection) -> Result<()> {
         if section.code.trim().is_empty() || section.title.trim().is_empty() || section.position < 0
         {
