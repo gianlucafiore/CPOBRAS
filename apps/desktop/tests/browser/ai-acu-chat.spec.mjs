@@ -88,7 +88,7 @@ test('a structured ACU handoff opens the exact existing targets and ignores an u
 test('a short confirmation loads legacy ACU recipes headlessly with the original target selection',async({page})=>{
  await chatFixture(page,{reply:'legacy'});
  await ask(page,legacyBrief);
- await expect(page.locator('.ai-transcript')).toContainText('Podemos revisar la composición');
+ await expect(page.locator('.ai-transcript')).toContainText('Estos son los consumos de las partidas existentes');
  await expect(page.locator('[data-ai=review-plan]')).toBeVisible();
  expect(await page.evaluate(()=>window.__aiAcuHarness.calls.filter(call=>call.name==='ai_chat').length)).toBe(1);
 
