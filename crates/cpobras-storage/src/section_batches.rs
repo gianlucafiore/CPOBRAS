@@ -224,3 +224,101 @@ impl LocalStore {
         Ok(result)
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::budget_sections::BudgetSection;
+    use crate::estimates::{Estimate, EstimateItem};
+    use cpobras_core::{Client, Currency, Project};
+
+    fn sample() -> (LocalStore, Uuid) {
+        let mut store = LocalStore::in_memory().unwrap();
+        let client = Client { id: Uuid::new_v4(), name: "Cliente".into(), cuit: None };
+        store.save_client(&client).unwrap();
+        let project = Project { id: Uuid::new_v4(), client_id: client.id, name: "Obra".into(), currency: Currency::Ars };
+        store.save_project(&project).unwrap();
+        let estimate = Estimate { id: Uuid::new_v4(), project_id: project.id, title: "Antepresupuesto".into(), currency: Currency::Ars, issued: false };
+        store.create_estimate(&estimate).unwrap();
+        (store, estimate.id)
+    }
+
+    fn line(store: &mut LocalStore, estimate_id: Uuid, name: &str, position: i64, cost: i64) -> EstimateItem {
+        let item = EstimateItem { id: Uuid::new_v4(), estimate_id, position, analysis_id: None,
+            description: name.into(), unit: "gl".into(), quantity: Decimal::ONE,
+            unit_cost_snapshot: Decimal::from(cost) };
+        store.add_estimate_item(&item).unwrap();
+        item
+    }
+
+    fn expectation(item: &EstimateItem) -> ExpectedLine {
+        ExpectedLine { description: item.description.clone(), unit: item.unit.clone(),
+            quantity: item.quantity, unit_cost: item.unit_cost_snapshot, analysis_id: item.analysis_id }
+    }
+
+    #[test]
+    fn reviewed_section_conversion_is_atomic_idempotent_and_archived() {
+        let (mut store, estimate_id) = sample();
+        let dummy = line(&mut store, estimate_id, "Fundaciones", 0, 0);
+        let other = line(&mut store, estimate_id, "Cubiertas", 1, 0);
+        let first = Uuid::new_v4();
+        let second = Uuid::new_v4();
+        let batch = ReviewedSectionBatch {
+            id: Uuid::new_v4(), estimate_id,
+            creates: vec![
+                SectionCreation { id: first, title: "Fundaciones".into(), code: String::new(), position: 0, parent_id: None },
+                SectionCreation { id: second, title: "Cubiertas".into(), code: String::new(), position: 1, parent_id: None },
+            ],
+            renames: vec![], deletes: vec![],
+            converts: vec![
+                SectionLineConversion { line_id: dummy.id, expected: expectation(&dummy), section_id: first },
+                SectionLineConversion { line_id: other.id, expected: expectation(&other), section_id: second },
+            ],
+        };
+        let result = store.apply_reviewed_section_batch(&batch).unwrap();
+        assert_eq!(result, ReviewedSectionResult {created: 2,renamed: 0,deleted: 0,converted: 2});
+        assert_eq!(store.list_budget_sections(estimate_id).unwrap().len(), 2);
+        assert!(store.estimate_items(estimate_id).unwrap().is_empty());
+        assert_eq!(store.apply_reviewed_section_batch(&batch).unwrap(), result);
+        let duplicate = ReviewedSectionBatch {id: Uuid::new_v4(),converts: vec![],..batch.clone()};
+        assert!(store.apply_reviewed_section_batch(&duplicate).is_err());
+        assert_eq!(store.list_budget_sections(estimate_id).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn reviewed_section_delete_keeps_lines_and_reparents_subsections() {
+        let (mut store, estimate_id) = sample();
+        let root = BudgetSection {id:Uuid::new_v4(),estimate_id,parent_id:None,code:"01".into(),title:"Fundaciones".into(),position:0};
+        let child = BudgetSection {id:Uuid::new_v4(),parent_id:Some(root.id),code:"01.01".into(),title:"Zapatas".into(),position:1,..root.clone()};
+        store.save_budget_section(&root).unwrap();
+        store.save_budget_section(&child).unwrap();
+        let task = line(&mut store, estimate_id, "Excavación", 0, 1000);
+        store.assign_line_section(estimate_id, task.id, root.id).unwrap();
+        let expected=ExpectedSection {code:root.code.clone(),title:root.title.clone(),parent_id:None,position:0};
+        let batch=ReviewedSectionBatch {id:Uuid::new_v4(),estimate_id,creates:vec![],renames:vec![],converts:vec![],
+            deletes:vec![SectionDeletion{id:root.id,expected:expected.clone(),expected_lines:1,expected_children:1}]};
+        let stale=ReviewedSectionBatch {id:Uuid::new_v4(),deletes:vec![SectionDeletion{expected_lines:0,..batch.deletes[0].clone()}],..batch.clone()};
+        assert!(store.apply_reviewed_section_batch(&stale).is_err());
+        let result=store.apply_reviewed_section_batch(&batch).unwrap();
+        assert_eq!(result.deleted,1);
+        assert_eq!(store.estimate_items(estimate_id).unwrap().len(),1);
+        assert!(store.list_line_sections(estimate_id).unwrap().is_empty());
+        let sections=store.list_budget_sections(estimate_id).unwrap();
+        assert_eq!(sections.len(),1);
+        assert_eq!(sections[0].id,child.id);
+        assert_eq!(sections[0].parent_id,None);
+    }
+
+    #[test]
+    fn reviewed_conversion_refuses_priced_lines_without_creating_any_sections() {
+        let (mut store, estimate_id) = sample();
+        let priced = line(&mut store, estimate_id, "Instalación", 0, 500);
+        let section=SectionCreation {id:Uuid::new_v4(),title:"Instalación".into(),code:String::new(),position:0,parent_id:None};
+        let batch=ReviewedSectionBatch {id:Uuid::new_v4(),estimate_id,creates:vec![section.clone()],renames:vec![],deletes:vec![],
+            converts:vec![SectionLineConversion{line_id:priced.id,expected:expectation(&priced),section_id:section.id}]};
+        assert!(store.apply_reviewed_section_batch(&batch).is_err());
+        assert!(store.list_budget_sections(estimate_id).unwrap().is_empty());
+        assert_eq!(store.estimate_items(estimate_id).unwrap().len(),1);
+    }
+}
