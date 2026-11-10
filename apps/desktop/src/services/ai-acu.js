@@ -199,7 +199,7 @@ export function acuRelevantResources(seeds,resources,brief,limit=90){
  // names do not match the new request.
  for(const seed of seeds)for(const c of seed.components||[])add(byId.get(c.resource_id));
  const work=seeds.map(s=>s.description).join(' ')+' '+brief;
- const related=/\\b(?:revestimiento|porcelanato|ceramica|azulejo|bano)\\b/i.test(normalize(work))
+ const related=/\b(?:revestimiento|porcelanato|ceramica|azulejo|bano)\b/i.test(normalize(work))
   ?' porcelanato ceramica adhesivo pegamento pastina junta colocacion mano de obra':'';
  const queries=[brief+related, ...seeds.map(s=>s.description+' '+brief)];
  const ranked=new Map();
