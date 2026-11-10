@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {acuSeed,emptyAcu,parseAcuProposals,measurementQuantity,acuTotals,acuPreapprovalErrors,copyAcuExample,acuPromptContext,acuBatch} from '../src/services/ai-acu.js';
+import {acuSeed,emptyAcu,parseAcuProposals,measurementQuantity,acuTotals,acuPreapprovalErrors,copyAcuExample,acuPromptContext,acuBatch,acuRelevantResources} from '../src/services/ai-acu.js';
 const resource={id:'10000000-0000-4000-8000-000000000001',code:'MAT',description:'Mortero',unit:'kg',kind:'material',price:'20',price_source:'catálogo:price-1'};
 const seed=acuSeed({id:'10000000-0000-4000-8000-000000000002',description:'Revoque',unit:'m²',quantity:'10',unit_cost:'0',analysis_id:null,expected_recipe:null,section_id:null,section:'',takeoffs:[],formula:null,components:[]});
 const text=JSON.stringify({acu_proposals:[{line_id:seed.id,components:[{resource_id:resource.id,quantity:'0.25',unit_price:'99999'}],assumptions:['Hipótesis de espesor a revisar'],measurements:[],missing_resources:[]}]});
@@ -253,4 +253,24 @@ test('ACU context highlights existing semantically related resources without inv
  assert.ok(!payload.resource_candidates[0].candidates.some(item=>item.resource_id==='cem-2'));
  assert.ok(payload.resources.some(item=>item.resource_id==='cem-2'));
  assert.match(payload.candidate_rule,/NO equivalencias automáticas/);
+});
+
+test('509 catalog resources are narrowed to real construction candidates before requesting ACU',()=>{
+ const catalog=Array.from({length:505},(_,i)=>({...resource,id:'filler-'+i,code:'R-'+i,description:'Insumo diverso número '+i}));
+ const wanted=[
+  {...resource,id:'tile',description:'Porcelanato 60 x 60'},
+  {...resource,id:'grout',description:'Pastina para juntas'},
+  {...resource,id:'adhesive',description:'Adhesivo cementicio para porcelanato'},
+  {...resource,id:'labor',description:'Mano de obra colocación de porcelanato',kind:'labor'}
+ ];
+ const full=[...catalog,...wanted],line={...seed,description:'Revestimiento de baños',unit:'m²'};
+ const best=acuRelevantResources([line],full,'Agregar porcelanato, pastina, adhesivo y colocación');
+ assert.ok(best.length<=90);
+ for(const item of wanted)assert.ok(best.some(r=>r.id===item.id),item.description);
+ assert.ok(best.every(r=>full.includes(r)));
+ const prompt=JSON.parse(acuPromptContext([line],full,[],'Agregar porcelanato, pastina, adhesivo y colocación'));
+ assert.equal(prompt.catalog_total,509);
+ assert.equal(prompt.catalog_truncated,true);
+ assert.ok(prompt.resources.length<=90);
+ assert.ok(new TextEncoder().encode(JSON.stringify(prompt)).length<55000);
 });
