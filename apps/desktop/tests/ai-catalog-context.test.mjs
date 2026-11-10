@@ -163,3 +163,35 @@ test('bathroom phrases expand sanitary candidates while literal resource names r
  assert.deepEqual(catalogQuery('¿Y los precios?',[{role:'user',content:'Necesito artefactos de baño.'}]).domains,['sanitary']);
  assert.deepEqual(catalogQuery('Precio arena',[{role:'assistant',content:'Artefactos de baño'}]).domains,[]);
 });
+
+test('natural-language names find close catalog candidates without treating them as equivalent',()=>{
+ const rows=[
+  resource('1','Adhesivo cementicio para porcelanato',{unit:'bolsa',price:'250'}),
+  resource('2','Cemento Portland',{unit:'kg'}),
+  resource('3','Caño de polipropileno',{unit:'m'}),
+  resource('4','Ladrillo cerámico hueco 12x18x33',{unit:'un'}),
+  resource('5','Ladrillo cerámico hueco 18x18x33',{unit:'un'}),
+  resource('6','Mano de obra de colocación de inodoro',{kind:'labor',unit:'un'}),
+  resource('7','Inodoro corto blanco',{unit:'un'}),
+ ];
+ const adhesive=context('¿Tenés pegamento para colocar porcelanato?',rows);
+ assert.deepEqual(adhesive.matches.map(row=>row.id),['1']);
+ assert.equal(adhesive.matches[0].description,'Adhesivo cementicio para porcelanato');
+ const onlySynonym=context('Buscá pegamento',rows);
+ assert.deepEqual(onlySynonym.related.map(row=>row.id),['1']);
+ assert.equal(onlySynonym.related[0].matched_by,'semantic_related');
+ assert.match(onlySynonym.evidence_rules.join(' '),/no equivalencias|nunca sustitutos|Comparar material/);
+ const pipes=context('Busco tubería',rows);
+ assert.deepEqual(pipes.related.map(row=>row.id),['3']);
+ assert.equal(context('Busco caño',rows).matches[0].id,'3');
+ const brick=context('Ladrillo hueco de 12 cm',rows);
+ assert.deepEqual(brick.matches.slice(0,2).map(row=>row.id),['4','5']);
+ const typo=context('Ladrillo ceramico hueco porcelanatto',rows);
+ assert.equal(typo.matches[0].description.startsWith('Ladrillo cerámico'),true);
+ const labor=context('Precio de la mano de obra de colocación de inodoro',rows);
+ assert.equal(labor.matches[0].id,'6');
+ const material=context('Precio del material inodoro',rows);
+ assert.equal(material.matches[0].id,'7');
+ assert.deepEqual(context('Busco cobre',rows).related,[]);
+ assert.deepEqual(context('Busco cobre',rows).matches,[]);
+});
