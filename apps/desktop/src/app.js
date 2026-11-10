@@ -1,4 +1,5 @@
 import { createAiAssistant } from "./components/ai-assistant.js";
+import { createAiResourceImport } from "./components/ai-resource-import.js";
 import { createEntityActions } from "./components/entity-actions.js";
 import { createResourceImport } from "./components/resource-import.js";
 import { createAdjustmentAgreement } from "./components/adjustment-agreement.js";
@@ -60,7 +61,9 @@ export function createWorkspaceApp({
     window,
     FormData,
   };
-  const aiAssistant = createAiAssistant({...context,invoke:nativeInvoke});
+  let resourceLibraryOrigin = null, resourceLibraryBrief = "";
+  const aiAssistant = createAiAssistant({...context,invoke:nativeInvoke,openResourceLibrary});
+  const aiResourceImport = createAiResourceImport({...context,invoke:nativeInvoke,onSaved:async()=>{render();},onConfigure:()=>aiAssistant.configure(),isChatBusy:()=>aiAssistant.isBusy()});
   const unitPicker = createUnitPicker(context);
   const resourcePicker = createResourcePicker(context);
   const resourceImport = createResourceImport(context);
@@ -153,6 +156,7 @@ export function createWorkspaceApp({
                       : state.view === "workspace"
                         ? workspace()
                         : listViews();
+    if (state.view === "resources" && resourceLibraryOrigin) root.querySelector('.list-top')?.insertAdjacentHTML('afterend',`<aside class="acu-library-return"><p>Tu preparación de ACU sigue disponible. Cargá los insumos faltantes y volvé para elegirlos y revisar sus consumos.</p><div class="heading-actions"><button class="btn tiny" data-action="ai-resource-open">Preparar faltantes con IA</button><button class="btn tiny primary" data-action="acu-library-return">Volver al ACU</button></div></aside>`);
     if (resourceImport.model.open) root.innerHTML += resourceImport.markup();
     if (agreement.model.open) root.innerHTML += agreement.markup();
     if (patterns.model.active) {
@@ -169,6 +173,7 @@ export function createWorkspaceApp({
     if (restored) restored.scrollTop = position;
     if (state.search) filterRows(state.search);
     aiAssistant?.syncContext();
+    aiResourceImport?.syncScope();
     if (state.modal)
       document.querySelector(".dialog-shell input:not([type=hidden])")?.focus();
   }
@@ -245,6 +250,27 @@ export function createWorkspaceApp({
       return false;
     state.pageDirty = false;
     return true;
+  }
+  async function openResourceLibrary({brief=""}={}) {
+    if(state.remoteProject)throw new Error('Abrí una obra propia para preparar insumos');
+    if(!(await protectContext()))return false;
+    if(state.projectId){
+      resourceLibraryOrigin={projectId:state.projectId,estimateId:state.estimateId,lineId:state.selectedLineId};
+      await route({dataset:{action:'go-home'}});
+    }
+    resourceLibraryBrief=String(brief).slice(0,6000);
+    state.view='resources';state.search='';await service.reloadCatalog();render();return true;
+  }
+  async function returnToAcu() {
+    const origin=resourceLibraryOrigin;if(!origin||!(await protectContext()))return;
+    state.navigating=true;root.inert=true;render();
+    try{
+      await service.openProject(origin.projectId);
+      if(origin.estimateId)await service.openEstimate(origin.estimateId,origin.lineId);
+      else await management.act({dataset:{action:'open-management'}});
+      resourceLibraryOrigin=null;resourceLibraryBrief='';
+    }finally{state.navigating=false;root.inert=false;render();}
+    await aiAssistant.resumeAcuFromLibrary();
   }
   async function route(button) {
     const action = button.dataset.action;
@@ -498,6 +524,8 @@ export function createWorkspaceApp({
     }
     try {
       if(!remoteActionAllowed(state,button))return;
+      if(button.dataset.action==='ai-resource-open'){await aiResourceImport.open(resourceLibraryBrief);return;}
+      if(button.dataset.action==='acu-library-return'){await returnToAcu();return;}
       if (await entityActions.act(button)) return;
       if (await route(button)) return;
       if (button.dataset.action.startsWith("resource-import-")) {await resourceImport.act(button);return;}

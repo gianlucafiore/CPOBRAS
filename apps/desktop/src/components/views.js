@@ -371,7 +371,7 @@ export function createViews({
     } else if (state.view === "resources") {
       title = "Biblioteca de insumos";
       subtitle = "Materiales, mano de obra, equipos y subcontratos.";
-      action = btn("Descargar plantilla Excel", "resource-import-template") + btn("Importar Excel", "resource-import-open") + btn("＋ Nuevo insumo", "modal-resource", "primary");
+      action = btn("Descargar plantilla Excel", "resource-import-template") + btn("Importar Excel", "resource-import-open") + btn("Preparar insumos con IA", "ai-resource-open") + btn("＋ Nuevo insumo", "modal-resource", "primary");
       headers = ["CÓDIGO", "DESCRIPCIÓN", "TIPO", "UND.", "PRECIO ARS", ""];
       rows = state.resources
         .map(

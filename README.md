@@ -634,3 +634,19 @@ Si una receta contiene un insumo sin correspondencia en el catálogo o repetido,
 se conserva en la vista previa con el error visible. Elegí el insumo correcto o
 corregí el repetido antes de marcarla y guardarla; no se suman consumos ni se
 crean insumos automáticamente. Las otras recetas permanecen disponibles.
+
+Cuando falte un insumo, **Abrir biblioteca de insumos** conserva la preparación
+de ACU y abre la biblioteca. Allí se puede usar **Nuevo insumo**, importar Excel
+o **Preparar insumos con IA**. La carga asistida organiza hasta 60 insumos
+identificados en una lista del usuario; los datos desconocidos quedan pendientes.
+No se inventan códigos ni se aceptan precios generados por el modelo. La revisión
+permite completar tipo, unidad y precio manual opcional, detectar duplicados y
+agregar solamente las filas marcadas. El alta individual también admite precio
+vacío y código automático.
+
+**Volver al ACU** retoma las propuestas y actualiza la biblioteca sin repetir la
+consulta ni asignar insumos automáticamente. El usuario elige los insumos reales,
+revisa sus consumos y resuelve los faltantes antes de guardar. Los borradores se
+conservan en memoria durante la sesión. La generación en lote usa la misma
+conexión de IA guardada y requiere autorizar el envío de esa lista; no envía el
+catálogo ni el historial del chat.

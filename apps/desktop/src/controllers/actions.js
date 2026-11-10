@@ -41,6 +41,9 @@ async function handleSubmit(form) {
       await invoke("update_resource", { resourceId: item.id, code: v("code"),
         description: v("description"), unit: v("unit"), kind: v("kind"), active: v("active") === "true" });
       state.selectedResourceId = item.id;
+    } else if (!v("price")) {
+      const result=await invoke("import_resources",{rows:[{code:v("code"),description:v("description"),unit:v("unit"),kind:v("kind"),price:null}],effectiveDate:v("effectiveDate"),source:v("source")||"Carga manual"});
+      state.selectedResourceId=result.resource_ids?.[0]||null;
     } else {
       await invoke("create_resource", { code: v("code"), description: v("description"),
         unit: v("unit"), kind: v("kind"), price: v("price"),

@@ -170,14 +170,14 @@ export function createModalRenderer({
       const editing = Boolean(item.id);
       title = editing ? "Editar insumo" : "Agregar insumo";
       body =
-        field("Código", "code", item.code || "", "required") +
+        field("Código", "code", item.code || "", editing ? "required" : 'placeholder="Automático"') +
         field(
           "Descripción",
           "description",
           item.description || "",
           "required",
         ) +
-        `<div class="form-grid">${field("Unidad", "unit", item.unit || "kg", "required")}
+        `<div class="form-grid">${field("Unidad", "unit", item.unit || "", "required")}
       ${select(
         "Tipo",
         "kind",
@@ -203,8 +203,8 @@ export function createModalRenderer({
           : field(
               "Precio inicial (ARS)",
               "price",
-              item.price ?? 0,
-              'type="number" min="0" step="any" required',
+              item.price ?? "",
+              'type="number" min="0" step="any" placeholder="Sin precio"',
             ) +
             field(
               "Fecha del precio",
@@ -212,7 +212,7 @@ export function createModalRenderer({
               dateToday(),
               'type="date" required',
             ) +
-            field("Fuente / proveedor", "source", "Carga manual"));
+            field("Fuente / proveedor", "source", "Carga manual") + '<p class="modal-help">Si todavía no conocés el precio, dejalo vacío. Podés registrarlo después desde la biblioteca.</p>');
     } else if (kind === "price") {
       title = "Registrar precio";
       body =

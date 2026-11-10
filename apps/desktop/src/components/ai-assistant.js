@@ -3,16 +3,17 @@ import {createAiBudgetImport} from "./ai-budget-import.js";
 import {e} from "./helpers.js";
 import {parseAiReply,draftFromProposal,screenContext,createAiRequest,budgetScreenContext,acuChatRequest} from "../services/ai-assistant.js";
 const defaults={openai:"gpt-4.1-mini",anthropic:"claude-haiku-4-5"};
-export function createAiAssistant({invoke,state,document,window,openModal,editable,loadEstimate,loadEstimates,openEstimate}) {
+export function createAiAssistant({invoke,state,document,window,openModal,editable,loadEstimate,loadEstimates,openEstimate,openResourceLibrary}) {
   const host=document.createElement("div");host.id="ai-assistant";document.body.append(host);
   const model={open:false,settings:false,configured:false,provider:"openai",model:defaults.openai,messages:[],question:"",busy:false,error:"",context:"",includeContext:true,contextMode:"screen",contextOpen:false,consent:false,scope:"",generation:0,usage:null,notice:""};
   const budgetImport=createAiBudgetImport({invoke,state,document,window,editable,loadEstimate,loadEstimates,openEstimate,canUseAi:()=>model.configured&&model.consent&&!model.busy});
-  const acuWorkbench=createAcuWorkbench({invoke,state,document,window,loadEstimate,loadEstimates,openEstimate,canUseAi:()=>model.configured&&model.consent&&!model.busy});
+  const acuWorkbench=createAcuWorkbench({invoke,state,document,window,loadEstimate,loadEstimates,openEstimate,openResourceLibrary,canUseAi:()=>model.configured&&model.consent&&!model.busy});
   let activeRequest=null;
   const scope=()=>[state.view,state.projectId,state.estimateId].join(":");
   function syncContext(){
     budgetImport.syncScope();
     acuWorkbench.syncScope();
+    if(state.modal)model.open=false;
     const next=scope();
     if(model.scope!==next){activeRequest?.cancel();model.scope=next;model.generation++;model.messages=[];model.context="";model.includeContext=true;model.contextMode="screen";model.question="";model.error="";model.usage=null;model.notice="";}
     if(model.open&&model.contextMode==="screen"&&!state.navigating)model.context=captureContext();
@@ -123,5 +124,8 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     catch(error){model.error=String(error);}finally{model.busy=false;paint();}
   });
   syncContext();
-  return {syncContext};
+  return {syncContext,isBusy:()=>model.busy,resumeAcuFromLibrary:()=>acuWorkbench.resumeFromLibrary(),configure:async()=>{
+    if(model.busy)return;model.open=true;model.settings=true;model.error='';
+    try{Object.assign(model,await invoke('ai_status'));}catch(error){model.error=String(error);}paint();
+  }};
 }
