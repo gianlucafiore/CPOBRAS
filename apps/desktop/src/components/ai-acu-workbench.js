@@ -140,11 +140,18 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
       const result=await invoke('apply_reviewed_budget_batch',{batch});committed=true;
       saved=result.composed;created=result.created;lineIds=batch.acus.map(acu=>acu.line_id);
       model.applied=true;drafts.delete(model.draftKey);
+      const savedIds=new Set(lineIds),remainingRows=model.rows.filter(row=>!savedIds.has(row.id));
+      const remainingSeeds=model.seeds.filter(seed=>!savedIds.has(seed.id));
+      const remainingTargets=[...model.targetIds].filter(id=>!savedIds.has(id));
+      model.remaining={rows:remainingRows,seeds:remainingSeeds,targetIds:remainingTargets,count:new Set([...remainingRows.map(row=>row.id),...remainingSeeds.map(seed=>seed.id),...remainingTargets]).size};
       model.lastApplied={estimateId:model.estimate.id,lineIds:[...lineIds]};
-      model.notice=`Guardado: ${saved} ACU y ${created} partidas nuevas.`;
+      model.notice=`Guardado: ${saved} ACU y ${created} partidas nuevas. Pendientes de revisión: ${model.remaining.count}.`;
+      const createdEstimate=!!model.newEstimate;model.newEstimate=null;
+      model.draftKey=[authorization.projectId,model.estimate.id].join(':');
       if(authorization.generation===generation&&authorization.scope===scope()){
        state.selectedLineId=lineIds[0];state.panel='acu';
-       if(state.view==='workspace')await loadEstimate();else await openEstimate(model.estimate.id,lineIds[0]);
+       if(createdEstimate){await loadEstimates();await openEstimate(model.estimate.id,lineIds[0]);}
+       else if(state.view==='workspace')await loadEstimate();else await openEstimate(model.estimate.id,lineIds[0]);
       }
      }catch(caught){error=committed?'El lote se guardó, pero falló el refresco: '+String(caught):String(caught);}
      finally{authorization.writing=false;preparedApproval=null;finish();}
