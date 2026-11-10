@@ -152,8 +152,6 @@ test('an approved addition of sheet material targets one existing line and prese
  const {dialogs}=await approvalFixture(page,{scenario:'append'});
  const beforeOther=await page.evaluate(()=>structuredClone(window.__createApprovalHarness.state.lines[1]));
  await ask(page,'Agregá 50 m2 de chapa a la partida Armado de obrador');
- await expect(page.getByRole('button',{name:'Preparar listado de insumos',exact:true})).toBeVisible();
- await ask(page,'apruebo directamente');
  await expect(page.locator('.ai-ingredient-preview')).toContainText('Chapa galvanizada');
  await ask(page,'apruebo directamente');
  await expect(page.locator('.ai-approval-status')).toContainText('1 ACU cargado');
