@@ -45,6 +45,13 @@ pub struct NewEstimate {
     pub title: String,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SectionMove {
+    pub line_id: Uuid,
+    pub expected: ExpectedLine,
+    pub expected_section: Option<Uuid>,
+    pub section_id: Uuid,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReviewedBatch {
     pub id: Uuid,
     pub estimate_id: Uuid,
@@ -57,6 +64,8 @@ pub struct ReviewedBatch {
     pub deletes: Vec<Deletion>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub acus: Vec<crate::assisted_acu::AcuChange>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub section_moves: Vec<SectionMove>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BatchResult {
@@ -65,14 +74,16 @@ pub struct BatchResult {
     pub deleted: usize,
     #[serde(default)]
     pub composed: usize,
+    #[serde(default)]
+    pub moved_sections: usize,
 }
 fn invalid(text: &str) -> StorageError {
     StorageError::InvalidValue(text.into())
 }
 impl LocalStore {
     pub fn apply_reviewed_budget_batch(&mut self, batch: &ReviewedBatch) -> Result<BatchResult> {
-        if batch.updates.len() + batch.creates.len() + batch.deletes.len() + batch.acus.len() == 0
-            || batch.updates.len() + batch.creates.len() + batch.deletes.len() + batch.acus.len()
+        if batch.updates.len() + batch.creates.len() + batch.deletes.len() + batch.acus.len() + batch.section_moves.len() == 0
+            || batch.updates.len() + batch.creates.len() + batch.deletes.len() + batch.acus.len() + batch.section_moves.len()
                 > 1000
         {
             return Err(invalid("Seleccioná entre 1 y 1000 partidas"));
@@ -97,7 +108,7 @@ impl LocalStore {
         if let Some(new) = &batch.new_estimate {
             if new.title.trim().is_empty()
                 || new.title.len() > 500
-                || (!batch.updates.is_empty() || !batch.deletes.is_empty())
+                || (!batch.updates.is_empty() || !batch.deletes.is_empty() || !batch.section_moves.is_empty())
             {
                 return Err(invalid("Datos del presupuesto nuevo inválidos"));
             }
@@ -120,6 +131,41 @@ impl LocalStore {
         let allowed:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM estimates e WHERE e.id=?1 AND e.status='draft' AND e.currency=?2 AND NOT EXISTS(SELECT 1 FROM entity_archives a WHERE (a.kind='estimate' AND a.entity_id=e.id) OR (a.kind='project' AND a.entity_id=e.project_id)) AND NOT EXISTS(SELECT 1 FROM project_organizations po JOIN organizations o ON o.id=po.organization_id WHERE po.project_id=e.project_id AND o.ownership='external'))",params![batch.estimate_id.to_string(),batch.currency],|r|r.get(0))?;
         if !allowed {
             return Err(invalid("Elegí un presupuesto vigente, propio y en elaboración, con la misma moneda de la propuesta"));
+        }
+        // Reassignment is a first-class reviewed operation. Resolve every ID
+        // against the draft and verify the exact source snapshot before writes.
+        let mut section_move_ids = HashSet::new();
+        for moved in &batch.section_moves {
+            if !section_move_ids.insert(moved.line_id)
+                || batch.deletes.iter().any(|d| d.line_id == moved.line_id)
+                || batch.acus.iter().any(|a| a.line_id == moved.line_id)
+            {
+                return Err(invalid("Una partida está repetida entre la clasificación, ACU o eliminaciones"));
+            }
+            let previous: Option<(String, String, String, String, Option<String>, Option<String>)> = tx.query_row(
+                "SELECT l.description,l.unit,l.quantity,l.unit_cost_snapshot,l.analysis_id,s.section_id
+                 FROM estimate_lines l LEFT JOIN estimate_line_sections s ON s.line_id=l.id
+                 WHERE l.id=?1 AND l.estimate_id=?2",
+                params![moved.line_id.to_string(),batch.estimate_id.to_string()],
+                |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?))
+            ).optional()?;
+            let Some((description,unit,quantity,price,analysis,section)) = previous else {
+                return Err(invalid("La partida a reorganizar no existe en este presupuesto"));
+            };
+            if description != moved.expected.description
+                || unit != moved.expected.unit
+                || D::from_str_exact(&quantity).ok() != Some(moved.expected.quantity)
+                || D::from_str_exact(&price).ok() != Some(moved.expected.unit_cost)
+                || analysis != moved.expected.analysis_id.map(|id| id.to_string())
+                || section != moved.expected_section.map(|id| id.to_string())
+            {
+                return Err(invalid("La partida o su rubro cambiaron desde la vista previa; se canceló todo el lote"));
+            }
+            let available: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM budget_sections WHERE id=?1 AND estimate_id=?2)",
+                params![moved.section_id.to_string(),batch.estimate_id.to_string()], |r|r.get(0)
+            )?;
+            if !available { return Err(invalid("El rubro de destino no pertenece a este presupuesto")); }
         }
         crate::assisted_acu::validate_changes(&tx, batch)?;
         let mut ids = HashSet::new();
@@ -239,12 +285,20 @@ impl LocalStore {
             }
         }
         crate::assisted_acu::apply_changes(&tx, batch)?;
+        for moved in &batch.section_moves {
+            tx.execute(
+                "INSERT INTO estimate_line_sections(line_id,section_id) VALUES(?1,?2)
+                 ON CONFLICT(line_id) DO UPDATE SET section_id=excluded.section_id",
+                params![moved.line_id.to_string(),moved.section_id.to_string()],
+            )?;
+        }
         crate::estimates::checked_budget_total(&tx, batch.estimate_id)?;
         let result = BatchResult {
             updated: batch.updates.len(),
             created: batch.creates.len(),
             deleted: batch.deletes.len(),
             composed: batch.acus.len(),
+            moved_sections: batch.section_moves.len(),
         };
         tx.execute("INSERT INTO assisted_budget_batches(id,estimate_id,request_json,result_json) VALUES(?1,?2,?3,?4)",params![batch.id.to_string(),batch.estimate_id.to_string(),request,serde_json::to_string(&result)?])?;
         tx.commit()?;
