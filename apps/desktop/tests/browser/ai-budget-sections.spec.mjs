@@ -156,7 +156,7 @@ test('after reopening the app, converting current unpriced partidas into rubros 
  const preview=page.locator('.ai-ingredient-preview').last();
  await expect(preview).toContainText('Convertir partida genérica en rubro: Cimentación');
  await expect(preview).toContainText('Convertir partida genérica en rubro: Pintura');
- await expect(preview).toContainText('Las demás partidas se conservan');
+ await expect(preview).toContainText('las demás partidas se conservan');
  expect(await page.evaluate(()=>window.__sectionHarness.writes.length)).toBe(0);
  await preview.getByRole('button',{name:'Aprobar cambios de rubros'}).click();
  await expect(page.locator('.ai-approval-status').last()).toContainText('9 partidas genéricas convertidas');
