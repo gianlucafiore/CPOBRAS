@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {parseAiReply,draftFromProposal,createAiRequest} from '../src/services/ai-assistant.js';
+import {parseAiReply,draftFromProposal,createAiRequest,budgetScreenContext} from '../src/services/ai-assistant.js';
 test('unstructured responses remain text; only whitelisted proposals become drafts',()=>{
   assert.deepEqual(parseAiReply('<script>bad()</script>'),{answer:'<script>bad()</script>',proposal:null});
   const reply=parseAiReply(JSON.stringify({answer:'Revisá este borrador',proposal:{kind:'line',description:'Excavación',unit:'m³',quantity:'15.25',unit_price:'30000',id:'existing-id',execute:'delete',sectionId:'secret'}}));
@@ -44,4 +44,20 @@ test('cancelling immediately prevents dispatch; native errors release the watchd
   assert.deepEqual(calls,[]);
   const failed=createAiRequest(()=>Promise.reject(new Error('clave rechazada')),{},watchdogOptions().options);
   await assert.rejects(failed.promise,/clave rechazada/);
+});
+
+test('budget context counts every line even if the detailed list is truncated',()=>{
+  const lines=Array.from({length:81},(_,i)=>({id:String(i),description:'Partida '+i+' x'.repeat(200),unit:'m³',quantity:'1',unit_cost:i<30?'0.00':'100.10'}));
+  const context=budgetScreenContext({view:'workspace',estimateId:'e',selectedLineId:'80',lines},'texto visible');
+  const summary=JSON.parse(context.split('\n')[1]);
+  assert.equal(summary.total_partidas,81);assert.equal(summary.precio_cero,30);assert.equal(summary.precio_positivo,51);
+  assert.ok(context.length<=7000);assert.match(context,/Partida seleccionada.*Partida 80/);assert.match(context,/Los conteos del resumen incluyen las 81/);
+});
+test('zero prices, absent prices and prices outside budget scope remain distinct',()=>{
+  const state={view:'workspace',estimateId:'e',lines:[{unit_cost:'0'},{unit_cost:'-0.000'},{unit_cost:null},{unit_cost:'invalid'},{unit_cost:'0.0000000001'}],resources:[{description:'PRIVATE CATALOG'}]};
+  const context=budgetScreenContext(state);
+  const summary=JSON.parse(context.split('\n')[1]);
+  assert.equal(summary.precio_cero,2);assert.equal(summary.precio_sin_dato,2);assert.equal(summary.precio_positivo,1);
+  assert.ok(!context.includes('PRIVATE CATALOG'));
+  assert.equal(budgetScreenContext({...state,view:'clients'},'visible contacts'),'visible contacts');
 });

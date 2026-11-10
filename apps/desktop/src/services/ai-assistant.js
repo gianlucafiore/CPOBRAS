@@ -73,3 +73,31 @@ export function createAiRequest(invoke,args,options={}) {
   }).then(result=>{if(pending)finish(null,result);},error=>finish(error));
   return {promise,cancel,requestId};
 }
+
+// Only the budget currently displayed, not the catalog or unrelated projects.
+// Counts use all loaded lines, even when DOM rows are folded or the text is capped.
+export function budgetScreenContext(state,visibleText="") {
+  if(state.view!=="workspace"||!state.estimateId)return visibleText;
+  const lines=state.lines||[];
+  const priceState=value=>{
+    if(value==null||String(value).trim()==="")return "sin_dato";
+    const text=String(value).trim();
+    if(!/^[+-]?\d+(?:[.,]\d+)?$/.test(text))return "sin_dato";
+    if(!/[1-9]/.test(text))return "cero";
+    return text.startsWith("-")?"negativo":"positivo";
+  };
+  const counts={total_partidas:lines.length,precio_cero:0,precio_positivo:0,precio_negativo:0,precio_sin_dato:0};
+  for(const line of lines){const status=priceState(line.unit_cost);counts[{cero:"precio_cero",positivo:"precio_positivo",negativo:"precio_negativo",sin_dato:"precio_sin_dato"}[status]]++;}
+  const record=line=>({codigo:line.code||"",descripcion:String(line.description||"").slice(0,200),unidad:line.unit,cantidad:line.quantity,precio_unitario:line.unit_cost??null,estado_precio:priceState(line.unit_cost)});
+  const estimate=state.estimates?.find(x=>x.id===state.estimateId);
+  const selected=lines.find(x=>x.id===state.selectedLineId);
+  const parts=["PRESUPUESTO ACTUAL. Resumen calculado por CPOBRAS sobre TODAS las partidas cargadas (no sobre el recorte de texto):",JSON.stringify({presupuesto:estimate?.title,moneda:estimate?.currency,...counts}),"Precio cero no demuestra un dato faltante: puede ser intencional. Distinguí esa condición de precio sin dato."];
+  if(selected)parts.push("Partida seleccionada: "+JSON.stringify(record(selected)));
+  parts.push("Detalle de partidas (puede recortarse; usá los conteos anteriores para preguntas sobre todo el presupuesto):");
+  let included=0;
+  for(const line of lines){const row=JSON.stringify(record(line));if(parts.join("\n").length+row.length>5600)break;parts.push(row);included++;}
+  parts.push(`Detalle incluido: ${included} de ${lines.length} partidas. Los conteos del resumen incluyen las ${lines.length}.`);
+  const remaining=6900-parts.join("\n").length;
+  if(remaining>100&&visibleText)parts.push("Texto adicional de la vista (puede estar recortado):\n"+visibleText.slice(0,remaining-80));
+  return parts.join("\n");
+}

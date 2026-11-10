@@ -483,8 +483,11 @@ su disponibilidad en cada cuenta.
 
 La consulta y un historial breve se envían al proveedor seleccionado cuando se
 pulsa Enviar y se acepta el aviso de envío y posibles cargos. El contexto de la
-pantalla está desactivado de forma predeterminada: capturalo, revisá o editá su
-texto y marcá Incluir estos datos para compartirlo. Se limita el tamaño del
+pantalla se incluye de forma predeterminada y se actualiza al enviar. Podés
+revisarlo, desactivar Incluir estos datos o editar su texto; el contexto editado
+se respeta sin reemplazarlo automáticamente. En Presupuesto incluye un resumen
+calculado sobre todas las partidas cargadas, con conteos separados de precios
+cero, positivos, negativos y sin dato, aunque el detalle de filas se recorte. Se limita el tamaño del
 contexto y la respuesta, sin reintentos automáticos; esto no constituye un tope
 monetario. La espera de respuesta se limita a 60 segundos y la interfaz tiene
 un corte independiente a los 65 segundos si IPC no responde. Podés usar

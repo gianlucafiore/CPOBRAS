@@ -118,11 +118,11 @@ export function createWorkspaceApp({
   }
   let renderedContext='';
   function render() {
-    aiAssistant?.syncContext();
     if (state.navigating) {
       root.innerHTML = chrome(
         '<main class="feature-page" role="status">Cargando los datos de la sección seleccionada…</main>',
       );
+      aiAssistant?.syncContext();
       return;
     }
     const contextKey=[state.view,state.projectId,state.estimateId].join(':');
@@ -168,6 +168,7 @@ export function createWorkspaceApp({
     const restored = document.querySelector(".table-scroll");
     if (restored) restored.scrollTop = position;
     if (state.search) filterRows(state.search);
+    aiAssistant?.syncContext();
     if (state.modal)
       document.querySelector(".dialog-shell input:not([type=hidden])")?.focus();
   }
