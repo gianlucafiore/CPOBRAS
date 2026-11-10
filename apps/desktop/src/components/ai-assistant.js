@@ -1,4 +1,5 @@
 import {createAcuWorkbench} from "./ai-acu-workbench.js";
+import {executeBudgetTool} from '../services/ai-budget-tools.js';
 import {createApprovedPlanRunner} from "../services/ai-approved-plan.js";
 import {createAiBudgetImport} from "./ai-budget-import.js";
 import {e,dateToday} from "./helpers.js";
@@ -247,7 +248,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
         model.catalogLoading=false;model.notice='Catálogo local consultado: se incluyen coincidencias reales, unidades y precios vigentes.';
       }
       if(token!==queryToken||generation!==model.generation)return;
-      const mode=/(?:edit[aá]|modific[aá]|cambi[aá]|elimin[aá]|borr[aá]|quit[aá]).{0,60}partidas|partidas.{0,60}(?:eliminar|editar|borrar)/i.test(question)?"manage":/(?:cre[aá]r?|gener[aá]r?|arm[aá]r?|prepar[aá]r?|propon[eé]r?).{0,60}partidas|partidas.{0,60}(?:necesarias|obra nueva)/i.test(question)?"plan":undefined;
+      const mode=/(?:edit[aá]|modific[aá]|cambi[aá]|elimin[aá]|borr[aá]|quit[aá]).{0,60}partidas|partidas.{0,60}(?:eliminar|editar|borrar)/i.test(question)?"manage":/(?:presupuest[aá]m[eé]|cotiz[aá]m[eé]|arm[aá]m[eé] un presupuesto|cre[aá]r?|gener[aá]r?|arm[aá]r?|prepar[aá]r?|propon[eé]r?).{0,80}(?:vivienda|casa|galp[oó]n|edificio|partidas|presupuesto)|partidas.{0,60}(?:necesarias|obra nueva)/i.test(question)?"plan":undefined;
       request=createAiRequest(invoke,{messages,context,...(mode?{mode}:{})});activeRequest=request;paint();
       let result=await request.promise;
       if(generation!==model.generation||token!==queryToken)return;
@@ -264,6 +265,13 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
         try{if(parseCatalogQuery(result.text))result.text=JSON.stringify({answer:catalogAnswer(catalogSnapshot,additional)});}catch{result.text=JSON.stringify({answer:catalogAnswer(catalogSnapshot,additional)});}
       }
       let parsed=parseAiReply(result.text);
+      if(parsed.toolCall){
+        // The model decides what the user means. Rust/JS services answer
+        // through typed, read-only APIs, never a generated SQL or command.
+        const operation=await executeBudgetTool(parsed.toolCall,{invoke,state,today:dateToday()});
+        if(generation!==model.generation||token!==queryToken)return;
+        parsed={answer:operation.answer,proposal:null};
+      }
       if(catalogSnapshot&&/no (?:tengo|dispongo de|cuento con) acceso.{0,50}(?:cat[aá]logo|biblioteca)|no puedo acceder.{0,40}(?:cat[aá]logo|biblioteca)/i.test(parsed.answer)){parsed={answer:catalogAnswer(catalogSnapshot,question,model.messages),proposal:null};result.text=JSON.stringify(parsed);}
       const executionClaim=/\b(?:agregue|anadi|incorpore|cargue|guarde|cree|aplique)\b|\bse (?:creo|crearon|agrego|agregaron|cargo|cargaron|guardo|guardaron|incorporo|incorporaron|aplico|aplicaron)\b|\b(?:fue|fueron|ha sido|han sido) (?:cread[oa]s?|cargad[oa]s?|guardad[oa]s?|agregad[oa]s?)\b/.test(fold(parsed.answer));
       const progressClaim=/\b(?:estoy|estamos|voy a|vamos a|procedo a|se estan)\s+(?:cargando|cargar|agregando|agregar|guardando|guardar|incorporando|incorporar|aplicando|aplicar|creando|crear)\b/.test(fold(parsed.answer));
