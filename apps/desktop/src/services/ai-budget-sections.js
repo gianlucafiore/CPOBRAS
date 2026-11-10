@@ -18,8 +18,8 @@ export function parseSectionToolArgs(a){
   return {action:'create',names:names.join('|')};
  }
  if(action==='convert'){
-  if(a.source!=='last_created'||a.names||a.titles||a.target||a.name)return null;
-  return {action:'convert',source:'last_created'};
+  if(!['last_created','current_placeholders'].includes(a.source)||a.names||a.titles||a.target||a.name)return null;
+  return {action:'convert',source:a.source};
  }
  if(action==='rename'){
   if(a.names||a.titles||a.source||a.name)return null;
@@ -32,9 +32,17 @@ export function parseSectionToolArgs(a){
  if(!ok(names)||names.length>1500)return null;
  return {action:'delete',names:names.replace(/\s*;\s*/g,'|')};
 }
-export function prepareSectionEdits(args,state,sourceLineIds=[]){
- const parsed=parseSectionToolArgs(args);
+export function prepareSectionEdits(args,state,sourceLineIds=[],userQuestion=''){
+ let parsed=parseSectionToolArgs(args);
  if(!parsed)throw Error('La orden de rubros necesita una acción y nombres claros. No se creó ninguna partida.');
+ const question=norm(userQuestion);
+ // Explicit correction: these existing partidas should be rubros. Resolve
+ // identities from local history or current placeholder rows, never model IDs.
+ const conversionRequested=/\b(?:converti\w*|transforma\w*|pasar|pasa)\b.{0,170}\bpartidas?\b.{0,170}\brubros?\b|\bpartidas?\b.{0,210}\b(?:deberian|debieran|son|eran|estan mal|equivocadas?|converti\w*|transforma\w*|pasar)\b.{0,210}\brubros?\b/.test(question);
+ if(conversionRequested&&['create','convert'].includes(parsed.action))
+  parsed={action:'convert',source:sourceLineIds.length?'last_created':'current_placeholders'};
+ if(parsed.action==='convert'&&parsed.source==='current_placeholders'&&!conversionRequested)
+  throw Error('Para convertir partidas existentes en rubros, pedilo explícitamente. No se eliminarán partidas a partir de una orden ambigua.');
  const {batch,preview}=prepareSectionBatch({name:'manage_sections',args:parsed},{state,sourceLineIds});
  const display=[
   ...preview.created.map(name=>'Crear rubro: '+name),
