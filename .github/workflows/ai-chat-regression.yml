@@ -16,6 +16,7 @@ on:
       - "apps/desktop/tests/browser/ai-approved-load.spec.mjs"
       - "apps/desktop/tests/browser/ai-acu-chat.spec.mjs"
       - "crates/cpobras-storage/src/budget_sections.rs"
+      - "crates/cpobras-storage/src/section_batches.rs"
       - "apps/desktop/src-tauri/src/commands/sections.rs"
       - "apps/desktop/src-tauri/src/lib.rs"
       - ".github/workflows/ai-chat-regression.yml"
@@ -31,6 +32,7 @@ on:
       - "apps/desktop/tests/browser/ai-budget-preparation.spec.mjs"
       - "apps/desktop/tests/browser/ai-budget-sections.spec.mjs"
       - "crates/cpobras-storage/src/budget_sections.rs"
+      - "crates/cpobras-storage/src/section_batches.rs"
       - "apps/desktop/src-tauri/src/commands/sections.rs"
       - "apps/desktop/src-tauri/src/lib.rs"
       - ".github/workflows/ai-chat-regression.yml"
@@ -48,7 +50,7 @@ jobs:
         run: npm ci
       - name: Unit tests for AI requests and ACU additions
         working-directory: apps/desktop
-        run: node --test tests/ai-assistant.test.mjs tests/ai-acu.test.mjs tests/ai-acu-addition.test.mjs tests/ai-acu-productivity.test.mjs tests/ai-budget-tools.test.mjs
+        run: node --test tests/ai-assistant.test.mjs tests/ai-acu.test.mjs tests/ai-acu-addition.test.mjs tests/ai-acu-productivity.test.mjs tests/ai-budget-tools.test.mjs tests/ai-section-operations.test.mjs
       - name: Install Chromium
         working-directory: apps/desktop
         run: npx playwright install --with-deps chromium
@@ -64,3 +66,5 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Compile and test safe rubro operations
         run: cargo test -p cpobras-storage conversational_section_crud_preserves_lines_children_and_rejects_stale_delete -- --nocapture
+      - name: Validate reviewed rubro transactions and protected conversions
+        run: cargo test -p cpobras-storage reviewed_section -- --nocapture
