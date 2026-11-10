@@ -471,3 +471,29 @@ solo los contactos sin uso pueden eliminarse. Las herramientas de precios están
 en secciones desplegables de Insumos, ACU y Datos generales. Los precios de las
 cotizaciones se guardan al salir del campo; los errores se indican sin descartar
 lo escrito.
+
+### Asistente IA por API (opcional)
+
+El botón **✦ IA** abre una consola inferior. En **Configurar**, elegí OpenAI o
+Claude, un modelo habilitado en tu cuenta y su clave de API. La clave se mantiene
+solo en memoria hasta desconectar o cerrar CPOBRAS: no se guarda en SQLite,
+localStorage, respaldos ni archivos. Una suscripción a ChatGPT o Claude no
+sustituye la facturación de API. Los nombres de modelo se pueden cambiar según
+su disponibilidad en cada cuenta.
+
+La consulta y un historial breve se envían al proveedor seleccionado cuando se
+pulsa Enviar y se acepta el aviso de envío y posibles cargos. El contexto de la
+pantalla está desactivado de forma predeterminada: capturalo, revisá o editá su
+texto y marcá Incluir estos datos para compartirlo. Se limita el tamaño del
+contexto y la respuesta, sin reintentos automáticos; esto no constituye un tope
+monetario. Configurá límites de gasto en la cuenta del proveedor. Las políticas
+de tratamiento y retención del proveedor siguen aplicándose; en OpenAI se envía
+`store: false`. No se envían archivos, adjuntos ni la base de datos.
+
+El asistente explica datos y puede preparar una partida o insumo nuevo. La
+propuesta abre el formulario habitual; el usuario revisa y guarda. No tiene
+herramientas, SQL ni comandos de escritura. No registra pagos, emite certificados
+ni ejecuta código. Los textos del modelo se muestran como texto plano. La
+conversación se mantiene en memoria y se limpia al cambiar de sección, obra o
+presupuesto. Las respuestas y estimaciones deben revisarse. Esta integración no
+incluye todavía la importación masiva de presupuestos mediante IA.

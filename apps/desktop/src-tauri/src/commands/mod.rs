@@ -29,3 +29,5 @@ pub(crate) mod project_dashboard;
 pub(crate) mod system_settings;
 
 pub(crate) mod site_workflow;
+
+pub(crate) mod ai;

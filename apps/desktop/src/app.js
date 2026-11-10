@@ -1,3 +1,4 @@
+import { createAiAssistant } from "./components/ai-assistant.js";
 import { createEntityActions } from "./components/entity-actions.js";
 import { createResourceImport } from "./components/resource-import.js";
 import { createAdjustmentAgreement } from "./components/adjustment-agreement.js";
@@ -59,6 +60,7 @@ export function createWorkspaceApp({
     window,
     FormData,
   };
+  const aiAssistant = createAiAssistant({...context,invoke:nativeInvoke});
   const unitPicker = createUnitPicker(context);
   const resourcePicker = createResourcePicker(context);
   const resourceImport = createResourceImport(context);
@@ -116,6 +118,7 @@ export function createWorkspaceApp({
   }
   let renderedContext='';
   function render() {
+    aiAssistant?.syncContext();
     if (state.navigating) {
       root.innerHTML = chrome(
         '<main class="feature-page" role="status">Cargando los datos de la sección seleccionada…</main>',

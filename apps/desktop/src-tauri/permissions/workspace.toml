@@ -2,6 +2,10 @@
 identifier = "workspace"
 description = "Local workspace operations, granted only to the main window."
 commands.allow = [
+  "ai_configure",
+  "ai_status",
+  "ai_forget",
+  "ai_chat",
   "import_resources",
   "set_entity_archived",
   "delete_unused_person",

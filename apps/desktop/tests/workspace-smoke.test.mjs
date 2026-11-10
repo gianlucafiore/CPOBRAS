@@ -65,6 +65,8 @@ function setup() {
     return responses[name](args);
   };
   const document = {
+    body: { append() {} },
+    createElement() { return {innerHTML:"",addEventListener(){},querySelector(){return null;}}; },
     querySelector(selector) { return selector === "#app" ? root : null; },
     querySelectorAll() { return []; },
     addEventListener(name, callback) { listeners[name] = callback; },

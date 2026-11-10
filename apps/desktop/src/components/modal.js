@@ -203,7 +203,7 @@ export function createModalRenderer({
           : field(
               "Precio inicial (ARS)",
               "price",
-              0,
+              item.price ?? 0,
               'type="number" min="0" step="any" required',
             ) +
             field(

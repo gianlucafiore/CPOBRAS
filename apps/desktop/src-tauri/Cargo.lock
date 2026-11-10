@@ -780,6 +780,7 @@ dependencies = [
  "glib",
  "iroh",
  "iroh-relay",
+ "reqwest",
  "rust_decimal",
  "serde",
  "serde_json",
