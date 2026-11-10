@@ -1,5 +1,5 @@
 use crate::Db;
-use cpobras_storage::budget_sections::BudgetSection;
+use cpobras_storage::budget_sections::{BudgetSection, SectionEdit, SectionEditResult};
 use uuid::Uuid;
 
 #[derive(serde::Serialize)]
@@ -115,5 +115,18 @@ pub(crate) fn assign_line_section(
     db.lock()
         .map_err(|e| e.to_string())?
         .assign_line_section(estimate_id, line_id, section_id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub(crate) fn apply_budget_section_edits(
+    db: tauri::State<'_, Db>,
+    estimate_id: String,
+    edits: Vec<SectionEdit>,
+) -> Result<SectionEditResult, String> {
+    let estimate = Uuid::parse_str(&estimate_id).map_err(|e| e.to_string())?;
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .apply_budget_section_edits(estimate, &edits)
         .map_err(|e| e.to_string())
 }
