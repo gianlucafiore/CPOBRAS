@@ -80,10 +80,13 @@ for(const approval of ['apruebo directamente','sí, apruebo']){
  test(`create approval «${approval}» keeps the user's quantities, creates one real ACU and reports visibility locally`,async({page})=>{
   const {dialogs}=await approvalFixture(page);
   await ask(page,criteria);
-  await expect(page.getByRole('button',{name:'Sí, aprobar y cargar',exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Preparar listado de insumos',exact:true})).toBeVisible();
   await expect(page.locator('.ai-transcript')).toContainText('Preparar partidas nuevas con ACU');
   expect(await counts(page)).toEqual({aiCalls:1,writes:0});
   await ask(page,approval);
+  await expect(page.locator('.ai-ingredient-preview')).toContainText('Ladrillo común');
+  expect(await counts(page)).toEqual({aiCalls:3,writes:0});
+  await ask(page,'apruebo directamente');
   await expect(page.locator('.ai-approval-status')).toContainText('1 ACU cargado');
   await expect(page.locator('.ai-approval-status')).toContainText('1 partida nueva creada');
   await expect(page.getByRole('dialog')).toHaveCount(0);
@@ -136,7 +139,7 @@ test('a malformed create handoff cannot claim success or turn an approval into a
 test('an unrelated request without an executable proposal cannot approve an older pending load',async({page})=>{
  await approvalFixture(page);
  await ask(page,criteria);
- await expect(page.getByRole('button',{name:'Sí, aprobar y cargar',exact:true})).toBeVisible();
+ await expect(page.getByRole('button',{name:'Preparar listado de insumos',exact:true})).toBeVisible();
  await ask(page,'Quiero crear una partida distinta pero todavía no tengo sus datos');
  await expect(page.locator('.ai-transcript')).toContainText('Indicame los datos de ese nuevo trabajo.');
  const before=await counts(page);expect(before).toEqual({aiCalls:2,writes:0});
@@ -149,7 +152,9 @@ test('an approved addition of sheet material targets one existing line and prese
  const {dialogs}=await approvalFixture(page,{scenario:'append'});
  const beforeOther=await page.evaluate(()=>structuredClone(window.__createApprovalHarness.state.lines[1]));
  await ask(page,'Agregá 50 m2 de chapa a la partida Armado de obrador');
- await expect(page.getByRole('button',{name:'Sí, aprobar y cargar',exact:true})).toBeVisible();
+ await expect(page.getByRole('button',{name:'Preparar listado de insumos',exact:true})).toBeVisible();
+ await ask(page,'apruebo directamente');
+ await expect(page.locator('.ai-ingredient-preview')).toContainText('Chapa galvanizada');
  await ask(page,'apruebo directamente');
  await expect(page.locator('.ai-approval-status')).toContainText('1 ACU cargado');
  const result=await page.evaluate(()=>({batches:window.__createApprovalHarness.batches,calls:window.__createApprovalHarness.calls,lines:window.__createApprovalHarness.state.lines,modalCalls:window.__createApprovalHarness.modalCalls}));
