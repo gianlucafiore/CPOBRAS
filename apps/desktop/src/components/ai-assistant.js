@@ -5,7 +5,7 @@ import {e,dateToday} from "./helpers.js";
 import {buildCatalogContext,parseCatalogQuery} from "../services/ai-catalog-context.js";
 import {appendRequest} from "../services/ai-acu-addition.js";
 import {productivityEditRequest} from "../services/ai-acu-productivity.js";
-import {parseAiReply,draftFromProposal,screenContext,createAiRequest,budgetScreenContext,acuChatRequest,resolvedPendingApproval,isApprovalReply,materialAdditionFollowup,materialAdditionConfirmation} from "../services/ai-assistant.js";
+import {parseAiReply,draftFromProposal,screenContext,createAiRequest,budgetScreenContext,acuChatRequest,resolvedPendingApproval,isApprovalReply,materialAdditionFollowup,materialAdditionConfirmation,selectedAcuRequest} from "../services/ai-assistant.js";
 const defaults={openai:"gpt-4.1-mini",anthropic:"claude-haiku-4-5"};
 export function createAiAssistant({invoke,state,document,window,openModal,editable,loadEstimate,loadEstimates,openEstimate,openResourceLibrary}) {
   const host=document.createElement("div");host.id="ai-assistant";document.body.append(host);
@@ -175,9 +175,10 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     const additionContext={selectedLineId:state.selectedLineId,lines:state.lines,lastAction:model.lastAction};
     const selectedLine=state.lines.find(line=>line.id===state.selectedLineId);
     const productivity=productivityEditRequest(question,selectedLine);
-    const addition=productivity?null:materialAdditionFollowup(question,model.messages,additionContext);
+    const selectedRequest=productivity?null:selectedAcuRequest(question,selectedLine,model.messages);
+    const addition=productivity||selectedRequest?null:materialAdditionFollowup(question,model.messages,additionContext);
     const recovered=addition?null:materialAdditionConfirmation(question,model.messages,additionContext);
-    const acuRequest=productivity||addition||recovered||acuChatRequest(question,model.messages);
+    const acuRequest=productivity||selectedRequest||addition||recovered||acuChatRequest(question,model.messages);
     if(canPlan()&&acuRequest){
       const answer=productivity?'Rendimiento identificado. Voy a ajustar solo el equipo seleccionado; cualquier diferencia de unidad se informará. Falta aprobar.':'Pedido listo para revisar o aprobar. No se guardó nada todavía.';
       addReply(question,{answer,acuRequest});model.notice='La aprobación se aplica únicamente a este pedido.';
