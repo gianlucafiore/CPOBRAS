@@ -1,5 +1,6 @@
 import {createAcuWorkbench} from "./ai-acu-workbench.js";
 import {executeBudgetTool,budgetPreparationRequest} from '../services/ai-budget-tools.js';
+import {prepareSectionEdits} from '../services/ai-budget-sections.js';
 import {createApprovedPlanRunner} from "../services/ai-approved-plan.js";
 import {createAiBudgetImport} from "./ai-budget-import.js";
 import {e,dateToday} from "./helpers.js";
@@ -31,10 +32,11 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
   }
   const captureContext=()=>budgetScreenContext(state,screenContext(document));
   const fold=value=>String(value||'').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
-  const isAction=message=>!!(message?.acuRequest||message?.planRows||message?.changeProposals||message?.proposal?.kind==='line'||message?.actionError);
+  const isAction=message=>!!(message?.acuRequest||message?.sectionPreview||message?.planRows||message?.changeProposals||message?.proposal?.kind==='line'||message?.actionError);
   function addReply(question,message){
     message.role='assistant';message.originalQuestion=question;
     const content={answer:message.answer};
+    if(message.sectionPreview)content.section_plan=message.sectionPreview.display;
     if(message.acuRequest)content.acu_request={mode:message.acuRequest.mode,brief:message.acuRequest.brief,...(message.acuRequest.mode==='fill'?{line_ids:message.acuRequest.lineIds}:{})};
     if(message.planRows)content.proposal_lines=message.planRows.map(row=>({description:row.description,unit:row.unit,quantity:row.quantity??null,unit_price:row.unit_price??null,section:row.section||''}));
     if(message.changeProposals)content.proposal_changes=message.changeProposals;
@@ -88,6 +90,10 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
   function approvalMarkup(message,index){
     const approval=message.approval;
     if(approval)return `<p class="ai-approval-status" role="status">${e(approval.message||'Preparando carga…')}</p>${approval.result?.pendingReasons?.length?`<ul class="ai-pending-reasons">${approval.result.pendingReasons.map(item=>`<li>${e(item.description)}: ${item.reasons.map(e).join(' · ')}</li>`).join('')}</ul>`:''}${approval.state!=='running'&&approval.result?.committed&&approval.result.estimateId?`<button type="button" data-ai="approved-result" data-index="${index}" ${model.busy?'disabled':''}>Ver en presupuesto</button>`:''}${approval.state!=='running'&&approval.result?.pending&&approval.kind==='acu'&&approval.id===model.lastApprovedId?`<button type="button" data-ai="approved-pending" data-index="${index}" ${model.busy?'disabled':''}>Ver pendientes</button>`:''}`;
+    if(message.sectionPreview){
+      const plan=message.sectionPreview;
+      return `<div class="ai-ingredient-preview"><strong>Rubros que se modificarán</strong><ul>${plan.display.map(item=>`<li>${e(item)}</li>`).join('')}</ul>${plan.warnings.map(item=>`<p class="ai-warning">⚠ ${e(item)}</p>`).join('')}<button type="button" class="ai-approve" data-ai="approve-section" data-index="${index}" ${canPlan()&&model.configured&&model.consent&&!model.busy?'':'disabled'}>Aprobar cambios de rubros</button><button type="button" data-ai="discard-section" data-index="${index}">Descartar</button></div>`;
+    }
     if(message.preview){
       const preview=message.preview;
       const rows=preview.rows||[];
@@ -104,6 +110,43 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     const scopeHint=isAcu?(request?.mode==='create'?'Se crearán partidas nuevas con su ACU.':targets.length?'Partidas indicadas: '+targets.join(', ')+(request.operation==='append'?'. Se agregarán los insumos solicitados conservando la composición actual.':request.operation==='productivity'?'. Se ajustará solo el consumo del equipo indicado; los demás insumos se conservan. Si la unidad del catálogo no coincide con el uso por día, se guardará una advertencia.':'. Si ya tienen ACU, se reemplazará su composición.'):'Se completarán las partidas que todavía no tengan ACU.'):'';
     return `<p>${isAcu?'Primero se generará una lista real de insumos, cantidades y advertencias. Se guardará solamente después de aprobarla.':'Revisá las partidas antes de crearlas.'} Destino: ${e(name)}. ${e(scopeHint)}</p>${isAcu?'':planList}<button type="button" class="ai-approve" data-ai="approve-load" data-index="${index}" ${canPlan()&&model.configured&&model.consent&&!model.busy?'':'disabled'}>${isAcu?'Preparar listado de insumos':'Sí, aprobar y crear partidas'}</button>`;
   }
+  async function approveSectionMessage(index){
+    const message=model.messages[index],plan=message?.sectionPreview;
+    if(!plan||message.approval||!canPlan()||model.busy||!model.configured||!model.consent)return;
+    if(plan.projectId!==state.projectId||plan.estimateId!==state.estimateId){
+      model.error='Cambió el presupuesto. Prepará nuevamente los cambios de rubros.';paint();return;
+    }
+    model.busy=true;model.error='';
+    message.approval={kind:'sections',state:'running',message:'Guardando los rubros aprobados…'};
+    paint();
+    let persisted=false;
+    try{
+      const result=await invoke('apply_budget_section_edits',{estimateId:plan.estimateId,edits:plan.actions});
+      persisted=true;
+      delete message.sectionPreview;
+      model.pendingAction=null;
+      const summary=[
+        result.created?result.created+' creados':'',
+        result.updated?result.updated+' editados':'',
+        result.deleted?result.deleted+' borrados':''
+      ].filter(Boolean).join(', ');
+      const safety=[
+        result.preserved_lines?result.preserved_lines+' partidas conservadas sin rubro':'',
+        result.reparented_subsections?result.reparented_subsections+' subrubros conservados':''
+      ].filter(Boolean).join(' · ');
+      message.answer='Rubros actualizados: '+summary+'.'+(safety?' '+safety+'.':'');
+      message.approval={kind:'sections',state:'done',message:message.answer,result:{...result,committed:true,estimateId:plan.estimateId}};
+      model.lastAction=message;
+      message.content=JSON.stringify({answer:message.answer});
+      try{await loadEstimate();}catch(error){message.answer+=' Guardado confirmado; no se pudo refrescar la vista: '+String(error);message.approval.message=message.answer;}
+    }catch(error){
+      if(!persisted){
+        message.answer='No se modificaron los rubros: '+String(error);
+        message.approval={kind:'sections',state:'stopped',message:message.answer,result:{committed:false}};
+      }
+    }finally{model.busy=false;paint();}
+  }
+
   async function approveMessage(index){
     const message=model.messages[index];
     if(!message||message.approval||message.changeProposals||!canPlan()||!model.configured||!model.consent||model.busy)return;
@@ -171,6 +214,13 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     if(pendingApproval!==null){model.question='';if(canPlan())await approveMessage(pendingApproval);else{model.error='Abrí un presupuesto propio en elaboración y cerrá los formularios pendientes para cargar este pedido.';paint();}return;}
     const last=model.messages.at(-1);
     const priorPreview=model.messages.findLast(m=>m?.preview);
+    const priorSection=model.messages.findLast(m=>m?.sectionPreview);
+    if(priorSection&&!isApprovalReply(question)){
+      delete priorSection.sectionPreview;
+      priorSection.actionError='Propuesta de rubros sustituida por una solicitud nueva.';
+      priorSection.answer='Propuesta de rubros descartada. No se modificó el presupuesto.';
+      model.pendingAction=null;
+    }
     if(priorPreview&&!isApprovalReply(question)){
       acuWorkbench.cancelPrepared();delete priorPreview.preview;priorPreview.actionError='Listado descartado por una nueva solicitud.';
       priorPreview.answer='Listado anterior descartado: no se guardó nada.';model.pendingAction=null;
@@ -266,6 +316,14 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       }
       let parsed=parseAiReply(result.text);
       if(parsed.toolCall){
+        if(parsed.toolCall.name==='manage_sections'){
+          if(!canPlan())throw Error('Abrí un presupuesto editable para modificar sus rubros.');
+          const plan=prepareSectionEdits(parsed.toolCall.args,state);
+          if(generation!==model.generation||token!==queryToken)return;
+          addReply(question,{answer:'Revisá el cambio de rubros propuesto. No se guardó nada.',sectionPreview:plan});
+          model.notice='Los cambios quedan pendientes de una sola aprobación.';
+          return;
+        }
         if(parsed.toolCall.name==='prepare_budget'||parsed.toolCall.name==='prepare_acu'){
           if(!canPlan())throw new Error('Abrí un presupuesto propio en elaboración y cerrá los formularios pendientes para preparar esta carga');
           const request=budgetPreparationRequest(parsed.toolCall,{state,focusedLineId:model.focusLineId,userQuestion:question});
@@ -306,6 +364,11 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       if(action==="plan-import"&&!model.busy)await acuWorkbench.open(model.question,null,"create");
       if(action==="review-plan"&&!model.busy){const message=model.messages[Number(button.dataset.index)];if(message?.planRows&&!message?.changeProposals)await reviewAcuMessage(Number(button.dataset.index));else budgetImport.openPlanRows(message?.planRows||[],message?.changeProposals||[]);}
       if(action==='approve-load')await approveMessage(Number(button.dataset.index));
+       if(action==='approve-section')await approveSectionMessage(Number(button.dataset.index));
+       if(action==='discard-section'&&!model.busy){
+        const message=model.messages[Number(button.dataset.index)];
+        if(message?.sectionPreview){delete message.sectionPreview;message.answer='Propuesta de rubros descartada; no se modificó el presupuesto.';message.actionError='Descartada';model.pendingAction=null;}
+       }
        if(action==='discard-preview'&&!model.busy){
         const message=model.messages[Number(button.dataset.index)];
         if(message?.preview){acuWorkbench.cancelPrepared();delete message.preview;message.answer='Propuesta descartada. No se modificó el presupuesto.';message.actionError='Propuesta descartada.';model.pendingAction=null;}
