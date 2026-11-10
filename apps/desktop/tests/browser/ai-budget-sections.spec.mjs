@@ -23,31 +23,35 @@ const invoke=async(name,args={})=>{
    {action:'create',titles:'Fundaciones; Estructuras; Cubiertas'};
   return {text:JSON.stringify({answer:'Propuesta de rubros',tool_call:{name:'manage_sections',args:op}}),input_tokens:25,output_tokens:35};
  }
- if(name==='apply_budget_section_edits'){
+ if(name==='apply_reviewed_section_batch'){
   harness.writes.push(structuredClone(args));
-  if(args.estimateId!==estimate)throw Error('Wrong budget');
-  let created=0,updated=0,deleted=0,preserved_lines=0,reparented_subsections=0;
-  for(const edit of args.edits){
-   if(edit.action==='create'){
-    const id='section-'+(state.sections.length+1);
-    state.sections.push({id,estimate_id:estimate,parent_id:null,title:edit.title,code:String(state.sections.length+1).padStart(2,'0'),position:state.sections.length});
-    created++;
-   }else{
-    const target=state.sections.find(s=>s.id===edit.section_id);
-    if(!target||target.title!==edit.expected_title)throw Error('Stale section edit');
-    if(edit.action==='update'){target.title=edit.title||target.title;target.code=edit.code||target.code;updated++;}
-    if(edit.action==='delete'){
-     const assigned=Object.values(state.assignments).filter(id=>id===target.id).length;
-     const children=state.sections.filter(s=>s.parent_id===target.id).length;
-     if(assigned!==edit.expected_lines||children!==edit.expected_children)throw Error('Stale delete snapshot');
-     for(const [id,sec] of Object.entries(state.assignments))if(sec===target.id)delete state.assignments[id];
-     for(const child of state.sections)if(child.parent_id===target.id)child.parent_id=target.parent_id;
-     state.sections=state.sections.filter(s=>s.id!==target.id);
-     preserved_lines+=assigned;reparented_subsections+=children;deleted++;
-    }
-   }
+  const batch=args.batch;
+  if(batch.estimate_id!==estimate)throw Error('Wrong budget');
+  for(const create of batch.creates){
+   if(state.sections.some(s=>s.title===create.title))throw Error('Duplicate rubro');
+   state.sections.push({id:create.id,estimate_id:estimate,parent_id:create.parent_id,title:create.title,code:create.code||'AI-'+create.id.slice(0,8),position:create.position});
   }
-  return {created,updated,deleted,preserved_lines,reparented_subsections};
+  for(const edit of batch.renames){
+   const current=state.sections.find(s=>s.id===edit.id);
+   if(!current||current.title!==edit.expected.title||current.code!==edit.expected.code)throw Error('Stale section edit');
+   current.title=edit.title;current.code=edit.code||current.code;
+  }
+  for(const conversion of batch.converts){
+   const current=state.lines.find(l=>l.id===conversion.line_id);
+   if(!current||current.description!==conversion.expected.description||Number(current.unit_cost)!==0||current.analysis_id)throw Error('Unsafe conversion');
+   state.lines=state.lines.filter(l=>l.id!==current.id);
+  }
+  for(const deletion of batch.deletes){
+   const target=state.sections.find(s=>s.id===deletion.id);
+   if(!target||target.title!==deletion.expected.title)throw Error('Stale delete');
+   const assigned=Object.values(state.assignments).filter(id=>id===target.id).length;
+   const children=state.sections.filter(s=>s.parent_id===target.id).length;
+   if(assigned!==deletion.expected_lines||children!==deletion.expected_children)throw Error('Stale deletion contents');
+   for(const [id,sec] of Object.entries(state.assignments))if(sec===target.id)delete state.assignments[id];
+   for(const child of state.sections)if(child.parent_id===target.id)child.parent_id=target.parent_id;
+   state.sections=state.sections.filter(s=>s.id!==target.id);
+  }
+  return {created:batch.creates.length,renamed:batch.renames.length,deleted:batch.deletes.length,converted:batch.converts.length};
  }
  throw Error('Unexpected IPC '+name);
 };
