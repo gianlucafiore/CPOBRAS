@@ -1,10 +1,11 @@
 import {multiplyDecimals,sumDecimals,divideDecimals,compareDecimals,numeric,money} from '../decimal.js';
 import {buildCatalogContext} from './ai-catalog-context.js';
 import {parseSectionToolArgs} from './ai-budget-sections.js';
+import {AI_TOOL_CONTRACTS} from './ai-domain-context.js';
 
 // The model requests only these read-only tools; native writes stay on the
 // separately reviewed ACU/partida paths.
-const NAMES=new Set(['calculate_takeoff','audit_budget','compare_estimates','search_catalog','prepare_budget','prepare_acu','manage_sections']);
+const NAMES=new Set(Object.keys(AI_TOOL_CONTRACTS));
 const isObject=v=>v!==null&&typeof v==='object'&&!Array.isArray(v);
 const value=v=>String(v??'');
 const tidy=v=>String(v).replace(/(\.\d*?)0+$/,'$1').replace(/\.$/,'');
@@ -16,9 +17,9 @@ export function parseBudgetToolCall(raw){
  if(!isObject(raw)||!NAMES.has(raw.name)||!isObject(raw.args)||JSON.stringify(raw).length>3000)return null;
  const a=raw.args;
  if(Object.values(a).some(v=>v!==null&&typeof v!=='string'))return null;
- if(raw.name==='prepare_budget'||raw.name==='prepare_acu'){
+ if(raw.name==='prepare_budget'||raw.name==='prepare_acu'||raw.name==='review_budget'){
   if(typeof a.brief!=='string'||!a.brief.trim()||a.brief.length>3000)return null;
-  if(raw.name==='prepare_budget')return {name:raw.name,args:{brief:a.brief.trim()}};
+  if(raw.name==='prepare_budget'||raw.name==='review_budget')return {name:raw.name,args:{brief:a.brief.trim()}};
   if(a.scope!=null&&!['selected','all_missing'].includes(a.scope))return null;
   return {name:raw.name,args:{brief:a.brief.trim(),scope:a.scope||'selected'}};
  }
@@ -126,7 +127,7 @@ export function budgetPreparationRequest(raw,{state,focusedLineId=null,userQuest
 export async function executeBudgetTool(raw,{invoke,state,today}){
  const call=parseBudgetToolCall(raw);
  if(!call)throw new Error('La operación solicitada no está permitida o sus datos no son válidos.');
- if(['prepare_budget','prepare_acu','manage_sections'].includes(call.name))throw new Error('Esta herramienta prepara una vista previa; no es una consulta de lectura.');
+ if(['prepare_budget','prepare_acu','manage_sections','review_budget'].includes(call.name))throw new Error('Esta herramienta prepara una vista previa; no es una consulta de lectura.');
  if(call.name==='calculate_takeoff')return calculateTakeoff(call.args);
  if(!state.projectId||!state.estimateId||state.remoteProject)throw new Error('Abrí un presupuesto local para consultar costos.');
  if(call.name==='audit_budget'){
