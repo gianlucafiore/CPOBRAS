@@ -99,7 +99,7 @@ test('model can prepare budgets and existing ACU via the same typed tool interfa
  assert.equal(parseBudgetToolCall({name:'prepare_acu',args:{brief:'Agregá insumos',scope:'delete_all'}}),null);
  assert.equal(parseBudgetToolCall({name:'prepare_budget',args:{brief:''}}),null);
  const issued={...state,estimates:[{id:'e',issued:true}]};
- assert.throws(()=>budgetPreparationRequest(budget.toolCall,{state:issued}),/emitido/);
+ assert.throws(()=>budgetPreparationRequest(budget.toolCall,{state:issued}),/elaboración/);
 });
 
 test('natural-language rubro CRUD produces only precise plans, with no write during preparation',()=>{
@@ -111,19 +111,19 @@ test('natural-language rubro CRUD produces only precise plans, with no write dur
   lines:[{id:'line',description:'Excavación'}],assignments:{line:'foundation'}};
  const create=parseAiReply(JSON.stringify({answer:'Creo rubros',tool_call:{name:'manage_sections',args:{action:'create',titles:'Instalaciones; Terminaciones'}}}));
  const plan=prepareSectionEdits(create.toolCall.args,state);
- assert.deepEqual(plan.actions.map(a=>a.title),['Instalaciones','Terminaciones']);
+ assert.deepEqual(plan.batch.creates.map(a=>a.title),['Instalaciones','Terminaciones']);
  assert.equal(plan.projectId,'project');assert.equal(plan.estimateId,'estimate');
  assert.throws(()=>prepareSectionEdits({action:'create',titles:'Fundaciones'},state),/Ya existe/);
  const update=prepareSectionEdits({action:'update',target:'Fundaciones',new_title:'Movimiento de suelos',new_code:'00'},state);
- assert.deepEqual(update.actions[0],{action:'update',section_id:'foundation',expected_title:'Fundaciones',title:'Movimiento de suelos',code:'00'});
+ assert.deepEqual(update.batch.renames[0],{id:'foundation',expected:{title:'Fundaciones',code:'01',parent_id:null,position:0},title:'Movimiento de suelos',code:'00'});
  const removal=prepareSectionEdits({action:'delete',target:'Fundaciones'},state);
- assert.deepEqual(removal.actions[0],{action:'delete',section_id:'foundation',expected_title:'Fundaciones',expected_lines:1,expected_children:1});
+ assert.deepEqual(removal.batch.deletes[0],{id:'foundation',expected:{title:'Fundaciones',code:'01',parent_id:null,position:0},expected_lines:1,expected_children:1});
  assert.match(removal.warnings.join(' '),/partidas/);
  assert.match(removal.warnings.join(' '),/subrubros/);
  assert.equal(parseSectionToolArgs({action:'delete',target:'Fundaciones',new_title:'X'}),null);
  assert.equal(parseBudgetToolCall({name:'manage_sections',args:{action:'delete',target:'Fundaciones',sql:'DROP TABLE estimate_lines'}}),null);
  assert.equal(parseSectionToolArgs({action:'create',titles:'Fundaciones; Fundaciones'}),null);
  assert.throws(()=>prepareSectionEdits({action:'delete',target:'Borrador inexistente'},state),/No encontré/);
- assert.throws(()=>prepareSectionEdits({action:'update',target:'01',new_title:'Cubiertas'},state),/ya lo usa/);
+ assert.throws(()=>prepareSectionEdits({action:'update',target:'01',new_title:'Cubiertas'},state),/ya existe/i);
  assert.throws(()=>prepareSectionEdits({action:'delete',target:'01'}, {...state,estimates:[{id:'estimate',issued:true}]}),/emitido/);
 });
