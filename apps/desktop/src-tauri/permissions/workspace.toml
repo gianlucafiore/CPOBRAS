@@ -183,6 +183,8 @@ commands.allow = [
   "register_resource_price",
   "reprice_analysis",
   "save_budget_section",
+  "apply_reviewed_section_batch",
+  "apply_budget_section_edits",
   "list_budget_sections",
   "list_line_sections",
   "get_analysis_details",
