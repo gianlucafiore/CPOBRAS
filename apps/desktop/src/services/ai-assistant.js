@@ -35,8 +35,8 @@ function acuMode(text,fallback='fill'){
 }
 export function isApprovalReply(question){
  if(typeof question!=='string'||!question.trim()||/[¿?]/.test(question))return false;
- const affirmation='(?:si|dale|adelante|de acuerdo)';
- const lead='(?:(?:si|dale|adelante|de acuerdo|perfecto|bueno|ok|bien)\\s+)*';
+ const affirmation='(?:si|dale|adelante|de acuerdo|confirmo|confirmado)';
+ const lead='(?:(?:si|dale|adelante|de acuerdo|confirmo|confirmado|perfecto|bueno|ok|bien)\\s+)*';
  const approve='(?:apruebo|aprobar|aproba(?:lo|la|los|las)?|aprobado)';
  const load='(?:carga(?:r|lo|la|los|las)?|aplica(?:r|lo|la|los|las)?|completa(?:r|lo|la|los|las)?|guarda(?:r|lo|la|los|las)?|hacelo|hazlo|procede)';
  const explicit=new RegExp('^(?:'+affirmation+'|'+lead+'(?:'+approve+'(?:\\s+(?:y\\s+)?'+load+')?|confirmado|'+load+')(?:\\s+directamente)?)(?:\\s+por favor)?$');
