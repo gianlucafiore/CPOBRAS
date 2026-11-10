@@ -6,23 +6,28 @@ const ok=s=>typeof s==='string'&&s.trim().length>0;
 const norm=s=>String(s||'').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase();
 export function parseSectionToolArgs(a){
  if(!a||typeof a!=='object'||Array.isArray(a)||Object.values(a).some(v=>v!=null&&typeof v!=='string'))return null;
+ const allowed=new Set(['action','titles','names','name','target','from_name','to_name','new_title','new_code','source']);
+ if(Object.keys(a).some(key=>!allowed.has(key)))return null;
  const action=a.action==='update'?'rename':a.action;
  if(!['create','rename','delete','convert'].includes(action))return null;
  if(action==='create'){
+  if(a.target||a.new_title||a.new_code||a.from_name||a.to_name||a.name)return null;
   if(a.source==='last_created')return {action:'create',source:'last_created'};
   const names=(a.names||a.titles||'').split(/\s*[;|\n]\s*/).map(s=>s.trim()).filter(Boolean);
   if(!names.length||names.length>60||names.some(s=>s.length>100)||new Set(names.map(norm)).size!==names.length)return null;
   return {action:'create',names:names.join('|')};
  }
  if(action==='convert'){
-  if(a.source!=='last_created')return null;
+  if(a.source!=='last_created'||a.names||a.titles||a.target||a.name)return null;
   return {action:'convert',source:'last_created'};
  }
  if(action==='rename'){
+  if(a.names||a.titles||a.source||a.name)return null;
   const from_name=a.from_name||a.target, to_name=a.to_name||a.new_title, new_code=a.new_code;
   if(!ok(from_name)||!ok(to_name)&&!ok(new_code)||to_name?.length>100||new_code?.length>64)return null;
   return {action:'rename',from_name:from_name.trim(),to_name:(to_name||a.from_name||a.target).trim(),...(new_code?{new_code:new_code.trim()}:{})};
  }
+ if(a.new_title||a.new_code||a.to_name||a.from_name||a.titles||a.source)return null;
  const names=a.names||a.name||a.target;
  if(!ok(names)||names.length>1500)return null;
  return {action:'delete',names:names.replace(/\s*;\s*/g,'|')};
