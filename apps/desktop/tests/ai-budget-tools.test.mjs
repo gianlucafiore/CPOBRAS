@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {calculateTakeoff,parseBudgetToolCall,auditBudget,formatEstimateComparison,executeBudgetTool} from '../src/services/ai-budget-tools.js';
+import {calculateTakeoff,parseBudgetToolCall,auditBudget,formatEstimateComparison,executeBudgetTool,budgetPreparationRequest} from '../src/services/ai-budget-tools.js';
 import {parseAiReply,acuChatRequest} from '../src/services/ai-assistant.js';
 
 test('natural-language model intent becomes a typed 3.84 m³ geometric quantity',()=>{
@@ -82,4 +82,21 @@ test('a 120 m² building can be proposed by the model as reviewable lines withou
  assert.equal(parsed.planRows[0].quantity,'120');
  assert.equal(parsed.planRows[1].quantity,null);
  assert.equal(parsed.planRows.every(r=>r.unit_price==null),true);
+});
+
+test('model can prepare budgets and existing ACU via the same typed tool interface, but cannot choose foreign targets',()=>{
+ const state={projectId:'p',estimateId:'e',remoteProject:false,
+  estimates:[{id:'e',issued:false}],selectedLineId:'other',
+  lines:[{id:'bathroom',description:'Revestimiento de baños',analysis_id:'old',components:[{resource_id:'tile',quantity:'1'}]},
+         {id:'other',description:'Pintura',components:[],analysis_id:null}]};
+ const budget=parseAiReply(JSON.stringify({answer:'Preparo un presupuesto',tool_call:{name:'prepare_budget',args:{brief:'Vivienda de 120 m² de construcción tradicional'}}}));
+ assert.deepEqual(budgetPreparationRequest(budget.toolCall,{state}),{mode:'create',brief:'Vivienda de 120 m² de construcción tradicional',lineIds:[]});
+ const acu=parseAiReply(JSON.stringify({answer:'Busco adhesivo',tool_call:{name:'prepare_acu',args:{brief:'Agregá adhesivo y pastina al revestimiento',scope:'selected'}}}));
+ assert.deepEqual(budgetPreparationRequest(acu.toolCall,{state,focusedLineId:'bathroom'}),{mode:'fill',operation:'append',brief:'Agregá adhesivo y pastina al revestimiento',lineIds:['bathroom']});
+ assert.throws(()=>budgetPreparationRequest({name:'prepare_acu',args:{brief:'Completá',scope:'all_missing'}},{state,userQuestion:'completá esta partida'}),/explícitamente/);
+ assert.deepEqual(budgetPreparationRequest({name:'prepare_acu',args:{brief:'Completá todas las partidas vacías',scope:'all_missing'}},{state,userQuestion:'Completá todas las partidas sin ACU'}).lineIds,['other']);
+ assert.equal(parseBudgetToolCall({name:'prepare_acu',args:{brief:'Agregá insumos',scope:'delete_all'}}),null);
+ assert.equal(parseBudgetToolCall({name:'prepare_budget',args:{brief:''}}),null);
+ const issued={...state,estimates:[{id:'e',issued:true}]};
+ assert.throws(()=>budgetPreparationRequest(budget.toolCall,{state:issued}),/emitido/);
 });
