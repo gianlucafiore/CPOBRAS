@@ -138,3 +138,32 @@ test('chat converts exactly the nine last-created generic partidas into rubros w
  expect(result.sections).toHaveLength(9);
  expect(result.sections.map(s=>s.title)).toContain('Fundaciones');
 });
+
+
+test('after reopening the app, converting current unpriced partidas into rubros preserves real priced work',async({page})=>{
+ await page.route('**/src/main.js*',route=>route.fulfill({contentType:'application/javascript',body:source}));
+ await page.goto('/');
+ await page.waitForFunction(()=>window.__sectionHarness?.ready);
+ await page.evaluate(()=>{
+  const h=window.__sectionHarness;
+  const names=['Cimentación','Estructura','Mampostería','Cubierta','Carpintería exterior','Revestimientos','Instalaciones eléctricas','Instalaciones sanitarias','Pintura'];
+  for(const [index,description] of names.entries())
+   h.state.lines.push({id:'placeholder-'+index,description,unit:index===0?'m3':'m2',quantity:'0',unit_cost:'0',analysis_id:null,components:[],takeoffs:[]});
+ });
+ await page.locator('.ai-launch').click();await page.locator('[name=ai-consent]').check();
+ await page.locator('#ai-prompt').fill('Las partidas que están creadas en este presupuesto están mal, deberían ser rubros, por favor crea los rubros que se corresponden con cada nombre de partida');
+ await page.locator('#ai-question button').click();
+ const preview=page.locator('.ai-ingredient-preview').last();
+ await expect(preview).toContainText('Convertir partida genérica en rubro: Cimentación');
+ await expect(preview).toContainText('Convertir partida genérica en rubro: Pintura');
+ await expect(preview).toContainText('Las demás partidas se conservan');
+ expect(await page.evaluate(()=>window.__sectionHarness.writes.length)).toBe(0);
+ await preview.getByRole('button',{name:'Aprobar cambios de rubros'}).click();
+ await expect(page.locator('.ai-approval-status').last()).toContainText('9 partidas genéricas convertidas');
+ const after=await page.evaluate(()=>({lines:window.__sectionHarness.state.lines,sections:window.__sectionHarness.state.sections,batch:window.__sectionHarness.writes[0]?.batch}));
+ expect(after.lines).toHaveLength(1);
+ expect(after.lines[0].description).toBe('Excavación');
+ expect(after.sections).toHaveLength(9);
+ expect(after.batch.converts).toHaveLength(9);
+});
+
