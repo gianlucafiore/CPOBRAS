@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {parseAiReply,draftFromProposal,createAiRequest,budgetScreenContext,acuChatRequest,resolvedPendingApproval,isApprovalReply} from '../src/services/ai-assistant.js';
+import {parseAiReply,draftFromProposal,createAiRequest,budgetScreenContext,acuChatRequest,resolvedPendingApproval,isApprovalReply,materialAdditionFollowup} from '../src/services/ai-assistant.js';
 test('unstructured responses remain text; only whitelisted proposals become drafts',()=>{
   assert.deepEqual(parseAiReply('<script>bad()</script>'),{answer:'<script>bad()</script>',proposal:null});
   const reply=parseAiReply(JSON.stringify({answer:'Revisá este borrador',proposal:{kind:'line',description:'Excavación',unit:'m³',quantity:'15.25',unit_price:'30000',id:'existing-id',execute:'delete',sectionId:'secret'}}));
@@ -136,6 +136,35 @@ test('an explicit conversational approval resolves only the latest pending ACU, 
  const earlier=[{role:'user',content:'Otro pedido anterior.'},{role:'assistant',answer:'Respuesta anterior.'},...pendingPair(pendingAcu)];
  assert.equal(resolvedPendingApproval('sí',earlier),3);
 });
+
+test('an unambiguous approval like "sí aprobado cargalos" executes only the latest pending card',()=>{
+ for(const approval of ['si aprobado cargalos','Sí, aprobado, cargalos','sí aprobado y cargalos','perfecto confirmado']){
+  assert.equal(isApprovalReply(approval),true,approval);
+  assert.equal(resolvedPendingApproval(approval,pendingPair(pendingAcu)),1,approval);
+  assert.equal(resolvedPendingApproval(approval,pendingPair({...pendingAcu,approval:{state:'done',result:{committed:true}}})),null);
+ }
+ for(const text of ['sí aprobado cargalos si es el correcto','si aprobado cargalos pero cambiá las cantidades','no, aprobado cargalos']){
+  assert.equal(isApprovalReply(text),false,text);
+ }
+});
+test('a missing-fixtures correction targets the last locally saved ACU without reusing unrelated conversations',()=>{
+ const id=acuLineId,second='10000000-0000-4000-8000-000000000022';
+ const lines=[{id,description:'Instalación de sanitarios: 1 inodoro y 1 bidet con mano de obra'}, {id:second,description:'Pintura'}];
+ const saved={approval:{state:'done',result:{committed:true,lineIds:[id]}},originalQuestion:'Preparar instalación de sanitarios'};
+ const previous=[{role:'user',content:'los dos línea Mónaco'},{role:'assistant',answer:'Ya tengo los materiales; confirmá.'},{role:'user',content:'si aprobado'},{role:'assistant',answer:'Carga terminada.',approval:saved.approval}];
+ const request=materialAdditionFollowup('no se cargaron los dos artefactos, por favor cargalos',previous,{selectedLineId:id,lines,lastAction:saved});
+ assert.deepEqual({mode:request.mode,lineIds:request.lineIds,operation:request.operation},{mode:'fill',lineIds:[id],operation:'append'});
+ assert.match(request.brief,/línea Mónaco/);
+ assert.match(request.brief,/no se cargaron los dos artefactos/);
+ assert.equal(request.brief.includes('Ya tengo los materiales'),false);
+ assert.equal(materialAdditionFollowup('no se cargaron los dos artefactos, por favor cargalos',previous,{selectedLineId:second,lines,lastAction:saved}),null);
+ assert.equal(materialAdditionFollowup('no se cargaron los dos artefactos, por favor cargalos',previous,{selectedLineId:id,lines,lastAction:null}),null);
+ assert.equal(materialAdditionFollowup('No cargues los artefactos a esta partida seleccionada',[],{selectedLineId:id,lines}),null);
+ assert.equal(materialAdditionFollowup('¿Cuánto cuestan los artefactos de esta partida seleccionada?',[],{selectedLineId:id,lines}),null);
+ const explicit=materialAdditionFollowup('Agregá un inodoro Mónaco a esta partida seleccionada',[],{selectedLineId:id,lines});
+ assert.equal(explicit.operation,'append');assert.deepEqual(explicit.lineIds,[id]);
+});
+
 test('conditions, questions, negatives and revised instructions cannot approve a pending action',()=>{
  for(const question of ['',null,true,'¿Sí?','¿Podés cargarlo?','si tiene todos los materiales, cargalos','si no falta nada','siempre','siempre cargalos','no apruebo','no apruebo directamente','apruebo directamente si están todos los materiales','sí, aprobar y cargar directamente si no falta nada','sí, apruebo directamente pero cambiá el precio','sí directamente','no, cargalos después','sí, pero cambiar las cantidades','sí, cargalos con precio 100','aprobá solo la primera partida','sí, antes mostrame los precios','perfecto'])assert.equal(resolvedPendingApproval(question,pendingPair(pendingAcu)),null,String(question));
 });
