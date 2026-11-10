@@ -68,3 +68,16 @@ jobs:
         run: cargo test -p cpobras-storage conversational_section_crud_preserves_lines_children_and_rejects_stale_delete -- --nocapture
       - name: Validate reviewed rubro transactions and protected conversions
         run: cargo test -p cpobras-storage reviewed_section -- --nocapture
+
+  desktop-native:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Linux Tauri dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev librsvg2-dev libayatana-appindicator3-dev
+      - name: Compile desktop Rust commands independently of formatting
+        run: cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml --locked
