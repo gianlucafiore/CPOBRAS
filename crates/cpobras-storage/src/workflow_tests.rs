@@ -5271,6 +5271,7 @@ fn reviewed_batch_is_atomic_and_detects_stale_prices() {
     use crate::assisted_budget::*;
     let (mut s, _, e, line) = fixture();
     let mut batch = ReviewedBatch {
+        section_moves: vec![],
         acus: vec![],
         id: Uuid::new_v4(),
         estimate_id: e.id,
@@ -5312,6 +5313,7 @@ fn reviewed_batch_can_create_a_budget_but_rolls_it_back_on_bad_lines() {
     use crate::assisted_budget::*;
     let (mut s, p, _, _) = fixture();
     let mut batch = ReviewedBatch {
+        section_moves: vec![],
         acus: vec![],
         id: Uuid::new_v4(),
         estimate_id: Uuid::new_v4(),
@@ -5347,6 +5349,7 @@ fn reviewed_batch_edits_and_deletes_with_history_and_protects_issued_budgets() {
     update.description = Some("Descripción editada".into());
     update.quantity = Some(3.into());
     let edit = ReviewedBatch {
+        section_moves: vec![],
         acus: vec![],
         id: Uuid::new_v4(),
         estimate_id: e.id,
@@ -5362,6 +5365,7 @@ fn reviewed_batch_edits_and_deletes_with_history_and_protects_issued_budgets() {
     assert_eq!(changed.quantity, 3.into());
     let expected = reviewed_update(&changed, 0.into()).expected;
     let mut deletion = ReviewedBatch {
+        section_moves: vec![],
         acus: vec![],
         id: Uuid::new_v4(),
         estimate_id: e.id,
@@ -5391,6 +5395,7 @@ fn reviewed_batch_edits_and_deletes_with_history_and_protects_issued_budgets() {
     let (mut s, _, e, line) = fixture();
     s.issue_estimate(e.id).unwrap();
     let issued = ReviewedBatch {
+        section_moves: vec![],
         acus: vec![],
         id: Uuid::new_v4(),
         estimate_id: e.id,
@@ -5401,6 +5406,34 @@ fn reviewed_batch_edits_and_deletes_with_history_and_protects_issued_budgets() {
         deletes: vec![],
     };
     assert!(s.apply_reviewed_budget_batch(&issued).is_err());
+}
+
+#[test]
+fn reviewed_batch_moves_rubros_atomically_without_touching_prices() {
+    use crate::assisted_budget::*;
+    let (mut store, _, estimate, line) = fixture();
+    let target = crate::budget_sections::BudgetSection {
+        id: Uuid::new_v4(), estimate_id: estimate.id, parent_id: None,
+        code: "99".into(), title: "Estructuras".into(), position: 0,
+    };
+    store.save_budget_section(&target).unwrap();
+    let move_plan = SectionMove {
+        line_id: line.id, expected: reviewed_update(&line, line.unit_cost_snapshot).expected,
+        expected_section: None, section_id: target.id,
+    };
+    let mut batch = ReviewedBatch {
+        id: Uuid::new_v4(), estimate_id: estimate.id, currency: "ARS".into(),
+        new_estimate: None, updates: vec![], creates: vec![], deletes: vec![],
+        acus: vec![], section_moves: vec![move_plan],
+    };
+    let result = store.apply_reviewed_budget_batch(&batch).unwrap();
+    assert_eq!(result.moved_sections, 1);
+    assert_eq!(store.list_line_sections(estimate.id).unwrap(), vec![(line.id, target.id)]);
+    assert_eq!(store.estimate_items(estimate.id).unwrap()[0].unit_cost_snapshot, line.unit_cost_snapshot);
+    assert_eq!(store.apply_reviewed_budget_batch(&batch).unwrap().moved_sections, 1);
+    batch.id = Uuid::new_v4();
+    assert!(store.apply_reviewed_budget_batch(&batch).is_err());
+    assert_eq!(store.list_line_sections(estimate.id).unwrap(), vec![(line.id, target.id)]);
 }
 
 fn assisted_acu_fixture() -> (LocalStore, Project, Estimate, EstimateItem, Uuid) {
@@ -5442,6 +5475,7 @@ fn assisted_acu_batch(
         .unwrap();
     let snapshot = context.lines.iter().find(|l| l.id == line.id).unwrap();
     ReviewedBatch {
+        section_moves: vec![],
         id: Uuid::new_v4(),
         estimate_id: e.id,
         currency: "ARS".into(),
