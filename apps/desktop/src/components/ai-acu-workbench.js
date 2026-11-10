@@ -120,7 +120,11 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
    else error=String(caught);
   }finally{if(approvedRun===authorization)finish();}
   return summary();
-  function summary(){return {saved,created,pending:Math.max(0,authorization.targetIds.size-saved),projectId:authorization.projectId,estimateId:authorization.model?.estimate.id,lineIds:[...lineIds],committed,cancelled,error};}
+  function summary(){
+   const snapshot=authorization.model,done=new Set(lineIds);
+   const pendingReasons=(snapshot?.rows||[]).filter(row=>!done.has(row.id)).slice(0,8).map(row=>({description:row.seed.description,reasons:acuPreapprovalErrors(row,snapshot.context.resources)}));
+   return {saved,created,pending:Math.max(0,authorization.targetIds.size-saved),pendingReasons,projectId:authorization.projectId,estimateId:snapshot?.estimate.id,lineIds:[...lineIds],committed,cancelled,error};
+  }
   function finish(){
    if(approvedRun===authorization){
     authorization.revoked=true;authorization.writing=false;approvedRun=null;

@@ -178,18 +178,10 @@ export function acuTotals(row,resources){
  try{quantity=decimal(String(quantity),'Cantidad total');}catch{errors.push('Cantidad total inválida');quantity='0';}
  return {errors,warnings,unit_cost:errors.length?null:cost,quantity,total:errors.length?null:multiplyDecimals(quantity,cost)};
 }
-// Preapproval waives per-row confirmation, not catalog, unit or material checks.
-// Legacy recipes remain manually reviewable but cannot be automatically saved
-// without explicit consumption units, requested identity and supporting criteria.
+// Approval authorizes estimates in catalog units. Missing explanatory metadata
+// remains a warning; explicit unit/material conflicts and real missing data block.
 export function acuPreapprovalErrors(row,resources){
- const errors=[...acuTotals(row,resources).errors],catalog=new Map(resources.map(resource=>[resource.id,resource]));
- for(const component of row.components){
-  const resource=catalog.get(component.resource_id),label=resource?.description||component.description||'Insumo pendiente';
-  for(const [field,description] of [['quantity_unit','unidad de consumo'],['requested_description','descripción del insumo requerido'],['consumption_support','fundamento del consumo']]){
-   if(typeof component[field]!=='string'||!component[field].trim())errors.push(`Falta ${description} explícita para la carga preaprobada: ${label}`);
-  }
- }
- return [...new Set(errors)];
+ return [...new Set(acuTotals(row,resources).errors)];
 }
 export function copyAcuExample(seed,example){
  if(normalize(seed.unit)!==normalize(example.unit))throw new Error('La unidad de la receta no coincide con la partida. Adaptá los consumos explícitamente antes de reutilizarla');

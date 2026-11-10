@@ -26,8 +26,34 @@ function previousRequest(message){
 function acuMode(text,fallback='fill'){
  if(/\b(?:no|sin)\s+(?:crees|crear|crear nuevas|generes|generar|agregues|agregar)\b/.test(text))return 'fill';
  if(/\b(?:completa|completar|rellena|rellenar|carga|cargar|asigna|asignar)\b.*\b(?:existentes|cargadas|faltantes|sin acu)\b/.test(text))return 'fill';
- if(/\b(?:crea(?:r|me)?|genera(?:r|me)?|arma(?:r|me)?|prepara(?:r|me)?|agrega(?:r|me)?|incorpora(?:r|me)?)\s+(?:(?:las|unas|varias|algunas|nuevas|estas|todas|una|un|el|\d+)\s+)*(?:partidas|presupuesto)\b/.test(text)||/\b(?:partidas nuevas|nuevas partidas|presupuesto nuevo|obra nueva)\b/.test(text))return 'create';
+ const newTargets=/\b(?:partidas? nuevas?|nuevas? partidas?|presupuesto nuevo|obra nueva)\b/.test(text);
+ if(!newTargets&&/\b(?:partidas?\s+(?:ya\s+)?existentes|partidas?\b.{0,80}\bya existen|acus?\s+vacios?)\b/.test(text))return 'fill';
+ if(/\b(?:crea(?:r|me)?|genera(?:r|me)?|arma(?:r|me)?|prepara(?:r|me)?|agrega(?:r|me)?|incorpora(?:r|me)?)\s+(?:(?:las|unas|varias|algunas|nuevas|estas|todas|una|un|el|\d+)\s+)*(?:partidas?|presupuesto)\b/.test(text)||/\b(?:partidas? nuevas?|nuevas? partidas?|presupuesto nuevo|obra nueva)\b/.test(text))return 'create';
  return fallback;
+}
+export function isApprovalReply(question){
+ if(typeof question!=='string'||!question.trim()||/[¿?]/.test(question))return false;
+ const affirmation='(?:si|dale|adelante|de acuerdo)';
+ const lead='(?:(?:si|dale|adelante|de acuerdo|perfecto|bueno|ok|bien)\\s+)*';
+ const approve='(?:apruebo|aprobar|aproba(?:lo|la|los|las)?|aprobado)';
+ const load='(?:carga(?:r|lo|la|los|las)?|aplica(?:r|lo|la|los|las)?|completa(?:r|lo|la|los|las)?|guarda(?:r|lo|la|los|las)?|hacelo|hazlo|procede)';
+ const explicit=new RegExp('^(?:'+affirmation+'|'+lead+'(?:'+approve+'(?:\\s+y\\s+'+load+')?|'+load+'))(?:\\s+por favor)?$');
+ return explicit.test(chatFold(question));
+}
+// Resolve a fresh, explicit user confirmation against the last visible card.
+// This helper grants no permission: the caller must still verify the current
+// project, editability, consent and one-use local approval before executing it.
+// Call it before appending the new user message; never search older proposals.
+export function resolvedPendingApproval(question,messages=[]){
+ if(typeof question!=='string'||!question.trim()||/[¿?]/.test(question)||!Array.isArray(messages)||messages.length<2)return null;
+ const index=messages.length-1,message=messages[index];
+ if(message?.role!=='assistant'||messages[index-1]?.role!=='user'||Object.hasOwn(message,'approval')||Object.hasOwn(message,'changeProposals'))return null;
+ if(!isApprovalReply(question))return null;
+ if(previousRequest(message))return index;
+ const safeLine=row=>!!row&&typeof row==='object'&&!Array.isArray(row)&&typeof row.description==='string'&&!!row.description.trim()&&row.description.length<=500&&typeof row.unit==='string'&&!!row.unit.trim()&&row.unit.length<=30;
+ if(Array.isArray(message.planRows)&&message.planRows.length>0&&message.planRows.length<=60&&message.planRows.every(row=>safeLine(row)&&(row.target==null||row.target==='new')&&(row.operation==null||row.operation==='create')&&(row.action==null||row.action==='create')))return index;
+ if(message.proposal?.kind==='line'&&safeLine(message.proposal))return index;
+ return null;
 }
 // Route only a concrete preparation request. This opens a review workflow; it never writes.
 export function acuChatRequest(question,messages=[]){
@@ -43,6 +69,7 @@ export function acuChatRequest(question,messages=[]){
  if(/\bpor que\b/.test(q)||/^(?:que|cual|cuales|cuanto|cuantos|cuanta|cuantas|como|donde|cuando|para que)\b/.test(q)||catalogOnly)return null;
  const shortAction=/^(?:(?:perfecto|si|dale|bueno|ok|bien|de acuerdo|adelante)\s+)*(?:hacelo|hazlo|hace|cargalos|cargalas|cargalo|cargala|completalos|completalas|completalo|completala|preparalos|preparalas|armalos|armalas|aplicalos|aplicalas|procede|continua|segui)(?:\s+por favor)?$/.test(q);
  const bare=/^(?:si|dale|perfecto|ok|bueno|de acuerdo|adelante)$/.test(q);
+ if(last?.role==='assistant'&&Object.hasOwn(last,'approval')&&(shortAction||bare))return null;
  const lastText=chatFold(messageText(last));
  const recentUser=recent.filter(m=>m?.role==='user');
  const latestUser=recentUser.at(-1),latestUserText=chatFold(messageText(latestUser));

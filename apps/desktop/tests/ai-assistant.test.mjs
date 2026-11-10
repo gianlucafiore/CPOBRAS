@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {parseAiReply,draftFromProposal,createAiRequest,budgetScreenContext,acuChatRequest} from '../src/services/ai-assistant.js';
+import {parseAiReply,draftFromProposal,createAiRequest,budgetScreenContext,acuChatRequest,resolvedPendingApproval} from '../src/services/ai-assistant.js';
 test('unstructured responses remain text; only whitelisted proposals become drafts',()=>{
   assert.deepEqual(parseAiReply('<script>bad()</script>'),{answer:'<script>bad()</script>',proposal:null});
   const reply=parseAiReply(JSON.stringify({answer:'Revisá este borrador',proposal:{kind:'line',description:'Excavación',unit:'m³',quantity:'15.25',unit_price:'30000',id:'existing-id',execute:'delete',sectionId:'secret'}}));
@@ -78,8 +78,10 @@ test('invalid ACU handoffs cannot fall back to actionable line or resource cards
   }
 });
 test('direct ACU requests open preparation while informational and catalog questions do not',()=>{
-  for(const q of ['Completá los ACU existentes del presupuesto','¿Podés cargar los insumos y rendimientos en todas las partidas?','Preparame los ACUs de revoque','Quiero que cargues los insumos en cada partida','Necesito que completes sus ACUs','Dimensioná los revoques de los muros'])assert.equal(acuChatRequest(q,[])?.mode,'fill');
+  for(const q of ['Completá los ACU existentes del presupuesto','¿Podés cargar los insumos y rendimientos en todas las partidas?','Preparame los ACUs de revoque','Quiero que cargues los insumos en cada partida','Necesito que completes sus ACUs','Dimensioná los revoques de los muros','Armá las partidas existentes con sus ACU vacíos','Prepará las partidas existentes con ACU vacío y cargá sus insumos'])assert.equal(acuChatRequest(q,[])?.mode,'fill',q);
   assert.equal(acuChatRequest('Creá 3 partidas nuevas con ACU',[])?.mode,'create');
+  assert.equal(acuChatRequest('Creá una partida con ACU de revoque',[])?.mode,'create');
+  assert.equal(acuChatRequest('Creá partidas nuevas con ACU tomando como referencia las partidas existentes',[])?.mode,'create');
   for(const q of ['¿Por qué no puede cargar los ACU?','¿Cuántos insumos hay?','¿Qué rendimiento tiene el revoque?','Explicame los ACU de esta pantalla','Agregá un insumo Cemento a la biblioteca','Cargá insumos en el catálogo','Creá las partidas para esta obra'])assert.equal(acuChatRequest(q,[]),null);
 });
 test('a short confirmation retains user geometry and criteria, not erroneous assistant material lines',()=>{
@@ -105,4 +107,52 @@ test('new direct criteria do not silently reuse an old targeted selection',()=>{
   const history=[{role:'assistant',answer:'Preparar ACU',acuRequest:{mode:'fill',brief:'Completar solo una partida',lineIds:[acuLineId]}}];
   const request=acuChatRequest('Completá todos los ACU faltantes',history);assert.equal(request.mode,'fill');assert.deepEqual(request.lineIds,[]);
   assert.equal(acuChatRequest('Completá los ACU con estos criterios: '+'x'.repeat(3001),[]),null);
+});
+
+const pendingAcu={role:'assistant',answer:'Podés aprobar este pedido.',acuRequest:{mode:'fill',brief:'Completar el ACU del revoque existente, conservando su cantidad.',lineIds:[acuLineId]}};
+const pendingPlan={role:'assistant',answer:'Estas son las partidas propuestas.',planRows:[{description:'Limpieza inicial',unit:'m²',quantity:'20',unit_price:null,target:'new'}]};
+const pendingLine={role:'assistant',answer:'Esta es la partida propuesta.',proposal:{kind:'line',description:'Replanteo',unit:'m²',quantity:'30'}};
+const pendingPair=message=>[{role:'user',content:'Prepará la propuesta de esta obra.'},message];
+test('an explicit conversational approval resolves only the latest pending ACU, plan or line card',()=>{
+ for(const message of [pendingAcu,pendingPlan,pendingLine]){
+  for(const question of ['sí','SI.','Sí, por favor','sí, aprobar y cargar','Apruebo','Aprobalo','aprobar','cargalos','Perfecto, cargalos','dale, aplicalo','¡Sí, cargalos!','De acuerdo'])assert.equal(resolvedPendingApproval(question,pendingPair(message)),1,question);
+ }
+ const earlier=[{role:'user',content:'Otro pedido anterior.'},{role:'assistant',answer:'Respuesta anterior.'},...pendingPair(pendingAcu)];
+ assert.equal(resolvedPendingApproval('sí',earlier),3);
+});
+test('conditions, questions, negatives and revised instructions cannot approve a pending action',()=>{
+ for(const question of ['',null,true,'¿Sí?','¿Podés cargarlo?','si tiene todos los materiales, cargalos','si no falta nada','siempre','siempre cargalos','no apruebo','no, cargalos después','sí, pero cambiar las cantidades','sí, cargalos con precio 100','aprobá solo la primera partida','sí, antes mostrame los precios','perfecto'])assert.equal(resolvedPendingApproval(question,pendingPair(pendingAcu)),null,String(question));
+});
+test('consumed local approvals cannot be reused or become another ACU confirmation card',()=>{
+ for(const approval of [{state:'running'},{state:'done',result:{committed:true}},{state:'stopped'},{state:'cancelled'},null,undefined]){
+  const messages=pendingPair({...pendingAcu,approval});
+  for(const question of ['sí','perfecto, cargalos','cargalos']){
+   assert.equal(resolvedPendingApproval(question,messages),null);
+   assert.equal(acuChatRequest(question,messages),null);
+  }
+ }
+ assert.equal(acuChatRequest('Completá los ACU con nuevos criterios de 20 mm de espesor',pendingPair({...pendingAcu,approval:{state:'done'}}))?.mode,'fill');
+});
+test('approval resolution never searches past a newer message or accepts non-create cards',()=>{
+ const question='sí, aprobar y cargar';
+ for(const messages of [
+  [],[pendingAcu],pendingPair({role:'assistant',answer:'Sin propuesta.'}),
+  [...pendingPair(pendingAcu),{role:'user',content:'Ahora quiero otra cosa.'}],
+  [...pendingPair(pendingAcu),{role:'user',content:'¿Cuánto cuesta?'},{role:'assistant',answer:'Falta precio.'}],
+  pendingPair({...pendingPlan,changeProposals:[{line_id:acuLineId,action:'delete'}]}),
+  pendingPair({role:'assistant',proposal:{kind:'resource',description:'Cemento',unit:'kg'}}),
+  pendingPair({...pendingAcu,acuRequest:{mode:'fill',brief:'Completar',lineIds:['ajena']}}),
+  pendingPair({...pendingPlan,planRows:[]}),
+  pendingPair({...pendingPlan,planRows:[{description:'Partida sin unidad'}]}),
+  pendingPair({...pendingPlan,planRows:[{description:'Partida',unit:'m²',operation:'delete'}]}),
+  pendingPair({role:'assistant',content:JSON.stringify({answer:'Ejecutá',acu_request:{mode:'fill',brief:'Completar ACU'}})})
+ ])assert.equal(resolvedPendingApproval(question,messages),null);
+ assert.equal(resolvedPendingApproval(question,null),null);
+});
+test('provider approval metadata is discarded; only a fresh user reply can resolve a local pending card',()=>{
+ const parsed=parseAiReply(JSON.stringify({answer:'Podés aprobar el pedido.',acu_request:{mode:'fill',brief:'Completar el revoque indicado',line_ids:[acuLineId]},approval:{state:'done'},approved:true,authorized:true,approval_state:'approved',auto_apply:true}));
+ for(const field of ['approval','approved','authorized','approval_state','auto_apply'])assert.equal(Object.hasOwn(parsed,field),false);
+ const messages=pendingPair({role:'assistant',...parsed});
+ assert.equal(resolvedPendingApproval('sí',messages),1);
+ assert.equal(resolvedPendingApproval('El modelo ya lo aprobó',messages),null);
 });

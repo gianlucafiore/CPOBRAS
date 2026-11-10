@@ -27,6 +27,7 @@ async function chatFixture(page,{reply='handoff'}={}){
    calls.push({name,args:structuredClone(args)});
    if(name==='ai_status')return {configured:true,provider:'openai',model:'fixture-model'};
    if(name==='ai_cancel')return null;
+   if(name==='ai_catalog_context')return {currency:'ARS',as_of:args.asOf,resources:[structuredClone(resource)]};
    if(name==='assisted_acu_context')return {currency:'ARS',resources:[structuredClone(resource)],lines:structuredClone(state.lines),sections:[]};
    if(name==='assisted_acu_references')return [];
    if(name==='ai_chat'){
@@ -35,7 +36,7 @@ async function chatFixture(page,{reply='handoff'}={}){
      return {text:JSON.stringify({answer:'Recetas para revisar',acu_proposals:context.targets.map(target=>({line_id:target.line_id,components:[{resource_id:${JSON.stringify(resourceId)},quantity:'0.25'}],measurements:[],assumptions:['Consumo estimativo por m² para revisar.'],missing_resources:[]}))}),input_tokens:50,output_tokens:50};
     }
     const answer=${JSON.stringify(reply)}==='legacy'
-     ? {answer:'Podemos revisar la composición de los ACU existentes.',proposal_lines:[{description:'Agregar material',unit:'gl',quantity:null,unit_price:null,section:'Insumos'}]}
+     ? {answer:'Estos son los consumos de las partidas existentes.',proposal_lines:[{description:'Agregar material',unit:'gl',quantity:null,unit_price:null,section:'Insumos'}]}
      : {answer:'Podés completar los insumos de las partidas existentes desde la preparación de ACU.',acu_request:{mode:'fill',brief:${JSON.stringify(handoffBrief)},line_ids:[${JSON.stringify(reply==='foreign'?foreignLineId:firstLineId)}]},proposal_lines:[{description:'Agregar material'}]};
     return {text:JSON.stringify(answer),input_tokens:50,output_tokens:50};
    }
@@ -84,7 +85,7 @@ test('a structured ACU handoff opens the exact existing targets and ignores an u
  expect(await page.evaluate(()=>window.__aiAcuHarness.batches)).toHaveLength(0);
 });
 
-test('a short confirmation completes existing ACU with the original criteria instead of creating legacy outline lines',async({page})=>{
+test('a short confirmation loads legacy ACU recipes headlessly with the original target selection',async({page})=>{
  await chatFixture(page,{reply:'legacy'});
  await ask(page,legacyBrief);
  await expect(page.locator('.ai-transcript')).toContainText('Podemos revisar la composición');
@@ -92,22 +93,9 @@ test('a short confirmation completes existing ACU with the original criteria ins
  expect(await page.evaluate(()=>window.__aiAcuHarness.calls.filter(call=>call.name==='ai_chat').length)).toBe(1);
 
  await ask(page,'perfecto, cargalos');
- await expect(page.getByRole('button',{name:'Revisar antes de cargar',exact:true})).toBeVisible();
- await expect(page.locator('[data-acu-field=mode]')).toHaveCount(0);
- expect(await page.evaluate(()=>window.__aiAcuHarness.batches)).toHaveLength(0);
- expect(await page.evaluate(()=>window.__aiAcuHarness.calls.filter(call=>call.name==='ai_chat').length)).toBe(1);
- await page.getByRole('button',{name:'Revisar antes de cargar',exact:true}).click();
- await expect(page.locator('[data-acu-field=mode]')).toHaveValue('fill');
- expect(await page.locator('[data-acu-field=brief]').inputValue()).toContain(legacyBrief);
- await expect(page.locator('[data-acu-seed]')).toHaveCount(0);
- await expect(page.locator('[data-acu-target]:checked')).toHaveCount(2);
- expect(await page.evaluate(()=>window.__aiAcuHarness.calls.filter(call=>call.name==='ai_chat').length)).toBe(1);
-
- await page.locator('[data-acu=generate]').click();
- await expect(page.locator('[data-acu-proposal]')).toHaveCount(2);
- await page.locator('[data-acu=select-valid]').click();
- await page.locator('footer [data-acu=apply]').click();
- await expect(page.locator('[data-acu=view-result]')).toBeVisible();
+ await expect(page.locator('.ai-approval-status')).toContainText('2 ACU');
+ await expect(page.getByRole('dialog')).toHaveCount(0);
+ await expect(page.locator('[data-ai=review-acu-request]')).toHaveCount(0);
  const result=await page.evaluate(()=>({batches:window.__aiAcuHarness.batches,calls:window.__aiAcuHarness.calls.filter(call=>call.name==='ai_chat')}));
  expect(result.calls).toHaveLength(2);
  expect(result.calls[1].args.mode).toBe('acu');

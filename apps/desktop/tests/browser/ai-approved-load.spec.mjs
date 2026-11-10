@@ -30,6 +30,7 @@ async function approvedFixture(page,{invalid='missing',deferred=false,kind='acu'
    harness.calls.push({name,args:structuredClone(args)});
    if(name==='ai_status')return {configured:true,provider:'openai',model:'fixture-model'};
    if(name==='ai_cancel')return null;
+   if(name==='ai_catalog_context')return {currency:'ARS',as_of:args.asOf,resources:structuredClone(resources)};
    if(name==='assisted_acu_context')return {currency:'ARS',resources:structuredClone(resources),lines:structuredClone(state.lines),sections:[]};
    if(name==='assisted_acu_references')return [];
    if(name==='ai_chat'){
@@ -77,7 +78,7 @@ async function ask(page,question){
  await page.locator('#ai-question button').click();
 }
 
-for(const invalid of ['missing','material','unit','legacy']){
+for(const invalid of ['missing','material','unit']){
  test(`chat approval saves compatible ACU once and keeps ${invalid} proposals pending`,async({page})=>{
   const {dialogs}=await approvedFixture(page,{invalid});
   await ask(page,approvedPrompt);
@@ -89,7 +90,7 @@ for(const invalid of ['missing','material','unit','legacy']){
   expect(await page.evaluate(()=>window.__approvedHarness.batches)).toHaveLength(0);
 
   await approve.click();
-  await expect(page.locator('.ai-approval-status')).toContainText(/1 ACU.*1 pendientes/);
+  await expect(page.locator('.ai-approval-status')).toContainText(/1 ACU.*1 pendiente/);
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(approve).toHaveCount(0);
   const result=await page.evaluate(()=>({batches:window.__approvedHarness.batches,lines:window.__approvedHarness.state.lines,initial:window.__approvedHarness.initialLines,calls:window.__approvedHarness.calls,modalCalls:window.__approvedHarness.modalCalls}));
@@ -114,7 +115,6 @@ for(const invalid of ['missing','material','unit','legacy']){
   if(invalid==='missing')await expect(pending.locator('[data-acu-errors]')).toContainText('faltantes');
   if(invalid==='material')await expect(pending.locator('[data-acu-errors]')).toContainText('Material incompatible');
   if(invalid==='unit')await expect(pending.locator('[data-acu-errors]')).toContainText('Consumo de origen incompatible');
-  if(invalid==='legacy')await expect(pending.locator('[data-acu-preapproval-errors]')).toContainText('unidad de consumo');
   expect(await page.evaluate(()=>window.__approvedHarness.batches)).toHaveLength(1);
  });
 }
@@ -176,7 +176,7 @@ test('approving a generic line proposal creates only those lines without another
  expect(await page.evaluate(()=>window.__approvedHarness.batches)).toHaveLength(0);
  expect(await page.evaluate(()=>window.__approvedHarness.calls.filter(call=>call.name==='ai_chat').length)).toBe(1);
  await approve.click();
- await expect(page.locator('.ai-approval-status')).toContainText(/2 partidas nuevas guardadas/);
+ await expect(page.locator('.ai-approval-status')).toContainText(/2 partidas nuevas (?:creadas|guardadas)/);
  await expect(page.getByRole('dialog')).toHaveCount(0);
  await expect(approve).toHaveCount(0);
  const result=await page.evaluate(()=>({batches:window.__approvedHarness.batches,calls:window.__approvedHarness.calls,lines:window.__approvedHarness.state.lines,initial:window.__approvedHarness.initialLines,modalCalls:window.__approvedHarness.modalCalls}));

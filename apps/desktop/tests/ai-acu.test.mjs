@@ -148,22 +148,22 @@ function evidenceRow(component={},catalog=resource,target=seed){
  }]}),[target],[catalog])[0];
 }
 
-test('preapproval requires explicit unit, intended resource and consumption criteria without blocking legacy manual review',()=>{
+test('preapproval accepts legacy catalog-unit consumption without requiring explanatory metadata',()=>{
  const legacy=parseAcuProposals(text,[seed],[resource])[0];
  assert.equal(acuTotals(legacy,[resource]).unit_cost,'5.00');
  assert.ok(acuTotals(legacy,[resource]).warnings.some(warning=>warning.includes('Unidad de consumo no declarada')));
  const pending=acuPreapprovalErrors(legacy,[resource]);
- assert.equal(pending.length,3);assert.ok(pending.every(error=>error.includes('preaprobada')));
+ assert.deepEqual(pending,[]);assert.ok(acuTotals(legacy,[resource]).warnings.some(warning=>warning.includes('no declarada')));
  const complete=evidenceRow();
  assert.deepEqual(acuPreapprovalErrors(complete,[resource]),[]);
  assert.equal(acuTotals(complete,[resource]).unit_cost,'20');
  complete.components[0].consumption_support='';
- assert.ok(acuPreapprovalErrors(complete,[resource]).some(error=>error.includes('fundamento')));
+ assert.deepEqual(acuPreapprovalErrors(complete,[resource]),[]);
  assert.equal(acuTotals(complete,[resource]).unit_cost,'20');
  const malicious=JSON.parse(text);Object.assign(malicious.acu_proposals[0].components[0],{human_reviewed:true,manually_reviewed:true});
  const stillLegacy=parseAcuProposals(JSON.stringify(malicious),[seed],[resource])[0];
  assert.equal(stillLegacy.components[0].human_reviewed,undefined);
- assert.equal(acuPreapprovalErrors(stillLegacy,[resource]).length,3);
+ assert.deepEqual(acuPreapprovalErrors(stillLegacy,[resource]),[]);
 });
 
 test('explicit units are checked against the real catalog without kg/bag or hours/jornal aliases',()=>{

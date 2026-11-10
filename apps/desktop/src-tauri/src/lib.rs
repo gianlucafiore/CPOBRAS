@@ -51,6 +51,7 @@ pub(crate) fn configure<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri:
         .invoke_handler(tauri::generate_handler![
             commands::ai::ai_configure,
             commands::ai::ai_status,
+            commands::ai::ai_catalog_context,
             commands::ai::ai_forget,
             commands::budgets::apply_reviewed_budget_batch,
             commands::ai::assisted_acu_context,

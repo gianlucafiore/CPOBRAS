@@ -489,12 +489,15 @@ su disponibilidad en cada cuenta.
 
 La consulta y un historial breve se envían al proveedor seleccionado cuando se
 pulsa Enviar y se acepta el aviso de envío y posibles cargos. El contexto de la
-pantalla se incluye de forma predeterminada y se actualiza al enviar. Podés
-revisarlo, desactivar Incluir estos datos o editar su texto; el contexto editado
+pantalla se incluye de forma predeterminada y se actualiza al enviar. También
+se consulta el catálogo local para incluir coincidencias reales con precios,
+unidades, moneda y fecha. Podés revisar la vista, desactivar **Incluir vista y
+catálogo local** o editar su texto; el contexto editado
 se respeta sin reemplazarlo automáticamente. En Presupuesto incluye un resumen
 calculado sobre todas las partidas cargadas, con conteos separados de precios
 cero, positivos, negativos y sin dato, aunque el detalle de filas se recorte. Se limita el tamaño del
-contexto y la respuesta, sin reintentos automáticos; esto no constituye un tope
+contexto y la respuesta, sin reintentos automáticos ante errores; el modelo puede
+pedir una sola búsqueda adicional de catálogo para afinar coincidencias. Esto no constituye un tope
 monetario. La espera de respuesta se limita a 60 segundos y la interfaz tiene
 un corte independiente a los 65 segundos si IPC no responde. Podés usar
 **Cancelar consulta**; se conserva la pregunta y no se reintenta. Cancelar no
@@ -502,12 +505,13 @@ garantiza que el proveedor no haya procesado o cobrado una solicitud ya recibida
 Configurar una clave no verifica la conexión: el panel confirma la primera
 respuesta recibida. Configurá límites de gasto en la cuenta del proveedor. Las políticas
 de tratamiento y retención del proveedor siguen aplicándose; en OpenAI se envía
-`store: false`. No se envían archivos, adjuntos ni la base de datos.
+`store: false`. No se envían archivos, adjuntos ni el archivo de base de datos.
 
-El asistente explica datos y puede preparar una partida o insumo nuevo. La
-propuesta abre el formulario habitual; el usuario revisa y guarda. No tiene
-herramientas, SQL ni comandos de escritura. No registra pagos, emite certificados
-ni ejecuta código. Los textos del modelo se muestran como texto plano. La
+El asistente explica datos y puede preparar partidas, ACU e insumos nuevos.
+Las partidas y los ACU se pueden cargar con la aprobación del pedido desde el
+chat o revisar en el panel. Los insumos nuevos se revisan antes de incorporarlos
+al catálogo. El modelo no dispone de SQL ni comandos arbitrarios de escritura.
+No registra pagos, emite certificados ni ejecuta código. Los textos del modelo se muestran como texto plano. La
 conversación se mantiene en memoria y se limpia al cambiar de sección, obra o
 presupuesto. Las respuestas y estimaciones deben revisarse. La carga asistida de partidas y precios se describe en la sección siguiente.
 
@@ -561,11 +565,11 @@ En **✦ IA → ACU · rendimientos y metrado** se pueden completar partidas
 existentes o preparar nuevas partidas con su propio ACU. También se puede abrir
 este panel desde una lista de partidas propuesta por el chat. Las solicitudes
 claras de crear o completar ACU, revoques, mamposterías o mediciones desde el chat
-abren la preparación con el texto ingresado.
+muestran una tarjeta para elegir entre revisión previa o carga aprobada desde el chat.
 
 - La selección inicial toma las partidas sin composición o con ACU vacío. Se
-  pueden seleccionar otras; reemplazar un ACU existente requiere revisión y
-  confirmación. La generación se hace en consultas de hasta cinco partidas,
+  pueden seleccionar otras; reemplazar un ACU existente requiere un pedido
+  explícito, que también se puede aprobar desde el chat. La generación se hace en consultas de hasta cinco partidas,
   informa su cantidad y posibles cargos y conserva los resultados recibidos si
   se detiene o falla una consulta. No se reintenta automáticamente.
 - Cada propuesta muestra sus insumos, unidad, consumo por unidad de partida,
@@ -669,9 +673,24 @@ cargar quedan disponibles en **Ver pendientes**. El resto se puede editar desde
 el ACU de cada partida. La autorización no se reutiliza al retomar un borrador,
 cambiar el catálogo o cambiar de obra o presupuesto.
 
-Cada componente generado declara la unidad del consumo, el insumo requerido y
-el fundamento del rendimiento. Cuando hay conversión, también declara cantidad
+Se pide a cada componente generado declarar la unidad del consumo, el insumo
+requerido y el fundamento del rendimiento. La ausencia de una nota explicativa
+no obliga a revisar otra vez una carga ya aprobada; se conserva como advertencia
+y se utiliza el contrato de consumo por unidad del catálogo. Cuando hay conversión, también declara cantidad
 y unidad de origen. Se comprueban las unidades y las sustituciones explícitas
 de ladrillo cerámico/bloque de cemento; una conversión de kg a bolsas solo se
 acepta cuando coincide con el peso inequívoco del envase en el catálogo real.
 Estas comprobaciones no certifican la exactitud técnica del rendimiento estimado.
+El chat consulta **ai_catalog_context** antes de las consultas generales con
+contexto habilitado. La consulta es de solo lectura, admite presupuestos propios
+emitidos y usa precios fijados en el presupuesto o precios de catálogo vigentes
+a la fecha y moneda consultadas, sin convertirlos. Se seleccionan coincidencias
+por descripción, código e historial del usuario; se separan resultados relacionados
+(por ejemplo, sanitarios) de equivalencias técnicas. Los conteos abarcan todo el
+catálogo activo aunque los resultados enviados se limiten a 80 y 24 KB.
+
+Una respuesta **«sí»** a la última propuesta pendiente ejecuta esa propuesta;
+no genera otra tarjeta ni reutiliza aprobaciones anteriores. El resultado real
+sustituye las instrucciones del modelo sobre formularios, y los botones de
+revisión desaparecen al procesar la aprobación. Los bloqueos reales se explican
+por partida dentro del chat, sin exigir abrir el panel solo para leer el motivo.
