@@ -1,5 +1,5 @@
 import {createAcuWorkbench} from "./ai-acu-workbench.js";
-import {executeBudgetTool} from '../services/ai-budget-tools.js';
+import {executeBudgetTool,budgetPreparationRequest} from '../services/ai-budget-tools.js';
 import {createApprovedPlanRunner} from "../services/ai-approved-plan.js";
 import {createAiBudgetImport} from "./ai-budget-import.js";
 import {e,dateToday} from "./helpers.js";
@@ -266,8 +266,19 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       }
       let parsed=parseAiReply(result.text);
       if(parsed.toolCall){
-        // The model decides what the user means. Rust/JS services answer
-        // through typed, read-only APIs, never a generated SQL or command.
+        if(parsed.toolCall.name==='prepare_budget'||parsed.toolCall.name==='prepare_acu'){
+          if(!canPlan())throw new Error('Abrí un presupuesto propio en elaboración y cerrá los formularios pendientes para preparar esta carga');
+          const request=budgetPreparationRequest(parsed.toolCall,{state,focusedLineId:model.focusLineId,userQuestion:question});
+          if(generation!==model.generation||token!==queryToken)return;
+          const answer='Estoy preparando el presupuesto y su composición para revisar. Todavía no se guardó nada.';
+          addReply(question,{answer,acuRequest:request});
+          if(request.mode==='fill'&&request.lineIds.length===1)model.focusLineId=request.lineIds[0];
+          model.busy=false;model.catalogLoading=false;
+          await approveMessage(model.messages.length-1);
+          return;
+        }
+        // The model chooses an intent; Rust/JS services perform read-only
+        // operations with typed arguments and verified local data.
         const operation=await executeBudgetTool(parsed.toolCall,{invoke,state,today:dateToday()});
         if(generation!==model.generation||token!==queryToken)return;
         parsed={answer:operation.answer,proposal:null};
