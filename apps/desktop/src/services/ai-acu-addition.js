@@ -64,11 +64,33 @@ export function parseAcuAdditions(text,seeds,resources,brief=''){
  return rows;
 }
 
+
+/**
+ * A successful append must actually include the explicitly requested fixtures,
+ * not merely re-save an ACU containing labor. Similar names are only candidates.
+ */
+export function additionMissingFixtures(brief,seed,additions,resources){
+ const instruction=fold(brief),target=fold(seed?.description);
+ const requestedBoth=/\b(?:ambos|los dos|dos artefactos|dos sanitarios)\b/.test(instruction);
+ const kinds=['inodoro','bidet'].filter(kind=>{
+  const mentionsKind=new RegExp('\\b'+kind+'\\b').test(instruction);
+  return mentionsKind||requestedBoth&&new RegExp('\\b'+kind+'\\b').test(target);
+ });
+ if(!kinds.length||!/\b(?:artefactos?|material(?:es)?|inodoro|bidet|sanitarios?)\b/.test(instruction))return [];
+ const variant=/\b(?:linea|modelo)\s+([a-z][a-z0-9-]{2,})/.exec(instruction)?.[1]||null;
+ return kinds.filter(kind=>!additions.some(component=>{
+  const resource=resources.find(item=>item.id===component.resource_id);
+  const name=fold(resource?.description);
+  return resource?.kind==='material'&&new RegExp('\\b'+kind+'\\b').test(name)&&(!variant||new RegExp('\\b'+variant+'\\b').test(name));
+ })).map(kind=>'Falta el '+kind+(variant?' línea/modelo '+variant:'')+' solicitado como MATERIAL del catálogo. La mano de obra existente no lo reemplaza.');
+}
+
 /** Merge only positive additions. Existing rows and original section are fixed. */
-export function mergeAcuAddition(row,resources){
+export function mergeAcuAddition(row,resources,brief=''){
  const existing=structuredClone(row.seed.components||[]),additions=structuredClone(row.components);
- const result={...row,components:existing,measurements:[],apply_measurements:false,section_id:row.seed.section_id||null,section_title:row.seed.section||'',selected:false};
- const errors=acuTotals(row,resources).errors;
+ const required=additionMissingFixtures(brief,row.seed,additions,resources);
+ const result={...row,components:existing,measurements:[],apply_measurements:false,section_id:row.seed.section_id||null,section_title:row.seed.section||'',selected:false,missing_resources:[...row.missing_resources,...required]};
+ const errors=acuTotals({...row,missing_resources:result.missing_resources},resources).errors;
  if(!additions.length)errors.push('La propuesta no indicó ningún insumo adicional.');
  if(errors.length){
   result.components.push(...additions);result.missing_resources=[...row.missing_resources,'La adición necesita revisión; no se modificó la composición existente. '+errors.join(' · ')];return result;
