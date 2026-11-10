@@ -360,5 +360,7 @@ test('short natural replies reuse the current library advice, not every empty bu
   assert.match(request.brief,/pastina para juntas/);
  }
  assert.equal(availableCatalogFollowup('no los agregues',advice),null);
+ assert.equal(availableCatalogFollowup('agregá porcelanato a esta partida',advice),null);
+ assert.equal(availableCatalogFollowup('agregá todo menos el adhesivo',advice),null);
  assert.equal(availableCatalogFollowup('si agregalos',{...advice,available:[]}),null);
 });
