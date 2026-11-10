@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {appendRequest,parseAcuAdditions,mergeAcuAddition,additionPreservationErrors,additionMissingFixtures} from '../src/services/ai-acu-addition.js';
+import {appendRequest,parseAcuAdditions,mergeAcuAddition,additionPreservationErrors,additionMissingFixtures,nonDestructiveAcuErrors} from '../src/services/ai-acu-addition.js';
 import {acuSeed,acuTotals,acuBatch} from '../src/services/ai-acu.js';
 
 const resources=[
@@ -116,4 +116,22 @@ test('additive sanitary repair keeps labor and refuses to save only one of two r
  assert.equal(batch.acus.length,1);
  assert.deepEqual(batch.acus[0].components.map(c=>c.resource_id),['labor-inodoro','labor-bidet',inodoroId,bidetId]);
  assert.deepEqual(additionMissingFixtures('Agregá mano de obra de colocación de inodoro',target,[add(inodoroId)],catalog),[]);
+});
+
+test('all generic AI fill routes reject silent removal of existing porcelain and labor',()=>{
+ const preserved=acuSeed({id:'bathroom',description:'Revestimiento de baños',unit:'m²',quantity:'35',unit_cost:'100',analysis_id:'old-analysis',expected_recipe:'old-recipe',section_id:null,section:'',takeoffs:[],formula:null,components:[{resource_id:'tile',quantity:'1'},{resource_id:'labor',quantity:'1'}]});
+ const catalog=[
+  {id:'tile',description:'Porcelanato',unit:'m²',kind:'material',price:'100'},
+  {id:'labor',description:'Colocación de porcelanato',unit:'m²',kind:'labor',price:'50'},
+  {id:'grout',description:'Pastina',unit:'kg',kind:'material',price:'30'},
+  {id:'glue',description:'Adhesivo',unit:'kg',kind:'material',price:'40'}
+ ];
+ const replacement={...preserved,seed:preserved,components:[{resource_id:'grout',quantity:'0.2'},{resource_id:'glue',quantity:'2'}],missing_resources:[],assumptions:[],measurements:[],selected:true};
+ assert.equal(nonDestructiveAcuErrors(replacement).length,2);
+ const sameButReduced={...replacement,components:[{resource_id:'tile',quantity:'0.5'},...preserved.components.slice(1),...replacement.components]};
+ assert.match(nonDestructiveAcuErrors(sameButReduced)[0],/reduce/);
+ const safe=mergeAcuAddition({...replacement,components:[{resource_id:'grout',quantity:'0.2'},{resource_id:'glue',quantity:'2'}]},catalog,'Agregá pastina y adhesivo');
+ assert.deepEqual(safe.components.map(c=>c.resource_id),['tile','labor','grout','glue']);
+ assert.deepEqual(nonDestructiveAcuErrors(safe),[]);
+ assert.equal(acuTotals(safe,catalog).errors.length,0);
 });
