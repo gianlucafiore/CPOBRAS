@@ -10,10 +10,14 @@ on:
       - "apps/desktop/tests/browser/ai-bathroom-preserve.spec.mjs"
       - "apps/desktop/tests/browser/ai-budget-copilot.spec.mjs"
       - "apps/desktop/tests/browser/ai-budget-preparation.spec.mjs"
+      - "apps/desktop/tests/browser/ai-budget-sections.spec.mjs"
       - "apps/desktop/tests/browser/ai-chat-create-approval.spec.mjs"
       - "apps/desktop/tests/browser/ai-catalog-chat.spec.mjs"
       - "apps/desktop/tests/browser/ai-approved-load.spec.mjs"
       - "apps/desktop/tests/browser/ai-acu-chat.spec.mjs"
+      - "crates/cpobras-storage/src/budget_sections.rs"
+      - "apps/desktop/src-tauri/src/commands/sections.rs"
+      - "apps/desktop/src-tauri/src/lib.rs"
       - ".github/workflows/ai-chat-regression.yml"
   pull_request:
     paths:
@@ -25,6 +29,10 @@ on:
       - "apps/desktop/tests/browser/ai-bathroom-preserve.spec.mjs"
       - "apps/desktop/tests/browser/ai-budget-copilot.spec.mjs"
       - "apps/desktop/tests/browser/ai-budget-preparation.spec.mjs"
+      - "apps/desktop/tests/browser/ai-budget-sections.spec.mjs"
+      - "crates/cpobras-storage/src/budget_sections.rs"
+      - "apps/desktop/src-tauri/src/commands/sections.rs"
+      - "apps/desktop/src-tauri/src/lib.rs"
       - ".github/workflows/ai-chat-regression.yml"
 
 jobs:
@@ -46,4 +54,13 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: End-to-end chat ACU addition
         working-directory: apps/desktop
-        run: npm run test:browser -- ai-budget-preparation.spec.mjs ai-budget-copilot.spec.mjs ai-bathroom-preserve.spec.mjs ai-sanitario-append.spec.mjs ai-equipment-productivity.spec.mjs ai-selected-bathroom-preview.spec.mjs ai-acu-chat.spec.mjs ai-approved-load.spec.mjs ai-catalog-chat.spec.mjs ai-chat-create-approval.spec.mjs
+        run: npm run test:browser -- ai-budget-sections.spec.mjs ai-budget-preparation.spec.mjs ai-budget-copilot.spec.mjs ai-bathroom-preserve.spec.mjs ai-sanitario-append.spec.mjs ai-equipment-productivity.spec.mjs ai-selected-bathroom-preview.spec.mjs ai-acu-chat.spec.mjs ai-approved-load.spec.mjs ai-catalog-chat.spec.mjs ai-chat-create-approval.spec.mjs
+
+  section-native:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Compile and test safe rubro operations
+        run: cargo test -p cpobras-storage conversational_section_crud_preserves_lines_children_and_rejects_stale_delete -- --nocapture
