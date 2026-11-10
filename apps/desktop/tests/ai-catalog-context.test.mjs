@@ -192,6 +192,7 @@ test('natural-language names find close catalog candidates without treating them
  assert.equal(labor.matches[0].id,'6');
  const material=context('Precio del material inodoro',rows);
  assert.equal(material.matches[0].id,'7');
+ assert.equal(context('Precio de materiales para instalación de inodoro',rows).matches[0].id,'7');
  assert.deepEqual(context('Busco cobre',rows).related,[]);
  assert.deepEqual(context('Busco cobre',rows).matches,[]);
 });
