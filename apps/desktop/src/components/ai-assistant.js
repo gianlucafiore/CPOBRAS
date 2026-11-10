@@ -5,7 +5,7 @@ import {e,dateToday} from "./helpers.js";
 import {buildCatalogContext,parseCatalogQuery} from "../services/ai-catalog-context.js";
 import {appendRequest} from "../services/ai-acu-addition.js";
 import {productivityEditRequest} from "../services/ai-acu-productivity.js";
-import {parseAiReply,draftFromProposal,screenContext,createAiRequest,budgetScreenContext,acuChatRequest,resolvedPendingApproval,isApprovalReply,materialAdditionFollowup,materialAdditionConfirmation,selectedAcuRequest} from "../services/ai-assistant.js";
+import {parseAiReply,draftFromProposal,screenContext,createAiRequest,budgetScreenContext,acuChatRequest,resolvedPendingApproval,isApprovalReply,materialAdditionFollowup,materialAdditionConfirmation,selectedAcuRequest,affirmativeMissingMaterialRequest} from "../services/ai-assistant.js";
 const defaults={openai:"gpt-4.1-mini",anthropic:"claude-haiku-4-5"};
 export function createAiAssistant({invoke,state,document,window,openModal,editable,loadEstimate,loadEstimates,openEstimate,openResourceLibrary}) {
   const host=document.createElement("div");host.id="ai-assistant";document.body.append(host);
@@ -88,7 +88,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     if(message.preview){
       const preview=message.preview;
       const rows=preview.rows||[];
-      const list=rows.map(row=>`<div class="ai-ingredient-group"><b>${e(row.description)} · por ${e(row.unit)}</b><ul>${row.items.slice(0,12).map(item=>`<li>${e(item.description)}: <b>${e(item.quantity)} ${e(item.unit)}</b>${item.previous_quantity!=null?' (antes: '+e(item.previous_quantity)+')':''}${item.price!=null?' · precio de catálogo: '+e(item.price):' · sin precio'}</li>`).join('')}${row.items.length>12?`<li>+ ${row.items.length-12} insumos adicionales; abrí la revisión detallada.</li>`:''}</ul>${row.warnings.map(w=>`<p class="ai-warning">⚠ ${e(w)}</p>`).join('')}</div>`).join('');
+      const list=rows.map(row=>`<div class="ai-ingredient-group"><b>${e(row.description)} · por ${e(row.unit)}</b><ul>${row.items.slice(0,12).map(item=>`<li>${e(item.description)}: <b>${e(item.quantity)} ${e(item.unit)}</b>${item.previous_quantity!=null?' (antes: '+e(item.previous_quantity)+')':''}${item.price!=null?' · precio de catálogo: '+e(item.price):' · sin precio'}</li>`).join('')}${row.items.length>12?`<li>+ ${row.items.length-12} insumos adicionales; abrí la revisión detallada.</li>`:''}</ul>${row.preserved?.length?`<details class="ai-preserved"><summary>Se conservan ${row.preserved.length} insumos existentes</summary><ul>${row.preserved.map(item=>`<li>${e(item.description)} · ${e(item.quantity)} ${e(item.unit)}</li>`).join('')}</ul></details>`:''}${row.warnings.map(w=>`<p class="ai-warning">⚠ ${e(w)}</p>`).join('')}</div>`).join('');
       const pending=(preview.pendingReasons||[]).map(row=>`<p class="ai-warning">Pendiente: ${e(row.description)} — ${e(row.reasons.join(' · '))}</p>`).join('');
       return `<div class="ai-ingredient-preview"><strong>Insumos que se cargarán</strong>${list}${pending}${preview.rows.length?`<button type="button" class="ai-approve" data-ai="approve-load" data-index="${index}" ${canPlan()&&model.configured&&model.consent&&!model.busy?'':'disabled'}>Sí, aprobar y cargar esta lista</button>`:'<p>Sin insumos válidos para aprobar.</p>'}<button type="button" data-ai="discard-preview" data-index="${index}">Descartar</button></div>`;
     }
@@ -183,9 +183,10 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     const selectedLine=state.lines.find(line=>line.id===state.selectedLineId);
     const productivity=productivityEditRequest(question,selectedLine);
     const selectedRequest=productivity?null:selectedAcuRequest(question,selectedLine,model.messages);
-    const addition=productivity||selectedRequest?null:materialAdditionFollowup(question,model.messages,additionContext);
+    const conversationalAdd=productivity||selectedRequest?null:affirmativeMissingMaterialRequest(question,model.messages,selectedLine);
+    const addition=productivity||selectedRequest||conversationalAdd?null:materialAdditionFollowup(question,model.messages,additionContext);
     const recovered=addition?null:materialAdditionConfirmation(question,model.messages,additionContext);
-    const acuRequest=productivity||selectedRequest||addition||recovered||acuChatRequest(question,model.messages);
+    const acuRequest=productivity||selectedRequest||conversationalAdd||addition||recovered||acuChatRequest(question,model.messages);
     if(canPlan()&&acuRequest){
       const answer=productivity?'Rendimiento identificado. Voy a ajustar solo el equipo seleccionado; cualquier diferencia de unidad se informará. Falta aprobar.':'Pedido listo para revisar o aprobar. No se guardó nada todavía.';
       addReply(question,{answer,acuRequest});model.notice='La aprobación se aplica únicamente a este pedido.';
