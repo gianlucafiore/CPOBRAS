@@ -6,6 +6,7 @@ import {buildCatalogContext} from './ai-catalog-context.js';
 const NAMES=new Set(['calculate_takeoff','audit_budget','compare_estimates','search_catalog']);
 const isObject=v=>v!==null&&typeof v==='object'&&!Array.isArray(v);
 const value=v=>String(v??'');
+const tidy=v=>String(v).replace(/(\.\d*?)0+$/,'$1').replace(/\.$/,'');
 function positive(v){
  if(typeof v!=='string'||!/^(?:0|[1-9]\d{0,9})(?:\.\d{1,6})?$/.test(v)||compareDecimals(v,'0')<=0)throw new Error('Se requiere una cantidad positiva, sin separadores de miles.');
  return v;
@@ -30,9 +31,9 @@ export function calculateTakeoff(args){
  const height=a.shape==='rectangular_prism'?meter(a.height):null;
  const unit=height?'m³':'m²';
  const perUnit=height?multiplyDecimals(multiplyDecimals(length,width),height):multiplyDecimals(length,width);
- const quantity=multiplyDecimals(count,perUnit),waste=a.waste_percent??'0';
+ const quantity=tidy(multiplyDecimals(count,perUnit)),waste=a.waste_percent??'0';
  if(!/^(?:0|[1-9]\d{0,3})(?:\.\d{1,6})?$/.test(waste)||compareDecimals(waste,'100')>0)throw new Error('Desperdicio inválido: indicá un porcentaje de 0 a 100.');
- const withWaste=sumDecimals([quantity,divideDecimals(multiplyDecimals(quantity,waste),'100',8)]);
+ const withWaste=tidy(sumDecimals([quantity,divideDecimals(multiplyDecimals(quantity,waste),'100',8)]));
  return {answer:'Cómputo de '+a.description+': '+numeric(count)+' × '+numeric(length)+' × '+numeric(width)+(height?' × '+numeric(height):'')+' m = '+numeric(quantity)+' '+unit+'.'+(compareDecimals(waste,'0')>0?' Incluyendo '+numeric(waste)+' % de desperdicio: '+numeric(withWaste)+' '+unit+'.':'')+' Cálculo geométrico; no incluye huecos ni sobreexcavación.',
   data:{unit,quantity,count,dimensions_m:[length,width,...(height?[height]:[])],with_waste:withWaste},read_only:true};
 }
