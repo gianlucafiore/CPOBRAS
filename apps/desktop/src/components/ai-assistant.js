@@ -85,12 +85,19 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
   function approvalMarkup(message,index){
     const approval=message.approval;
     if(approval)return `<p class="ai-approval-status" role="status">${e(approval.message||'Preparando carga…')}</p>${approval.result?.pendingReasons?.length?`<ul class="ai-pending-reasons">${approval.result.pendingReasons.map(item=>`<li>${e(item.description)}: ${item.reasons.map(e).join(' · ')}</li>`).join('')}</ul>`:''}${approval.state!=='running'&&approval.result?.committed&&approval.result.estimateId?`<button type="button" data-ai="approved-result" data-index="${index}" ${model.busy?'disabled':''}>Ver en presupuesto</button>`:''}${approval.state!=='running'&&approval.result?.pending&&approval.kind==='acu'&&approval.id===model.lastApprovedId?`<button type="button" data-ai="approved-pending" data-index="${index}" ${model.busy?'disabled':''}>Ver pendientes</button>`:''}`;
+    if(message.preview){
+      const preview=message.preview;
+      const rows=preview.rows||[];
+      const list=rows.map(row=>`<div class="ai-ingredient-group"><b>${e(row.description)} · por ${e(row.unit)}</b><ul>${row.items.slice(0,12).map(item=>`<li>${e(item.description)}: <b>${e(item.quantity)} ${e(item.unit)}</b>${item.previous_quantity!=null?' (antes: '+e(item.previous_quantity)+')':''}${item.price!=null?' · precio de catálogo: '+e(item.price):' · sin precio'}</li>`).join('')}${row.items.length>12?`<li>+ ${row.items.length-12} insumos adicionales; abrí la revisión detallada.</li>`:''}</ul>${row.warnings.map(w=>`<p class="ai-warning">⚠ ${e(w)}</p>`).join('')}</div>`).join('');
+      const pending=(preview.pendingReasons||[]).map(row=>`<p class="ai-warning">Pendiente: ${e(row.description)} — ${e(row.reasons.join(' · '))}</p>`).join('');
+      return `<div class="ai-ingredient-preview"><strong>Insumos que se cargarán</strong>${list}${pending}${preview.rows.length?`<button type="button" class="ai-approve" data-ai="approve-load" data-index="${index}" ${canPlan()&&model.configured&&model.consent&&!model.busy?'':'disabled'}>Sí, aprobar y cargar esta lista</button>`:'<p>Sin insumos válidos para aprobar.</p>'}<button type="button" data-ai="discard-preview" data-index="${index}">Descartar</button></div>`;
+    }
     if(message.changeProposals)return '';
     const name=state.estimates.find(e=>e.id===state.estimateId)?.title||'un presupuesto nuevo de esta obra';
     const resolved=acuMessageRequest(index),isAcu=resolved.isAcu;
     const request=resolved.request,targets=request?.lineIds?.length?request.lineIds.map(id=>state.lines.find(line=>line.id===id)?.description||id):[];
     const scopeHint=isAcu?(request?.mode==='create'?'Se crearán partidas nuevas con su ACU.':targets.length?'Partidas indicadas: '+targets.join(', ')+(request.operation==='append'?'. Se agregarán los insumos solicitados conservando la composición actual.':request.operation==='productivity'?'. Se ajustará solo el consumo del equipo indicado; los demás insumos se conservan. Si la unidad del catálogo no coincide con el uso por día, se guardará una advertencia.':'. Si ya tienen ACU, se reemplazará su composición.'):'Se completarán las partidas que todavía no tengan ACU.'):'';
-    return `<p>${isAcu?'La autorización permite generar y cargar los ACU de este pedido; las cantidades y los metrados existentes se conservan.':'La autorización agrega estas partidas nuevas. Cantidades o precios sin informar se cargan en 0.'} Destino: ${e(name)}. ${e(scopeHint)} Podés ajustar los datos después.</p><button type="button" class="ai-approve" data-ai="approve-load" data-index="${index}" ${canPlan()&&model.configured&&model.consent&&!model.busy?'':'disabled'}>Sí, aprobar y cargar</button>`;
+    return `<p>${isAcu?'Primero se generará una lista real de insumos, cantidades y advertencias. Se guardará solamente después de aprobarla.':'La autorización agrega las partidas detalladas en esta propuesta.'} Destino: ${e(name)}. ${e(scopeHint)}</p><button type="button" class="ai-approve" data-ai="approve-load" data-index="${index}" ${canPlan()&&model.configured&&model.consent&&!model.busy?'':'disabled'}>${isAcu?'Preparar listado de insumos':'Sí, aprobar y crear partidas'}</button>`;
   }
   async function approveMessage(index){
     const message=model.messages[index];
@@ -100,11 +107,22 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     if(kind==='acu'&&!message.acuRequest){message.acuRequest=resolved.request;delete message.planRows;if(message.proposal?.kind==='line')message.proposal=null;}
     const run={id:globalThis.crypto.randomUUID(),kind,running:true,scope:scope(),projectId:state.projectId,estimateId:state.estimateId,phase:'preparing'};
     model.approvedRun=run;model.lastApprovedId=run.id;model.lastAction=message;model.pendingAction=null;model.busy=true;model.error='';
-    message.answer='Autorización recibida. La carga se ejecuta desde el chat, sin abrir el formulario de revisión.';message.approval={id:run.id,kind,state:'running',message:'Preparando la carga autorizada…'};paint();
+    message.answer=message.preview?'Guardando los insumos aprobados…':'Preparando la lista de insumos para revisar, sin guardar…';message.approval={id:run.id,kind,state:'running',message:message.answer};paint();
     const onProgress=event=>{if(model.approvedRun!==run||!run.running)return;run.phase=event.phase;if(event.estimateId)run.estimateId=event.estimateId;message.approval.message=event.message;paint();};
     try{
-      const result=kind==='plan'?await approvedPlans.run(planRows,{onProgress}):await acuWorkbench.runApproved({...resolved.request,outline:resolved.outline},{onProgress});
+      const result=message.preview?await acuWorkbench.commitPrepared(message.preview.id,{onProgress}):
+       kind==='plan'?await approvedPlans.run(planRows,{onProgress}):
+       await acuWorkbench.runApproved({...resolved.request,outline:resolved.outline},{onProgress,previewOnly:true});
+      if(result.previewReady){
+       message.preview=result.preview;
+       message.answer='Revisá los insumos y cantidades antes de aprobar. Todavía no se guardó nada.';
+       message.content=JSON.stringify({answer:message.answer});
+       message.approval=null;delete message.approval;
+       model.pendingAction=message;model.notice=message.answer;
+       return;
+      }
       if(model.approvedRun!==run||run.scope!==scope())return;
+      delete message.preview;
       const saved=result.saved||0,created=result.created||0,pending=result.pending||0;
       const counts=[saved?`${saved} ACU ${saved===1?'cargado':'cargados'}`:'',created?`${created} ${created===1?'partida nueva creada':'partidas nuevas creadas'}`:''].filter(Boolean).join(' y ');
       const summary=result.committed?`Carga terminada: ${counts||'guardado confirmado'}${pending?`; ${pending} ${pending===1?'pendiente':'pendientes'}`:''}.`:`${result.cancelled?'Carga detenida. ':''}No hay un guardado confirmado para este pedido${pending?`; ${pending} ${pending===1?'pendiente':'pendientes'}`:''}.`;
@@ -235,6 +253,10 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       if(action==="plan-import"&&!model.busy)await acuWorkbench.open(model.question,null,"create");
       if(action==="review-plan"&&!model.busy){const message=model.messages[Number(button.dataset.index)];if(message?.planRows&&!message?.changeProposals)await reviewAcuMessage(Number(button.dataset.index));else budgetImport.openPlanRows(message?.planRows||[],message?.changeProposals||[]);}
       if(action==='approve-load')await approveMessage(Number(button.dataset.index));
+       if(action==='discard-preview'&&!model.busy){
+        const message=model.messages[Number(button.dataset.index)];
+        if(message?.preview){acuWorkbench.cancelPrepared();delete message.preview;message.answer='Propuesta descartada. No se modificó el presupuesto.';message.actionError='Propuesta descartada.';model.pendingAction=null;}
+       }
       if(action==='stop-approved')cancelApprovedRun();
       if(action==='approved-pending'&&!model.busy)await acuWorkbench.showLatest();
       if(action==='approved-result'&&!model.busy){const result=model.messages[Number(button.dataset.index)]?.approval?.result;if(result?.estimateId)await openEstimate(result.estimateId,result.lineIds?.[0]||null);}
