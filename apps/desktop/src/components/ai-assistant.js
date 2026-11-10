@@ -207,10 +207,11 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       let parsed=parseAiReply(result.text);
       if(catalogSnapshot&&/no (?:tengo|dispongo de|cuento con) acceso.{0,50}(?:cat[aá]logo|biblioteca)|no puedo acceder.{0,40}(?:cat[aá]logo|biblioteca)/i.test(parsed.answer)){parsed={answer:catalogAnswer(catalogSnapshot,question,model.messages),proposal:null};result.text=JSON.stringify(parsed);}
       const executionClaim=/\b(?:agregue|anadi|incorpore|cargue|guarde|cree|aplique)\b|\bse (?:creo|crearon|agrego|agregaron|cargo|cargaron|guardo|guardaron|incorporo|incorporaron|aplico|aplicaron)\b|\b(?:fue|fueron|ha sido|han sido) (?:cread[oa]s?|cargad[oa]s?|guardad[oa]s?|agregad[oa]s?)\b/.test(fold(parsed.answer));
-      const loadTurn=isAction(parsed)||/\b(?:crea|crear|agrega|agregar|carga|cargar|completa|completar|incorpora|incorporar|aplica|aplicar)\b/.test(fold(question));
-      if(executionClaim&&loadTurn&&!parsed.actionError){
+      const progressClaim=/\b(?:estoy|estamos|voy a|vamos a|procedo a|se estan)\s+(?:cargando|cargar|agregando|agregar|guardando|guardar|incorporando|incorporar|aplicando|aplicar|creando|crear)\b/.test(fold(parsed.answer));
+      const loadTurn=isAction(parsed)||isApprovalReply(question)||/\b(?:crea(?:r|lo|la|los|las)?|agrega(?:r|lo|la|los|las)?|carga(?:r|lo|la|los|las)?|completa(?:r|lo|la|los|las)?|incorpora(?:r|lo|la|los|las)?|aplica(?:r|lo|la|los|las)?)\b/.test(fold(question));
+      if((executionClaim||progressClaim)&&loadTurn&&!parsed.actionError){
         if(isAction(parsed))parsed.answer='La propuesta está preparada, pero todavía no se guardó. Podés aprobar su carga desde el chat.';
-        else parsed={answer:'No hay un guardado confirmado para este pedido. La respuesta de la IA no incluyó una acción ejecutable; no se realizó una carga desde el chat.',proposal:null,actionError:'No se recibió una propuesta ejecutable.'};
+        else parsed={answer:'No se inició ninguna carga: la respuesta de la IA no incluyó una acción ejecutable. Para agregar insumos a una partida con ACU existente, pedí «Agregá los materiales a esta partida seleccionada»; CPOBRAS preparará una propuesta antes de aprobarla.',proposal:null,actionError:'No se recibió una propuesta ejecutable.'};
       }
       addReply(question,parsed);model.notice=`Conexión con ${model.provider==="openai"?"OpenAI":"Claude"} verificada: se recibió una respuesta.`;model.usage={input:result.input_tokens,output:result.output_tokens};
     }catch(error){if(generation===model.generation&&token===queryToken)model.error=String(error);}
