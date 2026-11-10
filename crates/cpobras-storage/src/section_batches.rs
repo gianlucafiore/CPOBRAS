@@ -33,11 +33,15 @@ pub struct SectionRename {
     pub id: Uuid,
     pub expected: ExpectedSection,
     pub title: String,
+    #[serde(default)]
+    pub code: Option<String>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SectionDeletion {
     pub id: Uuid,
     pub expected: ExpectedSection,
+    pub expected_lines: usize,
+    pub expected_children: usize,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SectionLineConversion {
@@ -129,17 +133,32 @@ impl LocalStore {
                 && !titles.insert(edit.title.trim().to_lowercase()) {
                 return Err(invalid("Ya hay un rubro con ese nombre"));
             }
+            if let Some(ref code)=edit.code {
+                if code.trim().is_empty()||code.len()>64 {
+                    return Err(invalid("Código de rubro inválido"));
+                }
+                if edit.expected.code.to_lowercase()!=code.to_lowercase()
+                    && !codes.insert(code.to_lowercase()) {
+                    return Err(invalid("Ya existe un rubro con ese código"));
+                }
+            }
         }
         for deletion in &batch.deletes {
             if !section_changes.insert(deletion.id)||snapshot(deletion.id)?!=deletion.expected {
                 return Err(invalid("El rubro a borrar cambió o ya fue usado por otra operación"));
             }
-            let occupied:bool=tx.query_row(
-                "SELECT EXISTS(SELECT 1 FROM budget_sections WHERE parent_id=?1)
-                      OR EXISTS(SELECT 1 FROM estimate_line_sections WHERE section_id=?1)",
+            let actual_lines:i64=tx.query_row(
+                "SELECT COUNT(*) FROM estimate_line_sections WHERE section_id=?1",
                 [deletion.id.to_string()],|r|r.get(0)
             )?;
-            if occupied{return Err(invalid("No se borra un rubro que contiene subrubros o partidas: reasigná primero su contenido"));}
+            let actual_children:i64=tx.query_row(
+                "SELECT COUNT(*) FROM budget_sections WHERE parent_id=?1",
+                [deletion.id.to_string()],|r|r.get(0)
+            )?;
+            if actual_lines<0||actual_children<0||actual_lines as usize!=deletion.expected_lines
+                ||actual_children as usize!=deletion.expected_children {
+                return Err(invalid("El contenido del rubro cambió desde la vista previa; no se borró nada"));
+            }
         }
         let mut converted=HashSet::new();
         for item in &batch.converts {
@@ -183,11 +202,17 @@ impl LocalStore {
                 params![item.id.to_string(),batch.estimate_id.to_string(),code,item.title.trim(),item.position])?;
         }
         for item in &batch.renames {
-            tx.execute("UPDATE budget_sections SET title=?1 WHERE id=?2 AND estimate_id=?3",
-                params![item.title.trim(),item.id.to_string(),batch.estimate_id.to_string()])?;
+            tx.execute("UPDATE budget_sections SET title=?1,code=COALESCE(?2,code) WHERE id=?3 AND estimate_id=?4",
+                params![item.title.trim(),item.code.as_ref().map(|s|s.trim()),item.id.to_string(),batch.estimate_id.to_string()])?;
         }
         for item in &batch.converts {crate::estimates::delete_line_in(&tx,batch.estimate_id,item.line_id)?;}
         for item in &batch.deletes {
+            // Deleting a rubro is not deleting its work: unassign contained
+            // partidas and move child rubros to its parent atomically.
+            tx.execute("DELETE FROM estimate_line_sections WHERE section_id=?1",
+                [item.id.to_string()])?;
+            tx.execute("UPDATE budget_sections SET parent_id=?1 WHERE parent_id=?2",
+                params![item.expected.parent_id.map(|id|id.to_string()),item.id.to_string()])?;
             tx.execute("DELETE FROM budget_sections WHERE id=?1 AND estimate_id=?2",
                 params![item.id.to_string(),batch.estimate_id.to_string()])?;
         }
