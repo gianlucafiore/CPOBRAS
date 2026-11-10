@@ -87,7 +87,7 @@ test('natural-language creates, renames and removes rubros without deleting budg
  panel=page.locator('.ai-ingredient-preview');
  await expect(panel).toContainText('Borrar rubro: Movimiento de suelos');
  await expect(panel).toContainText('1 partidas; quedarán sin rubro');
- await expect(panel).toContainText('1 subrubros; pasarán al rubro superior');
+ await expect(panel).toContainText('1 subrubros; pasan al rubro superior');
  expect(await page.evaluate(()=>window.__sectionHarness.writes.length)).toBe(2);
  await panel.getByRole('button',{name:'Aprobar cambios de rubros'}).click();
  await expect(page.locator('.ai-approval-status').last()).toContainText('1 borrados');
