@@ -128,7 +128,7 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
   return summary();
   function summary(){
    const snapshot=authorization.model,done=new Set(lineIds);
-   const pendingReasons=(snapshot?.rows||[]).filter(row=>!done.has(row.id)).slice(0,8).map(row=>({description:row.seed.description,reasons:acuPreapprovalErrors(row,snapshot.context.resources)}));
+   const pendingReasons=(snapshot?.rows||[]).filter(row=>!done.has(row.id)).slice(0,8).map(row=>({description:row.seed.description,reasons:[...new Set([...(row.missing_resources||[]),...acuPreapprovalErrors(row,snapshot.context.resources)])].slice(0,10)}));
    return {saved,created,pending:Math.max(0,authorization.targetIds.size-saved),pendingReasons,projectId:authorization.projectId,estimateId:snapshot?.estimate.id,lineIds:[...lineIds],committed,cancelled,error};
   }
   function finish(){
