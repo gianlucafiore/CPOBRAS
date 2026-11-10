@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {parseAiReply,draftFromProposal,createAiRequest,budgetScreenContext,acuChatRequest,resolvedPendingApproval,isApprovalReply,materialAdditionFollowup,materialAdditionConfirmation,selectedAcuRequest,affirmativeMissingMaterialRequest} from '../src/services/ai-assistant.js';
+import {parseAiReply,draftFromProposal,createAiRequest,budgetScreenContext,acuChatRequest,resolvedPendingApproval,isApprovalReply,materialAdditionFollowup,materialAdditionConfirmation,selectedAcuRequest,affirmativeMissingMaterialRequest,contextualAcuLine,availableCatalogFollowup} from '../src/services/ai-assistant.js';
 test('unstructured responses remain text; only whitelisted proposals become drafts',()=>{
   assert.deepEqual(parseAiReply('<script>bad()</script>'),{answer:'<script>bad()</script>',proposal:null});
   const reply=parseAiReply(JSON.stringify({answer:'Revisá este borrador',proposal:{kind:'line',description:'Excavación',unit:'m³',quantity:'15.25',unit_price:'30000',id:'existing-id',execute:'delete',sectionId:'secret'}}));
@@ -340,4 +340,25 @@ test('sí agregalos is a single-line append based on named missing materials, no
  assert.equal(affirmativeMissingMaterialRequest('si agregalos',[{role:'assistant',answer:'Podés agregar insumos.'}],line),null);
  assert.equal(affirmativeMissingMaterialRequest('si agregalos',[{role:'assistant',answer:'Faltan pastina.',approval:{state:'done'}}],line),null);
  assert.equal(affirmativeMissingMaterialRequest('si sacalos',messages,line),null);
+});
+
+test('conversational target remains fixed until the user explicitly refers to a newly selected line',()=>{
+ const lines=[{id:acuLineId,description:'Revestimiento de baños'},{id:'other',description:'Excavación'}];
+ assert.equal(contextualAcuLine('y qué me falta?',{selectedLineId:'other',focusLineId:acuLineId,lines}).id,acuLineId);
+ assert.equal(contextualAcuLine('agregá los disponibles',{selectedLineId:'other',focusLineId:acuLineId,lines}).id,acuLineId);
+ assert.equal(contextualAcuLine('a esta partida seleccionada',{selectedLineId:'other',focusLineId:acuLineId,lines}).id,'other');
+ assert.equal(contextualAcuLine('qué falta?',{selectedLineId:'other',focusLineId:'deleted-line',lines}).id,'other');
+});
+test('short natural replies reuse the current library advice, not every empty budget line',()=>{
+ const advice={line_id:acuLineId,available:[{category:'adhesivo de colocación',candidates:[{description:'Adhesivo Klaucol',id:'glue'}]}],not_found:['pastina para juntas']};
+ for(const question of ['si agregalos','agregá los disponibles','cargá los que encontraste','dale sumalos']){
+  const request=availableCatalogFollowup(question,advice);
+  assert.equal(request?.mode,'fill',question);
+  assert.equal(request?.operation,'append',question);
+  assert.deepEqual(request?.lineIds,[acuLineId],question);
+  assert.match(request.brief,/Adhesivo Klaucol/);
+  assert.match(request.brief,/pastina para juntas/);
+ }
+ assert.equal(availableCatalogFollowup('no los agregues',advice),null);
+ assert.equal(availableCatalogFollowup('si agregalos',{...advice,available:[]}),null);
 });
