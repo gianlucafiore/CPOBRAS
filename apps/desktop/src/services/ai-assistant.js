@@ -133,6 +133,21 @@ export function materialAdditionFollowup(question,messages=[],{selectedLineId=nu
  return {mode:'fill',brief,lineIds:[selected.id],operation:'append'};
 }
 
+/** Recover a material-addition offer only from the user's unfulfilled request.
+ * The assistant's prose is not an executable proposal or authorization.
+ * The caller must show a new local approval card before writing anything. */
+export function materialAdditionConfirmation(question,messages=[],context={}){
+ if(!isApprovalReply(question)||!Array.isArray(messages)||!messages.length)return null;
+ const last=messages.at(-1);
+ if(last?.role!=='assistant'||last.acuRequest||last.approval||last.actionError)return null;
+ if(!/\b(?:puedo|podemos|prepar|carg|agreg|incorpor|aprob|revis|queres|avanz|hacer)\w*\b/.test(chatFold(messageText(last))))return null;
+ const boundary=messages.findLastIndex(message=>message?.role==='assistant'&&message.approval?.result?.committed===true);
+ const recent=messages.slice(boundary+1).filter(message=>message?.role==='user'&&typeof message.content==='string');
+ const request=[...recent].reverse().find(message=>!isApprovalReply(message.content)&&!/[¿?]/.test(message.content));
+ if(!request)return null;
+ return materialAdditionFollowup(request.content,messages,context);
+}
+
 // Only this allowlist can become a draft. Never execute model output as code/HTML.
 export function parseAiReply(text) {
   let value;
