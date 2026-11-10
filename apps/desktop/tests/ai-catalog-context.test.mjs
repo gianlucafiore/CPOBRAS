@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {foldCatalogText,indexCatalog,catalogQuery,parseCatalogQuery,buildCatalogContext} from '../src/services/ai-catalog-context.js';
+import {foldCatalogText,indexCatalog,catalogQuery,parseCatalogQuery,buildCatalogContext,constructionCatalogAdvice,constructionAdviceText} from '../src/services/ai-catalog-context.js';
 
 const resource=(id,description,extra={})=>({id,code:'INS-'+id,description,unit:'un',kind:'material',price:'100.00',currency:'ARS',price_source:'catálogo:precio-'+id,effective_date:'2026-11-01',...extra});
 const context=(question,resources,extra={})=>JSON.parse(buildCatalogContext({question,resources,currency:'ARS',asOf:'2026-11-10',...extra}));
@@ -195,4 +195,23 @@ test('natural-language names find close catalog candidates without treating them
  assert.equal(context('Precio de materiales para instalación de inodoro',rows).matches[0].id,'7');
  assert.deepEqual(context('Busco cobre',rows).related,[]);
  assert.deepEqual(context('Busco cobre',rows).matches,[]);
+});
+
+test('live catalog advice distinguishes existing ACU items, available candidates and not-found supplies',()=>{
+ const catalog=[
+  resource('tile','Porcelanato 60x60'),
+  resource('labor','Colocación de porcelanato',{kind:'labor',unit:'m²'}),
+  resource('adhesive','Adhesivo para porcelanato Klaucol 25kg',{unit:'bolsa'})
+ ];
+ const line={id:'line-a',description:'Revestimiento de baños',components:[{resource_id:'tile',quantity:'1'},{resource_id:'labor',quantity:'1'}]};
+ const advice=constructionCatalogAdvice(line,catalog);
+ assert.deepEqual(advice.existing.map(x=>x.category),['porcelanato o cerámica','mano de obra de colocación']);
+ assert.deepEqual(advice.available.map(x=>x.candidates[0].id),['adhesive']);
+ assert.deepEqual(advice.not_found,['pastina para juntas']);
+ const message=constructionAdviceText(advice);
+ assert.match(message,/Ya cargados/);
+ assert.match(message,/Adhesivo para porcelanato Klaucol/);
+ assert.match(message,/Sin coincidencia clara.*pastina/);
+ assert.match(message,/agregá los disponibles/);
+ assert.equal(constructionCatalogAdvice({id:'other',description:'Demolición de losa',components:[]},catalog),null);
 });
