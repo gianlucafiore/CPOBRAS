@@ -117,18 +117,18 @@ export function acuChatRequest(question,messages=[]){
 export function selectedAcuRequest(question,selectedLine,messages=[]){
  if(!selectedLine?.id||typeof question!=='string'||!question.trim()||/[¿?]/.test(question))return null;
  const q=chatFold(question);
- if(/\\b(?:no|nunca)\\s+(?:carg|agreg|complet|incorpor|sum)\\w*\\b/.test(q))return null;
- if(/\\b(?:crea|crear|genera|generar)\\b.*\\b(?:partidas?|rubro)\\b/.test(q))return null;
- if(/\\b(?:biblioteca|catalogo)\\b/.test(q)&&!/\\bpartida seleccionada\\b/.test(q))return null;
- const action=/\\b(?:completa|completar|carga|cargar|agrega|agregar|incorpora|incorporar|suma|sumar|anade|anadir)\\b/.test(q);
- const selected=/\\b(?:partida seleccionada|esta partida|esa partida|la partida seleccionada)\\b/.test(q);
- const materials=/\\b(?:insumos?|materiales?|porcelanatos?|ceramicas?|pastinas?|adhesivos?|pegamentos?|mano de obra|colocacion|selladores?|artefactos?|inodoros?|bidets?|tornillos?|revestimiento)\\b/.test(q);
+ if(/\b(?:no|nunca)\s+(?:carg|agreg|complet|incorpor|sum)\w*\b/.test(q))return null;
+ if(/\b(?:crea|crear|genera|generar)\b.*\b(?:partidas?|rubro)\b/.test(q))return null;
+ if(/\b(?:biblioteca|catalogo)\b/.test(q)&&!/\bpartida seleccionada\b/.test(q))return null;
+ const action=/\b(?:completa|completar|carga|cargar|agrega|agregar|incorpora|incorporar|suma|sumar|anade|anadir)\b/.test(q);
+ const selected=/\b(?:partida seleccionada|esta partida|esa partida|la partida seleccionada)\b/.test(q);
+ const materials=/\b(?:insumos?|materiales?|porcelanatos?|ceramicas?|pastinas?|adhesivos?|pegamentos?|mano de obra|colocacion|selladores?|artefactos?|inodoros?|bidets?|tornillos?|revestimiento)\b/.test(q);
  const explicit=action&&(selected||materials);
- if(!explicit||/\\b(?:todas? las partidas|varias partidas|partidas seleccionadas)\\b/.test(q))return null;
+ if(!explicit||/\b(?:todas? las partidas|varias partidas|partidas seleccionadas)\b/.test(q))return null;
  let brief=question.trim();
- if(/\\b(?:todo eso|lo anterior|esos materiales)\\b/.test(q)){
-  const previous=[...(Array.isArray(messages)?messages:[])].reverse().find(message=>message?.role==='assistant'&&typeof messageText(message)==='string'&&/\\b(?:porcelanato|pastina|adhesivo|ceramica|material)\\b/.test(chatFold(messageText(message))));
-  if(previous)brief+='\\nComponentes mencionados como contexto (no confirmar opciones excluidas): '+messageText(previous).slice(0,1100);
+ if(/\b(?:todo eso|lo anterior|esos materiales)\b/.test(q)){
+  const previous=[...(Array.isArray(messages)?messages:[])].reverse().find(message=>message?.role==='assistant'&&typeof messageText(message)==='string'&&/\b(?:porcelanato|pastina|adhesivo|ceramica|material)\b/.test(chatFold(messageText(message))));
+  if(previous)brief+='\nComponentes mencionados como contexto (no confirmar opciones excluidas): '+messageText(previous).slice(0,1100);
  }
  return {mode:'fill',operation:'append',brief:brief.slice(0,3000),lineIds:[selectedLine.id]};
 }
