@@ -413,4 +413,57 @@ mod tests {
             .assign_line_section(estimate.id, line.id, child.id)
             .is_err());
     }
+
+    #[test]
+    fn conversational_section_crud_preserves_lines_children_and_rejects_stale_delete() {
+        let mut store = LocalStore::in_memory().unwrap();
+        let client = Client { id: Uuid::new_v4(), name: "Cliente".into(), cuit: None };
+        store.save_client(&client).unwrap();
+        let project = Project { id: Uuid::new_v4(), client_id: client.id,
+            name: "Proyecto".into(), currency: Currency::Ars };
+        store.save_project(&project).unwrap();
+        let estimate = Estimate { id: Uuid::new_v4(), project_id: project.id,
+            title: "Antepresupuesto".into(), currency: Currency::Ars, issued: false };
+        store.create_estimate(&estimate).unwrap();
+        let edits = vec!["Fundaciones", "Estructuras", "Cubiertas"].into_iter()
+            .map(|title| SectionEdit { action:"create".into(), section_id:None,
+                title:Some(title.into()), code:None, expected_title:None,
+                expected_lines:None, expected_children:None }).collect::<Vec<_>>();
+        let created = store.apply_budget_section_edits(estimate.id, &edits).unwrap();
+        assert_eq!(created.created,3);
+        let sections = store.list_budget_sections(estimate.id).unwrap();
+        assert_eq!(sections.len(),3);
+        let root = sections.iter().find(|s|s.title=="Fundaciones").unwrap().clone();
+        let child = BudgetSection {id:Uuid::new_v4(),parent_id:Some(root.id),
+            code:"01.01".into(),title:"Zapatas".into(),position:3,..root.clone()};
+        store.save_budget_section(&child).unwrap();
+        let line=EstimateItem {id:Uuid::new_v4(),estimate_id:estimate.id,position:0,
+            analysis_id:None,description:"Excavación".into(),unit:"m³".into(),
+            quantity:Decimal::new(10,0),unit_cost_snapshot:Decimal::new(20,0)};
+        store.add_estimate_item(&line).unwrap();
+        store.assign_line_section(estimate.id,line.id,root.id).unwrap();
+        let stale = SectionEdit {action:"delete".into(),section_id:Some(root.id),
+            expected_title:Some("Fundaciones".into()),expected_lines:Some(0),
+            expected_children:Some(1),title:None,code:None};
+        assert!(store.apply_budget_section_edits(estimate.id,&[stale.clone()]).is_err());
+        assert_eq!(store.list_budget_sections(estimate.id).unwrap().len(),4);
+        let rename = SectionEdit {action:"update".into(),section_id:Some(root.id),
+            title:Some("Movimiento de suelos".into()),code:Some("00".into()),
+            expected_title:Some("Fundaciones".into()),expected_lines:None,
+            expected_children:None};
+        assert_eq!(store.apply_budget_section_edits(estimate.id,&[rename]).unwrap().updated,1);
+        let mut valid=stale;valid.expected_title=Some("Movimiento de suelos".into());
+        valid.expected_lines=Some(1);
+        let removed=store.apply_budget_section_edits(estimate.id,&[valid]).unwrap();
+        assert_eq!(removed.deleted,1);
+        assert_eq!(removed.preserved_lines,1);
+        assert_eq!(removed.reparented_subsections,1);
+        assert_eq!(store.estimate_items(estimate.id).unwrap().len(),1);
+        assert!(store.list_line_sections(estimate.id).unwrap().is_empty());
+        let children=store.list_budget_sections(estimate.id).unwrap();
+        assert!(children.iter().any(|s|s.id==child.id&&s.parent_id==None));
+        store.issue_estimate(estimate.id).unwrap();
+        assert!(store.apply_budget_section_edits(estimate.id,&edits[..1]).is_err());
+    }
+
 }
