@@ -2,6 +2,104 @@ use super::*;
 use serde_json::{json, Value};
 
 #[test]
+fn ipc_ai_catalog_context_obeys_main_window_capability() {
+    use cpobras_core::{Currency, ResourceKind};
+    use cpobras_storage::resource_catalog::{Resource, ResourcePrice};
+    use rust_decimal::Decimal;
+
+    let mut store = LocalStore::in_memory().unwrap();
+    let toilet = Resource {
+        id: uuid::Uuid::new_v4(),
+        code: "SAN-IPC-01".into(),
+        description: "Inodoro con mochila IPC".into(),
+        unit: "un".into(),
+        kind: ResourceKind::Material,
+        active: true,
+    };
+    let basin = Resource {
+        id: uuid::Uuid::new_v4(),
+        code: "SAN-IPC-02".into(),
+        description: "Bacha sin precio IPC".into(),
+        unit: "un".into(),
+        kind: ResourceKind::Material,
+        active: true,
+    };
+    store.save_resource(&toilet).unwrap();
+    store.save_resource(&basin).unwrap();
+    let price = ResourcePrice {
+        id: uuid::Uuid::new_v4(),
+        resource_id: toilet.id,
+        amount: Decimal::from(120000),
+        currency: Currency::Ars,
+        effective_date: "2026-11-01".into(),
+        source: Some("Nota privada del proveedor".into()),
+    };
+    store.add_resource_price(&price).unwrap();
+
+    // Use the generated application context so this tests the actual workspace
+    // permission and capability, rather than bypassing IPC with a handler call.
+    let app = configure(tauri::test::mock_builder())
+        .manage(Mutex::new(store))
+        .build(tauri::generate_context!())
+        .unwrap();
+    let main = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .unwrap();
+    let secondary = tauri::WebviewWindowBuilder::new(&app, "secondary", Default::default())
+        .build()
+        .unwrap();
+    let call = |view: &tauri::WebviewWindow<_>, origin: &str| {
+        tauri::test::get_ipc_response(
+            view,
+            tauri::webview::InvokeRequest {
+                cmd: "ai_catalog_context".into(),
+                callback: tauri::ipc::CallbackFn(0),
+                error: tauri::ipc::CallbackFn(1),
+                url: origin.parse().unwrap(),
+                body: tauri::ipc::InvokeBody::Json(json!({
+                    "projectId": null,
+                    "estimateId": null,
+                    "asOf": "2026-11-09",
+                    "currency": "ARS"
+                })),
+                headers: Default::default(),
+                invoke_key: tauri::test::INVOKE_KEY.into(),
+            },
+        )
+        .map(|body| body.deserialize::<Value>().unwrap())
+    };
+    let catalog = call(&main, "tauri://localhost")
+        .expect("The local main window must be allowed to read the AI catalog");
+    assert_eq!(catalog["currency"], "ARS");
+    assert_eq!(catalog["as_of"], "2026-11-09");
+    let rows = catalog["resources"].as_array().unwrap();
+    let actual = rows
+        .iter()
+        .find(|row| row["id"] == toilet.id.to_string())
+        .unwrap();
+    assert_eq!(actual["description"], toilet.description);
+    assert_eq!(actual["kind"], "material");
+    assert_eq!(actual["unit"], "un");
+    assert_eq!(actual["price"], "120000");
+    assert_eq!(actual["price_source"], format!("catálogo:{}", price.id));
+    assert_eq!(actual["effective_date"], "2026-11-01");
+    let missing = rows
+        .iter()
+        .find(|row| row["id"] == basin.id.to_string())
+        .unwrap();
+    assert!(missing["price"].is_null());
+    assert!(!catalog.to_string().contains("Nota privada del proveedor"));
+    assert!(
+        call(&secondary, "tauri://localhost").is_err(),
+        "Secondary windows must not read the AI catalog"
+    );
+    assert!(
+        call(&main, "https://example.com").is_err(),
+        "Remote origins must not read the AI catalog through the main window"
+    );
+}
+
+#[test]
 fn ipc_creates_budget_and_preserves_issued_snapshot() {
     let temp = std::env::temp_dir().join(format!("cpobras-ipc-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir(&temp).unwrap();
