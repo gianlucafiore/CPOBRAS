@@ -101,8 +101,18 @@ export async function executeBudgetTool(raw,{invoke,state,today}){
    data:results,read_only:true};
  }
  const versions=(await invoke('list_project_estimates',{projectId:state.projectId})).filter(e=>e.id!==state.estimateId);
- const baseline=call.args.baseline_id?versions.find(e=>e.id===call.args.baseline_id):versions.length===1?versions[0]:null;
- if(!baseline)return {answer:versions.length?'Elegí una versión de esta obra para comparar: '+versions.map(e=>e.title+' ('+e.id+')').join(' · ')+'.':'Esta obra no tiene otra versión de presupuesto para comparar.',data:{versions},read_only:true};
- const comparison=await invoke('compare_estimates',{baselineId:baseline.id,revisedId:state.estimateId});
- return formatEstimateComparison({baseline,revisedTitle:state.estimates?.find(e=>e.id===state.estimateId)?.title||'actual',comparison});
+ if(!versions.length)return {answer:'Esta obra no tiene otra versión de presupuesto para comparar.',data:{versions:[]},read_only:true};
+ const explicitly=!!call.args.baseline_id;
+ const chosen=explicitly?versions.filter(e=>e.id===call.args.baseline_id):versions.slice(0,6);
+ if(!chosen.length)return {answer:'La versión solicitada no pertenece a las versiones disponibles de esta obra; no se efectuó la comparación.',data:{versions},read_only:true};
+ const revisedTitle=state.estimates?.find(e=>e.id===state.estimateId)?.title||'actual';
+ const results=[];
+ for(const baseline of chosen){
+  const comparison=await invoke('compare_estimates',{baselineId:baseline.id,revisedId:state.estimateId});
+  results.push(formatEstimateComparison({baseline,revisedTitle,comparison}));
+ }
+ if(results.length===1)return results[0];
+ return {answer:'Comparé '+results.length+' versiones de esta obra: '+results.map(r=>r.answer).join(' ') +
+  (versions.length>chosen.length?' Otras '+(versions.length-chosen.length)+' versiones no se incluyeron en este resumen.':''),
+  data:{comparisons:results.map(r=>r.data),compared:results.length,total:versions.length},read_only:true};
 }
