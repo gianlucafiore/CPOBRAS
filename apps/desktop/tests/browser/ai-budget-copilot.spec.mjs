@@ -34,7 +34,7 @@ const invoke=async(name,args={})=>{
   if(message.includes('zapatas'))return {text:JSON.stringify({answer:'Computo geométrico',tool_call:{name:'calculate_takeoff',args:{shape:'rectangular_prism',dimension_unit:'cm',count:'12',length:'80',width:'80',height:'50',description:'zapatas'}}}),input_tokens:50,output_tokens:20};
   if(message.includes('audita'))return {text:JSON.stringify({answer:'Reviso el presupuesto',tool_call:{name:'audit_budget',args:{}}}),input_tokens:40,output_tokens:12};
   if(message.includes('compar'))return {text:JSON.stringify({answer:'Comparo versiones',tool_call:{name:'compare_estimates',args:{}}}),input_tokens:40,output_tokens:12};
-  if(message.includes('busca'))return {text:JSON.stringify({answer:'Busco en la biblioteca',tool_call:{name:'search_catalog',args:{query:'adhesivo para porcelanato'}}}),input_tokens:40,output_tokens:12};
+  if(message.includes('busc'))return {text:JSON.stringify({answer:'Busco en la biblioteca',tool_call:{name:'search_catalog',args:{query:'adhesivo para porcelanato'}}}),input_tokens:40,output_tokens:12};
   if(message.includes('presupuestame'))return {text:JSON.stringify({answer:'Plan inicial por rubros',proposal_lines:[{description:'Contrapiso de vivienda',unit:'m2',quantity:'120',unit_price:null,section:'Pisos'},{description:'Hormigón para zapatas',unit:'m3',quantity:null,unit_price:null,section:'Estructura'}]}),input_tokens:40,output_tokens:80};
   return {text:JSON.stringify({answer:'Sin herramientas para ese pedido'}),input_tokens:40,output_tokens:12};
  }
