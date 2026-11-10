@@ -114,7 +114,7 @@ for(const invalid of ['missing','material','unit']){
   await page.getByRole('button',{name:'Ver pendientes',exact:true}).click();
   const pending=page.locator(`[data-acu-proposal="${secondLineId}"]`);
   await expect(pending).toBeVisible();
-  await pending.locator('summary').click();
+  await pending.locator('summary').first().click();
   if(invalid==='missing')await expect(pending.locator('[data-acu-errors]')).toContainText('faltantes');
   if(invalid==='material')await expect(pending.locator('[data-acu-errors]')).toContainText('Material incompatible');
   if(invalid==='unit')await expect(pending.locator('[data-acu-errors]')).toContainText('Consumo de origen incompatible');
