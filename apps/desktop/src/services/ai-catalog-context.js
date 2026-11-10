@@ -174,13 +174,14 @@ export function buildCatalogContext({question='',messages=[],resources=[],curren
  const query=queryInput(question,messages),index=indexCatalog(resources),codes=new Set(query.public.codes);
  const matches=[],related=[];
  const generic=!query.currentTerms.size&&!query.historyTerms.size&&!codes.size;
+ const requestedDimensions=dimensions(question),laborPriority=kindPreference(question,'labor'),materialPriority=kindPreference(question,'material');
  for(const entry of index){
   const current=[...query.currentTerms].filter(term=>entry.terms.has(term));
   const history=[...query.historyTerms].filter(term=>entry.terms.has(term));
   const codeMatch=exactCodeMatch(entry.code,query);
-  const requestedDimensions=dimensions(question);
-  const dimensionHits=[...requestedDimensions].filter(number=>dimensions(entry.resource.description).has(number)).length;
-  const preference=kindPreference(question,entry.resource.kind);
+  const resourceDimensions=requestedDimensions.size?dimensions(entry.resource.description):null;
+  const dimensionHits=resourceDimensions?[...requestedDimensions].filter(number=>resourceDimensions.has(number)).length:0;
+  const preference=entry.resource.kind==='labor'?laborPriority:entry.resource.kind==='material'?materialPriority:0;
   if(codeMatch||current.length||history.length||generic){
    matches.push({entry,by:codeMatch?'exact_code':current.length?'question_terms':history.length?'history_terms':'catalog_sample',terms:unique([...current,...history]),score:(codeMatch?10_000:0)+current.length*100+history.length*10+dimensionHits*25+preference});
   }else if(query.public.domains.includes('sanitary')&&[...entry.terms].some(term=>sanitary.has(term))){
@@ -194,7 +195,7 @@ export function buildCatalogContext({question='',messages=[],resources=[],curren
   }
  }
  matches.sort((a,b)=>b.score-a.score||a.entry.index-b.entry.index);
-  related.sort((a,b)=>b.score-a.score||a.entry.index-b.entry.index);
+ related.sort((a,b)=>b.score-a.score||a.entry.index-b.entry.index);
  const priced=entries=>entries.filter(item=>item.entry.price!=null).length;
  const allPriced=index.filter(entry=>entry.price!=null).length;
  const safeCurrency=typeof currency==='string'&&currency.length<=10?currency:null;
@@ -210,7 +211,9 @@ export function buildCatalogContext({question='',messages=[],resources=[],curren
    'Los conteos abarcan todos los recursos recibidos antes del recorte. Si truncated es true, no afirmar que un insumo no existe ni que se enumeró todo el catálogo. Una búsqueda sin coincidencias tampoco prueba inexistencia: pedir datos más precisos.',
   ],
  };
- const candidates=[...matches.map(item=>({...item,bucket:'matches'})),...related.map(item=>({...item,bucket:'related'}))];
+ // Preserve some semantically related candidates when generic word matches are numerous.
+ const relatedSlots=Math.min(20,related.length),primarySlots=resultLimit-relatedSlots;
+ const candidates=[...matches.slice(0,primarySlots).map(item=>({...item,bucket:'matches'})),...related.slice(0,relatedSlots).map(item=>({...item,bucket:'related'})),...matches.slice(primarySlots).map(item=>({...item,bucket:'matches'})),...related.slice(relatedSlots).map(item=>({...item,bucket:'related'}))];
  if(candidates.length>resultLimit){payload.truncated=true;payload.limits.result_limit_reached=true;}
  for(const item of candidates.slice(0,resultLimit)){
   const bucket=payload[item.bucket];bucket.push(evidence(item.entry,safeCurrency,item.by,item.terms));payload.counts.returned++;
