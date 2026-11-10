@@ -95,7 +95,7 @@ export function mergeAcuAddition(row,resources,brief=''){
  const errors=acuTotals({...row,missing_resources:result.missing_resources},resources).errors;
  if(!additions.length)errors.push('La propuesta no indicó ningún insumo adicional.');
  if(errors.length){
-  result.components.push(...additions);result.missing_resources=[...row.missing_resources,'La adición necesita revisión; no se modificó la composición existente. '+errors.join(' · ')];return result;
+  result.components.push(...additions);result.missing_resources=[...result.missing_resources,'La adición necesita revisión; no se modificó la composición existente. '+errors.join(' · ')];return result;
  }
  for(const addition of additions){
   const previous=result.components.find(component=>component.resource_id===addition.resource_id);
