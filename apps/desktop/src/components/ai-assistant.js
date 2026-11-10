@@ -12,7 +12,7 @@ import {parseAiReply,draftFromProposal,screenContext,createAiRequest,budgetScree
 const defaults={openai:"gpt-4.1-mini",anthropic:"claude-haiku-4-5"};
 export function createAiAssistant({invoke,state,document,window,openModal,editable,loadEstimate,loadEstimates,openEstimate,openResourceLibrary}) {
   const host=document.createElement("div");host.id="ai-assistant";document.body.append(host);
-  const model={open:false,settings:false,configured:false,provider:"openai",model:defaults.openai,messages:[],question:"",busy:false,error:"",context:"",includeContext:true,contextMode:"screen",contextOpen:false,consent:false,scope:"",generation:0,usage:null,notice:"",approvedRun:null,lastApprovedId:null,lastAction:null,pendingAction:null,catalogLoading:false,focusLineId:null,lastCatalogAdvice:null};
+  const model={open:false,settings:false,configured:false,provider:"openai",model:defaults.openai,messages:[],question:"",busy:false,error:"",context:"",includeContext:true,contextMode:"screen",contextOpen:false,consent:false,scope:"",generation:0,usage:null,notice:"",approvedRun:null,lastApprovedId:null,lastAction:null,pendingAction:null,catalogLoading:false,focusLineId:null,lastCatalogAdvice:null,recentCreatedLineIds:[],recentCreatedEstimateId:null};
   const budgetImport=createAiBudgetImport({invoke,state,document,window,editable,loadEstimate,loadEstimates,openEstimate,canUseAi:()=>model.configured&&model.consent&&!model.busy});
   const acuWorkbench=createAcuWorkbench({invoke,state,document,window,loadEstimate,loadEstimates,openEstimate,openResourceLibrary,canUseAi:()=>model.configured&&model.consent&&(!model.busy||model.approvedRun?.running)});
   const approvedPlans=createApprovedPlanRunner({invoke,state,loadEstimate,loadEstimates,openEstimate});
@@ -27,7 +27,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     if(state.modal){cancelApprovedRun();model.open=false;}
     const next=scope();
     if(model.scope!==next&&model.approvedRun?.running&&model.approvedRun.phase==='saving'&&state.projectId===model.approvedRun.projectId&&state.estimateId===model.approvedRun.estimateId&&state.view==='workspace'){model.scope=next;model.approvedRun.scope=next;}
-    if(model.scope!==next){cancelApprovedRun();activeRequest?.cancel();activeRequest=null;queryToken++;if(!model.approvedRun)model.busy=false;model.catalogLoading=false;model.scope=next;model.generation++;model.messages=[];model.lastAction=null;model.pendingAction=null;model.focusLineId=null;model.lastCatalogAdvice=null;model.context="";model.includeContext=true;model.contextMode="screen";model.question="";model.error="";model.usage=null;model.notice="";}
+    if(model.scope!==next){cancelApprovedRun();activeRequest?.cancel();activeRequest=null;queryToken++;if(!model.approvedRun)model.busy=false;model.catalogLoading=false;model.scope=next;model.generation++;model.messages=[];model.lastAction=null;model.pendingAction=null;model.focusLineId=null;model.lastCatalogAdvice=null;model.recentCreatedLineIds=[];model.recentCreatedEstimateId=null;model.context="";model.includeContext=true;model.contextMode="screen";model.question="";model.error="";model.usage=null;model.notice="";}
     if(model.open&&model.contextMode==="screen"&&!state.navigating)model.context=captureContext();
     paint();
   }
@@ -171,6 +171,9 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       if(model.approvedRun!==run||run.scope!==scope())return;
       delete message.preview;
       if(result.committed)model.lastCatalogAdvice=null;
+      if(result.committed&&kind==='plan'&&result.created>0&&Array.isArray(result.lineIds)){
+        model.recentCreatedLineIds=[...result.lineIds];model.recentCreatedEstimateId=result.estimateId;
+      }
        const saved=result.saved||0,created=result.created||0,pending=result.pending||0;
       const counts=[saved?`${saved} ACU ${saved===1?'cargado':'cargados'}`:'',created?`${created} ${created===1?'partida nueva creada':'partidas nuevas creadas'}`:''].filter(Boolean).join(' y ');
       const summary=result.committed?`Carga terminada: ${counts||'guardado confirmado'}${pending?`; ${pending} ${pending===1?'pendiente':'pendientes'}`:''}.`:`${result.cancelled?'Carga detenida. ':''}No hay un guardado confirmado para este pedido${pending?`; ${pending} ${pending===1?'pendiente':'pendientes'}`:''}.`;
@@ -329,7 +332,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       if(parsed.toolCall){
         if(parsed.toolCall.name==='manage_sections'){
           if(!canPlan())throw Error('Abrí un presupuesto editable para modificar sus rubros.');
-          const createdIds=recentCreatedSectionSources(model.messages,state.estimateId);
+          const createdIds=model.recentCreatedEstimateId===state.estimateId&&model.recentCreatedLineIds.length?model.recentCreatedLineIds:recentCreatedSectionSources(model.messages,state.estimateId);
           const plan=prepareSectionEdits(parsed.toolCall.args,state,createdIds);
           if(generation!==model.generation||token!==queryToken)return;
           addReply(question,{answer:'Revisá el cambio de rubros propuesto. No se guardó nada.',sectionPreview:plan});
@@ -396,7 +399,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
         if(model.open&&!model.configured){model.notice="Leyendo configuración guardada…";paint();const status=await invoke("ai_status");Object.assign(model,status);model.notice=status.configured?"Configuración de IA restaurada desde el llavero del sistema.":"";if(status.storage_error)model.error=status.storage_error;}
       }
       if(action==="settings")model.settings=!model.settings;
-      if(action==="clear"&&!model.busy){acuWorkbench.cancelPrepared();model.generation++;model.messages=[];model.lastAction=null;model.pendingAction=null;model.focusLineId=null;model.lastCatalogAdvice=null;model.usage=null;model.question="";model.context="";model.includeContext=true;model.contextMode="screen";model.contextOpen=false;}
+      if(action==="clear"&&!model.busy){acuWorkbench.cancelPrepared();model.generation++;model.messages=[];model.lastAction=null;model.pendingAction=null;model.focusLineId=null;model.lastCatalogAdvice=null;model.recentCreatedLineIds=[];model.recentCreatedEstimateId=null;model.usage=null;model.question="";model.context="";model.includeContext=true;model.contextMode="screen";model.contextOpen=false;}
       if(action==="capture"&&!model.busy){model.context=captureContext();model.includeContext=true;model.contextMode="screen";model.contextOpen=true;}
       if(action==="forget"&&!model.busy){await invoke("ai_forget");Object.assign(model,{configured:false,settings:true,messages:[],lastAction:null,pendingAction:null,question:"",context:"",includeContext:true,contextMode:"screen",contextOpen:false,consent:false,usage:null,notice:""});model.generation++;}
       if(action==="quick"&&!model.busy){
