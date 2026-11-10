@@ -51,18 +51,27 @@ export function prepareSectionBatch(call,{state,sourceLineIds=[]}){
  };
  const lastIds=[...new Set(sourceLineIds)];
  const fromRecent=call.args.source==='last_created';
+ const fromCurrent=call.args.source==='current_placeholders'&&action==='convert';
+ const isPlaceholder=line=>{
+  if(line.analysis_id||(line.components||[]).length||(line.takeoffs||[]).length||state.assignments?.[line.id])return false;
+  const emptyCost=(()=>{try{return compareDecimals(String(line.unit_cost),'0')===0;}catch{return false;}})();
+  const emptyQuantity=(()=>{try{return compareDecimals(String(line.quantity),'0')===0;}catch{return false;}})();
+  const genericLump=norm(line.unit)==='gl'&&(()=>{try{return compareDecimals(String(line.quantity),'1')===0;}catch{return false;}})();
+  return emptyCost&&(emptyQuantity||genericLump);
+ };
  const sourceLines=fromRecent?lastIds.map(id=>{
   const line=lines.find(l=>l.id===id);
   if(!line)fail('Las partidas de la última carga cambiaron. No se borrará nada; revisá el presupuesto antes de convertirlas');
   return line;
- }):[];
+ }):fromCurrent?lines.filter(isPlaceholder):[];
  if(fromRecent&&(!sourceLines.length||sourceLines.length>60))fail('No encontré la última carga confirmada de partidas en esta conversación');
+ if(fromCurrent&&(!sourceLines.length||sourceLines.length>60))fail('No hay entre 1 y 60 partidas genéricas sin costo ni metrado para convertir en rubros. No se modificó nada.');
  if(action==='create'||action==='convert'){
-  const names=fromRecent?sourceLines.map(l=>l.description):parseNames(call.args.names);
+  const names=fromRecent||fromCurrent?sourceLines.map(l=>l.description):parseNames(call.args.names);
   if(!names.length||names.length>60)fail('Indicá los nombres de los rubros o referite a la última carga confirmada de partidas');
   // A true conversion must refer to exact, recently created line IDs. A
   // similar name elsewhere in the estimate is never sufficient for deletion.
-  if(action==='convert'&&!fromRecent)fail('Para convertir y eliminar partidas, identificá las de la última carga confirmada; no se adivinan IDs por nombre');
+  if(action==='convert'&&!fromRecent&&!fromCurrent)fail('Para convertir partidas, seleccioná una carga confirmada o pedí expresamente convertir las partidas genéricas del presupuesto.');
   for(const name of names)addSection(name);
   if(action==='convert')for(const line of sourceLines){
    const id=known.get(norm(line.description)).id;
@@ -99,7 +108,7 @@ export function prepareSectionBatch(call,{state,sourceLineIds=[]}){
  }
  if(!batch.creates.length&&!batch.renames.length&&!batch.deletes.length&&!batch.converts.length)
   fail('Esos rubros ya existen. No se crearon partidas ni rubros duplicados.');
- if(preview.converted.length)preview.warnings.push('La conversión archivará solo las partidas genéricas de la última carga, sin costo ni ACU. Las otras partidas se conservan.');
+ if(preview.converted.length)preview.warnings.push(fromCurrent?'Se convertirán solo las partidas sin precio, ACU, metrado ni asignación, con cantidad cero o global de una unidad; las demás partidas se conservan.':'La conversión archivará solo las partidas genéricas de la última carga, sin costo ni ACU. Las otras partidas se conservan.');
  if(preview.deleted.length)preview.warnings.push('Eliminar rubros no elimina partidas ni subrubros: se desasignan o reubican.');
  return {batch,preview};
 }
