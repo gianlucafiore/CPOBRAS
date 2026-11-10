@@ -65,7 +65,13 @@ function componentEvidence(component){
   evidence[field]=component[field].trim();
  }
  if(component.source_quantity!=null&&component.source_quantity!==''){
-  evidence.source_quantity=decimal(component.source_quantity,'Consumo de origen');
+  // Providers sometimes serialize explanatory source_quantity as a JSON number.
+  // Canonicalize ONLY this optional evidence field; actual ACU consumption
+  // remains an exact decimal string and cannot be silently rounded.
+  const origin=component.source_quantity;
+  const safeOrigin=typeof origin==='number'&&Number.isFinite(origin)&&origin>0&&!/[eE]/.test(String(origin))
+    ?String(origin):origin;
+  evidence.source_quantity=decimal(safeOrigin,'Consumo de origen');
   if(compareDecimals(evidence.source_quantity,'0')<=0)throw new Error('El consumo de origen debe ser mayor que cero');
  }
  return evidence;
