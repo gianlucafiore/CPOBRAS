@@ -124,7 +124,7 @@ export function selectedAcuRequest(question,selectedLine,messages=[]){
  const selected=/\b(?:partida seleccionada|esta partida|esa partida|la partida seleccionada)\b/.test(q);
  const materials=/\b(?:insumos?|materiales?|porcelanatos?|ceramicas?|pastinas?|adhesivos?|pegamentos?|mano de obra|colocacion|selladores?|artefactos?|inodoros?|bidets?|tornillos?|revestimiento)\b/.test(q);
  const explicit=action&&(selected||materials);
- if(!explicit||/\b(?:todas? las partidas|varias partidas|partidas seleccionadas)\b/.test(q))return null;
+ if(!explicit||/\bpartidas\b/.test(q)&&!selected)return null;
  let brief=question.trim();
  if(/\b(?:todo eso|lo anterior|esos materiales)\b/.test(q)){
   const previous=[...(Array.isArray(messages)?messages:[])].reverse().find(message=>message?.role==='assistant'&&typeof messageText(message)==='string'&&/\b(?:porcelanato|pastina|adhesivo|ceramica|material)\b/.test(chatFold(messageText(message))));
