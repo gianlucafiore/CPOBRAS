@@ -193,8 +193,10 @@ export function acuPromptContext(seeds,resources,examples,brief){
  const words=tokens(seeds.map(s=>s.description).join(' ')+' '+brief);
  const ranked=examples.map(e=>({e,score:[...tokens(e.description)].filter(w=>words.has(w)).length+(seeds.some(s=>normalize(s.unit)===normalize(e.unit))?1:0)})).sort((a,b)=>b.score-a.score).slice(0,8).map(({e})=>({key:e.key,reference:e.source_title||e.description,description:e.description,unit:e.unit,section:e.section,components:e.components.map(c=>({resource_id:c.resource_id,description:c.description,quantity:c.quantity}))}));
  const resource_candidates=seeds.map(seed=>{
-  const found=JSON.parse(buildCatalogContext({question:seed.description+' '+brief,resources}));
-  return {line_id:seed.id,candidates:[...found.matches,...found.related].slice(0,16).map(item=>({resource_id:item.id,match:item.matched_by}))};
+  const found=JSON.parse(buildCatalogContext({question:seed.description,messages:[{role:'user',content:brief}],resources}));
+  const primary=found.matches.slice(0,found.related.length?12:16);
+  const suggestions=[...primary,...found.related.slice(0,16-primary.length)];
+  return {line_id:seed.id,candidates:suggestions.map(item=>({resource_id:item.id,match:item.matched_by}))};
  });
  const payload={task:'acu',resource_candidates,candidate_rule:'Son sugerencias de búsqueda, NO equivalencias automáticas. Elegí solo recursos cuya identidad, oficio, material, unidad, dimensión y destino sean técnicamente compatibles; si hay dudas, informá el faltante. Los recursos disponibles están en resources.',targets:seeds.map(s=>({line_id:s.id,description:s.description,unit:s.unit,quantity:s.quantity,section:s.section,is_new:s.is_new,existing_components:s.components,existing_measurements:s.takeoffs?.map(m=>({note:m.note,factor:m.factor,length:m.length,width:m.width,height:m.height,sign:m.sign}))})),resources:resources.map(r=>({resource_id:r.id,code:r.code,description:r.description,unit:r.unit,kind:r.kind,has_price:r.price!=null})),examples:ranked};
  const text=JSON.stringify(payload);if(new TextEncoder().encode(text).length>127000)throw new Error('El catálogo y los ejemplos superan el límite de contexto. Seleccioná menos insumos para la IA');return text;
