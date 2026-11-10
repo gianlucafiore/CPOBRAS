@@ -1,9 +1,10 @@
 import {multiplyDecimals,sumDecimals,divideDecimals,compareDecimals,numeric,money} from '../decimal.js';
 import {buildCatalogContext} from './ai-catalog-context.js';
+import {parseSectionToolArgs} from './ai-budget-sections.js';
 
 // The model requests only these read-only tools; native writes stay on the
 // separately reviewed ACU/partida paths.
-const NAMES=new Set(['calculate_takeoff','audit_budget','compare_estimates','search_catalog','prepare_budget','prepare_acu']);
+const NAMES=new Set(['calculate_takeoff','audit_budget','compare_estimates','search_catalog','prepare_budget','prepare_acu','manage_sections']);
 const isObject=v=>v!==null&&typeof v==='object'&&!Array.isArray(v);
 const value=v=>String(v??'');
 const tidy=v=>String(v).replace(/(\.\d*?)0+$/,'$1').replace(/\.$/,'');
@@ -20,6 +21,10 @@ export function parseBudgetToolCall(raw){
   if(raw.name==='prepare_budget')return {name:raw.name,args:{brief:a.brief.trim()}};
   if(a.scope!=null&&!['selected','all_missing'].includes(a.scope))return null;
   return {name:raw.name,args:{brief:a.brief.trim(),scope:a.scope||'selected'}};
+ }
+ if(raw.name==='manage_sections'){
+  const parsed=parseSectionToolArgs(a);
+  return parsed?{name:raw.name,args:a}:null;
  }
  if(raw.name==='calculate_takeoff'){
   if(!['rectangular_prism','rectangle'].includes(a.shape)||!['cm','m','mm'].includes(a.dimension_unit)||!a.length||!a.width||a.shape==='rectangular_prism'&&!a.height)return null;
@@ -121,7 +126,7 @@ export function budgetPreparationRequest(raw,{state,focusedLineId=null,userQuest
 export async function executeBudgetTool(raw,{invoke,state,today}){
  const call=parseBudgetToolCall(raw);
  if(!call)throw new Error('La operación solicitada no está permitida o sus datos no son válidos.');
- if(call.name==='prepare_budget'||call.name==='prepare_acu')throw new Error('Esta herramienta prepara una vista previa; no es una consulta de lectura.');
+ if(['prepare_budget','prepare_acu','manage_sections'].includes(call.name))throw new Error('Esta herramienta prepara una vista previa; no es una consulta de lectura.');
  if(call.name==='calculate_takeoff')return calculateTakeoff(call.args);
  if(!state.projectId||!state.estimateId||state.remoteProject)throw new Error('Abrí un presupuesto local para consultar costos.');
  if(call.name==='audit_budget'){
