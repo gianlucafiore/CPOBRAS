@@ -3,6 +3,7 @@ import {money,numeric,multiplyDecimals} from '../decimal.js';
 import {parsePlan,normalize,importDecimal} from '../services/ai-budget-import.js';
 import {createAiRequest} from '../services/ai-assistant.js';
 import {parseAcuAdditions,mergeAcuAddition,additionPreservationErrors} from '../services/ai-acu-addition.js';
+import {productivityEditRow} from '../services/ai-acu-productivity.js';
 import {acuSeed,newAcuSeeds,emptyAcu,parseAcuProposals,measurementQuantity,acuTotals,acuPreapprovalErrors,copyAcuExample,acuPromptContext,acuBatch} from '../services/ai-acu.js';
 export function createAcuWorkbench({invoke,state,document,window,loadEstimate,loadEstimates,openEstimate,canUseAi,openResourceLibrary=null}){
  const host=document.createElement('div');host.id='ai-acu-workbench';document.body.append(host);
@@ -24,7 +25,7 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
   const estimate=state.estimates.find(x=>x.id===state.estimateId);
   if(estimate?.issued)throw new Error('Los presupuestos emitidos no admiten cambios de ACU');
   if(forceMode==='fill'&&!estimate)throw new Error('Abrí un presupuesto existente para completar sus ACU');
-  if(operation==='append'&&(forceMode!=='fill'||!Array.isArray(lineIds)||!lineIds.length))throw new Error('Para agregar insumos indicá una partida existente de destino');
+  if((operation==='append'||operation==='productivity')&&(forceMode!=='fill'||!Array.isArray(lineIds)||!lineIds.length))throw new Error('Para agregar insumos indicá una partida existente de destino');
   const saved=drafts.get(draftKey());if(saved&&!saved.applied&&!outline&&!forceMode){generation++;const token=generation;model=saved;model.open=true;model.headless=false;model.scope=scope();model.busy=false;if(brief)model.brief=brief;model.notice='Se retomó la preparación sin aplicar. Podés actualizar precios y catálogo antes de revisarla.';stop=false;
    if(model.resumeAfterApply){model.error='';model.busy=true;paint();try{const context=await readContext();if(token!==generation)return;model.context=context;model.rows.forEach(r=>r.selected=false);model.resumeAfterApply=false;}catch(error){if(token===generation)model.error=String(error);}finally{if(token===generation)model.busy=false;}}
    paint();return;}
@@ -58,9 +59,9 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
   if(!input||!['fill','create'].includes(input.mode)||typeof input.brief!=='string'||!input.brief.trim()||input.brief.length>3000)throw new Error('La carga aprobada necesita un objetivo y criterios acotados');
   if(input.lineIds!=null&&(!Array.isArray(input.lineIds)||input.lineIds.some(id=>typeof id!=='string')||new Set(input.lineIds).size!==input.lineIds.length||input.lineIds.length>60))throw new Error('Las partidas aprobadas no son válidas');
   if(input.mode==='create'&&input.lineIds?.length)throw new Error('La creación de partidas no puede incluir identificadores de partidas existentes');
-  if(input.operation!=null&&input.operation!=='append')throw new Error('La operación de ACU aprobada no es válida');
-  const append=input.operation==='append';
-  if(append&&(input.mode!=='fill'||!input.lineIds?.length))throw new Error('Para agregar insumos indicá las partidas existentes de destino; nunca se seleccionan todas automáticamente');
+  if(input.operation!=null&&!['append','productivity'].includes(input.operation))throw new Error('La operación de ACU aprobada no es válida');
+  const append=input.operation==='append',productivity=input.operation==='productivity';
+  if((append||productivity)&&(input.mode!=='fill'||!input.lineIds?.length||(productivity&&input.lineIds.length!==1)))throw new Error('Para agregar insumos indicá las partidas existentes de destino; nunca se seleccionan todas automáticamente');
   const brief=input.brief.trim(),mode=input.mode,approvedLineIds=[...(input.lineIds||[])];
   const outline=mode==='create'&&input.outline?.length?parsePlan(JSON.stringify({proposal_lines:input.outline})):null;
   keepDraft();
@@ -69,7 +70,7 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
   approvedProgress(authorization,'preparing','Leyendo las partidas y los precios actuales para esta carga aprobada.');
   try{
    if(authorization.revoked||authorization.initialScope!==scope()){cancelled=true;return finish();}
-   await open(brief,outline,mode,approvedLineIds,authorization,append?'append':null);
+   await open(brief,outline,mode,approvedLineIds,authorization,productivity?'productivity':append?'append':null);
    if(authorization.model===model)authorization.targetIds=new Set(model.targetIds);
    if(!approvalCurrent(authorization)){cancelled=true;return finish();}
    if(model.error)throw new Error(model.error);
@@ -84,7 +85,11 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
    const seeds=targets().map(seed=>structuredClone(seed));authorization.targetIds=new Set(seeds.map(seed=>seed.id));
    if(!seeds.length){model.notice='No hay partidas pendientes dentro de esta solicitud. No se guardó ningún cambio.';return finish();}
    const resources=structuredClone(selectedResources());if(!resources.length)throw new Error('No hay insumos disponibles en el catálogo para preparar los ACU');
-   for(let offset=0;offset<seeds.length;offset+=5){
+   if(productivity){
+    if(seeds.length!==1)throw new Error('La corrección del rendimiento requiere una sola partida seleccionada');
+    approvedProgress(authorization,'generating','Calculando el consumo inverso del equipo y comprobando la unidad del catálogo.');
+    addRows([productivityEditRow(model.brief,seeds[0],resources)]);
+   }else for(let offset=0;offset<seeds.length;offset+=5){
     if(!approvalCurrent(authorization)){cancelled=true;return finish();}
     const chunk=seeds.slice(offset,offset+5);
     approvedProgress(authorization,'generating',`Preparando ACU: consulta ${Math.floor(offset/5)+1} de ${Math.ceil(seeds.length/5)}. Todavía no se guardó ningún cambio.`,{prepared:model.rows.length,total:seeds.length});
@@ -129,7 +134,8 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
   function summary(){
    const snapshot=authorization.model,done=new Set(lineIds);
    const pendingReasons=(snapshot?.rows||[]).filter(row=>!done.has(row.id)).slice(0,8).map(row=>({description:row.seed.description,reasons:[...new Set([...(row.missing_resources||[]),...acuPreapprovalErrors(row,snapshot.context.resources)])].slice(0,10)}));
-   return {saved,created,pending:Math.max(0,authorization.targetIds.size-saved),pendingReasons,projectId:authorization.projectId,estimateId:snapshot?.estimate.id,lineIds:[...lineIds],committed,cancelled,error};
+   const warnings=committed?(snapshot?.rows||[]).filter(row=>done.has(row.id)).flatMap(row=>row.advisories||[]):[];
+   return {saved,created,pending:Math.max(0,authorization.targetIds.size-saved),pendingReasons,warnings,projectId:authorization.projectId,estimateId:snapshot?.estimate.id,lineIds:[...lineIds],committed,cancelled,error};
   }
   function finish(){
    if(approvedRun===authorization){
