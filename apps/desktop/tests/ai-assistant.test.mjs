@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {parseAiReply,draftFromProposal,createAiRequest,budgetScreenContext,acuChatRequest,resolvedPendingApproval,isApprovalReply,materialAdditionFollowup} from '../src/services/ai-assistant.js';
+import {parseAiReply,draftFromProposal,createAiRequest,budgetScreenContext,acuChatRequest,resolvedPendingApproval,isApprovalReply,materialAdditionFollowup,materialAdditionConfirmation} from '../src/services/ai-assistant.js';
 test('unstructured responses remain text; only whitelisted proposals become drafts',()=>{
   assert.deepEqual(parseAiReply('<script>bad()</script>'),{answer:'<script>bad()</script>',proposal:null});
   const reply=parseAiReply(JSON.stringify({answer:'Revisá este borrador',proposal:{kind:'line',description:'Excavación',unit:'m³',quantity:'15.25',unit_price:'30000',id:'existing-id',execute:'delete',sectionId:'secret'}}));
@@ -273,4 +273,29 @@ test('direct material additions use only their current target and do not inherit
  const approvalHistory=[...consumed,{role:'user',content:current},{role:'assistant',answer:'Adición lista para preparar.'}];
  const recovered=acuChatRequest('apruebo directamente',approvalHistory);
  assert.equal(recovered?.mode,'fill');assert.equal(recovered.brief,current);assert.ok(!recovered.brief.includes('tabique'));
+});
+
+
+test('sí por favor after a model-only offer recovers a real pending addition card, not an unverified write',()=>{
+ const line={id:acuLineId,description:'Instalación de sanitarios: 1 inodoro y 1 bidet con mano de obra',components:[{resource_id:'labor-1'}]};
+ const saved={approval:{state:'done',result:{committed:true,lineIds:[acuLineId]}}};
+ const history=[
+  {role:'assistant',answer:'Carga terminada: 1 ACU cargado.',approval:saved.approval},
+  {role:'user',content:'los dos línea Mónaco'},
+  {role:'assistant',answer:'Confirmame los dos modelos.'},
+  {role:'user',content:'no se cargaron los dos artefactos, por favor cargalos'},
+  {role:'assistant',answer:'Puedo preparar los materiales de ambos sanitarios para esta partida.'},
+ ];
+ const context={selectedLineId:acuLineId,lines:[line],lastAction:saved};
+ const request=materialAdditionConfirmation('sí, por favor',history,context);
+ assert.equal(isApprovalReply('sí, por favor'),true);
+ assert.deepEqual({mode:request?.mode,operation:request?.operation,lineIds:request?.lineIds},{mode:'fill',operation:'append',lineIds:[acuLineId]});
+ assert.match(request.brief,/línea Mónaco/);
+ assert.match(request.brief,/dos artefactos/);
+ assert.equal(materialAdditionConfirmation('si por favor',history,{...context,selectedLineId:'other'}),null);
+ assert.equal(materialAdditionConfirmation('si por favor',history,{...context,lastAction:null}),null);
+ assert.equal(materialAdditionConfirmation('si por favor',[{role:'assistant',answer:'Puedo agregar esos insumos.'}],context),null);
+ assert.equal(materialAdditionConfirmation('si por favor',[...history,{role:'user',content:'¿Cuánto cuesta el cemento?'},{role:'assistant',answer:'Puedo buscar ese precio.'}],context),null);
+ const directHistory=[{role:'user',content:'Agregá un inodoro a esta partida seleccionada'},{role:'assistant',answer:'Puedo preparar ese recurso.'}];
+ assert.deepEqual(materialAdditionConfirmation('si por favor',directHistory,{...context,lastAction:null})?.lineIds,[acuLineId]);
 });
