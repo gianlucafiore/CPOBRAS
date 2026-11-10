@@ -170,6 +170,56 @@ function evidence(entry,currency,matchedBy,matchedTerms=[]){
 }
 
 /** Compact read-only evidence; never executes a search, contacts AI or writes data. */
+
+/**
+ * Read-only construction guidance over the FULL live catalog.
+ * Match results are search leads, not guaranteed technical equivalents.
+ */
+const workCatalogRequirements=[
+ {work:/\b(?:revestimiento|porcelanato|ceramica|azulejo|bano|banos)\b/,needs:[
+  {name:'porcelanato o cerámica',kind:'material',match:/\b(?:porcelanato|ceramica|azulejo)\b/},
+  {name:'adhesivo de colocación',kind:'material',match:/\b(?:adhesivo|pegamento|pegaceramico|klaukol|klaucol)\b/},
+  {name:'pastina para juntas',kind:'material',match:/\b(?:pastina|rejuntador|boquilla|frague)\b/},
+  {name:'mano de obra de colocación',kind:'labor',match:/\b(?:colocacion|instalacion|revestimiento|albanileria)\b/}
+ ],optional:'Impermeabilización según zona húmeda y detalle constructivo'},
+ {work:/\b(?:cubierta|techo|chapa trapezoidal)\b/,needs:[
+  {name:'chapa o panel de cubierta',kind:'material',match:/\b(?:chapa|panel|cubierta)\b/},
+  {name:'fijaciones',kind:'material',match:/\b(?:tornillo|autoperforante|fijacion|arandela)\b/},
+  {name:'sellador',kind:'material',match:/\b(?:sellador|silicona|butilo|cinta)\b/},
+  {name:'mano de obra de montaje',kind:'labor',match:/\b(?:montaje|instalacion|colocacion)\b/}
+ ],optional:'Aislación y encuentros de cubierta según proyecto'}
+];
+export function constructionCatalogAdvice(line,resources=[]){
+ if(!line||!Array.isArray(resources))return null;
+ const normalized=foldCatalogText(line.description||'');
+ const work=workCatalogRequirements.find(candidate=>candidate.work.test(normalized));
+ if(!work)return null;
+ const existingIds=new Set((line.components||[]).map(item=>item.resource_id));
+ const advice={line_id:line.id,description:line.description,existing:[],available:[],not_found:[],optional:work.optional};
+ for(const need of work.needs){
+  const candidates=resources.filter(resource=>resource.kind===need.kind&&need.match.test(foldCatalogText(resource.description||'')));
+  const present=candidates.find(resource=>existingIds.has(resource.id));
+  if(present){
+   advice.existing.push({category:need.name,id:present.id,description:present.description});
+  }else if(candidates.length){
+   advice.available.push({category:need.name,candidates:candidates.slice(0,5).map(resource=>({id:resource.id,description:resource.description,unit:resource.unit,price:resource.price??null}))});
+  }else advice.not_found.push(need.name);
+ }
+ return advice;
+}
+export function constructionAdviceText(advice){
+ if(!advice)return '';
+ const existing=advice.existing.map(item=>item.category);
+ const found=advice.available.map(item=>item.category+' ('+item.candidates[0].description+')');
+ const missing=advice.not_found;
+ return [
+  existing.length?'Ya cargados en el ACU: '+existing.join(', ')+'.':'',
+  found.length?'En la biblioteca, pero faltan en el ACU: '+found.join('; ')+'.':'',
+  missing.length?'Sin coincidencia clara en la biblioteca: '+missing.join(', ')+'.':'',
+  'No se cargó nada. Podés decir «agregá los disponibles» y te muestro cantidades antes de guardar.'
+ ].filter(Boolean).join(' ');
+}
+
 export function buildCatalogContext({question='',messages=[],resources=[],currency=null,asOf=null}={}){
  const query=queryInput(question,messages),index=indexCatalog(resources),codes=new Set(query.public.codes);
  const matches=[],related=[];
