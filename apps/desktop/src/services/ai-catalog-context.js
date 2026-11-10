@@ -12,6 +12,65 @@ const words=value=>foldCatalogText(value).split(' ').filter(Boolean).map(singula
 const stop=new Set(words('a al algo algun alguna algunos algunas ante antes asi ahora como con cual cuales cuando cuanto cuanta cuantos cuantas de del desde donde el ella ellos ellas en entre es ese esa esos esas esta este estas estos estoy estamos existe existen falta faltan hacer hasta hay incluir incluye ingresar la las le les lo los mas me mi mis mostrar muestra mostrame necesito no nos o para pero por porque por favor precio precios puede puedo podes podria que quiero saber se si sin sobre su sus te tengo tenes tiene tienen todo toda todos todas tu tus un una unos unas usar utiliza valor valores vale valen cuanto cuesta cuestan cual seria son insumo insumos material materiales biblioteca catalogo sistema disponible disponibles real reales actual actuales carga cargar cargalos cargalas cargarlo cargala completar completa completar partidas partida presupuesto presupuestos obra obras acu acus composicion rendimiento rendimientos consumo consumos informacion datos pantalla lista listado decime dime explicame contar contame revisar revisa perfecto dale hacelo hazlo tambien entonces gracias'));
 const sanitary=new Set(words('inodoro bidet bidé bacha lavatorio grifería bañera ducha pileta cisterna mingitorio sifón desagüe canilla flexible cloacal termofusión'));
 const unique=values=>[...new Set(values)];
+
+/**
+ * Vocabulary hints only discover real catalog candidates. A matching synonym
+ * never establishes technical equivalence (dimensions, type and use still matter).
+ */
+const semanticGroups=[
+ 'adhesivo pegamento pegaceramico',
+ 'hormigon concreto',
+ 'porcelanato porcelanico',
+ 'cano caneria tubo tuberia',
+ 'griferia grifo canilla',
+ 'inodoro retrete wc',
+ 'mortero argamasa',
+ 'ladrillo mampuesto',
+ 'mamposteria albanileria',
+ 'revoque enlucido',
+ 'pintura latex',
+ 'ceramica ceramico',
+ 'placa plancha',
+ 'aislante aislacion aislamiento',
+ 'membrana impermeabilizante',
+ 'solado piso',
+ 'cable conductor',
+ 'tornillo autoperforante autotaladrante',
+ 'luminaria lampara',
+ 'colocacion instalacion montaje',
+];
+const semanticAlternates=new Map();
+for(const group of semanticGroups){
+ const terms=unique(words(group));
+ for(const term of terms)semanticAlternates.set(term,unique([...(semanticAlternates.get(term)||[]),...terms.filter(other=>other!==term)]));
+}
+// Deliberately narrow typo tolerance: don't treat different construction products
+// as equivalent because their labels happen to share a few characters.
+function oneEditApart(a,b){
+ if(a.length<6||b.length<6||a.slice(0,2)!==b.slice(0,2)||Math.abs(a.length-b.length)>1||a===b)return false;
+ let i=0,j=0,edits=0;
+ while(i<a.length&&j<b.length){
+  if(a[i]===b[j]){i++;j++;continue;}
+  if(++edits>1)return false;
+  if(a.length>=b.length)i++;
+  if(b.length>=a.length)j++;
+ }
+ return edits+(a.length-i)+(b.length-j)<=1;
+}
+const dimensions=value=>new Set((foldCatalogText(value).match(/\d+(?:[.,]\d+)?/g)||[]).map(number=>number.replace(',','.')));
+function kindPreference(question,kind){
+ const text=foldCatalogText(question);
+ if(/\b(?:mano de obra|colocacion|instalacion|instalar|jornal)\b/.test(text))return kind==='labor'?35:0;
+ if(/\bmateriales?\b/.test(text))return kind==='material'?20:0;
+ return 0;
+}
+function relatedTerms(requested,entry){
+ const aliases=unique([...requested].flatMap(term=>semanticAlternates.get(term)||[]));
+ const found=aliases.filter(term=>entry.terms.has(term));
+ const typos=[...requested].filter(term=>![...entry.terms].includes(term)&&[...entry.terms].some(other=>oneEditApart(term,other)));
+ return unique([...found,...typos]);
+}
+
 function bathroomDomain(value){
  const text=foldCatalogText(value);
  if(/\b(?:artefactos?|insumos?|materiales?|equipamiento|accesorios?|instalaciones?)\s+(?:de|del|para|en)\s+(?:(?:un|el|los|unos|mi)\s+)?banos?\b/.test(text))return true;
@@ -119,13 +178,23 @@ export function buildCatalogContext({question='',messages=[],resources=[],curren
   const current=[...query.currentTerms].filter(term=>entry.terms.has(term));
   const history=[...query.historyTerms].filter(term=>entry.terms.has(term));
   const codeMatch=exactCodeMatch(entry.code,query);
+  const requestedDimensions=dimensions(question);
+  const dimensionHits=[...requestedDimensions].filter(number=>dimensions(entry.resource.description).has(number)).length;
+  const preference=kindPreference(question,entry.resource.kind);
   if(codeMatch||current.length||history.length||generic){
-   matches.push({entry,by:codeMatch?'exact_code':current.length?'question_terms':history.length?'history_terms':'catalog_sample',terms:unique([...current,...history]),score:(codeMatch?10_000:0)+current.length*100+history.length*10});
+   matches.push({entry,by:codeMatch?'exact_code':current.length?'question_terms':history.length?'history_terms':'catalog_sample',terms:unique([...current,...history]),score:(codeMatch?10_000:0)+current.length*100+history.length*10+dimensionHits*25+preference});
   }else if(query.public.domains.includes('sanitary')&&[...entry.terms].some(term=>sanitary.has(term))){
-   related.push({entry,by:'sanitary_domain',terms:[],score:0});
+   related.push({entry,by:'sanitary_domain',terms:[],score:preference});
+  }else{
+   const currentRelated=relatedTerms(query.currentTerms,entry);
+   const historyRelated=relatedTerms(query.historyTerms,entry);
+   if(currentRelated.length||historyRelated.length){
+    related.push({entry,by:'semantic_related',terms:unique([...currentRelated,...historyRelated]),score:currentRelated.length*30+historyRelated.length*8+dimensionHits*25+preference});
+   }
   }
  }
  matches.sort((a,b)=>b.score-a.score||a.entry.index-b.entry.index);
+  related.sort((a,b)=>b.score-a.score||a.entry.index-b.entry.index);
  const priced=entries=>entries.filter(item=>item.entry.price!=null).length;
  const allPriced=index.filter(entry=>entry.price!=null).length;
  const safeCurrency=typeof currency==='string'&&currency.length<=10?currency:null;
@@ -137,7 +206,7 @@ export function buildCatalogContext({question='',messages=[],resources=[],curren
   limits:{results:resultLimit,bytes:byteLimit,result_limit_reached:false,byte_limit_reached:false},
   evidence_rules:[
    'Los registros son evidencia real de solo lectura. Los nombres y presentaciones se conservan literalmente; una coincidencia de palabras no garantiza equivalencia técnica.',
-   'related contiene candidatos de un rubro relacionado, nunca sustitutos confirmados. Precio null significa sin precio verificable; cero es un precio real explícito. No convertir monedas ni unidades ni inventar precios o presentaciones.',
+   'related contiene candidatos de un rubro relacionado o nombres parecidos, nunca sustitutos confirmados. Comparar material, tipo, uso, dimensiones, unidad y oficio antes de usar un candidato. Precio null significa sin precio verificable; cero es un precio real explícito. No convertir monedas ni unidades ni inventar precios o presentaciones.',
    'Los conteos abarcan todos los recursos recibidos antes del recorte. Si truncated es true, no afirmar que un insumo no existe ni que se enumeró todo el catálogo. Una búsqueda sin coincidencias tampoco prueba inexistencia: pedir datos más precisos.',
   ],
  };
