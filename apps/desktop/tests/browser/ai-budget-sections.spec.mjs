@@ -70,13 +70,13 @@ test('natural-language creates, renames and removes rubros without deleting budg
  await expect(panel).toContainText('Crear rubro: Cubiertas');
  expect(await page.evaluate(()=>window.__sectionHarness.writes.length)).toBe(0);
  await panel.getByRole('button',{name:'Aprobar cambios de rubros'}).click();
- await expect(page.locator('.ai-approval-status')).toContainText('3 creados');
+ await expect(page.locator('.ai-approval-status').last()).toContainText('3 creados');
  expect(await page.evaluate(()=>window.__sectionHarness.state.sections.map(s=>s.title))).toEqual(['Fundaciones','Estructuras','Cubiertas']);
  await ask('Renombrá el rubro Fundaciones a Movimiento de suelos');
  panel=page.locator('.ai-ingredient-preview');
  await expect(panel).toContainText('Fundaciones → Movimiento de suelos');
  await ask('sí, aprobado');
- await expect(page.locator('.ai-approval-status')).toContainText('1 editados');
+ await expect(page.locator('.ai-approval-status').last()).toContainText('1 editados');
  expect(await page.evaluate(()=>window.__sectionHarness.state.sections[0].title)).toBe('Movimiento de suelos');
  await page.evaluate(()=>{
   const h=window.__sectionHarness;const parent=h.state.sections[0].id;
@@ -90,7 +90,7 @@ test('natural-language creates, renames and removes rubros without deleting budg
  await expect(panel).toContainText('1 subrubros; pasarán al rubro superior');
  expect(await page.evaluate(()=>window.__sectionHarness.writes.length)).toBe(2);
  await panel.getByRole('button',{name:'Aprobar cambios de rubros'}).click();
- await expect(page.locator('.ai-approval-status')).toContainText('1 borrados');
+ await expect(page.locator('.ai-approval-status').last()).toContainText('1 borrados');
  const result=await page.evaluate(()=>({writes:window.__sectionHarness.writes,state:window.__sectionHarness.state}));
  expect(result.writes).toHaveLength(3);
  expect(result.state.lines).toHaveLength(1);
