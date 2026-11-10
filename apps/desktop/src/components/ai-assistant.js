@@ -4,7 +4,7 @@ import {createAiBudgetImport} from "./ai-budget-import.js";
 import {e,dateToday} from "./helpers.js";
 import {buildCatalogContext,parseCatalogQuery} from "../services/ai-catalog-context.js";
 import {appendRequest} from "../services/ai-acu-addition.js";
-import {parseAiReply,draftFromProposal,screenContext,createAiRequest,budgetScreenContext,acuChatRequest,resolvedPendingApproval,isApprovalReply,materialAdditionFollowup} from "../services/ai-assistant.js";
+import {parseAiReply,draftFromProposal,screenContext,createAiRequest,budgetScreenContext,acuChatRequest,resolvedPendingApproval,isApprovalReply,materialAdditionFollowup,materialAdditionConfirmation} from "../services/ai-assistant.js";
 const defaults={openai:"gpt-4.1-mini",anthropic:"claude-haiku-4-5"};
 export function createAiAssistant({invoke,state,document,window,openModal,editable,loadEstimate,loadEstimates,openEstimate,openResourceLibrary}) {
   const host=document.createElement("div");host.id="ai-assistant";document.body.append(host);
@@ -153,14 +153,18 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       if(index<0){model.messages.push({role:'user',content:model.pendingAction.originalQuestion},model.pendingAction);model.messages=model.messages.slice(-10);index=model.messages.length-1;}
       model.question='';await approveMessage(index);return;
     }
-    const addition=materialAdditionFollowup(question,model.messages,{selectedLineId:state.selectedLineId,lines:state.lines,lastAction:model.lastAction});
-    const acuRequest=addition||acuChatRequest(question,model.messages);
+    const additionContext={selectedLineId:state.selectedLineId,lines:state.lines,lastAction:model.lastAction};
+    const addition=materialAdditionFollowup(question,model.messages,additionContext);
+    const recovered=addition?null:materialAdditionConfirmation(question,model.messages,additionContext);
+    const acuRequest=addition||recovered||acuChatRequest(question,model.messages);
     if(canPlan()&&acuRequest){
-      const answer='Podés revisar primero o aprobar la generación y carga de este pedido desde el chat, sin abrir la ventana de preparación.';
+      const answer='Pedido listo para revisar o aprobar. No se guardó nada todavía.';
       addReply(question,{answer,acuRequest});model.notice='La aprobación se aplica únicamente a este pedido.';
-      if(isApprovalReply(question))await approveMessage(model.messages.length-1);else paint();return;
+      // A plain-language offer from the model isn't an approval card: after
+      // recovering it, show a real local card and require a fresh approval.
+      if(isApprovalReply(question)&&!recovered)await approveMessage(model.messages.length-1);else paint();return;
     }
-    if(isApprovalReply(question)&&(/\b(?:aprueb|aproba|aprobado|carga|aplica|guarda)/.test(fold(question))||model.lastAction)){
+    if(isApprovalReply(question)){
       if(!showActionState(question)){addReply(question,{answer:'No hay un pedido listo para cargar ni un guardado confirmado. Indicame qué partida querés crear o completar.'});paint();}return;
     }
     const history=model.messages.slice(-10).map(m=>({role:m.role,content:m.content}));
