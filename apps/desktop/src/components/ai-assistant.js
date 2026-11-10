@@ -223,7 +223,9 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     while(history.length&&byteSize([...history,{content:question}])>28000)history.splice(0,2);
     const messages=[...history,{role:"user",content:question}];
     if(model.includeContext&&model.contextMode==='screen')model.context=captureContext();
-    const baseContext=actionContext()+'\n'+(model.includeContext?model.context:'No se compartieron datos de pantalla ni del catálogo. Pedí únicamente la información imprescindible.');
+    const focusedLine=state.lines.find(line=>line.id===model.focusLineId);
+    const pinnedContext=model.includeContext&&focusedLine?'\nPARTIDA ACTIVA DE ESTA CONVERSACIÓN (tiene prioridad sobre la selección visual hasta que el usuario elija expresamente otra): '+JSON.stringify({line_id:focusedLine.id,description:focusedLine.description,unit:focusedLine.unit,quantity:focusedLine.quantity,existing_component_ids:(focusedLine.components||[]).map(c=>c.resource_id)})+'\n':'';
+    const baseContext=actionContext()+pinnedContext+'\n'+(model.includeContext?model.context:'No se compartieron datos de pantalla ni del catálogo. Pedí únicamente la información imprescindible.');
     model.busy=true;model.error='';model.notice='';const token=++queryToken;
     let request,catalogSnapshot=null;
     try {
