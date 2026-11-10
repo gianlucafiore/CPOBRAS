@@ -5,12 +5,14 @@ on:
       - "apps/desktop/src/**"
       - "apps/desktop/tests/ai-*.test.mjs"
       - "apps/desktop/tests/browser/ai-sanitario-append.spec.mjs"
+      - "apps/desktop/tests/browser/ai-equipment-productivity.spec.mjs"
       - ".github/workflows/ai-chat-regression.yml"
   pull_request:
     paths:
       - "apps/desktop/src/**"
       - "apps/desktop/tests/ai-*.test.mjs"
       - "apps/desktop/tests/browser/ai-sanitario-append.spec.mjs"
+      - "apps/desktop/tests/browser/ai-equipment-productivity.spec.mjs"
       - ".github/workflows/ai-chat-regression.yml"
 
 jobs:
@@ -32,4 +34,4 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: End-to-end chat ACU addition
         working-directory: apps/desktop
-        run: npm run test:browser -- ai-sanitario-append.spec.mjs
+        run: npm run test:browser -- ai-sanitario-append.spec.mjs ai-equipment-productivity.spec.mjs
