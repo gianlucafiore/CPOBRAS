@@ -4,15 +4,16 @@ function readAcuRequest(raw){
  if(!raw||typeof raw!=='object'||Array.isArray(raw)||Object.keys(raw).some(key=>!['mode','brief','line_ids'].includes(key)))throw new Error('Usá una solicitud de ACU con objetivo, criterios y selección de partidas válidos.');
  if(!['fill','create'].includes(raw.mode)||typeof raw.brief!=='string'||!raw.brief.trim()||raw.brief.length>3000)throw new Error('Indicá completar ACU existentes o crear partidas con ACU, con criterios de hasta 3000 caracteres.');
  const hasIds=Object.hasOwn(raw,'line_ids');
- if(raw.mode==='create'&&hasIds)throw new Error('Una solicitud de partidas nuevas no puede indicar partidas existentes.');
- const lineIds=hasIds?raw.line_ids:[];
+ const lineIds=hasIds?(raw.mode==='create'&&raw.line_ids===null?[]:raw.line_ids):[];
+ if(raw.mode==='create'&&Array.isArray(lineIds)&&lineIds.length)throw new Error('Una solicitud de partidas nuevas no puede indicar partidas existentes.');
  if(!Array.isArray(lineIds)||lineIds.length>60||lineIds.some(id=>typeof id!=='string'||!acuUuid.test(id)))throw new Error('La selección de partidas para ACU no es válida. Volvé a seleccionar las partidas en la preparación.');
  const normalized=lineIds.map(id=>id.toLowerCase());if(new Set(normalized).size!==normalized.length)throw new Error('La solicitud de ACU contiene partidas repetidas.');
  return {mode:raw.mode,brief:raw.brief.trim(),lineIds:normalized};
 }
 const chatFold=text=>String(text||'').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
-const acuTopic=text=>/\b(?:acus?|composicion(?:es)?|rendimientos?|consumos?|metrado|dosificacion)\b/.test(text)||/\binsumos?\b.*\b(?:partidas?|presupuesto)\b|\bpartidas?\b.*\binsumos?\b/.test(text);
-const constructionCriteria=text=>/\b(?:acus?|partidas?|presupuesto|revoques?|mamposteria|muros?|ladrillos?|hormigon|mortero|cemento|arena|cal|techo|cubierta|perfil|estructura|dosificacion|espesor|desperdicio|rendimientos?|consumos?|metrado|caras?|jornal|medidas?|largo|ancho|alto|altura|m2|m3|metros?)\b/.test(text);
+const materialToLine=text=>!(/\b(?:a|en)\s+(?:la|el)\s+(?:biblioteca|catalogo)\b/.test(text))&&/\b(?:agrega(?:r|me)?|agregues|carga(?:r|me)?|cargues|asigna(?:r|me)?|asignes)\b.{1,180}\b(?:a|en)\s+(?:(?:la|una|esta|esa)\s+)?partida\b/.test(text);
+const acuTopic=text=>/\b(?:acus?|composicion(?:es)?|rendimientos?|consumos?|metrado|dosificacion)\b/.test(text)||/\binsumos?\b.*\b(?:partidas?|presupuesto)\b|\bpartidas?\b.*\binsumos?\b/.test(text)||materialToLine(text);
+const constructionCriteria=text=>/\b(?:acus?|partidas?|presupuesto|tabiques?|revoques?|mamposteria|muros?|ladrillos?|hormigon|mortero|cemento|arena|cal|techo|cubierta|perfil|estructura|dosificacion|espesor|desperdicio|rendimientos?|consumos?|metrado|caras?|jornal|medidas?|largo|ancho|alto|altura|m2|m3|metros?)\b/.test(text);
 function messageText(message){
  if(typeof message?.answer==='string')return message.answer;
  const text=typeof message?.content==='string'?message.content:'';
@@ -27,6 +28,7 @@ function acuMode(text,fallback='fill'){
  if(/\b(?:no|sin)\s+(?:crees|crear|crear nuevas|generes|generar|agregues|agregar)\b/.test(text))return 'fill';
  if(/\b(?:completa|completar|rellena|rellenar|carga|cargar|asigna|asignar)\b.*\b(?:existentes|cargadas|faltantes|sin acu)\b/.test(text))return 'fill';
  const newTargets=/\b(?:partidas? nuevas?|nuevas? partidas?|presupuesto nuevo|obra nueva)\b/.test(text);
+ if(materialToLine(text)&&!newTargets)return 'fill';
  if(!newTargets&&/\b(?:partidas?\s+(?:ya\s+)?existentes|partidas?\b.{0,80}\bya existen|acus?\s+vacios?)\b/.test(text))return 'fill';
  if(/\b(?:crea(?:r|me)?|genera(?:r|me)?|arma(?:r|me)?|prepara(?:r|me)?|agrega(?:r|me)?|incorpora(?:r|me)?)\s+(?:(?:las|unas|varias|algunas|nuevas|estas|todas|una|un|el|\d+)\s+)*(?:partidas?|presupuesto)\b/.test(text)||/\b(?:partidas? nuevas?|nuevas? partidas?|presupuesto nuevo|obra nueva)\b/.test(text))return 'create';
  return fallback;
@@ -37,7 +39,7 @@ export function isApprovalReply(question){
  const lead='(?:(?:si|dale|adelante|de acuerdo|perfecto|bueno|ok|bien)\\s+)*';
  const approve='(?:apruebo|aprobar|aproba(?:lo|la|los|las)?|aprobado)';
  const load='(?:carga(?:r|lo|la|los|las)?|aplica(?:r|lo|la|los|las)?|completa(?:r|lo|la|los|las)?|guarda(?:r|lo|la|los|las)?|hacelo|hazlo|procede)';
- const explicit=new RegExp('^(?:'+affirmation+'|'+lead+'(?:'+approve+'(?:\\s+y\\s+'+load+')?|'+load+'))(?:\\s+por favor)?$');
+ const explicit=new RegExp('^(?:'+affirmation+'|'+lead+'(?:'+approve+'(?:\\s+y\\s+'+load+')?|'+load+')(?:\\s+directamente)?)(?:\\s+por favor)?$');
  return explicit.test(chatFold(question));
 }
 // Resolve a fresh, explicit user confirmation against the last visible card.
@@ -58,27 +60,47 @@ export function resolvedPendingApproval(question,messages=[]){
 // Route only a concrete preparation request. This opens a review workflow; it never writes.
 export function acuChatRequest(question,messages=[]){
  if(typeof question!=='string'||!question.trim())return null;
- const q=chatFold(question),recent=Array.isArray(messages)?messages.slice(-8):[],last=recent.at(-1),prior=previousRequest(last);
+ const q=chatFold(question),history=Array.isArray(messages)?messages.slice(-8):[],last=history.at(-1);
+ const boundary=history.findLastIndex(message=>message?.role==='assistant'&&Object.hasOwn(message,'approval'));
+ const recent=history.slice(boundary+1),prior=last&&Object.hasOwn(last,'approval')?null:previousRequest(last);
  const action='(?:prepara|completa|arma|crea|carga|calcula|dimensiona|rellena|genera|propone|asigna|incorpora|aplica|reutiliza|usa|agrega|hace)(?:r(?:lo|la|los|las|le|les)?|me|nos|lo|la|los|las|le|les|s)?';
  const direct=new RegExp('^(?:(?:por favor|podes|podrias|me podes|me podrias|quiero(?: que)?|necesito(?: que)?|quisiera(?: que)?|te pido que|solo|solamente|ahora|ya|me|nos)\\s+)*'+action+'\\b');
  const segments=[q,...question.split(/[;,]/).slice(1).map(chatFold)];
- const requestedSubjunctive=/^(?:quiero|necesito|quisiera|te pido)\s+que\s+(?:(?:me|nos)\s+)?(?:cargues|completes|armes|prepares|hagas)\b/;
+ const requestedSubjunctive=/^(?:quiero|necesito|quisiera|te pido)\s+que\s+(?:(?:me|nos)\s+)?(?:cargues|completes|armes|prepares|hagas|agregues|asignes)\b/;
  const explicit=segments.some(segment=>direct.test(segment)||requestedSubjunctive.test(segment));
  const scope=acuTopic(q)||/\b(?:dimensiona|dimensionar|calcula|calcular)\b.*\b(?:revoques?|mamposteria|muros?)\b/.test(q);
  const catalogOnly=/\b(?:a|en)\s+(?:la|el)\s+(?:biblioteca|catalogo)\b/.test(q)&&!acuTopic(q);
  if(/\bpor que\b/.test(q)||/^(?:que|cual|cuales|cuanto|cuantos|cuanta|cuantas|como|donde|cuando|para que)\b/.test(q)||catalogOnly)return null;
  const shortAction=/^(?:(?:perfecto|si|dale|bueno|ok|bien|de acuerdo|adelante)\s+)*(?:hacelo|hazlo|hace|cargalos|cargalas|cargalo|cargala|completalos|completalas|completalo|completala|preparalos|preparalas|armalos|armalas|aplicalos|aplicalas|procede|continua|segui)(?:\s+por favor)?$/.test(q);
  const bare=/^(?:si|dale|perfecto|ok|bueno|de acuerdo|adelante)$/.test(q);
- if(last?.role==='assistant'&&Object.hasOwn(last,'approval')&&(shortAction||bare))return null;
+ const explicitApproval=isApprovalReply(question);
+ const referredWork=!/[¿?]/.test(question)&&/^(?:(?:si|bueno|ok|perfecto|dale)\s+)?(?:la|las|lo|los)\s+que\s+(?:te\s+)?(?:dije|mencione|indique|describi|pedi)(?:\s+(?:recien|antes|anteriormente))?$/.test(q);
+ if(last?.role==='assistant'&&Object.hasOwn(last,'approval')&&(shortAction||bare||explicitApproval||referredWork))return null;
  const lastText=chatFold(messageText(last));
  const recentUser=recent.filter(m=>m?.role==='user');
  const latestUser=recentUser.at(-1),latestUserText=chatFold(messageText(latestUser));
- const conversationAcu=acuTopic(lastText)||acuTopic(latestUserText);
- const confirmation=(shortAction&&(prior||conversationAcu))||(bare&&(prior||conversationAcu&&/\b(?:puedo|queres|preparar|completar|cargar|armar|propongo)\b/.test(lastText)));
- if(!(explicit&&scope)||catalogOnly){if(!confirmation)return null;}
+ const latestExplicit=[latestUserText,...messageText(latestUser).split(/[;,]/).slice(1).map(chatFold)].some(text=>direct.test(text)||requestedSubjunctive.test(text));
+ const technicalCriteria=recentUser.slice(-4).some(message=>{
+  const text=chatFold(messageText(message));
+  return !/^(?:por que|que|cual|cuales|cuanto|cuantos|cuanta|cuantas|como|donde|cuando)\b/.test(text)&&/\b(?:tabiques?|revoques?|mamposteria|muros?|ladrillos?|hormigon|mortero|cemento|arena|cal|techo|cubierta|perfil|estructura|dosificacion|espesor|medidas?|largo|ancho|alto|altura)\b/.test(text);
+ });
+ const differentWork=text=>/\b(?:distint[oa]s?|diferentes?)\b/.test(text);
+ const userCreation=latestExplicit&&!differentWork(latestUserText)&&/\bpartidas?\b/.test(latestUserText)&&acuMode(latestUserText)==='create'&&technicalCriteria;
+ const lastPriceQuestion=/^(?:por que|que|cual|cuales|cuanto|cuantos|cuanta|cuantas|como|donde|cuando)\b|\b(?:precio|precios|costo|costos|cuesta|cuestan|valor|valores|cotizacion|catalogo|biblioteca)\b/.test(latestUserText);
+ const workTarget=/\b(?:tabiques?|revoques?|mamposteria|muros?|hormigon|techo|cubierta|estructura)\b/.test(latestUserText);
+ const dimensions=/\b\d+\s*(?:m2|m3|m|cm|mm|ladrillos?|kg)\b/.test(latestUserText);
+ const recipeBasis=/\b\d+(?:[.,]\d+)?\s*(?:ladrillos?|kg|bolsas?|horas?|jornales?)\s*(?:por|\/)\s*m[²³23]\b/i.test(messageText(latestUser));
+ const recentTechnical=technicalCriteria&&!lastPriceQuestion&&!materialToLine(latestUserText)&&(workTarget&&dimensions||recipeBasis||latestExplicit&&/\b(?:acus?|rendimientos?|consumos?|composicion|dosificacion|dimensiona|dimensionar|metrado)\b/.test(latestUserText));
+ const currentCreation=explicit&&!differentWork(q)&&/\bpartidas?\b/.test(q)&&acuMode(q)==='create'&&recentTechnical;
+ const recoverUserRequest=(explicitApproval||referredWork)&&latestExplicit&&(acuTopic(latestUserText)||userCreation);
+ // A model's suggestion alone cannot turn a price question into an ACU load.
+ const conversationAcu=acuTopic(latestUserText)&&!(/^(?:por que|que|cual|cuales|cuanto|cuantos|cuanta|cuantas|como|donde|cuando|precio|costo|valor)\b/.test(latestUserText));
+ const confirmation=recoverUserRequest||(shortAction&&(prior||conversationAcu))||(bare&&(prior||conversationAcu&&/\b(?:puedo|queres|preparar|completar|cargar|armar|propongo)\b/.test(lastText)));
+ if(!(explicit&&scope||currentCreation)||catalogOnly){if(!confirmation)return null;}
  const criteria=[];
  const add=value=>{const text=String(value||'').trim();if(!text||criteria.some(existing=>existing.includes(text)))return;for(let index=criteria.length-1;index>=0;index--)if(text.includes(criteria[index]))criteria.splice(index,1);criteria.push(text);};
- for(const message of recentUser.slice(-4)){
+ const sourceUsers=explicit&&materialToLine(q)?[]:recoverUserRequest&&materialToLine(latestUserText)?[latestUser]:recentUser.slice(-4);
+ for(const message of sourceUsers){
   const text=messageText(message),folded=chatFold(text);
   if(constructionCriteria(folded)&&!(/^(?:por que|que|cual|cuales|cuanto|cuantos|cuanta|cuantas|como|donde|cuando)\b/.test(folded)))add(text);
  }
@@ -86,7 +108,7 @@ export function acuChatRequest(question,messages=[]){
  if(!confirmation)add(question);
  if(!criteria.length)return null;
  const brief=criteria.join('\n\n');if(brief.length>3000)return null;
- const modeText=explicit&&scope?q:[...recentUser].reverse().map(message=>chatFold(messageText(message))).find(acuTopic)||'';
+ const modeText=explicit&&scope||currentCreation?q:recoverUserRequest?latestUserText:[...recentUser].reverse().map(message=>chatFold(messageText(message))).find(acuTopic)||'';
  const mode=acuMode(modeText,prior?.mode||'fill');
  return {mode,brief,lineIds:confirmation&&mode==='fill'&&prior?.mode==='fill'?prior.lineIds:[]};
 }
@@ -97,7 +119,7 @@ export function parseAiReply(text) {
   if (!value || typeof value!=="object" || typeof value.answer!=="string") return {answer:text,proposal:null};
   if(Object.hasOwn(value,'acu_request')){
     try{return {answer:value.answer,proposal:null,acuRequest:readAcuRequest(value.acu_request)};}
-    catch(error){return {answer:value.answer+"\nNo se preparó ninguna acción de ACU. "+error.message,proposal:null};}
+    catch(error){return {answer:"No se preparó ninguna acción de ACU. "+error.message,proposal:null,actionError:error.message};}
   }
   if(value.proposal_lines||value.proposal_changes){
     try{return {answer:value.answer,proposal:null,...(value.proposal_lines?{planRows:parsePlan(text)}:{}),...(value.proposal_changes?{changeProposals:changeProposals(text)}:{})};}

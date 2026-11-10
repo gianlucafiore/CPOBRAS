@@ -694,3 +694,17 @@ no genera otra tarjeta ni reutiliza aprobaciones anteriores. El resultado real
 sustituye las instrucciones del modelo sobre formularios, y los botones de
 revisión desaparecen al procesar la aprobación. Los bloqueos reales se explican
 por partida dentro del chat, sin exigir abrir el panel solo para leer el motivo.
+
+
+La aprobación escrita también reconoce «sí, apruebo» y «apruebo directamente».
+Las solicitudes de creación admiten una lista vacía de partidas existentes;
+una lista con IDs existentes sigue siendo incompatible con crear partidas nuevas.
+El chat conserva el último estado de carga de su obra y presupuesto: «no la veo»
+consulta ese resultado local y ofrece abrir el presupuesto guardado, sin generar
+otra carga ni consultar a la IA para decidir si se guardó.
+
+Para agregar insumos a una partida concreta se conserva su composición actual
+y se suman únicamente los consumos adicionales aprobados. El destino se resuelve
+por su nombre único o por una referencia explícita a la partida seleccionada.
+Las cantidades totales se distribuyen entre las unidades de la partida; no se
+asumen conversiones de superficie a longitud sin los datos necesarios.

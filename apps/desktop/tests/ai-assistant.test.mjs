@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {parseAiReply,draftFromProposal,createAiRequest,budgetScreenContext,acuChatRequest,resolvedPendingApproval} from '../src/services/ai-assistant.js';
+import {parseAiReply,draftFromProposal,createAiRequest,budgetScreenContext,acuChatRequest,resolvedPendingApproval,isApprovalReply} from '../src/services/ai-assistant.js';
 test('unstructured responses remain text; only whitelisted proposals become drafts',()=>{
   assert.deepEqual(parseAiReply('<script>bad()</script>'),{answer:'<script>bad()</script>',proposal:null});
   const reply=parseAiReply(JSON.stringify({answer:'Revisá este borrador',proposal:{kind:'line',description:'Excavación',unit:'m³',quantity:'15.25',unit_price:'30000',id:'existing-id',execute:'delete',sectionId:'secret'}}));
@@ -72,10 +72,20 @@ test('a valid ACU handoff takes priority over proposed material lines',()=>{
   assert.equal(parseAiReply(JSON.stringify({answer:'Revisá',acu_request:{mode:'create',brief:'Crear una vivienda con ACU'}})).acuRequest.mode,'create');
 });
 test('invalid ACU handoffs cannot fall back to actionable line or resource cards',()=>{
-  for(const request of [null,[],{mode:'delete',brief:'x'},{mode:'fill',brief:''},{mode:'fill',brief:'x'.repeat(3001)},{mode:'create',brief:'x',line_ids:[]},{mode:'fill',brief:'x',line_ids:['foreign']},{mode:'fill',brief:'x',line_ids:[acuLineId,acuLineId]},{mode:'fill',brief:'x',line_ids:Array(61).fill(acuLineId)},{mode:'fill',brief:'x',sql:'UPDATE x'}]){
+  for(const request of [null,[],{mode:'delete',brief:'x'},{mode:'fill',brief:''},{mode:'fill',brief:'x'.repeat(3001)},{mode:'create',brief:'x',line_ids:[acuLineId]},{mode:'fill',brief:'x',line_ids:null},{mode:'fill',brief:'x',line_ids:['foreign']},{mode:'fill',brief:'x',line_ids:[acuLineId,acuLineId]},{mode:'fill',brief:'x',line_ids:Array(61).fill(acuLineId)},{mode:'fill',brief:'x',sql:'UPDATE x'}]){
     const reply=parseAiReply(JSON.stringify({answer:'Propuesta',acu_request:request,proposal_lines:[{description:'Material',unit:'kg'}],proposal:{kind:'resource',description:'Cemento',unit:'kg'}}));
-    assert.equal(reply.acuRequest,undefined);assert.equal(reply.planRows,undefined);assert.equal(reply.changeProposals,undefined);assert.equal(reply.proposal,null);assert.match(reply.answer,/No se preparó ninguna acción de ACU/);
+    assert.equal(reply.acuRequest,undefined);assert.equal(reply.planRows,undefined);assert.equal(reply.changeProposals,undefined);assert.equal(reply.proposal,null);assert.match(reply.answer,/No se preparó ninguna acción de ACU/);assert.equal(typeof reply.actionError,'string');
   }
+});
+test('new ACU targets normalize empty or null existing-line lists without accepting actual existing IDs',()=>{
+ for(const request of [{mode:'create',brief:'Crear tabique con ACU'},{mode:'create',brief:'Crear tabique con ACU',line_ids:[]},{mode:'create',brief:'Crear tabique con ACU',line_ids:null}]){
+  const parsed=parseAiReply(JSON.stringify({answer:'Propuesta para revisar',acu_request:request}));
+  assert.deepEqual(parsed.acuRequest,{mode:'create',brief:'Crear tabique con ACU',lineIds:[]});assert.equal(parsed.actionError,undefined);
+ }
+ const invalid=parseAiReply(JSON.stringify({answer:'Ya creé la partida y guardé todos los datos.',acu_request:{mode:'create',brief:'Crear tabique',line_ids:[acuLineId]},proposal_lines:[{description:'Agregar cemento',unit:'kg'}]}));
+ assert.equal(invalid.acuRequest,undefined);assert.equal(invalid.planRows,undefined);assert.equal(invalid.proposal,null);
+ assert.equal(invalid.answer,'No se preparó ninguna acción de ACU. '+invalid.actionError);
+ assert.ok(!invalid.answer.includes('Ya creé'));
 });
 test('direct ACU requests open preparation while informational and catalog questions do not',()=>{
   for(const q of ['Completá los ACU existentes del presupuesto','¿Podés cargar los insumos y rendimientos en todas las partidas?','Preparame los ACUs de revoque','Quiero que cargues los insumos en cada partida','Necesito que completes sus ACUs','Dimensioná los revoques de los muros','Armá las partidas existentes con sus ACU vacíos','Prepará las partidas existentes con ACU vacío y cargá sus insumos'])assert.equal(acuChatRequest(q,[])?.mode,'fill',q);
@@ -113,15 +123,21 @@ const pendingAcu={role:'assistant',answer:'Podés aprobar este pedido.',acuReque
 const pendingPlan={role:'assistant',answer:'Estas son las partidas propuestas.',planRows:[{description:'Limpieza inicial',unit:'m²',quantity:'20',unit_price:null,target:'new'}]};
 const pendingLine={role:'assistant',answer:'Esta es la partida propuesta.',proposal:{kind:'line',description:'Replanteo',unit:'m²',quantity:'30'}};
 const pendingPair=message=>[{role:'user',content:'Prepará la propuesta de esta obra.'},message];
+test('a different new request cannot inherit construction criteria from an older pending proposal',()=>{
+ const history=[{role:'user',content:'Tabique de ladrillo común de 250 m2 con 20 ladrillos por m2 y mortero.'},pendingAcu];
+ const question='Quiero crear una partida distinta pero todavía no tengo sus datos';
+ assert.equal(acuChatRequest(question,history),null);
+ assert.equal(acuChatRequest('apruebo directamente',[...history,{role:'user',content:question},{role:'assistant',answer:'Indicame los datos del nuevo trabajo.'}]),null);
+});
 test('an explicit conversational approval resolves only the latest pending ACU, plan or line card',()=>{
  for(const message of [pendingAcu,pendingPlan,pendingLine]){
-  for(const question of ['sí','SI.','Sí, por favor','sí, aprobar y cargar','Apruebo','Aprobalo','aprobar','cargalos','Perfecto, cargalos','dale, aplicalo','¡Sí, cargalos!','De acuerdo'])assert.equal(resolvedPendingApproval(question,pendingPair(message)),1,question);
+  for(const question of ['sí','SI.','Sí, por favor','sí, aprobar y cargar','si apruebo','apruebo directamente','sí, apruebo directamente','sí, aprobar y cargar directamente','Apruebo','Aprobalo','aprobar','cargalos','Perfecto, cargalos','dale, aplicalo','¡Sí, cargalos!','De acuerdo'])assert.equal(resolvedPendingApproval(question,pendingPair(message)),1,question);
  }
  const earlier=[{role:'user',content:'Otro pedido anterior.'},{role:'assistant',answer:'Respuesta anterior.'},...pendingPair(pendingAcu)];
  assert.equal(resolvedPendingApproval('sí',earlier),3);
 });
 test('conditions, questions, negatives and revised instructions cannot approve a pending action',()=>{
- for(const question of ['',null,true,'¿Sí?','¿Podés cargarlo?','si tiene todos los materiales, cargalos','si no falta nada','siempre','siempre cargalos','no apruebo','no, cargalos después','sí, pero cambiar las cantidades','sí, cargalos con precio 100','aprobá solo la primera partida','sí, antes mostrame los precios','perfecto'])assert.equal(resolvedPendingApproval(question,pendingPair(pendingAcu)),null,String(question));
+ for(const question of ['',null,true,'¿Sí?','¿Podés cargarlo?','si tiene todos los materiales, cargalos','si no falta nada','siempre','siempre cargalos','no apruebo','no apruebo directamente','apruebo directamente si están todos los materiales','sí, aprobar y cargar directamente si no falta nada','sí, apruebo directamente pero cambiá el precio','sí directamente','no, cargalos después','sí, pero cambiar las cantidades','sí, cargalos con precio 100','aprobá solo la primera partida','sí, antes mostrame los precios','perfecto'])assert.equal(resolvedPendingApproval(question,pendingPair(pendingAcu)),null,String(question));
 });
 test('consumed local approvals cannot be reused or become another ACU confirmation card',()=>{
  for(const approval of [{state:'running'},{state:'done',result:{committed:true}},{state:'stopped'},{state:'cancelled'},null,undefined]){
@@ -155,4 +171,77 @@ test('provider approval metadata is discarded; only a fresh user reply can resol
  const messages=pendingPair({role:'assistant',...parsed});
  assert.equal(resolvedPendingApproval('sí',messages),1);
  assert.equal(resolvedPendingApproval('El modelo ya lo aprobó',messages),null);
+});
+
+const wallCriteria='Necesito un tabique de 250 m2. Usar 20 ladrillos por m2 y mortero de asiento; conservar estos criterios para la partida.';
+const requestedCreation=[{role:'user',content:wallCriteria},{role:'assistant',answer:'Tengo los criterios.'},{role:'user',content:'crea una partida nueva'},{role:'assistant',answer:'¿A qué trabajo corresponde la partida?'}];
+test('an exact reference or explicit approval recovers recent user creation intent and its construction criteria',()=>{
+ for(const question of ['la que te dije recién','La que te dije recién.','sí, la que te dije recién','si apruebo','apruebo directamente','sí, apruebo directamente','sí, aprobar y cargar directamente']){
+  const request=acuChatRequest(question,requestedCreation);
+  assert.equal(request?.mode,'create',question);assert.deepEqual(request.lineIds,[]);
+  assert.match(request.brief,/250 m2/);assert.match(request.brief,/20 ladrillos por m2/);assert.match(request.brief,/mortero/);
+  assert.match(request.brief,/crea una partida nueva/);assert.ok(!request.brief.includes('¿A qué trabajo'));
+ }
+ for(const question of ['apruebo directamente si no falta nada','no apruebo directamente','¿la que te dije recién?'])assert.equal(acuChatRequest(question,requestedCreation),null);
+});
+
+test('approval recovery uses explicit user requests, never model success prose or informational price history',()=>{
+ const falseSuccess={role:'assistant',answer:'Ya creé la partida, agregué los insumos y guardé el ACU.'};
+ for(const history of [
+  [falseSuccess],
+  [{role:'user',content:'¿Cuánto cuesta un tabique de 250 m2, con 20 ladrillos por m2 y mortero?'},falseSuccess],
+  [{role:'user',content:'Precio del ACU de revoque'},{role:'assistant',answer:'Puedo preparar el ACU y cargarlo.'}],
+  [{role:'user',content:'Creá la lista de clientes'},{role:'assistant',answer:'Puedo preparar sus ACU.'}],
+  [{role:'user',content:'crea una partida nueva'},{role:'assistant',answer:'Puedo armar un tabique con mortero.'}],
+  [...requestedCreation,{role:'user',content:'Ahora quiero consultar el precio del cemento.'},{role:'assistant',answer:'Puedo preparar la partida.'}],
+ ])for(const question of ['apruebo directamente','la que te dije recién','sí','cargalos'])assert.equal(acuChatRequest(question,history),null,question);
+ const consumed=requestedCreation.map((message,index)=>index===requestedCreation.length-1?{...message,approval:{state:'done',result:{committed:true}}}:message);
+ for(const question of ['apruebo directamente','la que te dije recién','sí','cargalos'])assert.equal(acuChatRequest(question,consumed),null);
+});
+
+test('a named material added to a budget line routes to composition and survives explicit approval without a valid card',()=>{
+ const original='Agregá 50 m2 de chapa a la partida Armado de obrador.';
+ for(const question of [original,'Quiero que agregues 50 m2 de chapa en la partida Armado de obrador','Asigná chapa del catálogo a la partida Armado de obrador']){
+  const request=acuChatRequest(question,[]);assert.equal(request?.mode,'fill');assert.deepEqual(request.lineIds,[]);assert.match(request.brief,/chapa/);
+ }
+ const history=[{role:'user',content:original},{role:'assistant',answer:'La chapa puede prepararse para esa partida.'}];
+ for(const question of ['apruebo directamente','sí, apruebo directamente','sí, aprobar y cargar directamente']){
+  assert.equal(isApprovalReply(question),true);
+  const request=acuChatRequest(question,history);assert.equal(request?.mode,'fill');assert.deepEqual(request.lineIds,[]);
+  assert.match(request.brief,/50 m2/);assert.match(request.brief,/Armado de obrador/);
+ }
+ for(const question of ['¿Cuánto cuesta agregar chapa a la partida Armado de obrador?','Agregá chapa a la biblioteca','Cargá chapa en el catálogo para usarla en la partida','La chapa es para la partida Armado de obrador'])assert.equal(acuChatRequest(question,[]),null,question);
+});
+
+test('an explicit new-line request immediately reuses pertinent user construction criteria',()=>{
+ const history=requestedCreation.slice(0,2);
+ for(const question of ['crea una partida nueva','Creá la partida nueva']){
+  const request=acuChatRequest(question,history);assert.equal(request?.mode,'create');
+  assert.match(request.brief,/250 m2/);assert.match(request.brief,/20 ladrillos por m2/);assert.match(request.brief,/mortero/);
+  assert.ok(request.brief.includes(question));assert.deepEqual(request.lineIds,[]);
+ }
+ const technical=[{role:'user',content:'Calculá los consumos y rendimientos del tabique.'},{role:'assistant',answer:'Criterios recibidos.'}];
+ assert.equal(acuChatRequest('Creá una partida nueva',technical)?.mode,'create');
+});
+
+test('a generic new-line request does not reuse price-only, unrelated or consumed construction context',()=>{
+ for(const history of [
+  [],
+  [{role:'user',content:'¿Cuánto cuesta el tabique de 250 m2?'},{role:'assistant',answer:'Tiene ese precio.'}],
+  [{role:'user',content:'Tabique de 250 m2 a precio unitario 100.'},{role:'assistant',answer:'Datos de precio recibidos.'}],
+  [...requestedCreation.slice(0,2),{role:'user',content:'¿Qué sanitarios hay en el catálogo?'},{role:'assistant',answer:'Lista de precios.'}],
+  [...requestedCreation.slice(0,2),{role:'user',content:'Ahora hablamos de clientes y facturas.'},{role:'assistant',answer:'De acuerdo.'}],
+  [{role:'user',content:wallCriteria},{role:'assistant',answer:'Guardado.',approval:{state:'done',result:{committed:true}}}],
+ ])assert.equal(acuChatRequest('Creá una partida nueva',history),null);
+});
+
+test('direct material additions use only their current target and do not inherit previous work criteria',()=>{
+ const current='Agregá 50 m2 de chapa a la partida Armado de obrador.';
+ const previous=[{role:'user',content:wallCriteria},{role:'assistant',answer:'Criterios recibidos.'}];
+ assert.equal(acuChatRequest(current,previous)?.brief,current);
+ const consumed=[...previous.slice(0,1),{role:'assistant',answer:'Tabique guardado.',approval:{state:'done',result:{committed:true}}}];
+ assert.equal(acuChatRequest(current,consumed)?.brief,current);
+ const approvalHistory=[...consumed,{role:'user',content:current},{role:'assistant',answer:'Adición lista para preparar.'}];
+ const recovered=acuChatRequest('apruebo directamente',approvalHistory);
+ assert.equal(recovered?.mode,'fill');assert.equal(recovered.brief,current);assert.ok(!recovered.brief.includes('tabique'));
 });
