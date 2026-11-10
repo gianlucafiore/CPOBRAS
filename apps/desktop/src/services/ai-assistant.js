@@ -1,8 +1,13 @@
+import {parsePlan,changeProposals} from "./ai-budget-import.js";
 // Only this allowlist can become a draft. Never execute model output as code/HTML.
 export function parseAiReply(text) {
   let value;
   try { value=JSON.parse(text.trim().replace(/^```(?:json)?\s*/i,"").replace(/\s*```$/,"")); } catch { return {answer:text,proposal:null}; }
   if (!value || typeof value!=="object" || typeof value.answer!=="string") return {answer:text,proposal:null};
+  if(value.proposal_lines||value.proposal_changes){
+    try{return {answer:value.answer,proposal:null,...(value.proposal_lines?{planRows:parsePlan(text)}:{}),...(value.proposal_changes?{changeProposals:changeProposals(text)}:{})};}
+    catch{return {answer:value.answer+"\nLa lista de partidas no es válida o está incompleta. Pedí una propuesta más acotada.",proposal:null};}
+  }
   const raw=value.proposal;
   if (!raw || !["line","resource"].includes(raw.kind) || typeof raw.description!=="string" || !raw.description.trim() || raw.description.length>500 || typeof raw.unit!=="string" || !raw.unit.trim() || raw.unit.length>30) return {answer:value.answer,proposal:null};
   const proposal={kind:raw.kind,description:raw.description.trim(),unit:raw.unit.trim()};
@@ -88,7 +93,7 @@ export function budgetScreenContext(state,visibleText="") {
   };
   const counts={total_partidas:lines.length,precio_cero:0,precio_positivo:0,precio_negativo:0,precio_sin_dato:0};
   for(const line of lines){const status=priceState(line.unit_cost);counts[{cero:"precio_cero",positivo:"precio_positivo",negativo:"precio_negativo",sin_dato:"precio_sin_dato"}[status]]++;}
-  const record=line=>({codigo:line.code||"",descripcion:String(line.description||"").slice(0,200),unidad:line.unit,cantidad:line.quantity,precio_unitario:line.unit_cost??null,estado_precio:priceState(line.unit_cost)});
+  const record=line=>({line_id:line.id,codigo:line.code||"",descripcion:String(line.description||"").slice(0,200),unidad:line.unit,cantidad:line.quantity,precio_unitario:line.unit_cost??null,estado_precio:priceState(line.unit_cost)});
   const estimate=state.estimates?.find(x=>x.id===state.estimateId);
   const selected=lines.find(x=>x.id===state.selectedLineId);
   const parts=["PRESUPUESTO ACTUAL. Resumen calculado por CPOBRAS sobre TODAS las partidas cargadas (no sobre el recorte de texto):",JSON.stringify({presupuesto:estimate?.title,moneda:estimate?.currency,...counts}),"Precio cero no demuestra un dato faltante: puede ser intencional. Distinguí esa condición de precio sin dato."];

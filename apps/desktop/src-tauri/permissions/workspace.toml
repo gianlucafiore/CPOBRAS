@@ -6,6 +6,7 @@ commands.allow = [
   "ai_status",
   "ai_forget",
   "ai_chat",
+  "apply_reviewed_budget_batch",
   "ai_cancel",
   "import_resources",
   "set_entity_archived",

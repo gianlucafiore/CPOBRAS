@@ -1345,7 +1345,7 @@ fn upgrades_populated_schema_fifteen_and_deletes_its_preexisting_linked_line() {
         old.execute_batch(&format!("DROP TRIGGER {name}")).unwrap();
     }
     undo_people_migration_for_fixture(&old);
-    old.execute_batch("DROP TRIGGER inactive_client_new_project; DROP TRIGGER inactive_client_change_project; DROP TRIGGER inactive_supplier_new_offer; DROP TABLE advance_agreement_links; DROP TABLE entity_archives; DROP TABLE supplier_movements; DROP TABLE operation_files; ALTER TABLE operation_links DROP COLUMN archived_line_id; DROP TABLE deleted_estimate_lines; DROP TABLE line_analysis_sources; DROP TABLE estimate_resource_prices; DROP TABLE quotation_request_revisions;DROP TABLE quotation_response_files;DROP TABLE quotation_awards;DROP TABLE quotation_responses;DROP TABLE site_book_entries;DROP TABLE certificate_drafts;DROP TABLE certificate_sheets;DROP TABLE certified_sources;DROP TABLE quotation_requests;DROP TABLE estimate_adjustment_agreements;DROP TABLE index_points;DROP TABLE system_calendar;DROP TABLE estimate_price_definitions; DROP TABLE price_definition_templates;
+    old.execute_batch("DROP TRIGGER assisted_batches_no_update; DROP TRIGGER assisted_batches_no_delete; DROP TABLE assisted_budget_batches; DROP TRIGGER inactive_client_new_project; DROP TRIGGER inactive_client_change_project; DROP TRIGGER inactive_supplier_new_offer; DROP TABLE advance_agreement_links; DROP TABLE entity_archives; DROP TABLE supplier_movements; DROP TABLE operation_files; ALTER TABLE operation_links DROP COLUMN archived_line_id; DROP TABLE deleted_estimate_lines; DROP TABLE line_analysis_sources; DROP TABLE estimate_resource_prices; DROP TABLE quotation_request_revisions;DROP TABLE quotation_response_files;DROP TABLE quotation_awards;DROP TABLE quotation_responses;DROP TABLE site_book_entries;DROP TABLE certificate_drafts;DROP TABLE certificate_sheets;DROP TABLE certified_sources;DROP TABLE quotation_requests;DROP TABLE estimate_adjustment_agreements;DROP TABLE index_points;DROP TABLE system_calendar;DROP TABLE estimate_price_definitions; DROP TABLE price_definition_templates;
              DROP TABLE print_profiles; DROP TRIGGER new_project_organization; DROP TRIGGER external_company_readonly_update; DROP TRIGGER external_company_readonly_delete; DROP TRIGGER clear_measured_quantity; DROP TABLE automatic_codes; DROP TABLE measured_lines; DROP TABLE project_attachments; DROP TABLE project_organizations; DROP TABLE organization_preferences; DROP TABLE organizations; DELETE FROM schema_migrations WHERE version>=16; CREATE TRIGGER operation_links_no_update BEFORE UPDATE ON operation_links BEGIN SELECT RAISE(ABORT,'operation links are immutable'); END;").unwrap();
     drop(old);
     let mut upgraded = LocalStore::open(&path).unwrap();
@@ -1355,7 +1355,7 @@ fn upgrades_populated_schema_fifteen_and_deletes_its_preexisting_linked_line() {
             .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| r
                 .get::<_, i64>(0))
             .unwrap(),
-        33
+        34
     );
     upgraded.delete_estimate_item(e.id, line.id).unwrap();
     assert!(upgraded.estimate_items(e.id).unwrap().is_empty());
@@ -5247,4 +5247,153 @@ fn removing_projects_and_budgets_hides_lists_but_preserves_history() {
     assert!(s.list_projects().unwrap().is_empty());
     assert!(s.get_project(p.id).unwrap().is_some());
     assert!(s.shared_project_document(p.id, "2026-11-05").is_err());
+}
+
+fn reviewed_update(line: &EstimateItem, price: Decimal) -> crate::assisted_budget::PriceUpdate {
+    use crate::assisted_budget::*;
+    PriceUpdate {
+        line_id: line.id,
+        expected: ExpectedLine {
+            description: line.description.clone(),
+            unit: line.unit.clone(),
+            quantity: line.quantity,
+            unit_cost: line.unit_cost_snapshot,
+            analysis_id: line.analysis_id,
+        },
+        unit_price: price,
+        description: None,
+        unit: None,
+        quantity: None,
+    }
+}
+#[test]
+fn reviewed_batch_is_atomic_and_detects_stale_prices() {
+    use crate::assisted_budget::*;
+    let (mut s, _, e, line) = fixture();
+    let mut batch = ReviewedBatch {
+        id: Uuid::new_v4(),
+        estimate_id: e.id,
+        currency: "ARS".into(),
+        new_estimate: None,
+        updates: vec![reviewed_update(&line, 150.into())],
+        deletes: vec![],
+        creates: vec![NewLine {
+            id: Uuid::new_v4(),
+            description: "Nueva".into(),
+            unit: "".into(),
+            quantity: 1.into(),
+            unit_price: 20.into(),
+            section: None,
+        }],
+    };
+    assert!(s.apply_reviewed_budget_batch(&batch).is_err());
+    assert_eq!(
+        s.estimate_items(e.id).unwrap()[0].unit_cost_snapshot,
+        100.into()
+    );
+    batch.creates[0].unit = "m".into();
+    batch.creates[0].section = Some("Rubro nuevo".into());
+    let result = s.apply_reviewed_budget_batch(&batch).unwrap();
+    assert_eq!((result.updated, result.created), (1, 1));
+    let retry = s.apply_reviewed_budget_batch(&batch).unwrap();
+    assert_eq!(retry.created, 1);
+    assert_eq!(s.estimate_items(e.id).unwrap().len(), 2);
+    batch.id = Uuid::new_v4();
+    batch.creates.clear();
+    assert!(s.apply_reviewed_budget_batch(&batch).is_err());
+    assert_eq!(
+        s.estimate_items(e.id).unwrap()[0].unit_cost_snapshot,
+        150.into()
+    );
+}
+#[test]
+fn reviewed_batch_can_create_a_budget_but_rolls_it_back_on_bad_lines() {
+    use crate::assisted_budget::*;
+    let (mut s, p, _, _) = fixture();
+    let mut batch = ReviewedBatch {
+        id: Uuid::new_v4(),
+        estimate_id: Uuid::new_v4(),
+        currency: "ARS".into(),
+        new_estimate: Some(NewEstimate {
+            project_id: p.id,
+            title: "Desde IA".into(),
+        }),
+        updates: vec![],
+        deletes: vec![],
+        creates: vec![NewLine {
+            id: Uuid::new_v4(),
+            description: "Partida".into(),
+            unit: "".into(),
+            quantity: 0.into(),
+            unit_price: 0.into(),
+            section: Some("Preparación".into()),
+        }],
+    };
+    assert!(s.apply_reviewed_budget_batch(&batch).is_err());
+    assert!(s.get_estimate(batch.estimate_id).unwrap().is_none());
+    batch.creates[0].unit = "gl".into();
+    s.apply_reviewed_budget_batch(&batch).unwrap();
+    s.apply_reviewed_budget_batch(&batch).unwrap();
+    assert_eq!(s.estimate_items(batch.estimate_id).unwrap().len(), 1);
+    assert_eq!(s.list_budget_sections(batch.estimate_id).unwrap().len(), 1);
+}
+#[test]
+fn reviewed_batch_edits_and_deletes_with_history_and_protects_issued_budgets() {
+    use crate::assisted_budget::*;
+    let (mut s, _, e, line) = fixture();
+    let mut update = reviewed_update(&line, 120.into());
+    update.description = Some("Descripción editada".into());
+    update.quantity = Some(3.into());
+    let edit = ReviewedBatch {
+        id: Uuid::new_v4(),
+        estimate_id: e.id,
+        currency: "ARS".into(),
+        new_estimate: None,
+        updates: vec![update],
+        creates: vec![],
+        deletes: vec![],
+    };
+    s.apply_reviewed_budget_batch(&edit).unwrap();
+    let changed = s.estimate_items(e.id).unwrap().remove(0);
+    assert_eq!(changed.description, "Descripción editada");
+    assert_eq!(changed.quantity, 3.into());
+    let expected = reviewed_update(&changed, 0.into()).expected;
+    let mut deletion = ReviewedBatch {
+        id: Uuid::new_v4(),
+        estimate_id: e.id,
+        currency: "ARS".into(),
+        new_estimate: None,
+        updates: vec![],
+        creates: vec![],
+        deletes: vec![Deletion {
+            line_id: line.id,
+            expected,
+        }],
+    };
+    deletion.deletes[0].expected.quantity = 2.into();
+    assert!(s.apply_reviewed_budget_batch(&deletion).is_err());
+    assert_eq!(s.estimate_items(e.id).unwrap().len(), 1);
+    deletion.deletes[0].expected.quantity = 3.into();
+    s.apply_reviewed_budget_batch(&deletion).unwrap();
+    assert!(s.estimate_items(e.id).unwrap().is_empty());
+    assert!(s
+        .conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM deleted_estimate_lines WHERE id=?1)",
+            [line.id.to_string()],
+            |r| r.get::<_, bool>(0)
+        )
+        .unwrap());
+    let (mut s, _, e, line) = fixture();
+    s.issue_estimate(e.id).unwrap();
+    let issued = ReviewedBatch {
+        id: Uuid::new_v4(),
+        estimate_id: e.id,
+        currency: "ARS".into(),
+        new_estimate: None,
+        updates: vec![reviewed_update(&line, 1.into())],
+        creates: vec![],
+        deletes: vec![],
+    };
+    assert!(s.apply_reviewed_budget_batch(&issued).is_err());
 }

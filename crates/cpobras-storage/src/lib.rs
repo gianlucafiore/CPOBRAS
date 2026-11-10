@@ -6,6 +6,7 @@ use uuid::Uuid;
 
 pub mod adjustments;
 pub mod advanced_costing;
+pub mod assisted_budget;
 pub mod budget_patterns;
 pub mod budget_pricing;
 pub mod budget_sections;
@@ -114,6 +115,7 @@ impl LocalStore {
             include_str!("../migrations/0031_supplier_logistics.sql"),
             include_str!("../migrations/0032_takeoff_manual_quantity.sql"),
             include_str!("../migrations/0033_entity_lifecycle.sql"),
+            include_str!("../migrations/0034_assisted_budget_batches.sql"),
         ];
         let latest: i64 = conn.query_row(
             "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",

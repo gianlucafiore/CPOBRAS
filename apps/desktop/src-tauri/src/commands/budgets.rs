@@ -495,3 +495,14 @@ pub(crate) fn save_line_as_analysis(
         .map(|_| ())
         .map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub(crate) fn apply_reviewed_budget_batch(
+    db: tauri::State<'_, Db>,
+    batch: cpobras_storage::assisted_budget::ReviewedBatch,
+) -> Result<cpobras_storage::assisted_budget::BatchResult, String> {
+    db.lock()
+        .map_err(|_| "No se pudo abrir el presupuesto")?
+        .apply_reviewed_budget_batch(&batch)
+        .map_err(|e| e.to_string())
+}

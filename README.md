@@ -503,5 +503,47 @@ propuesta abre el formulario habitual; el usuario revisa y guarda. No tiene
 herramientas, SQL ni comandos de escritura. No registra pagos, emite certificados
 ni ejecuta código. Los textos del modelo se muestran como texto plano. La
 conversación se mantiene en memoria y se limpia al cambiar de sección, obra o
-presupuesto. Las respuestas y estimaciones deben revisarse. Esta integración no
-incluye todavía la importación masiva de presupuestos mediante IA.
+presupuesto. Las respuestas y estimaciones deben revisarse. La carga asistida de partidas y precios se describe en la sección siguiente.
+
+### Carga asistida de partidas y precios
+
+Desde la consola IA se puede abrir:
+
+- **Cargar precios · texto / Excel**: pegá columnas de Excel, una lista
+  `descripción;precio`, o cargá un `.xlsx` (primera hoja, hasta 1000 filas).
+  Elegí las columnas y el formato numérico del texto. Las celdas numéricas de
+  Excel conservan el valor decimal original; no se usa el total como unitario
+  automáticamente. Las filas vacías o inválidas no se convierten en precio cero.
+  Las coincidencias únicas por código o descripción se proponen localmente;
+  unidades distintas y coincidencias ambiguas requieren revisión. La IA puede
+  sugerir correspondencias para hasta 50 filas pendientes por consulta, sin
+  cambiar sus precios. Esas sugerencias quedan desmarcadas.
+- **Crear partidas de obra**: describí los trabajos. La IA propone hasta 60
+  partidas y sus rubros, sin inventar precios ni cantidades faltantes. Revisá,
+  editá y seleccioná las que quieras incorporar. En un proyecto propio sin
+  presupuesto abierto se puede crear uno nuevo junto con las partidas al
+  confirmar. Los datos nuevos que queden sin definir se guardan explícitamente
+  en cero para completar después. Se avisa si una descripción y unidad ya existen.
+- **Editar / eliminar partidas**: pedí cambios por IA o revisá la lista
+  manualmente. Se pueden modificar descripción, unidad, cantidad y precio, y
+  proponer eliminaciones. Las propuestas IA quedan desmarcadas. La vista previa
+  identifica la partida original, sus datos actuales y la acción que se aplicará.
+  También se pueden revisar propuestas de creación, edición o eliminación que
+  aparezcan en una respuesta del chat.
+
+El guardado necesita una selección y confirmación explícitas. Las operaciones se
+aplican en una única transacción; un dato inválido o una partida modificada desde
+la vista previa rechaza todo el lote. Los reintentos de una misma solicitud no
+crean duplicados. Se conserva un registro local del lote aplicado. Los
+presupuestos emitidos, retirados o de otras organizaciones quedan protegidos.
+Las eliminaciones usan el mismo mecanismo histórico que la edición manual:
+conservan los documentos emitidos y el alcance histórico de planificación.
+Cambiar precio o unidad de una partida con ACU la pasa a precio manual,
+conservando la composición anterior. Las nuevas partidas no incluyen ACU inferidos.
+
+Los archivos se leen localmente. La generación de propuestas y sugerencias de
+correspondencia usan la API configurada y requieren la autorización de envío de
+la consola; pueden generar cargos mayores que una respuesta breve. No se sube
+el Excel completo: las correspondencias comparten descripciones, unidades,
+códigos e identificadores de las filas candidatas. La vista previa y la
+asignación manual de precios pueden usarse sin llamadas a IA.
