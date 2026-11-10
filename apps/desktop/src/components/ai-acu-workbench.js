@@ -7,7 +7,7 @@ import {productivityEditRow} from '../services/ai-acu-productivity.js';
 import {acuSeed,newAcuSeeds,emptyAcu,parseAcuProposals,measurementQuantity,acuTotals,acuPreapprovalErrors,copyAcuExample,acuPromptContext,acuBatch} from '../services/ai-acu.js';
 export function createAcuWorkbench({invoke,state,document,window,loadEstimate,loadEstimates,openEstimate,canUseAi,openResourceLibrary=null}){
  const host=document.createElement('div');host.id='ai-acu-workbench';document.body.append(host);
- let model={open:false},request=null,generation=0,stop=false,approvedRun=null;const drafts=new Map();
+ let model={open:false},request=null,generation=0,stop=false,approvedRun=null,preparedApproval=null;const drafts=new Map();
  const draftKey=()=>[state.projectId,state.estimateId||'new'].join(':');
  function keepDraft(){
   if(!model.draftKey)return;
@@ -48,13 +48,15 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
  }
  function cancelApproved(){
   if(!approvedRun||approvedRun.writing)return false;
-  approvedRun.revoked=true;stop=true;request?.cancel();return true;
+  approvedRun.revoked=true;stop=true;request?.cancel();
+  if(preparedApproval){preparedApproval=null;approvedRun=null;model.headless=false;model.busy=false;paint();}
+  return true;
  }
  function approvalCurrent(authorization){return approvedRun===authorization&&!authorization.revoked&&!authorization.used&&!stop&&authorization.model===model&&authorization.generation===generation&&authorization.scope===scope()&&!state.navigating&&!state.modal&&!state.pageDirty&&!state.remoteProject&&!state.projects.find(project=>project.id===state.projectId)?.read_only&&!state.estimates.find(estimate=>estimate.id===state.estimateId)?.issued;}
  function approvedProgress(authorization,phase,message,extra={}){
   try{const result=authorization.onProgress?.({phase,message,projectId:authorization.projectId,estimateId:authorization.model?.estimate.id,...extra});result?.catch?.(()=>{});}catch{}
  }
- async function runApproved(input,{onProgress}={}){
+ async function runApproved(input,{onProgress,previewOnly=false}={}){
   if(approvedRun||model.busy)throw new Error('Esperá a que termine la preparación actual o detenela antes de iniciar otra carga');
   if(!input||!['fill','create'].includes(input.mode)||typeof input.brief!=='string'||!input.brief.trim()||input.brief.length>3000)throw new Error('La carga aprobada necesita un objetivo y criterios acotados');
   if(input.lineIds!=null&&(!Array.isArray(input.lineIds)||input.lineIds.some(id=>typeof id!=='string')||new Set(input.lineIds).size!==input.lineIds.length||input.lineIds.length>60))throw new Error('Las partidas aprobadas no son válidas');
@@ -66,7 +68,7 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
   const outline=mode==='create'&&input.outline?.length?parsePlan(JSON.stringify({proposal_lines:input.outline})):null;
   keepDraft();
   const authorization={projectId:state.projectId,initialScope:scope(),onProgress,revoked:false,used:false,writing:false,targetIds:new Set()};approvedRun=authorization;stop=false;
-  let saved=0,created=0,error='',cancelled=false,committed=false,lineIds=[];
+  let saved=0,created=0,error='',cancelled=false,committed=false,lineIds=[],previewReady=false;
   approvedProgress(authorization,'preparing','Leyendo las partidas y los precios actuales para esta carga aprobada.');
   try{
    if(authorization.revoked||authorization.initialScope!==scope()){cancelled=true;return finish();}
@@ -110,6 +112,47 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
    const batch=acuBatch({rows:model.rows,context:model.context,estimate:model.estimate,newEstimate:model.newEstimate,batchId:model.batchId,asOf:model.asOf});
    if(batch.updates.length||batch.deletes.length||batch.acus.some(acu=>!authorization.targetIds.has(acu.line_id)||acu.measurements!==null)||batch.creates.some(line=>!authorization.targetIds.has(line.id))||(model.mode==='fill'&&batch.creates.length))throw new Error('La carga supera el alcance de las partidas aprobadas');
    if(!approvalCurrent(authorization)){cancelled=true;return finish();}
+   if(previewOnly){
+    const rows=model.rows.filter(row=>row.selected);
+    const previewRows=rows.map(row=>{
+     const previous=new Map((row.seed.components||[]).map(component=>[component.resource_id,component.quantity]));
+     const show=component=>{
+      if(model.operation!=='append'&&model.operation!=='productivity')return true;
+      const old=previous.get(component.resource_id);
+      return old==null||String(old)!==String(component.quantity);
+     };
+     const items=row.components.filter(show).map(component=>{
+      const resource=model.context.resources.find(r=>r.id===component.resource_id);
+      return {id:component.resource_id,description:resource?.description||'Insumo no encontrado',kind:resource?.kind||'',quantity:String(component.quantity),unit:resource?.unit||'',price:resource?.price??null,previous_quantity:previous.get(component.resource_id)??null};
+     });
+     return {line_id:row.id,description:row.seed.description,unit:row.seed.unit,mode:model.operation||'fill',items,warnings:[...(row.advisories||[]),...(acuTotals(row,model.context.resources).warnings||[])],unit_cost:acuTotals(row,model.context.resources).unit_cost};
+    });
+    const preview={rows:previewRows,pending:authorization.targetIds.size-batch.acus.length,
+     pendingReasons:model.rows.filter(row=>!row.selected).map(row=>({description:row.seed.description,reasons:[...(row.missing_resources||[]),...acuPreapprovalErrors(row,model.context.resources)].slice(0,6)})),
+     estimateId:model.estimate.id,scope:authorization.scope,id:globalThis.crypto.randomUUID()};
+    preparedApproval={authorization,batch,preview,commit:async()=>{
+     if(!approvalCurrent(authorization)||authorization.previewLineId&&state.selectedLineId!==authorization.previewLineId)
+      throw new Error('La vista o la partida seleccionada cambió. Prepará nuevamente el listado.');
+     try{
+      authorization.used=true;authorization.writing=true;
+      approvedProgress(authorization,'saving','Guardando únicamente los insumos del listado aprobado.');
+      const result=await invoke('apply_reviewed_budget_batch',{batch});committed=true;
+      saved=result.composed;created=result.created;lineIds=batch.acus.map(acu=>acu.line_id);
+      model.applied=true;drafts.delete(model.draftKey);
+      model.lastApplied={estimateId:model.estimate.id,lineIds:[...lineIds]};
+      model.notice=`Guardado: ${saved} ACU y ${created} partidas nuevas.`;
+      if(authorization.generation===generation&&authorization.scope===scope()){
+       state.selectedLineId=lineIds[0];state.panel='acu';
+       if(state.view==='workspace')await loadEstimate();else await openEstimate(model.estimate.id,lineIds[0]);
+      }
+     }catch(caught){error=committed?'El lote se guardó, pero falló el refresco: '+String(caught):String(caught);}
+     finally{authorization.writing=false;preparedApproval=null;finish();}
+     return summary();
+    }};
+    authorization.previewLineId=approvedLineIds.length===1?state.selectedLineId:null;
+    previewReady=true;model.busy=false;model.headless=true;
+    return {previewReady:true,preview,committed:false,saved:0,created:0};
+   }
    approvedProgress(authorization,'saving',`Guardando ${batch.acus.length} ACU completos. Las propuestas con faltantes quedan pendientes.`,{pending:authorization.targetIds.size-batch.acus.length});
    if(!approvalCurrent(authorization)){cancelled=true;return finish();}
    authorization.used=true;authorization.writing=true;
@@ -129,7 +172,7 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
    if(committed)error='Se guardó el lote, pero falló el refresco de la vista. Reabrí el presupuesto. '+String(caught);
    else if(authorization.revoked||stop||(authorization.model&&authorization.generation!==generation)){cancelled=true;}
    else error=String(caught);
-  }finally{if(approvedRun===authorization)finish();}
+  }finally{if(approvedRun===authorization&&!previewReady)finish();}
   return summary();
   function summary(){
    const snapshot=authorization.model,done=new Set(lineIds);
@@ -146,6 +189,15 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
    return summary();
   }
  }
+ async function commitPrepared(previewId,{onProgress}={}){
+  const saved=preparedApproval;
+  if(!saved||saved.preview.id!==previewId)throw new Error('El listado anterior ya no está vigente. Generá una nueva propuesta.');
+  if(saved.authorization.revoked||saved.authorization.used)throw new Error('La propuesta ya fue cancelada o utilizada.');
+  saved.authorization.onProgress=onProgress;
+  try{return await saved.commit();}
+  catch(error){cancelApproved();throw error;}
+ }
+ function cancelPrepared(){return cancelApproved();}
  function targets(){return model.mode==='create'?model.seeds.filter(s=>model.targetIds.has(s.id)):model.context.lines.filter(l=>model.targetIds.has(l.id)&&(model.operation!=='append'||model.appendTargetIds.has(l.id))).map(acuSeed);}
  function additionPrompt(){return 'OPERACIÓN ADITIVA: components debe contener SOLO los insumos adicionales de este pedido y sus incrementos, nunca la composición existente ni reemplazos. CPOBRAS preserva la composición original y suma esos incrementos. Para cada incremento informá quantity_scope:"per_unit" si es consumo por una unidad de partida, o "total" si quantity es una cantidad total explícita del pedido; CPOBRAS la dividirá por la cantidad actual de la partida. No confundas cantidades totales con consumos. quantity_unit debe ser la unidad real del catálogo. Si el pedido usa otra unidad y falta una conversión comprobable (por ejemplo m² frente a m), indicá el faltante y no asumas equivalencia. No cambies el rubro ni propongas mediciones. ';}
  function promptContext(seeds,resources,examples){const text=acuPromptContext(seeds,resources,examples,model.brief);return model.operation==='append'?JSON.stringify({...JSON.parse(text),operation:'append'}):text;}
@@ -345,5 +397,5 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
  });
  host.addEventListener('toggle',event=>{const t=event.target;if(!t.isConnected)return;if(t.dataset.acuProposal){const row=model.rows.find(r=>r.id===t.dataset.acuProposal);if(row)row.expanded=t.open;}if(t.dataset.acuMeasureDetail){const row=model.rows.find(r=>r.id===t.dataset.acuMeasureDetail);if(row)row.measurementExpanded=t.open;}if(t.dataset.acuDetail){if(t.open)model.details.add(t.dataset.acuDetail);else model.details.delete(t.dataset.acuDetail);}},true);
  host.addEventListener('keydown',event=>{event.stopPropagation();if(event.key==='Escape')void action('close',event.target);});
- paint();return {open,syncScope,resumeFromLibrary,runApproved,cancelApproved,showLatest:()=>open()};
+ paint();return {open,syncScope,resumeFromLibrary,runApproved,commitPrepared,cancelPrepared,cancelApproved,showLatest:()=>open()};
 }
