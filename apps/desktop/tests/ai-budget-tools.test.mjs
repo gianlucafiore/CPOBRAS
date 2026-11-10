@@ -113,7 +113,7 @@ test('natural-language rubro CRUD produces only precise plans, with no write dur
  const plan=prepareSectionEdits(create.toolCall.args,state);
  assert.deepEqual(plan.batch.creates.map(a=>a.title),['Instalaciones','Terminaciones']);
  assert.equal(plan.projectId,'project');assert.equal(plan.estimateId,'estimate');
- assert.throws(()=>prepareSectionEdits({action:'create',titles:'Fundaciones'},state),/Ya existe/);
+ assert.throws(()=>prepareSectionEdits({action:'create',titles:'Fundaciones'},state),/ya existen/i);
  const update=prepareSectionEdits({action:'update',target:'Fundaciones',new_title:'Movimiento de suelos',new_code:'00'},state);
  assert.deepEqual(update.batch.renames[0],{id:'foundation',expected:{title:'Fundaciones',code:'01',parent_id:null,position:0},title:'Movimiento de suelos',code:'00'});
  const removal=prepareSectionEdits({action:'delete',target:'Fundaciones'},state);
@@ -125,5 +125,5 @@ test('natural-language rubro CRUD produces only precise plans, with no write dur
  assert.equal(parseSectionToolArgs({action:'create',titles:'Fundaciones; Fundaciones'}),null);
  assert.throws(()=>prepareSectionEdits({action:'delete',target:'Borrador inexistente'},state),/No encontré/);
  assert.throws(()=>prepareSectionEdits({action:'update',target:'01',new_title:'Cubiertas'},state),/ya existe/i);
- assert.throws(()=>prepareSectionEdits({action:'delete',target:'01'}, {...state,estimates:[{id:'estimate',issued:true}]}),/emitido/);
+ assert.throws(()=>prepareSectionEdits({action:'delete',target:'01'}, {...state,estimates:[{id:'estimate',issued:true}]}),/elaboración/);
 });
