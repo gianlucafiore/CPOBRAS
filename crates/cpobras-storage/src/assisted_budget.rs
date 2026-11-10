@@ -55,20 +55,25 @@ pub struct ReviewedBatch {
     pub creates: Vec<NewLine>,
     #[serde(default)]
     pub deletes: Vec<Deletion>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub acus: Vec<crate::assisted_acu::AcuChange>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BatchResult {
     pub updated: usize,
     pub created: usize,
     pub deleted: usize,
+    #[serde(default)]
+    pub composed: usize,
 }
 fn invalid(text: &str) -> StorageError {
     StorageError::InvalidValue(text.into())
 }
 impl LocalStore {
     pub fn apply_reviewed_budget_batch(&mut self, batch: &ReviewedBatch) -> Result<BatchResult> {
-        if batch.updates.len() + batch.creates.len() + batch.deletes.len() == 0
-            || batch.updates.len() + batch.creates.len() + batch.deletes.len() > 1000
+        if batch.updates.len() + batch.creates.len() + batch.deletes.len() + batch.acus.len() == 0
+            || batch.updates.len() + batch.creates.len() + batch.deletes.len() + batch.acus.len()
+                > 1000
         {
             return Err(invalid("Seleccioná entre 1 y 1000 partidas"));
         }
@@ -116,6 +121,7 @@ impl LocalStore {
         if !allowed {
             return Err(invalid("Elegí un presupuesto vigente, propio y en elaboración, con la misma moneda de la propuesta"));
         }
+        crate::assisted_acu::validate_changes(&tx, batch)?;
         let mut ids = HashSet::new();
         for update in &batch.updates {
             if !ids.insert(update.line_id) || update.unit_price < D::ZERO {
@@ -232,11 +238,13 @@ impl LocalStore {
                 )?;
             }
         }
+        crate::assisted_acu::apply_changes(&tx, batch)?;
         crate::estimates::checked_budget_total(&tx, batch.estimate_id)?;
         let result = BatchResult {
             updated: batch.updates.len(),
             created: batch.creates.len(),
             deleted: batch.deletes.len(),
+            composed: batch.acus.len(),
         };
         tx.execute("INSERT INTO assisted_budget_batches(id,estimate_id,request_json,result_json) VALUES(?1,?2,?3,?4)",params![batch.id.to_string(),batch.estimate_id.to_string(),request,serde_json::to_string(&result)?])?;
         tx.commit()?;

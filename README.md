@@ -475,9 +475,15 @@ lo escrito.
 ### Asistente IA por API (opcional)
 
 El botón **✦ IA** abre una consola inferior. En **Configurar**, elegí OpenAI o
-Claude, un modelo habilitado en tu cuenta y su clave de API. La clave se mantiene
-solo en memoria hasta desconectar o cerrar CPOBRAS: no se guarda en SQLite,
-localStorage, respaldos ni archivos. Una suscripción a ChatGPT o Claude no
+Claude, un modelo habilitado en tu cuenta y su clave de API. El proveedor, modelo y clave se guardan
+en el almacén seguro de credenciales del sistema: Secret Service en Linux,
+Administrador de credenciales en Windows y Keychain en macOS. Se restauran al
+abrir la consola sin volver a pegar la clave. No se guardan en SQLite,
+localStorage ni respaldos del proyecto. Podés cambiar el modelo dejando vacía
+la clave para conservarla, o borrar la conexión guardada desde Configurar.
+En Linux se necesita un servicio Secret Service disponible y desbloqueado
+(por ejemplo, GNOME Keyring); si no está disponible se informa el error y no
+se escribe una copia en texto plano. Una suscripción a ChatGPT o Claude no
 sustituye la facturación de API. Los nombres de modelo se pueden cambiar según
 su disponibilidad en cada cuenta.
 
@@ -518,12 +524,12 @@ Desde la consola IA se puede abrir:
   unidades distintas y coincidencias ambiguas requieren revisión. La IA puede
   sugerir correspondencias para hasta 50 filas pendientes por consulta, sin
   cambiar sus precios. Esas sugerencias quedan desmarcadas.
-- **Crear partidas de obra**: describí los trabajos. La IA propone hasta 60
+- **Crear partidas con ACU**: describí los trabajos. La IA propone hasta 60
   partidas y sus rubros, sin inventar precios ni cantidades faltantes. Revisá,
   editá y seleccioná las que quieras incorporar. En un proyecto propio sin
   presupuesto abierto se puede crear uno nuevo junto con las partidas al
-  confirmar. Los datos nuevos que queden sin definir se guardan explícitamente
-  en cero para completar después. Se avisa si una descripción y unidad ya existen.
+  confirmar. Los datos nuevos de cantidad que queden sin definir se guardan explícitamente
+  en cero para completar después; los precios de los ACU se calculan con los insumos. Se avisa si una descripción y unidad ya existen.
 - **Editar / eliminar partidas**: pedí cambios por IA o revisá la lista
   manualmente. Se pueden modificar descripción, unidad, cantidad y precio, y
   proponer eliminaciones. Las propuestas IA quedan desmarcadas. La vista previa
@@ -539,7 +545,7 @@ presupuestos emitidos, retirados o de otras organizaciones quedan protegidos.
 Las eliminaciones usan el mismo mecanismo histórico que la edición manual:
 conservan los documentos emitidos y el alcance histórico de planificación.
 Cambiar precio o unidad de una partida con ACU la pasa a precio manual,
-conservando la composición anterior. Las nuevas partidas no incluyen ACU inferidos.
+conservando la composición anterior. La carga simple crea partidas con precio manual; para composición, rendimientos y metrado usá el panel de ACU siguiente.
 
 Los archivos se leen localmente. La generación de propuestas y sugerencias de
 correspondencia usan la API configurada y requieren la autorización de envío de
@@ -547,3 +553,54 @@ la consola; pueden generar cargos mayores que una respuesta breve. No se sube
 el Excel completo: las correspondencias comparten descripciones, unidades,
 códigos e identificadores de las filas candidatas. La vista previa y la
 asignación manual de precios pueden usarse sin llamadas a IA.
+
+
+### ACU, rendimientos, mediciones y referencias asistidos
+
+En **✦ IA → ACU · rendimientos y metrado** se pueden completar partidas
+existentes o preparar nuevas partidas con su propio ACU. También se puede abrir
+este panel desde una lista de partidas propuesta por el chat. Las solicitudes
+claras de crear o completar ACU, revoques, mamposterías o mediciones desde el chat
+abren la preparación con el texto ingresado.
+
+- La selección inicial toma las partidas sin composición o con ACU vacío. Se
+  pueden seleccionar otras; reemplazar un ACU existente requiere revisión y
+  confirmación. La generación se hace en consultas de hasta cinco partidas,
+  informa su cantidad y posibles cargos y conserva los resultados recibidos si
+  se detiene o falla una consulta. No se reintenta automáticamente.
+- Cada propuesta muestra sus insumos, unidad, consumo por unidad de partida,
+  precio tomado del sistema, parciales, costo unitario, cantidad y total. Los
+  consumos pueden editarse; se admiten coma o punto decimal sin miles. Se revisan
+  especialmente conversiones kg/bolsa y horas/jornal, espesores y desperdicios.
+  Los consumos estimados por IA quedan identificados como propuestas revisables.
+- Los precios se resuelven primero desde el presupuesto; si el insumo no tiene
+  un precio fijado allí, se toma el catálogo en la misma moneda a la fecha elegida.
+  El modelo no asigna precios. Un precio ausente bloquea la aplicación; un precio
+  cero se señala sin confundirlo con ausencia. Desde el panel puede registrarse
+  explícitamente un precio faltante en el historial del catálogo.
+- Podés elegir hasta tres presupuestos propios o ACU de biblioteca como ejemplos,
+  incluidos presupuestos emitidos. Se leen sus recetas y consumos, sin modificar
+  los originales ni copiar precios históricos. También puede copiarse una receta
+  localmente a una propuesta sin llamar a la API, si coincide la unidad de partida.
+  Los ejemplos son contexto para la consulta, no entrenamiento permanente.
+- Se pueden crear rubros, usar un rubro existente o reasignar la partida desde la
+  revisión. Las propuestas nuevas pueden crear el presupuesto si el proyecto aún
+  no tiene uno abierto.
+- Las mediciones se proponen solo con dimensiones conocidas y se muestran como
+  factor/caras × largo × ancho × alto, con descuentos para aberturas. CPOBRAS
+  calcula la cantidad con decimales exactos. Aplicar esas medidas es una selección
+  aparte: conserva la cantidad anterior por defecto; al confirmar reemplaza los
+  renglones de Metrados y conserva el valor manual previo para recuperarlo si se
+  elimina el metrado después. Si faltan dimensiones se solicitan o quedan pendientes.
+
+Los ACU y el metrado elegidos se aplican en el mismo lote atómico que las partidas
+y rubros. Si cambian recursos, precios, la partida, su receta o las mediciones
+desde la revisión, se rechaza el lote completo. No se reprician silenciosamente
+partidas ajenas a la selección ni se modifican ACU de biblioteca o referencias.
+Las propuestas quedan desmarcadas hasta revisarlas. Al cerrar el panel se pueden
+retomar en memoria mientras CPOBRAS siga abierto (hasta cinco preparaciones), por
+ejemplo para agregar un insumo en Inicio y volver a actualizar el catálogo.
+
+Los formularios de carga y preparación de ACU usan el tema claro de CPOBRAS.
+La consola permanece oscura y sus desplegables usan controles claros con texto
+oscuro para mantener contraste en GTK/WebKit.

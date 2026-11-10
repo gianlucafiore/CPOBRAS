@@ -6,6 +6,7 @@ use uuid::Uuid;
 
 pub mod adjustments;
 pub mod advanced_costing;
+pub mod assisted_acu;
 pub mod assisted_budget;
 pub mod budget_patterns;
 pub mod budget_pricing;

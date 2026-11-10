@@ -5271,6 +5271,7 @@ fn reviewed_batch_is_atomic_and_detects_stale_prices() {
     use crate::assisted_budget::*;
     let (mut s, _, e, line) = fixture();
     let mut batch = ReviewedBatch {
+        acus: vec![],
         id: Uuid::new_v4(),
         estimate_id: e.id,
         currency: "ARS".into(),
@@ -5311,6 +5312,7 @@ fn reviewed_batch_can_create_a_budget_but_rolls_it_back_on_bad_lines() {
     use crate::assisted_budget::*;
     let (mut s, p, _, _) = fixture();
     let mut batch = ReviewedBatch {
+        acus: vec![],
         id: Uuid::new_v4(),
         estimate_id: Uuid::new_v4(),
         currency: "ARS".into(),
@@ -5345,6 +5347,7 @@ fn reviewed_batch_edits_and_deletes_with_history_and_protects_issued_budgets() {
     update.description = Some("Descripción editada".into());
     update.quantity = Some(3.into());
     let edit = ReviewedBatch {
+        acus: vec![],
         id: Uuid::new_v4(),
         estimate_id: e.id,
         currency: "ARS".into(),
@@ -5359,6 +5362,7 @@ fn reviewed_batch_edits_and_deletes_with_history_and_protects_issued_budgets() {
     assert_eq!(changed.quantity, 3.into());
     let expected = reviewed_update(&changed, 0.into()).expected;
     let mut deletion = ReviewedBatch {
+        acus: vec![],
         id: Uuid::new_v4(),
         estimate_id: e.id,
         currency: "ARS".into(),
@@ -5387,6 +5391,7 @@ fn reviewed_batch_edits_and_deletes_with_history_and_protects_issued_budgets() {
     let (mut s, _, e, line) = fixture();
     s.issue_estimate(e.id).unwrap();
     let issued = ReviewedBatch {
+        acus: vec![],
         id: Uuid::new_v4(),
         estimate_id: e.id,
         currency: "ARS".into(),
@@ -5396,4 +5401,219 @@ fn reviewed_batch_edits_and_deletes_with_history_and_protects_issued_budgets() {
         deletes: vec![],
     };
     assert!(s.apply_reviewed_budget_batch(&issued).is_err());
+}
+
+fn assisted_acu_fixture() -> (LocalStore, Project, Estimate, EstimateItem, Uuid) {
+    use crate::resource_catalog::{Resource, ResourcePrice};
+    let (mut s, p, e, mut line) = fixture();
+    line.unit = "m²".into();
+    s.update_estimate_item(&line).unwrap();
+    let id = Uuid::new_v4();
+    s.save_resource(&Resource {
+        id,
+        code: "MAT-ACU".into(),
+        description: "Material de prueba".into(),
+        unit: "kg".into(),
+        kind: cpobras_core::ResourceKind::Material,
+        active: true,
+    })
+    .unwrap();
+    s.add_resource_price(&ResourcePrice {
+        id: Uuid::new_v4(),
+        resource_id: id,
+        amount: Decimal::new(29, 2),
+        currency: Currency::Ars,
+        effective_date: "2026-11-01".into(),
+        source: None,
+    })
+    .unwrap();
+    (s, p, e, line, id)
+}
+fn assisted_acu_batch(
+    s: &LocalStore,
+    p: &Project,
+    e: &Estimate,
+    line: &EstimateItem,
+    id: Uuid,
+) -> crate::assisted_budget::ReviewedBatch {
+    use crate::{assisted_acu::*, assisted_budget::*};
+    let context = s
+        .assisted_acu_context(p.id, Some(e.id), "2026-11-10")
+        .unwrap();
+    let snapshot = context.lines.iter().find(|l| l.id == line.id).unwrap();
+    ReviewedBatch {
+        id: Uuid::new_v4(),
+        estimate_id: e.id,
+        currency: "ARS".into(),
+        new_estimate: None,
+        updates: vec![],
+        creates: vec![],
+        deletes: vec![],
+        acus: vec![AcuChange {
+            line_id: line.id,
+            expected: Some(ExpectedLine {
+                description: line.description.clone(),
+                unit: line.unit.clone(),
+                quantity: line.quantity,
+                unit_cost: line.unit_cost_snapshot,
+                analysis_id: line.analysis_id,
+            }),
+            expected_recipe: snapshot.expected_recipe.clone(),
+            expected_section: snapshot.section_id,
+            as_of: "2026-11-10".into(),
+            components: vec![Consumption {
+                resource_id: id,
+                quantity: Decimal::new(3, 1),
+                expected_resource: context.resources.into_iter().find(|r| r.id == id).unwrap(),
+            }],
+            section_id: None,
+            section_title: Some("Revoques".into()),
+            measurements: None,
+            expected_takeoffs: snapshot.takeoffs.clone(),
+            expected_formula: snapshot.formula.clone(),
+            notes: "Consumo revisado por unidad de partida".into(),
+        }],
+    }
+}
+#[test]
+fn assisted_acu_calculates_exact_catalog_cost_and_retry_does_not_duplicate() {
+    let (mut s, p, e, line, id) = assisted_acu_fixture();
+    let batch = assisted_acu_batch(&s, &p, &e, &line, id);
+    let result = s.apply_reviewed_budget_batch(&batch).unwrap();
+    assert_eq!(result.composed, 1);
+    let saved = s.estimate_items(e.id).unwrap().remove(0);
+    assert_eq!(saved.unit_cost_snapshot, Decimal::new(87, 3));
+    assert_eq!(saved.quantity, line.quantity);
+    assert!(saved.analysis_id.is_some());
+    assert_eq!(s.list_budget_sections(e.id).unwrap()[0].title, "Revoques");
+    s.apply_reviewed_budget_batch(&batch).unwrap();
+    assert_eq!(
+        s.conn
+            .query_row("SELECT COUNT(*) FROM line_analysis_snapshots", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+}
+#[test]
+fn assisted_acu_rejects_changed_or_missing_prices_without_partial_writes() {
+    use crate::resource_catalog::ResourcePrice;
+    let (mut s, p, e, line, id) = assisted_acu_fixture();
+    let batch = assisted_acu_batch(&s, &p, &e, &line, id);
+    s.add_resource_price(&ResourcePrice {
+        id: Uuid::new_v4(),
+        resource_id: id,
+        amount: 1.into(),
+        currency: Currency::Ars,
+        effective_date: "2026-11-09".into(),
+        source: None,
+    })
+    .unwrap();
+    assert!(s.apply_reviewed_budget_batch(&batch).is_err());
+    assert_eq!(
+        s.estimate_items(e.id).unwrap()[0].unit_cost_snapshot,
+        line.unit_cost_snapshot
+    );
+    assert!(s.list_budget_sections(e.id).unwrap().is_empty());
+    let mut missing = assisted_acu_batch(&s, &p, &e, &line, id);
+    missing.acus[0].components[0].expected_resource.price = None;
+    assert!(s.apply_reviewed_budget_batch(&missing).is_err());
+}
+#[test]
+fn assisted_acu_measurements_are_calculated_and_restore_previous_manual_quantity() {
+    use crate::assisted_acu::Dimensions;
+    let (mut s, p, e, line, id) = assisted_acu_fixture();
+    let mut batch = assisted_acu_batch(&s, &p, &e, &line, id);
+    batch.acus[0].measurements = Some(vec![
+        Dimensions {
+            note: "Dos caras".into(),
+            factor: 2.into(),
+            length: 20.into(),
+            width: 1.into(),
+            height: 3.into(),
+            sign: 1,
+        },
+        Dimensions {
+            note: "Abertura en ambas caras".into(),
+            factor: 2.into(),
+            length: 2.into(),
+            width: 1.into(),
+            height: 2.into(),
+            sign: -1,
+        },
+    ]);
+    s.apply_reviewed_budget_batch(&batch).unwrap();
+    assert_eq!(s.estimate_items(e.id).unwrap()[0].quantity, 112.into());
+    let rows = s.list_takeoff_rows(e.id, line.id).unwrap();
+    assert_eq!(rows.len(), 2);
+    for row in rows {
+        s.delete_takeoff_row(row.id).unwrap();
+    }
+    assert_eq!(s.estimate_items(e.id).unwrap()[0].quantity, line.quantity);
+}
+#[test]
+fn assisted_acu_reuses_reference_consumption_but_not_historical_prices() {
+    use crate::{line_workflows::LineResourceInput, resource_catalog::ResourcePrice};
+    let (mut s, p, e, line, id) = assisted_acu_fixture();
+    s.save_line_resources(
+        e.id,
+        line.id,
+        &[LineResourceInput {
+            resource_id: id,
+            quantity: 2.into(),
+            unit_price: 10.into(),
+        }],
+    )
+    .unwrap();
+    s.issue_estimate(e.id).unwrap();
+    let source = s
+        .get_analysis(s.estimate_items(e.id).unwrap()[0].analysis_id.unwrap())
+        .unwrap()
+        .unwrap();
+    let target = Estimate {
+        id: Uuid::new_v4(),
+        project_id: p.id,
+        title: "Destino".into(),
+        currency: Currency::Ars,
+        issued: false,
+    };
+    s.create_estimate(&target).unwrap();
+    let target_line = EstimateItem {
+        id: Uuid::new_v4(),
+        estimate_id: target.id,
+        position: 0,
+        analysis_id: None,
+        description: "Revoque nuevo".into(),
+        unit: "m²".into(),
+        quantity: 1.into(),
+        unit_cost_snapshot: 0.into(),
+    };
+    s.add_estimate_item(&target_line).unwrap();
+    s.add_resource_price(&ResourcePrice {
+        id: Uuid::new_v4(),
+        resource_id: id,
+        amount: 20.into(),
+        currency: Currency::Ars,
+        effective_date: "2026-11-09".into(),
+        source: None,
+    })
+    .unwrap();
+    let examples = s
+        .assisted_acu_reference(&format!("budget:{}", e.id))
+        .unwrap();
+    let mut batch = assisted_acu_batch(&s, &p, &target, &target_line, id);
+    batch.acus[0].components[0].quantity = examples[0].components[0].quantity;
+    s.apply_reviewed_budget_batch(&batch).unwrap();
+    assert_eq!(
+        s.estimate_items(target.id).unwrap()[0].unit_cost_snapshot,
+        40.into()
+    );
+    assert_eq!(
+        s.get_analysis(source.id)
+            .unwrap()
+            .unwrap()
+            .direct_unit_cost()
+            .unwrap(),
+        20.into()
+    );
 }
