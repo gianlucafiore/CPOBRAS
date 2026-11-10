@@ -1,4 +1,5 @@
 import {parsePlan,changeProposals} from "./ai-budget-import.js";
+import {parseBudgetToolCall} from './ai-budget-tools.js';
 const acuUuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function readAcuRequest(raw){
  if(!raw||typeof raw!=='object'||Array.isArray(raw)||Object.keys(raw).some(key=>!['mode','brief','line_ids'].includes(key)))throw new Error('Usá una solicitud de ACU con objetivo, criterios y selección de partidas válidos.');
@@ -232,6 +233,13 @@ export function parseAiReply(text) {
   let value;
   try { value=JSON.parse(text.trim().replace(/^```(?:json)?\s*/i,"").replace(/\s*```$/,"")); } catch { return {answer:text,proposal:null}; }
   if (!value || typeof value!=="object" || typeof value.answer!=="string") return {answer:text,proposal:null};
+  if(Object.hasOwn(value,'tool_call')){
+    // Tool calls are read-only and explicitly whitelisted; malformed or
+    // unsupported instructions never become an action.
+    const toolCall=parseBudgetToolCall(value.tool_call);
+    if(!toolCall)return {answer:'No se pudo interpretar la consulta. Reformulá el cálculo o análisis solicitado.',proposal:null,actionError:'Herramienta no permitida o parámetros incompletos.'};
+    return {answer:value.answer,proposal:null,toolCall};
+  }
   if(Object.hasOwn(value,'acu_request')){
     try{return {answer:value.answer,proposal:null,acuRequest:readAcuRequest(value.acu_request)};}
     catch(error){return {answer:"No se preparó ninguna acción de ACU. "+error.message,proposal:null,actionError:error.message};}
