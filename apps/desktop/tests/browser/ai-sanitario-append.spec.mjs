@@ -65,9 +65,8 @@ const request='Agregá el inodoro línea Mónaco y el bidet línea Mónaco a est
 test('direct approval adds both Mónaco fixtures without removing existing labor',async({page})=>{
  await openFixture(page,'complete');
  await ask(page,request);
- await expect(page.getByRole('button',{name:'Preparar listado de insumos',exact:true})).toBeVisible();
+ await expect(page.locator('.ai-ingredient-preview')).toBeVisible();
  expect(await page.evaluate(()=>window.__sanitaryFixture.batches.length)).toBe(0);
- await page.getByRole('button',{name:'Preparar listado de insumos'}).click();
  await expect(page.locator('.ai-ingredient-preview')).toContainText('Inodoro con depósito línea Mónaco');
  await expect(page.locator('.ai-ingredient-preview')).toContainText('Bidé Mónaco con grifería');
  expect(await page.evaluate(()=>window.__sanitaryFixture.batches.length)).toBe(0);
@@ -88,8 +87,7 @@ test('direct approval adds both Mónaco fixtures without removing existing labor
 test('missing bidet remains pending and cannot re-save labor-only ACU',async({page})=>{
  await openFixture(page,'missing');
  await ask(page,request);
- await expect(page.getByRole('button',{name:'Preparar listado de insumos',exact:true})).toBeVisible();
- await page.getByRole('button',{name:'Preparar listado de insumos'}).click();
+ await expect(page.locator('.ai-ingredient-preview')).toBeVisible();
  await expect(page.locator('.ai-approval-status')).toContainText('No hay un guardado confirmado');
  await expect(page.locator('.ai-pending-reasons')).toContainText('bidet');
  const result=await page.evaluate(()=>({writes:window.__sanitaryFixture.batches.length,components:window.__sanitaryFixture.state.lines[0].components}));
