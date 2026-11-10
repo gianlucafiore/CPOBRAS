@@ -16,12 +16,24 @@ const invoke=async(name,args={})=>{
  if(name==='ai_status')return {configured:true,provider:'openai',model:'test-model'};
  if(name==='ai_cancel')return null;
  if(name==='ai_catalog_context')return {currency:'ARS',resources:[]};
+ if(name==='assisted_acu_context')return {currency:'ARS',resources:[],lines:structuredClone(state.lines),sections:[]};
  if(name==='ai_chat'){
   const question=args.messages.at(-1).content.toLowerCase();
-  const op=question.includes('renombr')?{action:'update',target:'Fundaciones',new_title:'Movimiento de suelos'}:
+  if(question.includes('9 partidas')){
+   const names=['Movimiento de suelos','Fundaciones','Estructuras','Mampostería','Cubiertas','Revestimientos','Sanitaria','Eléctrica','Pinturas'];
+   return {text:JSON.stringify({answer:'Nueve partidas preliminares',proposal_lines:names.map(description=>({description,unit:'gl',quantity:'1',unit_price:'0',section:''}))})};
+  }
+  const op=question.includes('convert')?{action:'convert',source:'last_created'}:
+   question.includes('renombr')?{action:'update',target:'Fundaciones',new_title:'Movimiento de suelos'}:
    question.includes('borr')?{action:'delete',target:'Movimiento de suelos'}:
    {action:'create',titles:'Fundaciones; Estructuras; Cubiertas'};
   return {text:JSON.stringify({answer:'Propuesta de rubros',tool_call:{name:'manage_sections',args:op}}),input_tokens:25,output_tokens:35};
+ }
+ if(name==='apply_reviewed_budget_batch'){
+  const batch=args.batch;
+  harness.writes.push(structuredClone(args));
+  for(const item of batch.creates)state.lines.push({id:item.id,description:item.description,unit:item.unit,quantity:item.quantity,unit_cost:item.unit_price,analysis_id:null,components:[],takeoffs:[]});
+  return {created:batch.creates.length,updated:0,deleted:0,composed:0};
  }
  if(name==='apply_reviewed_section_batch'){
   harness.writes.push(structuredClone(args));
@@ -97,4 +109,32 @@ test('natural-language creates, renames and removes rubros without deleting budg
  expect(result.state.lines[0].description).toBe('Excavación');
  expect(result.state.assignments).toEqual({});
  expect(result.state.sections.find(s=>s.id==='sub').parent_id).toBe(null);
+});
+
+
+test('chat converts exactly the nine last-created generic partidas into rubros without touching real work',async({page})=>{
+ await page.route('**/src/main.js*',route=>route.fulfill({contentType:'application/javascript',body:source}));
+ await page.goto('/');await page.waitForFunction(()=>window.__sectionHarness?.ready);
+ await page.locator('.ai-launch').click();await page.locator('[name=ai-consent]').check();
+ const ask=async text=>{await page.locator('#ai-prompt').fill(text);await page.locator('#ai-question button').click();};
+ await ask('Creá 9 partidas preliminares de rubros para una vivienda');
+ await expect(page.getByRole('button',{name:'Sí, aprobar y crear partidas'})).toBeVisible();
+ await page.getByRole('button',{name:'Sí, aprobar y crear partidas'}).click();
+ await expect(page.locator('.ai-approval-status').last()).toContainText('9 partidas nuevas');
+ const before=await page.evaluate(()=>window.__sectionHarness.state.lines.length);
+ expect(before).toBe(10);
+ await ask('Convertí esas 9 partidas en rubros');
+ const preview=page.locator('.ai-ingredient-preview').last();
+ await expect(preview).toContainText('Convertir partida genérica en rubro: Fundaciones');
+ await expect(preview).toContainText('Convertir partida genérica en rubro: Pinturas');
+ const writesBefore=await page.evaluate(()=>window.__sectionHarness.writes.length);
+ expect(writesBefore).toBe(1);
+ await preview.getByRole('button',{name:'Aprobar cambios de rubros'}).click();
+ await expect(page.locator('.ai-approval-status').last()).toContainText('9 partidas genéricas convertidas');
+ const result=await page.evaluate(()=>({lines:window.__sectionHarness.state.lines,sections:window.__sectionHarness.state.sections,writes:window.__sectionHarness.writes}));
+ expect(result.writes).toHaveLength(2);
+ expect(result.lines).toHaveLength(1);
+ expect(result.lines[0].description).toBe('Excavación');
+ expect(result.sections).toHaveLength(9);
+ expect(result.sections.map(s=>s.title)).toContain('Fundaciones');
 });
