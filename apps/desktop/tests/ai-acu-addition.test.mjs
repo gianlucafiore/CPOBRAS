@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {appendRequest,parseAcuAdditions,mergeAcuAddition,additionPreservationErrors} from '../src/services/ai-acu-addition.js';
+import {appendRequest,parseAcuAdditions,mergeAcuAddition,additionPreservationErrors,additionMissingFixtures} from '../src/services/ai-acu-addition.js';
 import {acuSeed,acuTotals,acuBatch} from '../src/services/ai-acu.js';
 
 const resources=[
@@ -12,7 +12,7 @@ const seed=acuSeed({id:'line-1',description:'Revoque exterior',unit:'m²',quanti
 const component=(id,quantity,quantityUnit,scope='per_unit')=>({resource_id:id,quantity,quantity_unit:quantityUnit,quantity_scope:scope});
 function addition(components,{target=seed,brief='',section='Rubro distinto'}={}){
  const response=JSON.stringify({acu_proposals:[{line_id:target.id,components,section,measurements:[],assumptions:[],missing_resources:[]}]});
- return mergeAcuAddition(parseAcuAdditions(response,[target],resources,brief)[0],resources);
+ return mergeAcuAddition(parseAcuAdditions(response,[target],resources,brief)[0],resources,brief);
 }
 const batch=row=>acuBatch({rows:[{...row,selected:true}],context:{resources,currency:'ARS'},estimate:{id:'estimate-1'},newEstimate:null,batchId:'batch-1',asOf:'2026-11-09'});
 
@@ -78,4 +78,42 @@ test('unknown resources, duplicate additions and incompatible units stay blocked
  assert.ok(additionPreservationErrors(reduced).length);
  assert.ok(additionPreservationErrors({...legacy,section_id:'another-section'}).length);
  assert.ok(additionPreservationErrors({...legacy,apply_measurements:true}).length);
+});
+
+test('additive sanitary repair keeps labor and refuses to save only one of two required Mónaco fixtures',()=>{
+ const inodoroId='mat-inodoro',bidetId='mat-bidet',otherId='mat-other';
+ const catalog=[
+  {id:'labor-inodoro',description:'Colocación de inodoro con depósito',unit:'un',kind:'labor',price:'120'},
+  {id:'labor-bidet',description:'Colocación de bidet con grifería',unit:'un',kind:'labor',price:'140'},
+  {id:inodoroId,description:'Inodoro con depósito línea Mónaco',unit:'un',kind:'material',price:'500'},
+  {id:bidetId,description:'Bidé Mónaco con grifería',unit:'un',kind:'material',price:'450'},
+  {id:otherId,description:'Inodoro con depósito línea Delta',unit:'un',kind:'material',price:'400'},
+ ];
+ const target=acuSeed({id:'sanitary-line',description:'Instalación de sanitarios: 1 inodoro y 1 bidet con mano de obra',unit:'un',quantity:'1',unit_cost:'260',analysis_id:'old-acu',expected_recipe:'original',section_id:null,section:'',components:[{resource_id:'labor-inodoro',quantity:'1'},{resource_id:'labor-bidet',quantity:'1'}],takeoffs:[],formula:null});
+ const brief='Los dos línea Mónaco. No se cargaron los dos artefactos materiales, por favor cargalos en la partida.';
+ const make=(components)=>{
+  const answer=JSON.stringify({acu_proposals:[{line_id:target.id,components,measurements:[],missing_resources:[]}]});
+  return mergeAcuAddition(parseAcuAdditions(answer,[target],catalog,brief)[0],catalog,brief);
+ };
+ const add=(id)=>({resource_id:id,quantity:'1',quantity_unit:'un',requested_description:catalog.find(x=>x.id===id).description});
+ const onlyLabor=make([]);
+ assert.equal(onlyLabor.components.length,2);
+ assert.match(onlyLabor.missing_resources.join(' '),/inodoro/);
+ assert.match(onlyLabor.missing_resources.join(' '),/bidet/);
+ assert.ok(acuTotals(onlyLabor,catalog).errors.length);
+ const one=make([add(inodoroId)]);
+ assert.equal(one.components.length,3);
+ assert.match(one.missing_resources.join(' '),/bidet/);
+ assert.equal(acuTotals(one,catalog).unit_cost,null);
+ const wrongVariant=make([add(otherId),add(bidetId)]);
+ assert.match(wrongVariant.missing_resources.join(' '),/inodoro/);
+ const complete=make([add(inodoroId),add(bidetId)]);
+ assert.deepEqual(complete.components.map(x=>x.resource_id),['labor-inodoro','labor-bidet',inodoroId,bidetId]);
+ assert.deepEqual(complete.missing_resources,[]);
+ assert.equal(acuTotals(complete,catalog).errors.length,0);
+ complete.selected=true;
+ const batch=acuBatch({rows:[complete],context:{resources:catalog,currency:'ARS'},estimate:{id:'e'},newEstimate:null,batchId:'b',asOf:'2026-11-10'});
+ assert.equal(batch.acus.length,1);
+ assert.deepEqual(batch.acus[0].components.map(c=>c.resource_id),['labor-inodoro','labor-bidet',inodoroId,bidetId]);
+ assert.deepEqual(additionMissingFixtures('Agregá mano de obra de colocación de inodoro',target,[add(inodoroId)],catalog),[]);
 });
