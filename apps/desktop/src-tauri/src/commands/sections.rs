@@ -130,3 +130,12 @@ pub(crate) fn apply_budget_section_edits(
         .apply_budget_section_edits(estimate, &edits)
         .map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub(crate) fn apply_reviewed_section_batch(
+    db: tauri::State<'_, Db>,
+    batch: cpobras_storage::section_batches::ReviewedSectionBatch,
+) -> Result<cpobras_storage::section_batches::ReviewedSectionResult, String> {
+    let mut store = db.lock().map_err(|e| e.to_string())?;
+    store.apply_reviewed_section_batch(&batch).map_err(|e| e.to_string())
+}
