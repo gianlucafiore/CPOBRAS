@@ -82,17 +82,16 @@ for(const invalid of ['missing','material','unit']){
  test(`chat approval saves compatible ACU once and keeps ${invalid} proposals pending`,async({page})=>{
   const {dialogs}=await approvedFixture(page,{invalid});
   await ask(page,approvedPrompt);
-  const approve=page.getByRole('button',{name:'Preparar listado de insumos',exact:true});
+  const approve=page.getByRole('button',{name:'Sí, aprobar y cargar esta lista',exact:true});
   await expect(approve).toBeVisible();
   await expect(page.getByRole('button',{name:'Revisar antes de cargar',exact:true})).toBeVisible();
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  expect(await page.evaluate(()=>window.__approvedHarness.calls.map(call=>call.name))).toEqual(['ai_status']);
+  expect(await page.evaluate(()=>window.__approvedHarness.batches.length)).toBe(0);
   expect(await page.evaluate(()=>window.__approvedHarness.batches)).toHaveLength(0);
 
-  await approve.click();
   await expect(page.locator('.ai-ingredient-preview')).toContainText('Mortero');
   expect(await page.evaluate(()=>window.__approvedHarness.batches.length)).toBe(0);
-  await page.getByRole('button',{name:'Sí, aprobar y cargar esta lista'}).click();
+  await approve.click();
   await expect(page.locator('.ai-approval-status')).toContainText(/1 ACU.*1 pendiente/);
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(approve).toHaveCount(0);
@@ -125,7 +124,6 @@ for(const invalid of ['missing','material','unit']){
 test('stopping before the provider reply prevents a write even when the late reply arrives',async({page})=>{
  const {dialogs}=await approvedFixture(page,{deferred:true});
  await ask(page,approvedPrompt);
- await page.getByRole('button',{name:'Preparar listado de insumos',exact:true}).click();
  await page.waitForFunction(()=>typeof window.__approvedHarness.release==='function');
  await expect(page.getByRole('dialog')).toHaveCount(0);
  expect(await page.evaluate(()=>window.__approvedHarness.batches)).toHaveLength(0);
@@ -145,8 +143,7 @@ for(const closeMethod of ['close button','Escape']){
  test(`closing the chat with ${closeMethod} revokes the pending approval and ignores a late reply after reopening`,async({page})=>{
   const {dialogs}=await approvedFixture(page,{deferred:true});
   await ask(page,approvedPrompt);
-  await page.getByRole('button',{name:'Preparar listado de insumos',exact:true}).click();
-  await page.waitForFunction(()=>typeof window.__approvedHarness.release==='function');
+   await page.waitForFunction(()=>typeof window.__approvedHarness.release==='function');
   expect(await page.evaluate(()=>window.__approvedHarness.batches)).toHaveLength(0);
 
   const close=page.locator('#ai-console [data-ai=toggle]');
