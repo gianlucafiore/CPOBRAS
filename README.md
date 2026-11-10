@@ -604,3 +604,21 @@ ejemplo para agregar un insumo en Inicio y volver a actualizar el catálogo.
 Los formularios de carga y preparación de ACU usan el tema claro de CPOBRAS.
 La consola permanece oscura y sus desplegables usan controles claros con texto
 oscuro para mantener contraste en GTK/WebKit.
+
+Para terminar una preparación de ACU:
+
+1. **Preparar lista** define las partidas que se quieren crear o completar;
+   todavía no las incorpora al presupuesto.
+2. **Generar ACU** propone los insumos y consumos para esas partidas. Las notas
+   recibidas como texto, listas u objetos se normalizan sin descartar recetas
+   válidas; las notas extensas se acotan con un aviso. Los faltantes siguen
+   requiriendo revisión explícita.
+3. Revisá y marcá las recetas completas y pulsá **Guardar N ACU**. El pie indica
+   qué falta si no se puede guardar. Tras confirmar, se selecciona una partida
+   aplicada en la pestaña ACU y se ofrece **Ver en presupuesto**.
+
+Si se guarda una selección parcial, **Continuar preparación** conserva las
+propuestas que no se aplicaron y permite terminar sin volver a generarlas.
+También se conservan en memoria si se cierra y retoma el panel durante la misma
+sesión. Al trasladar una lista propuesta desde el chat se conserva el texto
+original de la consulta para no perder las medidas y criterios de trabajo.

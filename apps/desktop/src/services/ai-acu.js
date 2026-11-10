@@ -5,6 +5,51 @@ export function acuSeed(line){return {...line,is_new:false};}
 export function newAcuSeeds(rows){return rows.map(r=>({id:r.new_id||globalThis.crypto.randomUUID(),description:r.description,unit:r.unit,quantity:r.quantity??'0',section:r.section||'',section_id:null,is_new:true,components:[],takeoffs:[],formula:null,analysis_id:null,expected_recipe:null,unit_cost:'0'}));}
 export function emptyAcu(seed){return {id:seed.id,seed,selected:false,components:[],measurements:[],apply_measurements:false,section_id:seed.section_id||null,section_title:seed.section||'',assumptions:[],missing_resources:[],missing_resolved:false};}
 function decimal(value,label){if(typeof value!=='string')throw new Error(`${label}: usá un decimal como texto`);const v=importDecimal(value.trim().replace(',','.'),'decimal',true);if(v==null)throw new Error(`${label}: falta el dato`);return v;}
+// Notes are explanatory text, not a write schema. Providers sometimes return a
+// string or descriptive objects despite the requested array format. Normalize
+// them without relaxing the strict resource IDs, consumptions or prices below.
+function acuNotes(value,pending=false){
+ if(value==null)return [];
+ const notes=[],encoder=new TextEncoder(),limit=4000,maxEntries=40;
+ const marker=pending?'Hay más datos pendientes indicados por IA; revisalos antes de aplicar.':'Notas recortadas por extensión: revisá las hipótesis antes de aplicar.';
+ const available=limit-encoder.encode(marker).length-1;
+ let bytes=0,nodes=0,truncated=false;
+ function cut(text,budget){
+  let end=0,used=0;
+  for(const char of text){const code=char.codePointAt(0),size=code<=0x7f?1:code<=0x7ff?2:code<=0xffff?3:4;if(used+size>budget)break;used+=size;end+=char.length;}
+  return text.slice(0,end);
+ }
+ function add(text){
+  text=String(text).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g,' ').trim();if(!text)return;
+  if(notes.length>=maxEntries){truncated=true;return;}
+  const size=encoder.encode(text).length,remaining=available-bytes-(notes.length?1:0);
+  if(size>remaining){const excerpt=cut(text,Math.max(0,remaining));if(excerpt){notes.push(excerpt);bytes+=encoder.encode(excerpt).length+(notes.length>1?1:0);}truncated=true;return;}
+  notes.push(text);bytes+=size+(notes.length>1?1:0);
+ }
+ function visit(item,path='',depth=0,inArray=false){
+  if(truncated)return;
+  if(++nodes>512||depth>6){truncated=true;return;}
+  if(item==null){if(path||inArray)add(path?path+': sin detalle':'Dato indicado por IA sin descripción');return;}
+  if(typeof item==='string'||typeof item==='number'||typeof item==='boolean'){
+   const text=typeof item==='boolean'?(item?'sí':'no'):String(item);
+   add(path?path+': '+text:text);return;
+  }
+  if(Array.isArray(item)){for(const entry of item){visit(entry,path,depth+1,true);if(truncated)break;}return;}
+  if(typeof item==='object'){
+   const entries=Object.entries(item);if(!entries.length&&(path||inArray))add(path?path+': sin detalle':'Dato indicado por IA sin descripción');
+   for(const [key,entry] of entries){
+    const next=path?path+' · '+key:key;
+    if(next.length>300){truncated=true;break;}
+    visit(entry,next,depth+1);if(truncated)break;
+   }
+   return;
+  }
+  add(path?path+': dato sin descripción':'Dato indicado por IA sin descripción');
+ }
+ visit(value);
+ if(truncated)notes.push(marker);
+ return notes;
+}
 export function parseAcuProposals(text,seeds,allowedResources){
  let value;try{value=JSON.parse(text.trim().replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,''));}catch{throw new Error('La respuesta de ACU está incompleta o no tiene el formato esperado. Acotá los criterios y volvé a solicitar las partidas pendientes');}
  if(!Array.isArray(value.acu_proposals)||!value.acu_proposals.length||value.acu_proposals.length>5)throw new Error('La IA no devolvió una lista completa de ACU (máximo 5 por consulta)');
@@ -21,7 +66,7 @@ export function parseAcuProposals(text,seeds,allowedResources){
    if(![1,-1].includes(m.sign)||typeof m.note!=='string'||m.note.length>500)throw new Error('Signo o descripción de medición inválidos');
    return {note:m.note,factor:decimal(m.factor,'Factor'),length:decimal(m.length,'Largo'),width:decimal(m.width,'Ancho'),height:decimal(m.height,'Alto'),sign:m.sign};
   });
-  const notes=key=>{if(p[key]==null)return [];if(!Array.isArray(p[key])||p[key].length>20||p[key].some(s=>typeof s!=='string'||s.length>500))throw new Error('Notas del ACU inválidas');return p[key];};
+  const notes=key=>acuNotes(p[key],key==='missing_resources');
   if(p.section!=null&&(typeof p.section!=='string'||p.section.length>100))throw new Error('Rubro inválido');
   const proposal={...emptyAcu(seed),components,measurements,assumptions:['Consumos propuestos por IA: revisar por unidad y condiciones de ejecución.',...notes('assumptions')],missing_resources:notes('missing_resources')};
   if(p.section&&normalize(p.section)!==normalize(seed.section)){proposal.section_id=null;proposal.section_title=p.section;}
@@ -39,7 +84,9 @@ export function measurementQuantity(rows){
  }));
 }
 export function acuTotals(row,resources){
- const map=new Map(resources.map(r=>[r.id,r])),errors=[],warnings=[];let cost='0';const seen=new Set();
+ const map=new Map(resources.map(r=>[r.id,r])),errors=[],warnings=[];
+ const notes=(row.assumptions||[]).join('\n')+(row.missing_resolved?'\nFaltantes revisados y resueltos por el usuario.':'');if(new TextEncoder().encode(notes).length>6000)errors.push('Acotá las notas de hipótesis antes de guardar');
+ let cost='0';const seen=new Set();
  if(!row.components.length)errors.push('Falta la composición del ACU');
  for(const c of row.components){
   const r=map.get(c.resource_id);

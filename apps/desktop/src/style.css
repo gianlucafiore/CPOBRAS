@@ -397,3 +397,7 @@ button.gantt-date { border:0; border-right:1px solid #e1e8ef; border-radius:0; c
 .ai-console select{color-scheme:light;background-color:#fff;color:#26354a;-webkit-text-fill-color:#26354a}
 .ai-console select option,.ai-console select optgroup{background-color:#fff;color:#26354a;-webkit-text-fill-color:#26354a}
 .ai-console select:disabled{color:#60758b;-webkit-text-fill-color:#60758b}
+
+.acu-steps{display:flex;gap:10px;flex-wrap:wrap;list-style:none;padding:0;margin:0 0 8px}.acu-steps li{background:#edf4fa;border:1px solid #d0dce6;color:#304359;border-radius:5px;padding:6px 10px;font-weight:650}
+.acu-dialog footer{flex-wrap:wrap;justify-content:space-between;align-items:center}.acu-dialog footer [data-acu-apply-hint]{flex:1;min-width:240px;max-width:750px;margin:0;color:#526b85;line-height:1.4}.acu-footer-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.acu-dialog button[data-acu=next],.acu-dialog button[data-acu=view-result]{background:#f88824;border-color:#e87b1e;color:#fff}.acu-dialog button[hidden]{display:none!important}

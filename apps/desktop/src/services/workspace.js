@@ -153,7 +153,7 @@ export function createWorkspaceService({ invoke,globalInvoke=invoke, state, curr
     state.search = "";
     await loadEstimate();
   }
-  async function openEstimate(id) {
+  async function openEstimate(id, selectedLineId = null) {
     if (id && !state.estimates.some((e) => e.id === id))
       throw new Error("El presupuesto no pertenece a la obra abierta");
     clearBudget();
@@ -165,7 +165,7 @@ export function createWorkspaceService({ invoke,globalInvoke=invoke, state, curr
       try {window?.localStorage?.setItem("cpobras:last-budget:"+state.projectId,id);} catch {}
     }
     state.view = "workspace";
-    state.selectedLineId = null;
+    state.selectedLineId = selectedLineId;
     state.panel = "acu";
     await loadEstimate();
   }

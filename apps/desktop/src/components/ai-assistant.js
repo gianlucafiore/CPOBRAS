@@ -19,6 +19,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     paint();
   }
   const captureContext=()=>budgetScreenContext(state,screenContext(document));
+  const proposalBrief=index=>model.question.trim()||model.messages[index-1]?.content||"";
   const canPlan=()=>!!state.projectId&&!state.modal&&!state.pageDirty&&!state.remoteProject&&!state.projects.find(p=>p.id===state.projectId)?.read_only;
   function allowed(p){return !state.remoteProject&&!state.modal&&(p.kind!=="line"||editable());}
   function paint(){
@@ -62,11 +63,11 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     const action=button.dataset.ai;model.error="";
     try{
       if(action==="acu-workbench"&&!model.busy)await acuWorkbench.open(model.question);
-      if(action==="review-acu-plan"&&!model.busy)await acuWorkbench.open(model.question,model.messages[Number(button.dataset.index)]?.planRows||[]);
+      if(action==="review-acu-plan"&&!model.busy)await acuWorkbench.open(proposalBrief(Number(button.dataset.index)),model.messages[Number(button.dataset.index)]?.planRows||[]);
       if(action==="manage-import"&&!model.busy)budgetImport.open("manage",model.question);
       if(action==="budget-import"&&!model.busy)budgetImport.open("prices",model.question);
       if(action==="plan-import"&&!model.busy)await acuWorkbench.open(model.question,null,"create");
-      if(action==="review-plan"&&!model.busy){const message=model.messages[Number(button.dataset.index)];if(message?.planRows&&!message?.changeProposals)await acuWorkbench.open(model.question,message.planRows);else budgetImport.openPlanRows(message?.planRows||[],message?.changeProposals||[]);}
+      if(action==="review-plan"&&!model.busy){const message=model.messages[Number(button.dataset.index)];if(message?.planRows&&!message?.changeProposals)await acuWorkbench.open(proposalBrief(Number(button.dataset.index)),message.planRows);else budgetImport.openPlanRows(message?.planRows||[],message?.changeProposals||[]);}
       if(action==="cancel")activeRequest?.cancel();
       if(action==="toggle"){
         model.open=!model.open;
