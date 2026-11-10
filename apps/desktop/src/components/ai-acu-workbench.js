@@ -2,7 +2,7 @@ import {e,dateToday,kindName} from './helpers.js';
 import {money,numeric,multiplyDecimals} from '../decimal.js';
 import {parsePlan,normalize,importDecimal} from '../services/ai-budget-import.js';
 import {createAiRequest} from '../services/ai-assistant.js';
-import {parseAcuAdditions,mergeAcuAddition,additionPreservationErrors} from '../services/ai-acu-addition.js';
+import {parseAcuAdditions,mergeAcuAddition,additionPreservationErrors,nonDestructiveAcuErrors} from '../services/ai-acu-addition.js';
 import {productivityEditRow} from '../services/ai-acu-productivity.js';
 import {acuSeed,newAcuSeeds,emptyAcu,parseAcuProposals,measurementQuantity,acuTotals,acuPreapprovalErrors,copyAcuExample,acuPromptContext,acuBatch} from '../services/ai-acu.js';
 export function createAcuWorkbench({invoke,state,document,window,loadEstimate,loadEstimates,openEstimate,canUseAi,openResourceLibrary=null}){
@@ -105,7 +105,7 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
    }
    if(!approvalCurrent(authorization)){cancelled=true;return finish();}
    for(const row of model.rows){
-    row.apply_measurements=false;row.preapproval_errors=[...acuPreapprovalErrors(row,model.context.resources),...(append?additionPreservationErrors(row):[])];
+    row.apply_measurements=false;row.preapproval_errors=[...acuPreapprovalErrors(row,model.context.resources),...(model.mode==='fill'?nonDestructiveAcuErrors(row,model.operation):[]),...(append?additionPreservationErrors(row):[])];
     row.selected=authorization.targetIds.has(row.id)&&!acuTotals(row,model.context.resources).errors.length&&!row.preapproval_errors.length;
    }
    const selected=model.rows.filter(row=>row.selected);if(!selected.length){model.notice=`No se guardó ningún ACU: ${authorization.targetIds.size} partidas necesitan revisión. Las propuestas se conservaron.`;return finish();}
@@ -125,7 +125,12 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
       const resource=model.context.resources.find(r=>r.id===component.resource_id);
       return {id:component.resource_id,description:resource?.description||'Insumo no encontrado',kind:resource?.kind||'',quantity:String(component.quantity),unit:resource?.unit||'',price:resource?.price??null,previous_quantity:previous.get(component.resource_id)??null};
      });
-     return {line_id:row.id,description:row.seed.description,unit:row.seed.unit,mode:model.operation||'fill',items,warnings:[...(row.advisories||[]),...(acuTotals(row,model.context.resources).warnings||[])],unit_cost:acuTotals(row,model.context.resources).unit_cost};
+     const changedIds=new Set(items.map(item=>item.id));
+     const unchanged=(row.seed.components||[]).filter(item=>row.components.some(next=>next.resource_id===item.resource_id)&&!changedIds.has(item.resource_id)).map(item=>{
+      const resource=model.context.resources.find(r=>r.id===item.resource_id);
+      return {id:item.resource_id,description:resource?.description||'Insumo conservado',quantity:String(item.quantity),unit:resource?.unit||''};
+     });
+     return {line_id:row.id,description:row.seed.description,unit:row.seed.unit,mode:model.operation||'fill',items,preserved:unchanged,warnings:[...(row.advisories||[]),...(acuTotals(row,model.context.resources).warnings||[])],unit_cost:acuTotals(row,model.context.resources).unit_cost};
     });
     if(previewRows.some(row=>!row.items.length))throw new Error('El listado no contiene modificaciones concretas para todas las partidas; no se habilitó una aprobación a ciegas.');
     const preview={rows:previewRows,pending:authorization.targetIds.size-batch.acus.length,
