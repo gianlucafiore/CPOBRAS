@@ -5,6 +5,7 @@ import {createAiRequest} from '../services/ai-assistant.js';
 import {parseAcuAdditions,mergeAcuAddition,additionPreservationErrors,nonDestructiveAcuErrors} from '../services/ai-acu-addition.js';
 import {productivityEditRow} from '../services/ai-acu-productivity.js';
 import {acuSeed,newAcuSeeds,emptyAcu,parseAcuProposals,measurementQuantity,acuTotals,acuPreapprovalErrors,copyAcuExample,acuPromptContext,acuBatch} from '../services/ai-acu.js';
+import {reviewSectionContext,reviewedSectionSuggestions,reviewPreviewRows} from '../services/ai-budget-review.js';
 export function createAcuWorkbench({invoke,state,document,window,loadEstimate,loadEstimates,openEstimate,canUseAi,openResourceLibrary=null}){
  const host=document.createElement('div');host.id='ai-acu-workbench';document.body.append(host);
  let model={open:false},request=null,generation=0,stop=false,approvedRun=null,preparedApproval=null;const drafts=new Map();
@@ -62,13 +63,15 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
   if(input.lineIds!=null&&(!Array.isArray(input.lineIds)||input.lineIds.some(id=>typeof id!=='string')||new Set(input.lineIds).size!==input.lineIds.length||input.lineIds.length>60))throw new Error('Las partidas aprobadas no son válidas');
   if(input.mode==='create'&&input.lineIds?.length)throw new Error('La creación de partidas no puede incluir identificadores de partidas existentes');
   if(input.operation!=null&&!['append','productivity'].includes(input.operation))throw new Error('La operación de ACU aprobada no es válida');
-  const append=input.operation==='append',productivity=input.operation==='productivity';
+  if(input.reviewBudget&&(input.mode!=='fill'||input.operation))throw new Error('La revisión integral solo se admite sobre partidas existentes');
+  const append=input.operation==='append',productivity=input.operation==='productivity',reviewBudget=input.reviewBudget===true;
   if((append||productivity)&&(input.mode!=='fill'||!input.lineIds?.length||(productivity&&input.lineIds.length!==1)))throw new Error('Para agregar insumos indicá las partidas existentes de destino; nunca se seleccionan todas automáticamente');
   const brief=input.brief.trim(),mode=input.mode,approvedLineIds=[...(input.lineIds||[])];
   const outline=mode==='create'&&input.outline?.length?parsePlan(JSON.stringify({proposal_lines:input.outline})):null;
   keepDraft();
   const authorization={projectId:state.projectId,initialScope:scope(),onProgress,revoked:false,used:false,writing:false,targetIds:new Set()};approvedRun=authorization;stop=false;
-  let saved=0,created=0,error='',cancelled=false,committed=false,lineIds=[],previewReady=false;
+  let saved=0,created=0,organized=0,error='',cancelled=false,committed=false,lineIds=[],previewReady=false;
+  let sectionMoves=[],sectionPending=[];
   approvedProgress(authorization,'preparing','Leyendo las partidas y los precios actuales para esta carga aprobada.');
   try{
    if(authorization.revoked||authorization.initialScope!==scope()){cancelled=true;return finish();}
@@ -77,6 +80,22 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
    if(!approvalCurrent(authorization)){cancelled=true;return finish();}
    if(model.error)throw new Error(model.error);
    model.busy=true;model.context=structuredClone(model.context);paint();
+   if(reviewBudget){
+    const realLines=model.context.lines||[],sections=model.context.sections||[];
+    if(!sections.length)sectionPending.push('No hay rubros disponibles para clasificar las partidas. Crealos desde el chat.');
+    else for(let offset=0;offset<Math.min(realLines.length,60);offset+=25){
+     if(!approvalCurrent(authorization)){cancelled=true;return finish();}
+     const chunk=realLines.slice(offset,offset+25);
+     approvedProgress(authorization,'generating',`Clasificando las partidas por rubros: ${Math.min(offset+25,realLines.length)} de ${Math.min(realLines.length,60)}. No se guardó nada.`);
+     try{
+      const reply=await ask([{role:'user',content:'Clasificá las partidas en los rubros existentes de este presupuesto. Respondé SOLO un JSON con answer y section_moves:[{line_id:ID exacto,section_id:ID exacto,confidence:"high"|"uncertain",reason:fundamento breve}]. Devolvé una entrada por cada partida cuyo rubro puedas determinar; omití las dudosas. Solo confidence high permite movimiento. Nunca inventes rubros, IDs o elementos.'}],reviewSectionContext(chunk,sections),'manage');
+      if(!approvalCurrent(authorization)){cancelled=true;return finish();}
+      const result=reviewedSectionSuggestions(reply.text,chunk,sections);
+      sectionMoves.push(...result.moves);sectionPending.push(...result.pending);
+     }catch(error){sectionPending.push('Clasificación pendiente para '+chunk.length+' partidas: '+String(error));}
+    }
+    if(realLines.length>60)sectionPending.push('Se clasificaron las primeras 60 partidas; las demás requieren otro lote.');
+   }
    if(model.mode==='create'&&!model.seeds.length){
     approvedProgress(authorization,'preparing','Preparando la lista de partidas nuevas de esta solicitud.');
     if(!approvalCurrent(authorization)){cancelled=true;return finish();}
@@ -85,8 +104,8 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
     model.seeds=newAcuSeeds(parsePlan(result.text));model.targetIds=new Set(model.seeds.map(seed=>seed.id));
    }
    const seeds=targets().map(seed=>structuredClone(seed));authorization.targetIds=new Set(seeds.map(seed=>seed.id));
-   if(!seeds.length){model.notice='No hay partidas pendientes dentro de esta solicitud. No se guardó ningún cambio.';return finish();}
-   const resources=structuredClone(selectedResources());if(!resources.length)throw new Error('No hay insumos disponibles en el catálogo para preparar los ACU');
+   if(!seeds.length&&!sectionMoves.length){model.notice='No hay partidas ni movimientos de rubros válidos para aprobar. No se guardó ningún cambio.';return finish();}
+   const resources=structuredClone(selectedResources());if(!resources.length&&seeds.length)sectionPending.push('La biblioteca no tiene insumos disponibles para preparar los ACU.');
    if(productivity){
     if(seeds.length!==1)throw new Error('La corrección del rendimiento requiere una sola partida seleccionada');
     approvedProgress(authorization,'generating','Calculando el consumo inverso del equipo y comprobando la unidad del catálogo.');
@@ -108,8 +127,20 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
     row.apply_measurements=false;row.preapproval_errors=[...acuPreapprovalErrors(row,model.context.resources),...(model.mode==='fill'?nonDestructiveAcuErrors(row,model.operation):[]),...(append?additionPreservationErrors(row):[])];
     row.selected=authorization.targetIds.has(row.id)&&!acuTotals(row,model.context.resources).errors.length&&!row.preapproval_errors.length;
    }
-   const selected=model.rows.filter(row=>row.selected);if(!selected.length){model.notice=`No se guardó ningún ACU: ${authorization.targetIds.size} partidas necesitan revisión. Las propuestas se conservaron.`;return finish();}
-   const batch=acuBatch({rows:model.rows,context:model.context,estimate:model.estimate,newEstimate:model.newEstimate,batchId:model.batchId,asOf:model.asOf});
+   const selected=model.rows.filter(row=>row.selected);
+   if(!selected.length&&!sectionMoves.length){model.notice=`No hay cambios válidos para aprobar; ${authorization.targetIds.size} partidas necesitan revisión.`;return finish();}
+   let independentMoves=[];
+   if(reviewBudget){
+    const selectedById=new Map(selected.map(row=>[row.id,row]));
+    for(const row of selected){row.section_id=row.seed.section_id||null;row.section_title='';}
+    for(const moved of sectionMoves){
+     const row=selectedById.get(moved.line_id);
+     if(row){row.section_id=moved.section_id;row.section_title='';}
+     else independentMoves.push(moved);
+    }
+   }
+   const batch=selected.length?acuBatch({rows:model.rows,context:model.context,estimate:model.estimate,newEstimate:model.newEstimate,batchId:model.batchId,asOf:model.asOf}):{id:model.batchId,estimate_id:model.estimate.id,currency:model.context.currency,new_estimate:null,updates:[],creates:[],deletes:[],acus:[]};
+   if(independentMoves.length)batch.section_moves=independentMoves.map(({reason,...move})=>move);
    if(batch.updates.length||batch.deletes.length||batch.acus.some(acu=>!authorization.targetIds.has(acu.line_id)||acu.measurements!==null)||batch.creates.some(line=>!authorization.targetIds.has(line.id))||(model.mode==='fill'&&batch.creates.length))throw new Error('La carga supera el alcance de las partidas aprobadas');
    if(!approvalCurrent(authorization)){cancelled=true;return finish();}
    if(previewOnly){
@@ -133,7 +164,7 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
      return {line_id:row.id,description:row.seed.description,unit:row.seed.unit,mode:model.operation||'fill',items,preserved:unchanged,warnings:[...(row.advisories||[]),...(acuTotals(row,model.context.resources).warnings||[])],unit_cost:acuTotals(row,model.context.resources).unit_cost};
     });
     if(previewRows.some(row=>!row.items.length))throw new Error('El listado no contiene modificaciones concretas para todas las partidas; no se habilitó una aprobación a ciegas.');
-    const preview={rows:previewRows,pending:authorization.targetIds.size-batch.acus.length,
+    const preview={rows:previewRows,movedSections:reviewBudget?reviewPreviewRows(sectionMoves,model.context.sections,model.context.lines):[],sectionPending,pending:authorization.targetIds.size-batch.acus.length,
      pendingReasons:model.rows.filter(row=>!row.selected).map(row=>({description:row.seed.description,reasons:[...(row.missing_resources||[]),...acuPreapprovalErrors(row,model.context.resources)].slice(0,6)})),
      estimateId:model.estimate.id,scope:authorization.scope,id:globalThis.crypto.randomUUID()};
     preparedApproval={authorization,batch,preview,commit:async()=>{
@@ -141,9 +172,9 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
       throw new Error('La vista o la partida seleccionada cambió. Prepará nuevamente el listado.');
      try{
       authorization.used=true;authorization.writing=true;
-      approvedProgress(authorization,'saving','Guardando únicamente los insumos del listado aprobado.');
+      approvedProgress(authorization,'saving','Guardando únicamente los ACU y movimientos de rubros de la vista previa aprobada.');
       const result=await invoke('apply_reviewed_budget_batch',{batch});committed=true;
-      saved=result.composed;created=result.created;lineIds=batch.acus.map(acu=>acu.line_id);
+      saved=result.composed;created=result.created;organized=reviewBudget?sectionMoves.length:0;lineIds=batch.acus.map(acu=>acu.line_id);
       model.applied=true;drafts.delete(model.draftKey);
       const savedIds=new Set(lineIds),remainingRows=model.rows.filter(row=>!savedIds.has(row.id));
       const remainingSeeds=model.seeds.filter(seed=>!savedIds.has(seed.id));
@@ -154,7 +185,7 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
       const createdEstimate=!!model.newEstimate;model.newEstimate=null;
       model.draftKey=[authorization.projectId,model.estimate.id].join(':');
       if(authorization.generation===generation&&authorization.scope===scope()){
-       state.selectedLineId=lineIds[0];state.panel='acu';
+       if(lineIds.length)state.selectedLineId=lineIds[0];state.panel='acu';
        if(createdEstimate){await loadEstimates();await openEstimate(model.estimate.id,lineIds[0]);}
        else if(state.view==='workspace')await loadEstimate();else await openEstimate(model.estimate.id,lineIds[0]);
       }
@@ -169,7 +200,7 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
    approvedProgress(authorization,'saving',`Guardando ${batch.acus.length} ACU completos. Las propuestas con faltantes quedan pendientes.`,{pending:authorization.targetIds.size-batch.acus.length});
    if(!approvalCurrent(authorization)){cancelled=true;return finish();}
    authorization.used=true;authorization.writing=true;
-   const result=await invoke('apply_reviewed_budget_batch',{batch});committed=true;authorization.writing=false;saved=result.composed;created=result.created;lineIds=batch.acus.map(acu=>acu.line_id);
+   const result=await invoke('apply_reviewed_budget_batch',{batch});committed=true;authorization.writing=false;saved=result.composed;created=result.created;organized=reviewBudget?sectionMoves.length:0;lineIds=batch.acus.map(acu=>acu.line_id);
    model.applied=true;drafts.delete(model.draftKey);
    const ids=new Set(lineIds),rows=model.rows.filter(row=>!ids.has(row.id)),remainingSeeds=model.seeds.filter(seed=>!ids.has(seed.id)),targetIds=[...model.targetIds].filter(id=>!ids.has(id));
    model.remaining={rows,seeds:remainingSeeds,targetIds,count:new Set([...rows.map(row=>row.id),...remainingSeeds.map(seed=>seed.id),...targetIds]).size};
@@ -178,7 +209,7 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
    const createdEstimate=!!model.newEstimate;model.newEstimate=null;model.draftKey=[authorization.projectId,model.estimate.id].join(':');
    if(authorization.generation===generation&&authorization.scope===scope()){
     state.message=model.notice;model.scope=['workspace',authorization.projectId,model.estimate.id].join(':');authorization.scope=model.scope;
-    state.search='';state.selectedLineId=lineIds[0];state.panel='acu';
+    state.search='';if(lineIds.length)state.selectedLineId=lineIds[0];state.panel='acu';
     if(createdEstimate){await loadEstimates();await openEstimate(model.estimate.id,lineIds[0]);}else if(state.view==='workspace')await loadEstimate();else await openEstimate(model.estimate.id,lineIds[0]);
    }
   }catch(caught){
@@ -191,7 +222,7 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
    const snapshot=authorization.model,done=new Set(lineIds);
    const pendingReasons=(snapshot?.rows||[]).filter(row=>!done.has(row.id)).slice(0,8).map(row=>({description:row.seed.description,reasons:[...new Set([...(row.missing_resources||[]),...acuPreapprovalErrors(row,snapshot.context.resources)])].slice(0,10)}));
    const warnings=committed?(snapshot?.rows||[]).filter(row=>done.has(row.id)).flatMap(row=>row.advisories||[]):[];
-   return {saved,created,pending:Math.max(0,authorization.targetIds.size-saved),pendingReasons,warnings,projectId:authorization.projectId,estimateId:snapshot?.estimate.id,lineIds:[...lineIds],committed,cancelled,error};
+   return {saved,created,organized,pending:Math.max(0,authorization.targetIds.size-saved),pendingReasons,warnings,sectionPending,projectId:authorization.projectId,estimateId:snapshot?.estimate.id,lineIds:[...lineIds],committed,cancelled,error};
   }
   function finish(){
    if(approvedRun===authorization){
