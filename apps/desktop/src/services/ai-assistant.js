@@ -125,7 +125,8 @@ export function contextualAcuLine(question,{selectedLineId=null,focusLineId=null
 export function availableCatalogFollowup(question,advice=null){
  if(!advice?.line_id||!advice.available?.length)return null;
  const q=chatFold(question);
- const requested=/^(?:(?:si|dale|bueno|perfecto|ok)\s+)*(?:agrega(?:r|lo|la|los|las)?|agregalos|agregalas|sumalos|sumalas|cargalos|cargalas|incorporalos|incorporalas|anadilos|anadilas)\s+(?:(?:los|las|todos|todas|solo|solamente|que|de|lo|el|en|a|hay|esta|estan|catalogo|biblioteca|disponibles?|encontrados?|que\s+encontraste)\s*)*(?:disponibles?|que\s+hay|que\s+encontraste|del\s+catalogo|en\s+la\s+biblioteca)?(?:\s+por favor)?$/.test(q);
+ const requested=/^(?:(?:si|dale|bueno|perfecto|ok)\s+)*(?:agrega(?:r|lo|la|los|las)?|sumar?|sumalos|sumalas|carga(?:r|lo|la|los|las)?|incorpora(?:r|los|las)?|anade(?:r|los|las)?)(?:\b|$)/.test(q)&&
+  !/\b(?:quitar|borrar|eliminar|reemplazar)\b/.test(q);
  if(!requested||/^\s*(?:no|nunca)\b/.test(q))return null;
  const names=advice.available.map(item=>item.category+' ('+item.candidates.map(x=>x.description).join(' o ')+')');
  return {mode:'fill',operation:'append',lineIds:[advice.line_id],
