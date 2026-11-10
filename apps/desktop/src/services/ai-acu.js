@@ -188,18 +188,48 @@ export function copyAcuExample(seed,example){
  if(normalize(seed.unit)!==normalize(example.unit))throw new Error('La unidad de la receta no coincide con la partida. Adaptá los consumos explícitamente antes de reutilizarla');
  return {...emptyAcu(seed),components:example.components.map(c=>({resource_id:c.resource_id,quantity:c.quantity,description:c.description||''})),assumptions:[`Receta copiada de ${example.source_title||example.description||'referencia seleccionada'}. Revisar consumos, unidades actuales y condiciones de ejecución. Se usan los precios del presupuesto o catálogo actual.`]};
 }
+/** Send only relevant real catalog rows to the model, retaining the full
+ *  catalog locally for exact ID, price and safety validation. */
+export function acuRelevantResources(seeds,resources,brief,limit=90){
+ if(resources.length<=limit)return resources;
+ const selected=[],seen=new Set();
+ const add=record=>{if(record&&!seen.has(record.id)&&selected.length<limit){selected.push(record);seen.add(record.id);}};
+ const byId=new Map(resources.map(r=>[r.id,r]));
+ // Existing ACU components must be preserved and inspectable, even when their
+ // names do not match the new request.
+ for(const seed of seeds)for(const c of seed.components||[])add(byId.get(c.resource_id));
+ const work=seeds.map(s=>s.description).join(' ')+' '+brief;
+ const related=/\\b(?:revestimiento|porcelanato|ceramica|azulejo|bano)\\b/i.test(normalize(work))
+  ?' porcelanato ceramica adhesivo pegamento pastina junta colocacion mano de obra':'';
+ const queries=[brief+related, ...seeds.map(s=>s.description+' '+brief)];
+ const ranked=new Map();
+ for(const query of queries){
+  const data=JSON.parse(buildCatalogContext({question:query,resources}));
+  let rank=0;
+  for(const match of [...data.matches,...data.related]){
+   const previous=ranked.get(match.id)||0;
+   const weight=match.matched_by==='exact_code'?200:match.matched_by==='question_terms'?120:match.matched_by==='semantic_related'?90:65;
+   ranked.set(match.id,Math.max(previous,weight+Math.max(0,30-rank++)));
+  }
+ }
+ const ordered=resources.filter(r=>ranked.has(r.id)).sort((a,b)=>ranked.get(b.id)-ranked.get(a.id));
+ for(const record of ordered)add(record);
+ return selected;
+}
+
 export function acuPromptContext(seeds,resources,examples,brief){
  const tokens=s=>new Set(normalize(s).split(' ').filter(x=>x.length>2));
  const words=tokens(seeds.map(s=>s.description).join(' ')+' '+brief);
  const ranked=examples.map(e=>({e,score:[...tokens(e.description)].filter(w=>words.has(w)).length+(seeds.some(s=>normalize(s.unit)===normalize(e.unit))?1:0)})).sort((a,b)=>b.score-a.score).slice(0,8).map(({e})=>({key:e.key,reference:e.source_title||e.description,description:e.description,unit:e.unit,section:e.section,components:e.components.map(c=>({resource_id:c.resource_id,description:c.description,quantity:c.quantity}))}));
+ const narrowed=acuRelevantResources(seeds,resources,brief);
  const resource_candidates=seeds.map(seed=>{
-  const found=JSON.parse(buildCatalogContext({question:seed.description,messages:[{role:'user',content:brief}],resources}));
+  const found=JSON.parse(buildCatalogContext({question:seed.description+' '+brief,resources:narrowed}));
   const primary=found.matches.slice(0,found.related.length?12:16);
   const suggestions=[...primary,...found.related.slice(0,16-primary.length)];
   return {line_id:seed.id,candidates:suggestions.map(item=>({resource_id:item.id,match:item.matched_by}))};
  });
- const payload={task:'acu',resource_candidates,candidate_rule:'Son sugerencias de búsqueda, NO equivalencias automáticas. Elegí solo recursos cuya identidad, oficio, material, unidad, dimensión y destino sean técnicamente compatibles; si hay dudas, informá el faltante. Los recursos disponibles están en resources.',targets:seeds.map(s=>({line_id:s.id,description:s.description,unit:s.unit,quantity:s.quantity,section:s.section,is_new:s.is_new,existing_components:s.components,existing_measurements:s.takeoffs?.map(m=>({note:m.note,factor:m.factor,length:m.length,width:m.width,height:m.height,sign:m.sign}))})),resources:resources.map(r=>({resource_id:r.id,code:r.code,description:r.description,unit:r.unit,kind:r.kind,has_price:r.price!=null})),examples:ranked};
- const text=JSON.stringify(payload);if(new TextEncoder().encode(text).length>127000)throw new Error('El catálogo y los ejemplos superan el límite de contexto. Seleccioná menos insumos para la IA');return text;
+ const payload={task:'acu',resource_candidates,candidate_rule:'Son sugerencias de búsqueda, NO equivalencias automáticas. Elegí solo recursos cuya identidad, oficio, material, unidad, dimensión y destino sean técnicamente compatibles; si hay dudas, informá el faltante. Los recursos disponibles están en resources.',targets:seeds.map(s=>({line_id:s.id,description:s.description,unit:s.unit,quantity:s.quantity,section:s.section,is_new:s.is_new,existing_components:s.components,existing_measurements:s.takeoffs?.map(m=>({note:m.note,factor:m.factor,length:m.length,width:m.width,height:m.height,sign:m.sign}))})),resources:narrowed.map(r=>({resource_id:r.id,code:r.code,description:r.description,unit:r.unit,kind:r.kind,has_price:r.price!=null})),catalog_total:resources.length,catalog_sampled:narrowed.length,catalog_truncated:narrowed.length<resources.length,examples:ranked};
+ const text=JSON.stringify(payload);if(new TextEncoder().encode(text).length>55000)throw new Error('La selección contextual para IA sigue siendo demasiado grande. Reducí los ejemplos o las partidas por consulta.');return text;
 }
 export function acuBatch({rows,context,estimate,newEstimate,batchId,asOf}){
  const selected=rows.filter(r=>r.selected);if(!selected.length)throw new Error('Marcá las recetas revisadas que querés aplicar');
