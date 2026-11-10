@@ -3,7 +3,7 @@ import {buildCatalogContext} from './ai-catalog-context.js';
 
 // The model requests only these read-only tools; native writes stay on the
 // separately reviewed ACU/partida paths.
-const NAMES=new Set(['calculate_takeoff','audit_budget','compare_estimates','search_catalog']);
+const NAMES=new Set(['calculate_takeoff','audit_budget','compare_estimates','search_catalog','prepare_budget','prepare_acu']);
 const isObject=v=>v!==null&&typeof v==='object'&&!Array.isArray(v);
 const value=v=>String(v??'');
 const tidy=v=>String(v).replace(/(\.\d*?)0+$/,'$1').replace(/\.$/,'');
@@ -15,6 +15,12 @@ export function parseBudgetToolCall(raw){
  if(!isObject(raw)||!NAMES.has(raw.name)||!isObject(raw.args)||JSON.stringify(raw).length>3000)return null;
  const a=raw.args;
  if(Object.values(a).some(v=>v!==null&&typeof v!=='string'))return null;
+ if(raw.name==='prepare_budget'||raw.name==='prepare_acu'){
+  if(typeof a.brief!=='string'||!a.brief.trim()||a.brief.length>3000)return null;
+  if(raw.name==='prepare_budget')return {name:raw.name,args:{brief:a.brief.trim()}};
+  if(a.scope!=null&&!['selected','all_missing'].includes(a.scope))return null;
+  return {name:raw.name,args:{brief:a.brief.trim(),scope:a.scope||'selected'}};
+ }
  if(raw.name==='calculate_takeoff'){
   if(!['rectangular_prism','rectangle'].includes(a.shape)||!['cm','m','mm'].includes(a.dimension_unit)||!a.length||!a.width||a.shape==='rectangular_prism'&&!a.height)return null;
   return {name:raw.name,args:{shape:a.shape,dimension_unit:a.dimension_unit,count:a.count||'1',length:a.length,width:a.width,...(a.height?{height:a.height}:{}),...(a.waste_percent?{waste_percent:a.waste_percent}:{}),description:(a.description||'elementos').slice(0,120)}};
@@ -87,9 +93,35 @@ export function formatEstimateComparison({baseline,revisedTitle,comparison}){
  return {answer:'Comparación '+baseline.title+' → '+revisedTitle+': '+money(comparison.baseline_total)+' → '+money(comparison.revised_total)+' (Δ '+money(comparison.difference)+').'+(details.length?' Diferencias principales: '+details.join(' · ')+'.':' Sin diferencias devueltas por el motor de comparación.'),
   data:{baseline_id:comparison.baseline_id,revised_id:comparison.revised_id,lines:rows,difference:comparison.difference},read_only:true};
 }
+
+/**
+ * Preparation is allowed, writing is not. All line IDs are resolved locally,
+ * never supplied by the provider. The ACU engine creates a preview and
+ * requires a separate local approval for the exact saved batch.
+ */
+export function budgetPreparationRequest(raw,{state,focusedLineId=null,userQuestion=''}){
+ const tool=parseBudgetToolCall(raw);
+ if(!tool||!['prepare_budget','prepare_acu'].includes(tool.name))return null;
+ if(!state.projectId||state.remoteProject)throw new Error('Abrí una obra local para preparar el presupuesto');
+ const current=state.estimates?.find(e=>e.id===state.estimateId);
+ if(current?.issued)throw new Error('Un presupuesto emitido no se modifica; abrí una versión en elaboración');
+ if(tool.name==='prepare_budget')return {mode:'create',brief:tool.args.brief,lineIds:[]};
+ const q=String(userQuestion||'').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+ if(tool.args.scope==='all_missing'){
+  if(!/\b(?:todas?|varias|sin acu|incompletas|faltantes)\b/.test(q))throw new Error('Para actuar sobre varias partidas, pedilo explícitamente en el chat');
+  const targets=(state.lines||[]).filter(line=>!line.components?.length&&!line.analysis_id).map(line=>line.id).slice(0,60);
+  if(!targets.length)throw new Error('No quedan partidas sin ACU en este presupuesto');
+  return {mode:'fill',brief:tool.args.brief,lineIds:targets};
+ }
+ const target=(state.lines||[]).find(line=>line.id===focusedLineId)||(state.lines||[]).find(line=>line.id===state.selectedLineId);
+ if(!target)throw new Error('No hay una partida activa. Seleccioná una vez la partida sobre la que querés trabajar');
+ return {mode:'fill',operation:'append',brief:tool.args.brief,lineIds:[target.id]};
+}
+
 export async function executeBudgetTool(raw,{invoke,state,today}){
  const call=parseBudgetToolCall(raw);
  if(!call)throw new Error('La operación solicitada no está permitida o sus datos no son válidos.');
+ if(call.name==='prepare_budget'||call.name==='prepare_acu')throw new Error('Esta herramienta prepara una vista previa; no es una consulta de lectura.');
  if(call.name==='calculate_takeoff')return calculateTakeoff(call.args);
  if(!state.projectId||!state.estimateId||state.remoteProject)throw new Error('Abrí un presupuesto local para consultar costos.');
  if(call.name==='audit_budget'){
