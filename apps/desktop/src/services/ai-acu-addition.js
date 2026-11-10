@@ -73,15 +73,17 @@ export function additionMissingFixtures(brief,seed,additions,resources){
  const instruction=fold(brief),target=fold(seed?.description);
  const requestedBoth=/\b(?:ambos|los dos|dos artefactos|dos sanitarios)\b/.test(instruction);
  const kinds=['inodoro','bidet'].filter(kind=>{
-  const mentionsKind=new RegExp('\\b'+kind+'\\b').test(instruction);
-  return mentionsKind||requestedBoth&&new RegExp('\\b'+kind+'\\b').test(target);
+  const pattern=kind==='bidet'?/\b(?:bidet|bide)\b/:/\binodoro\b/;
+  return pattern.test(instruction)||requestedBoth&&pattern.test(target);
  });
- if(!kinds.length||!/\b(?:artefactos?|material(?:es)?|inodoro|bidet|sanitarios?)\b/.test(instruction))return [];
+ if(!kinds.length||!/\b(?:artefactos?|material(?:es)?|inodoro|bidet|bide|sanitarios?)\b/.test(instruction))return [];
+ if(/\b(?:mano de obra|colocacion|instalacion)\b/.test(instruction)&&!/\b(?:artefactos?|material(?:es)?)\b/.test(instruction))return [];
  const variant=/\b(?:linea|modelo)\s+([a-z][a-z0-9-]{2,})/.exec(instruction)?.[1]||null;
  return kinds.filter(kind=>!additions.some(component=>{
   const resource=resources.find(item=>item.id===component.resource_id);
   const name=fold(resource?.description);
-  return resource?.kind==='material'&&new RegExp('\\b'+kind+'\\b').test(name)&&(!variant||new RegExp('\\b'+variant+'\\b').test(name));
+  const nameMatches=kind==='bidet'?/\b(?:bidet|bide)\b/.test(name):/\binodoro\b/.test(name);
+  return resource?.kind==='material'&&nameMatches&&(!variant||new RegExp('\\b'+variant+'\\b').test(name));
  })).map(kind=>'Falta el '+kind+(variant?' línea/modelo '+variant:'')+' solicitado como MATERIAL del catálogo. La mano de obra existente no lo reemplaza.');
 }
 
