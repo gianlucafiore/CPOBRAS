@@ -93,6 +93,9 @@ test('a short confirmation loads legacy ACU recipes headlessly with the original
  expect(await page.evaluate(()=>window.__aiAcuHarness.calls.filter(call=>call.name==='ai_chat').length)).toBe(1);
 
  await ask(page,'perfecto, cargalos');
+ await expect(page.locator('.ai-ingredient-preview')).toContainText('Mortero');
+ expect(await page.evaluate(()=>window.__aiAcuHarness.batches.length)).toBe(0);
+ await ask(page,'sí, aprobado');
  await expect(page.locator('.ai-approval-status')).toContainText('2 ACU');
  await expect(page.getByRole('dialog')).toHaveCount(0);
  await expect(page.locator('[data-ai=review-acu-request]')).toHaveCount(0);
