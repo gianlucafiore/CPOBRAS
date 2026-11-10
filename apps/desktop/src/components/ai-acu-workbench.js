@@ -91,10 +91,10 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
     if(seeds.length!==1)throw new Error('La corrección del rendimiento requiere una sola partida seleccionada');
     approvedProgress(authorization,'generating','Calculando el consumo inverso del equipo y comprobando la unidad del catálogo.');
     addRows([productivityEditRow(model.brief,seeds[0],resources)]);
-   }else for(let offset=0;offset<seeds.length;offset+=5){
+   }else for(let offset=0;offset<seeds.length;offset+=2){
     if(!approvalCurrent(authorization)){cancelled=true;return finish();}
-    const chunk=seeds.slice(offset,offset+5);
-    approvedProgress(authorization,'generating',`Preparando ACU: consulta ${Math.floor(offset/5)+1} de ${Math.ceil(seeds.length/5)}. Todavía no se guardó ningún cambio.`,{prepared:model.rows.length,total:seeds.length});
+    const chunk=seeds.slice(offset,offset+2);
+    approvedProgress(authorization,'generating',`Preparando ACU: consulta ${Math.floor(offset/2)+1} de ${Math.ceil(seeds.length/2)}. Todavía no se guardó ningún cambio.`,{prepared:model.rows.length,total:seeds.length});
     if(!approvalCurrent(authorization)){cancelled=true;return finish();}
     const additionInstruction=append?additionPrompt():'';
     const result=await ask([{role:'user',content:additionInstruction+'Prepará ACU solo para los targets indicados. Criterios aprobados por el usuario: '+model.brief+'\nRespondé JSON con answer y acu_proposals, con IDs exactos y consumos decimales como texto. Usá exclusivamente resource_id del catálogo. Para cada consumo incluí quantity_unit (unidad exacta del insumo), requested_description (material requerido realmente), consumption_support (hipótesis y fundamento del consumo) y, si convertiste una cifra, source_quantity y source_unit. No sustituyas materiales diferentes ni inventes precios, insumos o medidas: dejá measurements vacío y explicá los faltantes en missing_resources. Se conservarán las cantidades y los metrados actuales.'}],promptContext(chunk,resources,[]),'acu');
@@ -305,14 +305,14 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
    if(model.referencesDirty&&model.referenceKeys.size)throw new Error('Cargá las referencias elegidas antes de consultar la IA');
    if(model.priceDateDirty)throw new Error('Actualizá los precios después de cambiar la fecha');
    const todo=pending();if(!todo.length)throw new Error('Seleccioná partidas sin propuesta');if(!model.resourceIds.size)throw new Error('Seleccioná insumos de la biblioteca para proponer consumos');
-   if(!window.confirm(`Se solicitarán ${Math.ceil(todo.length/5)} consultas de IA para ${todo.length} partidas, con los insumos y ejemplos seleccionados. Puede generar cargos. ¿Preparar propuestas?`))return;
+   if(!window.confirm(`Se solicitarán ${Math.ceil(todo.length/2)} consultas de IA para ${todo.length} partidas, con los insumos y ejemplos seleccionados. Puede generar cargos. ¿Preparar propuestas?`))return;
    model.busy=true;stop=false;model.notice='Generando ACU… Todavía no se guardó ningún cambio en el presupuesto.';paint();
-   try{for(let offset=0;offset<todo.length&&!stop;offset+=5){
-    const seeds=todo.slice(offset,offset+5),resources=selectedResources();
-    model.notice=`Generando ACU: consulta ${Math.floor(offset/5)+1} de ${Math.ceil(todo.length/5)}. Se guardarán solo después de revisar y confirmar.`;
+   try{for(let offset=0;offset<todo.length&&!stop;offset+=2){
+    const seeds=todo.slice(offset,offset+2),resources=selectedResources();
+    model.notice=`Generando ACU: consulta ${Math.floor(offset/2)+1} de ${Math.ceil(todo.length/2)}. Se guardarán solo después de revisar y confirmar.`;
     const context=promptContext(seeds,resources,model.examples.filter(ex=>model.referenceKeys.has(ex.source_key)));
     const result=await ask([{role:'user',content:(model.operation==='append'?additionPrompt():'')+'Prepará ACU para los targets indicados. Criterios del usuario: '+(model.brief||'Completar sus insumos y consumos por unidad, usando ejemplos cuando correspondan.')+'\nRespondé JSON con answer y acu_proposals, con IDs exactos, consumos decimales como texto y supuestos explícitos. No devuelvas precios. Para cada componente incluí quantity_unit con la unidad exacta del catálogo, requested_description con el material realmente requerido y consumption_support con el fundamento del consumo; si convertiste una cantidad, incluí source_quantity y source_unit. No inventes dimensiones: si faltan, dejá measurements vacío. Usá exclusivamente resource_id incluidos en resources. Si falta un insumo necesario, indicalo por nombre y requisitos conocidos en missing_resources; no inventes IDs, unidades ni precios, y no uses otro insumo disponible como sustituto para ocultar el faltante.'}],context,'acu');
-    if(token!==generation)return;addRows(model.operation==='append'?parseAcuAdditions(result.text,seeds,resources,model.brief).map(row=>mergeAcuAddition(row,resources,model.brief)):parseAcuProposals(result.text,seeds,resources));model.details.delete('targets');model.notice=`Propuestas recibidas: ${Math.min(offset+5,todo.length)} de ${todo.length}. Las propuestas nuevas quedan desmarcadas para revisar.`;paint();
+    if(token!==generation)return;addRows(model.operation==='append'?parseAcuAdditions(result.text,seeds,resources,model.brief).map(row=>mergeAcuAddition(row,resources,model.brief)):parseAcuProposals(result.text,seeds,resources));model.details.delete('targets');model.notice=`Propuestas recibidas: ${Math.min(offset+2,todo.length)} de ${todo.length}. Las propuestas nuevas quedan desmarcadas para revisar.`;paint();
    }}catch(error){if(token===generation)model.notice=`La generación se detuvo. Se conservaron ${model.rows.length} propuestas recibidas; no se guardó ningún cambio. La lista de partidas sigue disponible.`;throw error;}finally{if(token===generation){model.busy=false;request=null;paint();if(model.rows.length)showProposals();}}
   }
   if(action==='edit-price'){model.editPrice=button.dataset.resource;model.priceAmount='';}
