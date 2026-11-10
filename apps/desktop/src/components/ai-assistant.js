@@ -333,7 +333,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
         if(parsed.toolCall.name==='manage_sections'){
           if(!canPlan())throw Error('Abrí un presupuesto editable para modificar sus rubros.');
           const createdIds=model.recentCreatedEstimateId===state.estimateId&&model.recentCreatedLineIds.length?model.recentCreatedLineIds:recentCreatedSectionSources(model.messages,state.estimateId);
-          const plan=prepareSectionEdits(parsed.toolCall.args,state,createdIds);
+          const plan=prepareSectionEdits(parsed.toolCall.args,state,createdIds,question);
           if(generation!==model.generation||token!==queryToken)return;
           addReply(question,{answer:'Revisá el cambio de rubros propuesto. No se guardó nada.',sectionPreview:plan});
           model.notice='Los cambios quedan pendientes de una sola aprobación.';
