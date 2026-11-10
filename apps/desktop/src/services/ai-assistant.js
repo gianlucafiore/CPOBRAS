@@ -112,6 +112,26 @@ export function acuChatRequest(question,messages=[]){
  const mode=acuMode(modeText,prior?.mode||'fill');
  return {mode,brief,lineIds:confirmation&&mode==='fill'&&prior?.mode==='fill'?prior.lineIds:[]};
 }
+
+/** Keep the conversational budget-line referent stable across short follow-ups.
+ * An explicit 'partida seleccionada' refers to the current UI selection.
+ * Otherwise the last conversational target wins within the same estimate. */
+export function contextualAcuLine(question,{selectedLineId=null,focusLineId=null,lines=[]}={}){
+ const q=chatFold(question),selected=lines.find(line=>line.id===selectedLineId)||null;
+ const focused=lines.find(line=>line.id===focusLineId)||null;
+ const explicit=/\b(?:partida seleccionada|esta partida|esa partida|partida actual)\b/.test(q);
+ return explicit?selected||focused:focused||selected;
+}
+export function availableCatalogFollowup(question,advice=null){
+ if(!advice?.line_id||!advice.available?.length)return null;
+ const q=chatFold(question);
+ const requested=/^(?:(?:si|dale|bueno|perfecto|ok)\s+)*(?:agrega(?:r|lo|la|los|las)?|agregalos|agregalas|sumalos|sumalas|cargalos|cargalas|incorporalos|incorporalas|anadilos|anadilas)\s+(?:(?:los|las|todos|todas|solo|solamente|que|de|lo|el|en|a|hay|esta|estan|catalogo|biblioteca|disponibles?|encontrados?|que\s+encontraste)\s*)*(?:disponibles?|que\s+hay|que\s+encontraste|del\s+catalogo|en\s+la\s+biblioteca)?(?:\s+por favor)?$/.test(q);
+ if(!requested||/^\s*(?:no|nunca)\b/.test(q))return null;
+ const names=advice.available.map(item=>item.category+' ('+item.candidates.map(x=>x.description).join(' o ')+')');
+ return {mode:'fill',operation:'append',lineIds:[advice.line_id],
+  brief:'Sumá solo los insumos identificados en la biblioteca para la partida existente: '+names.join('; ')+'. Elegí exactamente los modelos técnicamente compatibles y proponé sus consumos por unidad. Conservá íntegramente el ACU anterior. NO agregues estas categorías sin coincidencia clara en biblioteca: '+(advice.not_found||[]).join(', ')+'. Mostrá esos faltantes como advertencia separada, no como bloqueo de los demás insumos.'};
+}
+
 /** Limit budget-ACU requests to the actual selected line. A named line or
  * explicit 'partida seleccionada' must never fall back to every empty ACU. */
 export function selectedAcuRequest(question,selectedLine,messages=[]){
