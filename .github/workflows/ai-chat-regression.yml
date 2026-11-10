@@ -7,6 +7,10 @@ on:
       - "apps/desktop/tests/browser/ai-sanitario-append.spec.mjs"
       - "apps/desktop/tests/browser/ai-equipment-productivity.spec.mjs"
       - "apps/desktop/tests/browser/ai-selected-bathroom-preview.spec.mjs"
+      - "apps/desktop/tests/browser/ai-chat-create-approval.spec.mjs"
+      - "apps/desktop/tests/browser/ai-catalog-chat.spec.mjs"
+      - "apps/desktop/tests/browser/ai-approved-load.spec.mjs"
+      - "apps/desktop/tests/browser/ai-acu-chat.spec.mjs"
       - ".github/workflows/ai-chat-regression.yml"
   pull_request:
     paths:
@@ -36,4 +40,4 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: End-to-end chat ACU addition
         working-directory: apps/desktop
-        run: npm run test:browser -- ai-sanitario-append.spec.mjs ai-equipment-productivity.spec.mjs ai-selected-bathroom-preview.spec.mjs
+        run: npm run test:browser -- ai-sanitario-append.spec.mjs ai-equipment-productivity.spec.mjs ai-selected-bathroom-preview.spec.mjs ai-acu-chat.spec.mjs ai-approved-load.spec.mjs ai-catalog-chat.spec.mjs ai-chat-create-approval.spec.mjs
