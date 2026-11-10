@@ -61,6 +61,9 @@ test('natural-language creates, renames and removes rubros without deleting budg
  await page.locator('[name=ai-consent]').check();
  const ask=async text=>{await page.locator('#ai-prompt').fill(text);await page.locator('#ai-question button').click();};
  await ask('Creá los rubros Fundaciones, Estructuras y Cubiertas');
+ await page.waitForTimeout(400);
+ console.log('RUBROS DEBUG UI:',await page.locator('#ai-console').innerText());
+ console.log('RUBROS DEBUG CALLS:',await page.evaluate(()=>window.__sectionHarness.calls.map(c=>({name:c.name,mode:c.args.mode,last:c.args.messages?.at(-1)?.content?.slice(0,100)}))));
  let panel=page.locator('.ai-ingredient-preview');
  await expect(panel).toContainText('Crear rubro: Fundaciones');
  await expect(panel).toContainText('Crear rubro: Cubiertas');
