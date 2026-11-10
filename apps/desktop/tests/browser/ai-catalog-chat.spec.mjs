@@ -74,8 +74,11 @@ test('general sanitary questions receive real material and labor prices, units, 
 test('yes executes the pending ACU once without another card or form and legacy component metadata does not block valid prices',async({page})=>{
  const {dialogs}=await catalogFixture(page,{handoff:true});
  await ask(page,'¿Qué información necesitás para presupuestar la instalación de un inodoro sanitario?');
- await expect(page.getByRole('button',{name:'Sí, aprobar y cargar',exact:true})).toBeVisible();
+ await expect(page.getByRole('button',{name:'Preparar listado de insumos',exact:true})).toBeVisible();
  expect(await page.evaluate(()=>window.__catalogHarness.batches)).toHaveLength(0);
+ await ask(page,'sí');
+ await expect(page.locator('.ai-ingredient-preview')).toContainText('Inodoro');
+ expect(await page.evaluate(()=>window.__catalogHarness.batches.length)).toBe(0);
  await ask(page,'sí');
  await expect(page.locator('.ai-approval-status')).toContainText('1 ACU cargado');
  await expect(page.getByRole('dialog')).toHaveCount(0);
