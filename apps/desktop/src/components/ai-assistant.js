@@ -164,6 +164,11 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     const pendingApproval=resolvedPendingApproval(question,model.messages);
     if(pendingApproval!==null){model.question='';if(canPlan())await approveMessage(pendingApproval);else{model.error='Abrí un presupuesto propio en elaboración y cerrá los formularios pendientes para cargar este pedido.';paint();}return;}
     const last=model.messages.at(-1);
+    const priorPreview=model.messages.findLast(m=>m?.preview);
+    if(priorPreview&&!isApprovalReply(question)){
+      acuWorkbench.cancelPrepared();delete priorPreview.preview;priorPreview.actionError='Listado descartado por una nueva solicitud.';
+      priorPreview.answer='Listado anterior descartado: no se guardó nada.';model.pendingAction=null;
+    }
     if(last?.role==='assistant'&&last.approval&&isApprovalReply(question)){model.question='';model.notice=last.approval.message||'Este pedido ya fue procesado.';paint();return;}
     if(last?.actionError&&isApprovalReply(question)){model.question='';model.error='No hay un pedido ejecutable ni un guardado confirmado: '+last.actionError;paint();return;}
     if(model.pendingAction&&isApprovalReply(question)&&resolvedPendingApproval(question,[{role:'user',content:model.pendingAction.originalQuestion||''},model.pendingAction])!==null){
@@ -269,7 +274,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
         if(model.open&&!model.configured){model.notice="Leyendo configuración guardada…";paint();const status=await invoke("ai_status");Object.assign(model,status);model.notice=status.configured?"Configuración de IA restaurada desde el llavero del sistema.":"";if(status.storage_error)model.error=status.storage_error;}
       }
       if(action==="settings")model.settings=!model.settings;
-      if(action==="clear"&&!model.busy){model.generation++;model.messages=[];model.lastAction=null;model.pendingAction=null;model.usage=null;model.question="";model.context="";model.includeContext=true;model.contextMode="screen";model.contextOpen=false;}
+      if(action==="clear"&&!model.busy){acuWorkbench.cancelPrepared();model.generation++;model.messages=[];model.lastAction=null;model.pendingAction=null;model.usage=null;model.question="";model.context="";model.includeContext=true;model.contextMode="screen";model.contextOpen=false;}
       if(action==="capture"&&!model.busy){model.context=captureContext();model.includeContext=true;model.contextMode="screen";model.contextOpen=true;}
       if(action==="forget"&&!model.busy){await invoke("ai_forget");Object.assign(model,{configured:false,settings:true,messages:[],lastAction:null,pendingAction:null,question:"",context:"",includeContext:true,contextMode:"screen",contextOpen:false,consent:false,usage:null,notice:""});model.generation++;}
       if(action==="quick"&&!model.busy){
