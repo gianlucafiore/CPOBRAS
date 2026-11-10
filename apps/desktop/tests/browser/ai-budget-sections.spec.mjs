@@ -19,7 +19,7 @@ const invoke=async(name,args={})=>{
  if(name==='assisted_acu_context')return {currency:'ARS',resources:[],lines:structuredClone(state.lines),sections:[]};
  if(name==='ai_chat'){
   const question=args.messages.at(-1).content.toLowerCase();
-  if(question.includes('9 partidas')){
+  if(question.includes('9 partidas')&&!question.includes('convert')){
    const names=['Movimiento de suelos','Fundaciones','Estructuras','Mampostería','Cubiertas','Revestimientos','Sanitaria','Eléctrica','Pinturas'];
    return {text:JSON.stringify({answer:'Nueve partidas preliminares',proposal_lines:names.map(description=>({description,unit:'gl',quantity:'1',unit_price:'0',section:''}))})};
   }
