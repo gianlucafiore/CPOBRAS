@@ -36,7 +36,7 @@ jobs:
         run: npm ci
       - name: Unit tests for AI requests and ACU additions
         working-directory: apps/desktop
-        run: node --test tests/ai-assistant.test.mjs tests/ai-acu.test.mjs tests/ai-acu-addition.test.mjs tests/ai-acu-productivity.test.mjs
+        run: node --test tests/ai-assistant.test.mjs tests/ai-acu.test.mjs tests/ai-acu-addition.test.mjs tests/ai-acu-productivity.test.mjs tests/ai-budget-tools.test.mjs
       - name: Install Chromium
         working-directory: apps/desktop
         run: npx playwright install --with-deps chromium
