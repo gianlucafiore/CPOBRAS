@@ -87,7 +87,7 @@ test('direct approval adds both Mónaco fixtures without removing existing labor
 test('missing bidet remains pending and cannot re-save labor-only ACU',async({page})=>{
  await openFixture(page,'missing');
  await ask(page,request);
- await expect(page.locator('.ai-ingredient-preview')).toBeVisible();
+ await expect(page.locator('.ai-ingredient-preview')).toHaveCount(0);
  await expect(page.locator('.ai-approval-status')).toContainText('No hay un guardado confirmado');
  await expect(page.locator('.ai-pending-reasons')).toContainText('bidet');
  const result=await page.evaluate(()=>({writes:window.__sanitaryFixture.batches.length,components:window.__sanitaryFixture.state.lines[0].components}));
