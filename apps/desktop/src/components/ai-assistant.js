@@ -2,14 +2,14 @@ import {createAcuWorkbench} from "./ai-acu-workbench.js";
 import {createApprovedPlanRunner} from "../services/ai-approved-plan.js";
 import {createAiBudgetImport} from "./ai-budget-import.js";
 import {e,dateToday} from "./helpers.js";
-import {buildCatalogContext,parseCatalogQuery} from "../services/ai-catalog-context.js";
+import {buildCatalogContext,parseCatalogQuery,constructionCatalogAdvice,constructionAdviceText} from "../services/ai-catalog-context.js";
 import {appendRequest} from "../services/ai-acu-addition.js";
 import {productivityEditRequest} from "../services/ai-acu-productivity.js";
-import {parseAiReply,draftFromProposal,screenContext,createAiRequest,budgetScreenContext,acuChatRequest,resolvedPendingApproval,isApprovalReply,materialAdditionFollowup,materialAdditionConfirmation,selectedAcuRequest,affirmativeMissingMaterialRequest} from "../services/ai-assistant.js";
+import {parseAiReply,draftFromProposal,screenContext,createAiRequest,budgetScreenContext,acuChatRequest,resolvedPendingApproval,isApprovalReply,materialAdditionFollowup,materialAdditionConfirmation,selectedAcuRequest,affirmativeMissingMaterialRequest,contextualAcuLine,availableCatalogFollowup} from "../services/ai-assistant.js";
 const defaults={openai:"gpt-4.1-mini",anthropic:"claude-haiku-4-5"};
 export function createAiAssistant({invoke,state,document,window,openModal,editable,loadEstimate,loadEstimates,openEstimate,openResourceLibrary}) {
   const host=document.createElement("div");host.id="ai-assistant";document.body.append(host);
-  const model={open:false,settings:false,configured:false,provider:"openai",model:defaults.openai,messages:[],question:"",busy:false,error:"",context:"",includeContext:true,contextMode:"screen",contextOpen:false,consent:false,scope:"",generation:0,usage:null,notice:"",approvedRun:null,lastApprovedId:null,lastAction:null,pendingAction:null,catalogLoading:false};
+  const model={open:false,settings:false,configured:false,provider:"openai",model:defaults.openai,messages:[],question:"",busy:false,error:"",context:"",includeContext:true,contextMode:"screen",contextOpen:false,consent:false,scope:"",generation:0,usage:null,notice:"",approvedRun:null,lastApprovedId:null,lastAction:null,pendingAction:null,catalogLoading:false,focusLineId:null,lastCatalogAdvice:null};
   const budgetImport=createAiBudgetImport({invoke,state,document,window,editable,loadEstimate,loadEstimates,openEstimate,canUseAi:()=>model.configured&&model.consent&&!model.busy});
   const acuWorkbench=createAcuWorkbench({invoke,state,document,window,loadEstimate,loadEstimates,openEstimate,openResourceLibrary,canUseAi:()=>model.configured&&model.consent&&(!model.busy||model.approvedRun?.running)});
   const approvedPlans=createApprovedPlanRunner({invoke,state,loadEstimate,loadEstimates,openEstimate});
@@ -22,7 +22,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     if(state.modal){cancelApprovedRun();model.open=false;}
     const next=scope();
     if(model.scope!==next&&model.approvedRun?.running&&model.approvedRun.phase==='saving'&&state.projectId===model.approvedRun.projectId&&state.estimateId===model.approvedRun.estimateId&&state.view==='workspace'){model.scope=next;model.approvedRun.scope=next;}
-    if(model.scope!==next){cancelApprovedRun();activeRequest?.cancel();activeRequest=null;queryToken++;if(!model.approvedRun)model.busy=false;model.catalogLoading=false;model.scope=next;model.generation++;model.messages=[];model.lastAction=null;model.pendingAction=null;model.context="";model.includeContext=true;model.contextMode="screen";model.question="";model.error="";model.usage=null;model.notice="";}
+    if(model.scope!==next){cancelApprovedRun();activeRequest?.cancel();activeRequest=null;queryToken++;if(!model.approvedRun)model.busy=false;model.catalogLoading=false;model.scope=next;model.generation++;model.messages=[];model.lastAction=null;model.pendingAction=null;model.focusLineId=null;model.lastCatalogAdvice=null;model.context="";model.includeContext=true;model.contextMode="screen";model.question="";model.error="";model.usage=null;model.notice="";}
     if(model.open&&model.contextMode==="screen"&&!state.navigating)model.context=captureContext();
     paint();
   }
@@ -125,7 +125,8 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       }
       if(model.approvedRun!==run||run.scope!==scope())return;
       delete message.preview;
-      const saved=result.saved||0,created=result.created||0,pending=result.pending||0;
+      if(result.committed)model.lastCatalogAdvice=null;
+       const saved=result.saved||0,created=result.created||0,pending=result.pending||0;
       const counts=[saved?`${saved} ACU ${saved===1?'cargado':'cargados'}`:'',created?`${created} ${created===1?'partida nueva creada':'partidas nuevas creadas'}`:''].filter(Boolean).join(' y ');
       const summary=result.committed?`Carga terminada: ${counts||'guardado confirmado'}${pending?`; ${pending} ${pending===1?'pendiente':'pendientes'}`:''}.`:`${result.cancelled?'Carga detenida. ':''}No hay un guardado confirmado para este pedido${pending?`; ${pending} ${pending===1?'pendiente':'pendientes'}`:''}.`;
       const notice=[summary,...(result.warnings||[]),result.error,result.refreshError].filter(Boolean).join(' ');
@@ -179,20 +180,40 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       if(index<0){model.messages.push({role:'user',content:model.pendingAction.originalQuestion},model.pendingAction);model.messages=model.messages.slice(-10);index=model.messages.length-1;}
       model.question='';await approveMessage(index);return;
     }
-    const additionContext={selectedLineId:state.selectedLineId,lines:state.lines,lastAction:model.lastAction};
-    const selectedLine=state.lines.find(line=>line.id===state.selectedLineId);
+    const selectedLine=contextualAcuLine(question,{selectedLineId:state.selectedLineId,focusLineId:model.focusLineId,lines:state.lines});
+    const additionContext={selectedLineId:selectedLine?.id||null,lines:state.lines,lastAction:model.lastAction};
+    const askMissing=/\b(?:que|cuales|cual)\b.{0,40}\b(?:falta|faltan|necesito|agregar)\b|\b(?:otros insumos|materiales faltantes|insumos faltantes)\b/.test(fold(question));
+    if(askMissing&&selectedLine&&model.includeContext){
+      model.busy=true;model.catalogLoading=true;paint();
+      try{
+       const catalog=await invoke('ai_catalog_context',{projectId:state.projectId||null,estimateId:state.estimateId||null,asOf:dateToday(),currency:null});
+       const advice=constructionCatalogAdvice(selectedLine,catalog.resources||[]);
+       if(advice){
+        model.focusLineId=selectedLine.id;model.lastCatalogAdvice=advice;
+        addReply(question,{answer:constructionAdviceText(advice)});
+        model.notice='Biblioteca consultada. No se modificó el presupuesto.';
+        return;
+       }
+      }catch(error){model.notice='No se pudo completar la comparación local; continúo con la consulta general: '+String(error);}
+      finally{model.busy=false;model.catalogLoading=false;paint();}
+    }
     const productivity=productivityEditRequest(question,selectedLine);
     const selectedRequest=productivity?null:selectedAcuRequest(question,selectedLine,model.messages);
-    const conversationalAdd=productivity||selectedRequest?null:affirmativeMissingMaterialRequest(question,model.messages,selectedLine);
-    const addition=productivity||selectedRequest||conversationalAdd?null:materialAdditionFollowup(question,model.messages,additionContext);
+    const advised=productivity||selectedRequest?null:availableCatalogFollowup(question,model.lastCatalogAdvice?.line_id===selectedLine?.id?model.lastCatalogAdvice:null);
+    const conversationalAdd=productivity||selectedRequest||advised?null:affirmativeMissingMaterialRequest(question,model.messages,selectedLine);
+    const addition=productivity||selectedRequest||conversationalAdd||advised?null:materialAdditionFollowup(question,model.messages,additionContext);
     const recovered=addition?null:materialAdditionConfirmation(question,model.messages,additionContext);
-    const acuRequest=productivity||selectedRequest||conversationalAdd||addition||recovered||acuChatRequest(question,model.messages);
+    const acuRequest=productivity||selectedRequest||advised||conversationalAdd||addition||recovered||acuChatRequest(question,model.messages);
     if(canPlan()&&acuRequest){
       const answer=productivity?'Rendimiento identificado. Voy a ajustar solo el equipo seleccionado; cualquier diferencia de unidad se informará. Falta aprobar.':'Pedido listo para revisar o aprobar. No se guardó nada todavía.';
-      addReply(question,{answer,acuRequest});model.notice='La aprobación se aplica únicamente a este pedido.';
-      // A plain-language offer from the model isn't an approval card: after
-      // recovering it, show a real local card and require a fresh approval.
-      if(isApprovalReply(question)&&!recovered)await approveMessage(model.messages.length-1);else paint();return;
+      addReply(question,{answer,acuRequest});model.notice='Buscando insumos en la biblioteca; aún no se guardó ningún cambio.';
+      if(acuRequest.mode==='fill'&&acuRequest.lineIds?.length===1){
+       if(model.focusLineId!==acuRequest.lineIds[0])model.lastCatalogAdvice=null;
+       model.focusLineId=acuRequest.lineIds[0];
+      }
+      // Preparation is read-only and begins directly from the request. Only
+      // a separate approval of the exact proposed items can write to the DB.
+      await approveMessage(model.messages.length-1);return;
     }
     if(isApprovalReply(question)){
       if(!showActionState(question)){addReply(question,{answer:'No hay un pedido listo para cargar ni un guardado confirmado. Indicame qué partida querés crear o completar.'});paint();}return;
@@ -277,7 +298,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
         if(model.open&&!model.configured){model.notice="Leyendo configuración guardada…";paint();const status=await invoke("ai_status");Object.assign(model,status);model.notice=status.configured?"Configuración de IA restaurada desde el llavero del sistema.":"";if(status.storage_error)model.error=status.storage_error;}
       }
       if(action==="settings")model.settings=!model.settings;
-      if(action==="clear"&&!model.busy){acuWorkbench.cancelPrepared();model.generation++;model.messages=[];model.lastAction=null;model.pendingAction=null;model.usage=null;model.question="";model.context="";model.includeContext=true;model.contextMode="screen";model.contextOpen=false;}
+      if(action==="clear"&&!model.busy){acuWorkbench.cancelPrepared();model.generation++;model.messages=[];model.lastAction=null;model.pendingAction=null;model.focusLineId=null;model.lastCatalogAdvice=null;model.usage=null;model.question="";model.context="";model.includeContext=true;model.contextMode="screen";model.contextOpen=false;}
       if(action==="capture"&&!model.busy){model.context=captureContext();model.includeContext=true;model.contextMode="screen";model.contextOpen=true;}
       if(action==="forget"&&!model.busy){await invoke("ai_forget");Object.assign(model,{configured:false,settings:true,messages:[],lastAction:null,pendingAction:null,question:"",context:"",includeContext:true,contextMode:"screen",contextOpen:false,consent:false,usage:null,notice:""});model.generation++;}
       if(action==="quick"&&!model.busy){
