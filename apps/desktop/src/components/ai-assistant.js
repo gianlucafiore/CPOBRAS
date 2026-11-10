@@ -1,6 +1,7 @@
 import {createAcuWorkbench} from "./ai-acu-workbench.js";
 import {executeBudgetTool,budgetPreparationRequest} from '../services/ai-budget-tools.js';
 import {prepareSectionEdits} from '../services/ai-budget-sections.js';
+import {recentCreatedSectionSources} from '../services/ai-section-operations.js';
 import {createApprovedPlanRunner} from "../services/ai-approved-plan.js";
 import {createAiBudgetImport} from "./ai-budget-import.js";
 import {e,dateToday} from "./helpers.js";
@@ -121,19 +122,17 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     paint();
     let persisted=false;
     try{
-      const result=await invoke('apply_budget_section_edits',{estimateId:plan.estimateId,edits:plan.actions});
+      const result=await invoke('apply_reviewed_section_batch',{batch:plan.batch});
       persisted=true;
       delete message.sectionPreview;
       model.pendingAction=null;
       const summary=[
         result.created?result.created+' creados':'',
-        result.updated?result.updated+' editados':'',
-        result.deleted?result.deleted+' borrados':''
+        result.renamed?result.renamed+' editados':'',
+        result.deleted?result.deleted+' borrados':'',
+        result.converted?result.converted+' partidas genéricas convertidas':''
       ].filter(Boolean).join(', ');
-      const safety=[
-        result.preserved_lines?result.preserved_lines+' partidas conservadas sin rubro':'',
-        result.reparented_subsections?result.reparented_subsections+' subrubros conservados':''
-      ].filter(Boolean).join(' · ');
+      const safety=plan.warnings.join(' · ');
       message.answer='Rubros actualizados: '+summary+'.'+(safety?' '+safety+'.':'');
       message.approval={kind:'sections',state:'done',message:message.answer,result:{...result,committed:true,estimateId:plan.estimateId}};
       model.lastAction=message;
@@ -321,10 +320,17 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
         try{if(parseCatalogQuery(result.text))result.text=JSON.stringify({answer:catalogAnswer(catalogSnapshot,additional)});}catch{result.text=JSON.stringify({answer:catalogAnswer(catalogSnapshot,additional)});}
       }
       let parsed=parseAiReply(result.text);
+      // A model that misclassifies "rubros" as proposal_lines must never
+      // create budget lines just because the user approved the response.
+      const rubroIntent=/\b(?:crea(?:r|lo|los)?|converti(?:r|los)?|renombra(?:r|lo|los)?|borra(?:r|lo|los)?|elimina(?:r|lo|los)?|edita(?:r|lo|los)?)\b.{0,75}\b(?:rubros?|subrubros?)\b|\b(?:rubros?|subrubros?)\b.{0,75}\b(?:crear|convertir|renombrar|borrar|eliminar|editar)\b/.test(fold(question));
+      if(rubroIntent&&parsed.planRows?.length){
+       throw new Error('La IA interpretó rubros como partidas. Se descartó esa propuesta; no se creó ninguna partida. Repetí el pedido de rubros.');
+      }
       if(parsed.toolCall){
         if(parsed.toolCall.name==='manage_sections'){
           if(!canPlan())throw Error('Abrí un presupuesto editable para modificar sus rubros.');
-          const plan=prepareSectionEdits(parsed.toolCall.args,state);
+          const createdIds=recentCreatedSectionSources(model.messages,state.estimateId);
+          const plan=prepareSectionEdits(parsed.toolCall.args,state,createdIds);
           if(generation!==model.generation||token!==queryToken)return;
           addReply(question,{answer:'Revisá el cambio de rubros propuesto. No se guardó nada.',sectionPreview:plan});
           model.notice='Los cambios quedan pendientes de una sola aprobación.';
