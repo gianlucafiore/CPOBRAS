@@ -135,3 +135,22 @@ test('all generic AI fill routes reject silent removal of existing porcelain and
  assert.deepEqual(nonDestructiveAcuErrors(safe),[]);
  assert.equal(acuTotals(safe,catalog).errors.length,0);
 });
+
+test('explicitly available catalog items can be added with named unavailable supplies left as warnings',()=>{
+ const catalog=[
+  {id:'tile',description:'Porcelanato',kind:'material',unit:'m²',price:'100'},
+  {id:'labor',description:'Colocación de porcelanato',kind:'labor',unit:'m²',price:'50'},
+  {id:'glue',description:'Adhesivo Klaucol',kind:'material',unit:'bolsa',price:'17500'}
+ ];
+ const target=acuSeed({id:'bathroom',description:'Revestimiento de baños',unit:'m²',quantity:'35',unit_cost:'150',analysis_id:'existing',expected_recipe:'existing-recipe',section_id:null,section:'',components:[{resource_id:'tile',quantity:'1'},{resource_id:'labor',quantity:'1'}],takeoffs:[],formula:null});
+ const source=JSON.stringify({acu_proposals:[{line_id:target.id,components:[{resource_id:'glue',quantity:'0.2',quantity_unit:'bolsa',requested_description:'Adhesivo Klaucol',consumption_support:'Consumo estimado de adhesivo por m²'}],missing_resources:['No se encontró pastina para juntas'],measurements:[]}]});
+ const brief='Sumá solo los insumos identificados en la biblioteca para esta partida: adhesivo de colocación. No agregues las categorías sin coincidencia clara: pastina para juntas.';
+ const parsed=parseAcuAdditions(source,[target],catalog,brief);
+ const result=mergeAcuAddition(parsed[0],catalog,brief);
+ assert.deepEqual(result.components.map(c=>c.resource_id),['tile','labor','glue']);
+ assert.deepEqual(result.missing_resources,[]);
+ assert.match(result.advisories.join(' '),/pastina/);
+ assert.equal(acuTotals(result,catalog).errors.length,0);
+ assert.equal(nonDestructiveAcuErrors(result).length,0);
+ assert.equal(result.assumptions.some(text=>text.includes('pastina')),true);
+});
