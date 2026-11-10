@@ -210,6 +210,12 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     const question=model.question.trim(),generation=model.generation;
     const statusQuestion=/^(?:no (?:la|lo|las|los) (?:veo|encuentro)|no (?:veo|encuentro) (?:la partida|el acu|el pedido)|no (?:me )?aparece(?: la partida| el acu| el pedido)?|(?:y )?(?:se guardo|se cargo|se creo|la creaste|lo cargaste|donde quedo|donde esta)(?: la partida| el acu| el pedido)?)(?: en (?:la lista|la tabla|el presupuesto))?$/.test(fold(question));
     if(statusQuestion){if(!showActionState(question)){addReply(question,{answer:'No hay un guardado registrado en este chat. Indicame qué partida buscás para identificarla; no se realizará otra carga al consultar su estado.'});paint();}return;}
+    const pendingSection=model.messages.findLast(m=>m?.sectionPreview&&!m?.approval);
+    if(pendingSection&&isApprovalReply(question)){
+      model.question='';
+      await approveSectionMessage(model.messages.indexOf(pendingSection));
+      return;
+    }
     const pendingApproval=resolvedPendingApproval(question,model.messages);
     if(pendingApproval!==null){model.question='';if(canPlan())await approveMessage(pendingApproval);else{model.error='Abrí un presupuesto propio en elaboración y cerrá los formularios pendientes para cargar este pedido.';paint();}return;}
     const last=model.messages.at(-1);
