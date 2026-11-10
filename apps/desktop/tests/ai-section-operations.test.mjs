@@ -77,3 +77,23 @@ test('refuse duplicate rubros, foreign changes and issued budgets',()=>{
  assert.throws(()=>prepareSectionEdits({action:'create',titles:'Fundaciones'},issued),/elaboración/);
  assert.equal(parseSectionToolArgs({action:'create',titles:'Fundaciones; Fundaciones'}),null);
 });
+
+
+test('after restart, explicit correction of wrongly created partidas safely converts current placeholders',()=>{
+ const names=['Cimentación','Estructura','Mampostería','Cubierta','Carpintería exterior','Revestimientos','Instalaciones eléctricas','Instalaciones sanitarias','Pintura'];
+ const placeholders=names.map((description,i)=>({...source(i),description,unit:i===0?'m3':'m2',quantity:'0'}));
+ const priced={...source(0),id:'priced-real-line',description:'Columnas H Visto',unit:'m3',quantity:'15',unit_cost:'1200000'};
+ const measured={...source(1),id:'measured-real-line',description:'Replanteo',unit:'m2',quantity:'300',unit_cost:'0'};
+ const data=state([priced,measured,...placeholders]);
+ const question='Las partidas que están creadas en este presupuesto están mal, deberían ser rubros, por favor crea los rubros que se corresponden con cada nombre de partida';
+ const modelArgs={action:'create',titles:names.join('; ')};
+ const result=prepareSectionEdits(modelArgs,data,[],question);
+ assert.deepEqual(result.batch.creates.map(s=>s.title),names);
+ assert.deepEqual(result.batch.converts.map(s=>s.line_id),placeholders.map(s=>s.id));
+ assert.equal(result.batch.converts.some(s=>s.line_id===priced.id||s.line_id===measured.id),false);
+ assert.equal(result.batch.deletes.length,0);
+ assert.match(result.warnings.join(' '),/solo las partidas sin precio/);
+ assert.throws(()=>prepareSectionEdits({action:'convert',source:'current_placeholders'},data,[]),/pedilo explícitamente/);
+ assert.deepEqual(prepareSectionEdits({action:'create',titles:'Otros rubros'},data,[], 'Creá un rubro llamado Otros rubros').batch.converts,[]);
+});
+
