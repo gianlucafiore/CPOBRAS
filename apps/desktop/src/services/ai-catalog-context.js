@@ -61,7 +61,7 @@ const dimensions=value=>new Set((foldCatalogText(value).match(/\d+(?:[.,]\d+)?/g
 function kindPreference(question,kind){
  const text=foldCatalogText(question);
  if(/\b(?:mano de obra|colocacion|instalacion|instalar|jornal)\b/.test(text))return kind==='labor'?35:0;
- if(/\bmateriales?\b/.test(text))return kind==='material'?20:0;
+ if(/\bmaterial(?:es)?\b/.test(text))return kind==='material'?20:0;
  return 0;
 }
 function relatedTerms(requested,entry){
