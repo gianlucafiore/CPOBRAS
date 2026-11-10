@@ -6,6 +6,8 @@ const ok=s=>typeof s==='string'&&s.trim().length>0;
 const norm=s=>String(s||'').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase();
 export function parseSectionToolArgs(a){
  if(!a||typeof a!=='object'||Array.isArray(a)||Object.values(a).some(v=>v!=null&&typeof v!=='string'))return null;
+ const allowed=new Set(['action','source','names','titles','name','target','from_name','to_name','new_title','new_code']);
+ if(Object.keys(a).some(k=>!allowed.has(k)))return null;
  const allowed=new Set(['action','titles','names','name','target','from_name','to_name','new_title','new_code','source']);
  if(Object.keys(a).some(key=>!allowed.has(key)))return null;
  const action=a.action==='update'?'rename':a.action;
@@ -28,6 +30,7 @@ export function parseSectionToolArgs(a){
   return {action:'rename',from_name:from_name.trim(),to_name:(to_name||a.from_name||a.target).trim(),...(new_code?{new_code:new_code.trim()}:{})};
  }
  if(a.new_title||a.new_code||a.to_name||a.from_name||a.titles||a.source)return null;
+ if(a.new_title||a.new_code||a.to_name||a.from_name)return null;
  const names=a.names||a.name||a.target;
  if(!ok(names)||names.length>1500)return null;
  return {action:'delete',names:names.replace(/\s*;\s*/g,'|')};
