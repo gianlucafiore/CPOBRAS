@@ -117,7 +117,7 @@ test('chat converts exactly the nine last-created generic partidas into rubros w
  await page.goto('/');await page.waitForFunction(()=>window.__sectionHarness?.ready);
  await page.locator('.ai-launch').click();await page.locator('[name=ai-consent]').check();
  const ask=async text=>{await page.locator('#ai-prompt').fill(text);await page.locator('#ai-question button').click();};
- await ask('Creá 9 partidas preliminares de rubros para una vivienda');
+ await ask('Creá 9 partidas preliminares para una vivienda');
  await expect(page.getByRole('button',{name:'Sí, aprobar y crear partidas'})).toBeVisible();
  await page.getByRole('button',{name:'Sí, aprobar y crear partidas'}).click();
  await expect(page.locator('.ai-approval-status').last()).toContainText('9 partidas nuevas');
