@@ -133,6 +133,37 @@ export function selectedAcuRequest(question,selectedLine,messages=[]){
  return {mode:'fill',operation:'append',brief:brief.slice(0,3000),lineIds:[selectedLine.id]};
 }
 
+/**
+ * A user's "sí, agregalos" after an ordinary explanation means *add* the
+ * specific missing items, never generate a replacement ACU. The assistant
+ * answer is used only to recover the requested noun categories; it does not
+ * authorize a save. The user still reviews real catalog IDs before approval.
+ */
+export function affirmativeMissingMaterialRequest(question,messages=[],selectedLine=null){
+ if(!selectedLine?.id||!Array.isArray(messages)||!messages.length)return null;
+ const q=chatFold(question);
+ if(!/^(?:(?:si|dale|bueno|perfecto|ok)\s+)*(?:agregalos|agregalas|sumalos|sumalas|cargalos|cargalas|incorporalos|incorporalas|anadilos|anadilas)(?:\s+por favor)?$/.test(q))return null;
+ const last=messages.at(-1);
+ if(last?.role!=='assistant'||last.acuRequest||last.planRows||last.approval||last.actionError)return null;
+ const answer=chatFold(messageText(last));
+ const marker=/\b(?:faltan|falta|faltaria|faltarian|agregar|incorporar|sumar)\b/.exec(answer);
+ if(!marker)return null;
+ // Don't treat previously mentioned alternatives as requested additions.
+ const missing=answer.slice(marker.index+marker[0].length).split(/\b(?:pero|aunque|segun|si queres|especifica)\b/)[0];
+ const names=[
+  ['adhesivo',/\b(?:adhesivos?|pegamentos?|pegamento cementicio)\b/],
+  ['pastina',/\b(?:pastinas?|boquillas?|rejuntado)\b/],
+  ['sellador',/\b(?:selladores?|siliconas?)\b/],
+  ['tornillo',/\b(?:tornillos?|autoperforantes?)\b/],
+  ['porcelanato',/\bporcelanatos?\b/],
+  ['ceramica',/\b(?:ceramicas?|azulejos?)\b/],
+  ['mano de obra',/\b(?:mano de obra|colocacion)\b/],
+  ['impermeabilizante',/\b(?:impermeabilizantes?|membranas?)\b/]
+ ].filter(([,pattern])=>pattern.test(missing)).map(([name])=>name);
+ if(!names.length)return null;
+ return {mode:'fill',operation:'append',lineIds:[selectedLine.id],brief:'Agregá únicamente estos insumos faltantes a la partida seleccionada: '+names.join(', ')+'. Se conserva sin cambios toda la composición existente, incluyendo porcelanatos y mano de obra. No sumes ni dupliques insumos que ya estén en la composición. No sustituyas ni elimines materiales.'};
+}
+
 // A correction after a committed ACU may mean ADD missing materials to the same
 // selected line, not overwrite the ACU or create unrelated lines. Never guess a
 // destination from the assistant's own text or from an older, unrelated run.
