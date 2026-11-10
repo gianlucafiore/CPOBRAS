@@ -109,6 +109,27 @@ export function mergeAcuAddition(row,resources,brief=''){
  return result;
 }
 
+
+/**
+ * Last-resort safety check for every AI-generated ACU fill. A generic fill must
+ * never silently remove or reduce an existing component. This check is separate
+ * from additive parsing because conversational approvals can lose the append
+ * flag. Explicit production adjustments use a dedicated audited operation.
+ */
+export function nonDestructiveAcuErrors(row,operation=null){
+ if(operation==='productivity')return [];
+ const old=row?.seed?.components||[],next=row?.components||[];
+ const byId=new Map(next.map(item=>[item.resource_id,item]));
+ const errors=[];
+ for(const component of old){
+  const current=byId.get(component.resource_id);
+  if(!current){errors.push('El ACU propuesto elimina un insumo existente: '+component.resource_id);continue;}
+  try{if(compareDecimals(String(current.quantity),String(component.quantity))<0)errors.push('El ACU propuesto reduce el consumo existente: '+component.resource_id);}
+  catch{errors.push('No se pudo comprobar la conservación de este insumo: '+component.resource_id);}
+ }
+ return errors;
+}
+
 export function additionPreservationErrors(row){
  const errors=[];
  for(const original of row.seed.components||[]){
