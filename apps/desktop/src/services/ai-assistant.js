@@ -119,14 +119,20 @@ export function acuChatRequest(question,messages=[]){
 export function contextualAcuLine(question,{selectedLineId=null,focusLineId=null,lines=[]}={}){
  const q=chatFold(question),selected=lines.find(line=>line.id===selectedLineId)||null;
  const focused=lines.find(line=>line.id===focusLineId)||null;
+ const exactMentions=lines.filter(line=>{
+  const label=chatFold(line.description);
+  return label.length>=12&&q.includes(label);
+ });
+ if(exactMentions.length===1)return exactMentions[0];
  const explicit=/\b(?:partida seleccionada|esta partida|esa partida|partida actual)\b/.test(q);
  return explicit?selected||focused:focused||selected;
 }
 export function availableCatalogFollowup(question,advice=null){
  if(!advice?.line_id||!advice.available?.length)return null;
  const q=chatFold(question);
- const requested=/^(?:(?:si|dale|bueno|perfecto|ok)\s+)*(?:agrega(?:r|lo|la|los|las)?|sumar?|sumalos|sumalas|carga(?:r|lo|la|los|las)?|incorpora(?:r|los|las)?|anade(?:r|los|las)?)(?:\b|$)/.test(q)&&
-  !/\b(?:quitar|borrar|eliminar|reemplazar)\b/.test(q);
+ const requested=q.length<=100&&/^(?:(?:si|dale|bueno|perfecto|ok)\s+)*(?:agrega(?:r|lo|la|los|las)?|sumar?|sumalos|sumalas|carga(?:r|lo|la|los|las)?|incorpora(?:r|los|las)?|anade(?:r|los|las)?)(?:\b|$)/.test(q)&&
+  !/\b(?:no|nunca|quitar|borrar|eliminar|reemplazar|excepto|sin)\b/.test(q)&&
+  !/\b(?:porcelanato|ceramica|azulejo|pastina|adhesivo|pegamento|sellador|tornillo|inodoro|bidet|cemento|arena|chapa|membrana)\b/.test(q);
  if(!requested||/^\s*(?:no|nunca)\b/.test(q))return null;
  const names=advice.available.map(item=>item.category+' ('+item.candidates.map(x=>x.description).join(' o ')+')');
  return {mode:'fill',operation:'append',lineIds:[advice.line_id],
