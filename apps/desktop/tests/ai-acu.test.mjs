@@ -235,7 +235,10 @@ test('consumption metadata is optional but typed, bounded and preserved for prev
  const row=evidenceRow({quantity_unit:' kg ',source_quantity:'1,0',source_unit:' kg ',requested_description:' Mortero ',consumption_support:' Consumo orientativo '});
  assert.deepEqual(row.components[0],{resource_id:resource.id,quantity:'1',quantity_unit:'kg',requested_description:'Mortero',consumption_support:'Consumo orientativo',source_unit:'kg',source_quantity:'1.0'});
  assert.deepEqual(acuPreapprovalErrors(row,[resource]),[]);
- for(const bad of [{quantity_unit:15},{quantity_unit:'u'.repeat(51)},{requested_description:'x'.repeat(501)},{consumption_support:{quantity:15,unit:'kg'}},{consumption_support:'x'.repeat(1501)},{source_quantity:'0'},{source_quantity:15}]){
+ const numericOrigin=evidenceRow({source_quantity:15,source_unit:'kg'});
+ assert.equal(numericOrigin.components[0].source_quantity,'15');
+ assert.ok(acuPreapprovalErrors(numericOrigin,[resource]).some(error=>error.includes('Consumo de origen incompatible')));
+ for(const bad of [{quantity_unit:15},{quantity_unit:'u'.repeat(51)},{requested_description:'x'.repeat(501)},{consumption_support:{quantity:15,unit:'kg'}},{consumption_support:'x'.repeat(1501)},{source_quantity:'0'},{source_quantity:0},{source_quantity:1e100},{source_quantity:{num:15}}]){
   assert.throws(()=>evidenceRow(bad));
  }
 });
