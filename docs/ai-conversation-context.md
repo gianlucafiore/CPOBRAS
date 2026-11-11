@@ -2,7 +2,7 @@
 
 El chat captura proyecto, presupuesto, vista, pestaña, selección, rubro, ACU y componentes actuales como estado estructurado. Conserva el historial acotado y una intención de preparación de una partida con sus criterios. Una referencia explícita a la partida seleccionada establece un destino nuevo. Las continuaciones y criterios conservan el ID del destino anterior aunque cambie la selección visual. La preparación anuncia la descripción del destino.
 
-La sesión del navegador conserva hasta diez mensajes y la intención por obra y presupuesto durante hasta 24 horas. Esta elección limita la persistencia al contexto de la sesión. Limpiar el chat elimina esos datos del presupuesto actual. Las propuestas y autorizaciones ejecutables quedan en memoria y se vuelven a preparar después de recuperar la conversación. El consentimiento al proveedor sigue siendo necesario.
+El almacenamiento local del navegador conserva hasta diez mensajes y la intención por obra y presupuesto durante hasta 24 horas. Esta elección permite recuperar el contexto al reabrir la aplicación. El límite de 24 horas reduce la retención local. Limpiar el chat elimina esos datos del presupuesto actual. Las propuestas y autorizaciones ejecutables quedan en memoria y se vuelven a preparar después de recuperar la conversación. El consentimiento al proveedor sigue siendo necesario.
 
 El flujo existente de herramientas Tauri obtiene catálogo, partidas y precios actuales mediante assisted_acu_context y assisted_acu_references. El modelo propone consumos con fundamento y usa identificadores reales del catálogo. Las validaciones existentes de unidades, materiales y precios siguen siendo obligatorias. Los consumos estimados requieren revisión técnica. El guardado utiliza apply_reviewed_budget_batch y sus controles transaccionales.
 
@@ -24,3 +24,9 @@ El workflow AI chat regression ejecuta las nuevas pruebas unitarias y navegador 
 ## Inspección HTTPS independiente
 
 La comprobación del 10 de noviembre de 2026 desde este equipo con curl -Iv https://api.openai.com/v1/models completó TLS 1.3 con certificado válido y recibió HTTP 401 sin credenciales. Se verificó conectividad del sistema. La reproducción del fallo original en el cliente Rust requiere ejecutar la aplicación en las condiciones de red originales. No se alteró la validación de certificados ni se añadieron reintentos de escritura.
+
+## Resultados de validación
+
+La primera ejecución completa local de navegador terminó con 108 pruebas aprobadas y 26 fallidas. Hay fallos por capturas con rutas absolutas /workspace y otros fallos de interfaz. Se reprodujeron en 3c54e3c los fallos de capturas de proveedores, respaldos y P2P, además del test de ACU compuesto. El test de retorno de biblioteca pasó al repetirlo sobre esa base, por lo que su fallo inicial debe tratarse como intermitente y sigue requiriendo seguimiento.
+
+El workflow específico AI chat regression del primer commit bdb1f53 pasó sus tres trabajos, incluyendo compilación Rust y pruebas transaccionales. Los workflows generales Rust checks y Desktop checks fallaron en verificaciones de formato Rust previo. El estado global del PR sigue requiriendo atención.

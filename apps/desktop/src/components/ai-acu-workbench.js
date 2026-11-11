@@ -69,16 +69,16 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
   const brief=input.brief.trim(),mode=input.mode,approvedLineIds=[...(input.lineIds||[])];
   const outline=mode==='create'&&input.outline?.length?parsePlan(JSON.stringify({proposal_lines:input.outline})):null;
   keepDraft();
-  const authorization={projectId:state.projectId,initialScope:scope(),onProgress,revoked:false,used:false,writing:false,targetIds:new Set()};approvedRun=authorization;stop=false;
+  const authorization={projectId:state.projectId,initialScope:scope(),onProgress,revoked:false,used:false,writing:false,targetIds:new Set(approvedLineIds)};approvedRun=authorization;stop=false;
   let saved=0,created=0,organized=0,error='',cancelled=false,committed=false,lineIds=[],previewReady=false;
   let sectionMoves=[],sectionPending=[];
   approvedProgress(authorization,'preparing','Leyendo las partidas y los precios actuales para esta carga aprobada.');
   try{
    if(authorization.revoked||authorization.initialScope!==scope()){cancelled=true;return finish();}
    await open(brief,outline,mode,approvedLineIds,authorization,productivity?'productivity':append?'append':null);
-   if(authorization.model===model)authorization.targetIds=new Set(model.targetIds);
    if(!approvalCurrent(authorization)){cancelled=true;return finish();}
    if(model.error)throw new Error(model.error);
+   if(authorization.model===model)authorization.targetIds=new Set(model.targetIds);
    model.busy=true;model.context=structuredClone(model.context);paint();
    if(reviewBudget){
     const realLines=model.context.lines||[],sections=model.context.sections||[];

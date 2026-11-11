@@ -125,7 +125,7 @@ export function contextualAcuLine(question,{selectedLineId=null,focusLineId=null
   return label.length>=12&&q.includes(label);
  });
  if(exactMentions.length===1)return exactMentions[0];
- const explicit=/\b(?:partida seleccionada|esta partida|esa partida|partida actual)\b/.test(q);
+ const explicit=/\b(?:partida seleccionada|esta partida|partida actual)\b/.test(q);
  return explicit?selected||focused:focused||selected;
 }
 export function availableCatalogFollowup(question,advice=null){
