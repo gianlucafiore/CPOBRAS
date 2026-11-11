@@ -9,7 +9,12 @@
     "tauri": "tauri",
     "test": "node --test --test-isolation=none tests/*.test.mjs",
     "test:browser": "playwright test",
-    "package:linux": "bash ../../tools/package-linux.sh"
+    "package:linux": "bash ../../tools/package-linux.sh",
+    "predev": "node ../../tools/generate-ai-inventory.mjs",
+    "prebuild": "node ../../tools/generate-ai-inventory.mjs",
+    "pretest": "node ../../tools/generate-ai-inventory.mjs",
+    "pretest:browser": "node ../../tools/generate-ai-inventory.mjs",
+    "pretauri": "node ../../tools/generate-ai-inventory.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "2.12.4",
