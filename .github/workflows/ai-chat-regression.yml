@@ -10,6 +10,7 @@ on:
       - "apps/desktop/tests/browser/ai-bathroom-preserve.spec.mjs"
       - "apps/desktop/tests/browser/ai-budget-copilot.spec.mjs"
       - "apps/desktop/tests/browser/ai-full-budget-review.spec.mjs"
+      - "apps/desktop/tests/browser/ai-conversation-context.spec.mjs"
       - "apps/desktop/tests/browser/ai-app-capabilities.spec.mjs"
       - "apps/desktop/tests/browser/ai-budget-preparation.spec.mjs"
       - "apps/desktop/tests/browser/ai-budget-sections.spec.mjs"
@@ -33,6 +34,7 @@ on:
       - "apps/desktop/tests/browser/ai-bathroom-preserve.spec.mjs"
       - "apps/desktop/tests/browser/ai-budget-copilot.spec.mjs"
       - "apps/desktop/tests/browser/ai-full-budget-review.spec.mjs"
+      - "apps/desktop/tests/browser/ai-conversation-context.spec.mjs"
       - "apps/desktop/tests/browser/ai-app-capabilities.spec.mjs"
       - "apps/desktop/tests/browser/ai-budget-preparation.spec.mjs"
       - "apps/desktop/tests/browser/ai-budget-sections.spec.mjs"
@@ -61,13 +63,13 @@ jobs:
           node ../../tools/generate-ai-inventory.mjs --check
       - name: Unit tests for AI requests and ACU additions
         working-directory: apps/desktop
-        run: node --test tests/ai-assistant.test.mjs tests/ai-acu.test.mjs tests/ai-acu-addition.test.mjs tests/ai-acu-productivity.test.mjs tests/ai-budget-tools.test.mjs tests/ai-section-operations.test.mjs tests/ai-native-permissions.test.mjs tests/ai-app-knowledge.test.mjs
+        run: node --test tests/ai-conversation-context.test.mjs tests/ai-assistant.test.mjs tests/ai-acu.test.mjs tests/ai-acu-addition.test.mjs tests/ai-acu-productivity.test.mjs tests/ai-budget-tools.test.mjs tests/ai-section-operations.test.mjs tests/ai-native-permissions.test.mjs tests/ai-app-knowledge.test.mjs
       - name: Install Chromium
         working-directory: apps/desktop
         run: npx playwright install --with-deps chromium
       - name: End-to-end chat ACU addition
         working-directory: apps/desktop
-        run: npm run test:browser -- ai-budget-sections.spec.mjs ai-budget-preparation.spec.mjs ai-budget-copilot.spec.mjs ai-bathroom-preserve.spec.mjs ai-sanitario-append.spec.mjs ai-equipment-productivity.spec.mjs ai-selected-bathroom-preview.spec.mjs ai-acu-chat.spec.mjs ai-approved-load.spec.mjs ai-catalog-chat.spec.mjs ai-chat-create-approval.spec.mjs ai-full-budget-review.spec.mjs ai-app-capabilities.spec.mjs
+        run: npm run test:browser -- ai-conversation-context.spec.mjs ai-budget-sections.spec.mjs ai-budget-preparation.spec.mjs ai-budget-copilot.spec.mjs ai-bathroom-preserve.spec.mjs ai-sanitario-append.spec.mjs ai-equipment-productivity.spec.mjs ai-selected-bathroom-preview.spec.mjs ai-acu-chat.spec.mjs ai-approved-load.spec.mjs ai-catalog-chat.spec.mjs ai-chat-create-approval.spec.mjs ai-full-budget-review.spec.mjs ai-app-capabilities.spec.mjs
 
   section-native:
     runs-on: ubuntu-24.04

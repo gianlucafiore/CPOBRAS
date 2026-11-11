@@ -9,7 +9,7 @@ const approvedPrompt='Completá los ACU de las partidas existentes con los insum
 
 // The real chat, ACU workbench and approved-plan runner are exercised together.
 // Only native IPC is replaced: no provider, real database or project is used.
-async function approvedFixture(page,{invalid='missing',deferred=false,kind='acu'}={}){
+async function approvedFixture(page,{invalid='missing',deferred=false,kind='acu',unified=false}={}){
  const dialogs=[];
  page.on('dialog',dialog=>{dialogs.push(dialog.type());void dialog.dismiss();});
  await page.route('**/src/main.js*',route=>route.fulfill({contentType:'application/javascript',body:`
@@ -22,6 +22,8 @@ async function approvedFixture(page,{invalid='missing',deferred=false,kind='acu'
   ];
   const line=(id,description,quantity)=>({id,description,unit:'m²',quantity,unit_cost:'0',analysis_id:null,expected_recipe:null,section_id:null,section:'',components:[],takeoffs:[{id:'takeoff-'+id,note:'Medición existente',factor:'1',length:'6',width:'1',height:'7',sign:1}],formula:null});
   const state={view:'workspace',projectId:'project-1',estimateId:'estimate-1',projects:[{id:'project-1',currency:'ARS'}],estimates:[{id:'estimate-1',title:'Presupuesto de aprobación',currency:'ARS',issued:false}],lines:[line(${JSON.stringify(firstLineId)},'Revoque grueso','42'),line(${JSON.stringify(secondLineId)},${JSON.stringify(invalid==='material'?'Mampostería de ladrillo cerámico 12x30x18':'Revoque fino')},'73.50')],sections:[],assignments:{},selectedLineId:${JSON.stringify(firstLineId)},panel:'summary',search:'filtro anterior'};
+  if(${unified})for(let i=2;i<81;i++)state.lines.push(line('extra-'+i,'Otra partida '+i,'1'));
+  let failOnce=${unified};
   const harness={state,calls:[],batches:[],loads:[],modalCalls:0,release:null,aiResolved:false,ready:false};window.__approvedHarness=harness;
   harness.initialLines=structuredClone(state.lines);
   const renderBudget=()=>{const app=document.querySelector('#app');app.replaceChildren();for(const item of state.lines){const row=document.createElement('div');row.dataset.lineId=item.id;row.textContent=item.description+' · '+item.quantity+' '+item.unit;app.append(row);}};
@@ -39,6 +41,7 @@ async function approvedFixture(page,{invalid='missing',deferred=false,kind='acu'
      return {text:JSON.stringify({answer:'Dos partidas nuevas para agregar.',proposal_lines:[{description:'Limpieza inicial',unit:'m²',quantity:'20',unit_price:'123.45',section:'Preliminares'},{description:'Replanteo inicial',unit:'m²',quantity:null,unit_price:null,section:'Preliminares'}]}),input_tokens:30,output_tokens:30};
     }
     if(args.mode!=='acu')throw new Error('A direct ACU request must not call chat before approval');
+    if(failOnce){failOnce=false;throw Error('No se pudo establecer la conexión HTTPS');}
     const context=JSON.parse(args.context);
     const proposals=context.targets.map(target=>{
      let components=[component(${JSON.stringify(mortarId)},'0.25','kg','Mortero')],missing_resources=[];
@@ -190,4 +193,25 @@ test('approving a generic line proposal creates only those lines without another
  expect(result.calls.filter(call=>call.name==='ai_chat')).toHaveLength(1);
  expect(result.lines.slice(0,2)).toEqual(result.initial);
  expect(result.modalCalls).toBe(0);expect(dialogs).toEqual([]);
+});
+
+test('unified conversation retries HTTPS for one of 81 lines and saves only after preview approval',async({page})=>{
+ await approvedFixture(page,{unified:true});
+ await ask(page,'generar ACU de la partida seleccionada');
+ await expect(page.locator('.ai-transcript')).toContainText('HTTPS');
+ expect(await page.evaluate(()=>window.__approvedHarness.batches.length)).toBe(0);
+ await page.evaluate(()=>{const h=window.__approvedHarness;h.state.selectedLineId=h.state.lines[1].id;h.state.panel='budget';h.assistant.syncContext();});
+ await ask(page,'usá monocapa, hidrófugo y mano de obra');
+ await expect(page.getByRole('button',{name:'Sí, aprobar y cargar esta lista',exact:true})).toBeVisible();
+ await ask(page,'generalo');
+ await expect(page.getByRole('button',{name:'Sí, aprobar y cargar esta lista',exact:true}).last()).toBeVisible();
+ expect(await page.evaluate(()=>window.__approvedHarness.batches.length)).toBe(0);
+ await ask(page,'bueno cargalos');
+ await expect.poll(()=>page.evaluate(()=>window.__approvedHarness.batches.length)).toBe(1);
+ const result=await page.evaluate(()=>({batches:window.__approvedHarness.batches,calls:window.__approvedHarness.calls}));
+ expect(result.batches[0].acus.map(a=>a.line_id)).toEqual([firstLineId]);
+ for(const call of result.calls.filter(c=>c.name==='ai_chat'&&c.args.mode==='acu')){
+  expect(JSON.parse(call.args.context).targets.map(t=>t.line_id)).toEqual([firstLineId]);
+ }
+ await expect(page.locator('.ai-transcript')).not.toContainText('81 pendientes');
 });
