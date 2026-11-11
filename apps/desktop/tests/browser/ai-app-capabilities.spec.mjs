@@ -1,7 +1,7 @@
 import {test,expect} from '@playwright/test';
 
 test('chat discovers modules, plans a multi-module workflow and reads purchasing without writing',async({page})=>{
- const source=String.raw\`import './style.css';
+ const source=String.raw`import './style.css';
 import {createAiAssistant} from './components/ai-assistant.js';
 const state={
  view:'workspace',projectId:'project-1',estimateId:'estimate-1',selectedLineId:null,search:'',panel:'budget',
@@ -26,7 +26,7 @@ const invoke=async(name,args={})=>{
  throw Error('Acción no autorizada: '+name);
 };
 harness.ai=createAiAssistant({invoke,state,document,window,openModal:()=>{throw Error('No modal')},editable:()=>true,loadEstimate:async()=>{},loadEstimates:async()=>{},openEstimate:async()=>{}});
-document.querySelector('#app').textContent='Obra de prueba';harness.ready=true;\`;
+document.querySelector('#app').textContent='Obra de prueba';harness.ready=true;`;
  await page.route('**/src/main.js*',route=>route.fulfill({contentType:'application/javascript',body:source}));
  await page.goto('/');
  await page.waitForFunction(()=>window.__appMapHarness?.ready);
