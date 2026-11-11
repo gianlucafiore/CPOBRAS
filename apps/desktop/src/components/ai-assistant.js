@@ -246,6 +246,15 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       if(index<0){model.messages.push({role:'user',content:model.pendingAction.originalQuestion},model.pendingAction);model.messages=model.messages.slice(-10);index=model.messages.length-1;}
       model.question='';await approveMessage(index);return;
     }
+    if(canPlan()&&budgetReviewIntent(question)){
+      if(!state.estimateId)throw new Error('Abrí el presupuesto que querés revisar antes de solicitar la organización y los ACU.');
+      const lines=state.lines||[];
+      if(!lines.length){addReply(question,{answer:'Este presupuesto no contiene partidas. No hay ACU para completar ni partidas para reorganizar; no se modificó nada.'});paint();return;}
+      const missing=lines.filter(line=>!line.analysis_id&&!(line.components||[]).length).map(line=>line.id).slice(0,60);
+      const review={mode:'fill',brief:question.slice(0,3000),lineIds:missing,reviewBudget:true};
+      addReply(question,{answer:`Revisión de ${lines.length} partidas y ${(state.sections||[]).length} rubros. Prepararé cambios de rubros y ACU con precios reales; lo que falte quedará pendiente. Todavía no se guardó nada.`,acuRequest:review});
+      await approveMessage(model.messages.length-1);return;
+    }
     const selectedLine=contextualAcuLine(question,{selectedLineId:state.selectedLineId,focusLineId:model.focusLineId,lines:state.lines});
     const additionContext={selectedLineId:selectedLine?.id||null,lines:state.lines,lastAction:model.lastAction};
     const askMissing=/\b(?:que|cuales|cual)\b.{0,40}\b(?:falta|faltan|necesito|agregar)\b|\b(?:otros insumos|materiales faltantes|insumos faltantes)\b/.test(fold(question));
@@ -269,15 +278,6 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     const conversationalAdd=productivity||selectedRequest||advised?null:affirmativeMissingMaterialRequest(question,model.messages,selectedLine);
     const addition=productivity||selectedRequest||conversationalAdd||advised?null:materialAdditionFollowup(question,model.messages,additionContext);
     const recovered=addition?null:materialAdditionConfirmation(question,model.messages,additionContext);
-    if(canPlan()&&budgetReviewIntent(question)){
-      if(!state.estimateId)throw new Error('Abrí el presupuesto que querés revisar antes de solicitar la organización y los ACU.');
-      const lines=state.lines||[];
-      if(!lines.length){addReply(question,{answer:'Este presupuesto no contiene partidas. No hay ACU para completar ni partidas para reorganizar; no se modificó nada.'});paint();return;}
-      const missing=lines.filter(line=>!line.analysis_id&&!(line.components||[]).length).map(line=>line.id).slice(0,60);
-      const review={mode:'fill',brief:question.slice(0,3000),lineIds:missing,reviewBudget:true};
-      addReply(question,{answer:`Revisión de ${lines.length} partidas y ${(state.sections||[]).length} rubros. Prepararé cambios de rubros y ACU con precios reales; lo que falte quedará pendiente. Todavía no se guardó nada.`,acuRequest:review});
-      await approveMessage(model.messages.length-1);return;
-    }
     const acuRequest=productivity||selectedRequest||advised||conversationalAdd||addition||recovered||acuChatRequest(question,model.messages);
     if(canPlan()&&acuRequest){
       const answer=productivity?'Rendimiento identificado. Voy a ajustar solo el equipo seleccionado; cualquier diferencia de unidad se informará. Falta aprobar.':'Pedido listo para revisar o aprobar. No se guardó nada todavía.';
