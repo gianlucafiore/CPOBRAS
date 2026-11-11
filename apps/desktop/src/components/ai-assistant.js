@@ -1,6 +1,7 @@
 import {createAcuWorkbench} from "./ai-acu-workbench.js";
 import {executeBudgetTool,budgetPreparationRequest} from '../services/ai-budget-tools.js';
 import {aiDomainContext,budgetReviewIntent} from '../services/ai-domain-context.js';
+import {focusedAppSnapshot} from '../services/ai-workspace-reader.js';
 import {prepareSectionEdits} from '../services/ai-budget-sections.js';
 import {recentCreatedSectionSources} from '../services/ai-section-operations.js';
 import {createApprovedPlanRunner} from "../services/ai-approved-plan.js";
@@ -305,6 +306,15 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     let request,catalogSnapshot=null;
     try {
       let context=baseContext;
+      // Optional, bounded snapshots from approved read-only native adapters.
+      // Never let failures in secondary modules prevent the main chat request.
+      if(model.includeContext&&/\b(?:estado|situacion|resumen|cuantos?|cuantas?|listado|listar|pendientes?|consultar|mostrame|mostrar|tengo|hay)\b/i.test(fold(question))){
+       try{
+        const evidence=await focusedAppSnapshot(question,{invoke,state});
+        if(evidence)context=evidence+'\n'+context;
+       }catch(error){model.notice='Algunos datos del módulo no pudieron verificarse: '+String(error).slice(0,140);}
+      }
+      if(token!==queryToken||generation!==model.generation)return;
       if(model.includeContext){
         model.catalogLoading=true;paint();
         let catalog;
@@ -316,7 +326,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
         }
         catch(error){throw new Error('No se pudo consultar el catálogo local: '+String(error)+'. Si actualizaste el código, cerrá y reiniciá CPOBRAS para cargar el comando nuevo.');}
         if(token!==queryToken||generation!==model.generation)return;
-        catalogSnapshot=catalog;context=groundedContext(baseContext,catalog,question,model.messages);
+        catalogSnapshot=catalog;context=groundedContext(context,catalog,question,model.messages);
         model.catalogLoading=false;model.notice='Catálogo local consultado: se incluyen coincidencias reales, unidades y precios vigentes.';
       }
       if(token!==queryToken||generation!==model.generation)return;
