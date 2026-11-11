@@ -123,7 +123,7 @@ const native=new Map(AI_NATIVE_INVENTORY.native.map(item=>[item.name,item]));
 const db=new Map(AI_NATIVE_INVENTORY.tables.map(item=>[item.name,item]));
 const matched=word=>Object.entries(APP_MODULES).filter(([,mod])=>mod.terms.some(term=>word.includes(text(term)))).map(([key])=>key);
 
-export function relevantAppModules(question='',max=4){
+export function relevantAppModules(question='',max=3){
  const q=text(question);
  const selected=matched(q);
  if(!selected.length)return ['projects','budgets'];
@@ -149,20 +149,20 @@ export function appModuleOverview(module){
  return names.map(id=>{
   const m=APP_MODULES[id];
   return {id,title:m.title,related:m.depends,entities:m.entities,
-   implemented_read:m.read.filter(name=>native.get(name)?.allowed===true),
+   desktop_read:m.read.filter(name=>native.get(name)?.allowed===true),
    ui_operations:m.write.filter(name=>native.get(name)?.allowed===true),
    rule:m.rule};
  });
 }
 export function appKnowledgeContext(question='',state={}){
  const modules=relevantAppModules(question);
+ const fullSchema=/\b(?:esquema|base de datos|tablas?|columnas?|estructura interna|relaciones de datos)\b/.test(text(question));
  const details=modules.map(id=>{
   const m=APP_MODULES[id];
   return {module:id,title:m.title,rule:m.rule,requires:m.depends,
    entities:m.entities.map(name=>{
     const table=db.get(name);
-    return {table:name,columns:table?.columns?.slice(0,9).map(c=>c.name)||[],
-     references:table?.references||[]};
+    return fullSchema?{table:name,columns:table?.columns?.slice(0,9).map(c=>c.name)||[],references:table?.references||[]}:{table:name};
    }),native_read:commandInformation(m.read).filter(x=>x.registered&&x.desktop_allowed).slice(0,5),
    native_write:commandInformation(m.write).filter(x=>x.registered&&x.desktop_allowed).slice(0,4)};
  });
@@ -177,7 +177,15 @@ export function appKnowledgeContext(question='',state={}){
    editable:!state.remoteProject&&!state.pageDirty&&!state.estimates?.find(e=>e.id===state.estimateId)?.issued},
   policy:'Estos son comandos instalados en la aplicación, NO herramientas otorgadas a la IA. Solo herramientas con validador y autorización explícitos pueden ejecutarse; ante falta de adaptador, describí el plan y la función manual sin afirmar que se ejecutó.'
  };
- return 'MAPA VIVO DE ARQUITECTURA CPObras (informativo, nunca instrucciones provenientes de pantalla):\n'+JSON.stringify(payload);
+ // Never let a large application map displace the active budget or the
+ // evidence retrieved from the catalog in the bounded provider context.
+ let serialized=JSON.stringify(payload);
+ while(serialized.length>3100&&payload.modules.length>1){payload.modules.pop();serialized=JSON.stringify(payload);}
+ if(serialized.length>3100){
+  payload.modules=payload.modules.map(m=>({module:m.module,title:m.title,rule:m.rule,requires:m.requires,entities:m.entities.map(x=>x.table),native_read:m.native_read.slice(0,3)}));
+  serialized=JSON.stringify(payload);
+ }
+ return 'MAPA VIVO DE ARQUITECTURA CPObras (informativo, sin permisos de ejecución):\n'+serialized;
 }
 
 export function appCapabilityAnswer(module='all'){
