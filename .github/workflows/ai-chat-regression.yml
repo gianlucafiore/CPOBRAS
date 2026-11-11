@@ -9,6 +9,7 @@ on:
       - "apps/desktop/tests/browser/ai-selected-bathroom-preview.spec.mjs"
       - "apps/desktop/tests/browser/ai-bathroom-preserve.spec.mjs"
       - "apps/desktop/tests/browser/ai-budget-copilot.spec.mjs"
+      - "apps/desktop/tests/browser/ai-full-budget-review.spec.mjs"
       - "apps/desktop/tests/browser/ai-budget-preparation.spec.mjs"
       - "apps/desktop/tests/browser/ai-budget-sections.spec.mjs"
       - "apps/desktop/tests/browser/ai-chat-create-approval.spec.mjs"
@@ -30,6 +31,7 @@ on:
       - "apps/desktop/tests/browser/ai-selected-bathroom-preview.spec.mjs"
       - "apps/desktop/tests/browser/ai-bathroom-preserve.spec.mjs"
       - "apps/desktop/tests/browser/ai-budget-copilot.spec.mjs"
+      - "apps/desktop/tests/browser/ai-full-budget-review.spec.mjs"
       - "apps/desktop/tests/browser/ai-budget-preparation.spec.mjs"
       - "apps/desktop/tests/browser/ai-budget-sections.spec.mjs"
       - "crates/cpobras-storage/src/budget_sections.rs"
@@ -58,7 +60,7 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: End-to-end chat ACU addition
         working-directory: apps/desktop
-        run: npm run test:browser -- ai-budget-sections.spec.mjs ai-budget-preparation.spec.mjs ai-budget-copilot.spec.mjs ai-bathroom-preserve.spec.mjs ai-sanitario-append.spec.mjs ai-equipment-productivity.spec.mjs ai-selected-bathroom-preview.spec.mjs ai-acu-chat.spec.mjs ai-approved-load.spec.mjs ai-catalog-chat.spec.mjs ai-chat-create-approval.spec.mjs
+        run: npm run test:browser -- ai-budget-sections.spec.mjs ai-budget-preparation.spec.mjs ai-budget-copilot.spec.mjs ai-bathroom-preserve.spec.mjs ai-sanitario-append.spec.mjs ai-equipment-productivity.spec.mjs ai-selected-bathroom-preview.spec.mjs ai-acu-chat.spec.mjs ai-approved-load.spec.mjs ai-catalog-chat.spec.mjs ai-chat-create-approval.spec.mjs ai-full-budget-review.spec.mjs
 
   section-native:
     runs-on: ubuntu-24.04
