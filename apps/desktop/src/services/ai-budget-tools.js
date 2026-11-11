@@ -2,6 +2,8 @@ import {multiplyDecimals,sumDecimals,divideDecimals,compareDecimals,numeric,mone
 import {buildCatalogContext} from './ai-catalog-context.js';
 import {parseSectionToolArgs} from './ai-budget-sections.js';
 import {AI_TOOL_CONTRACTS} from './ai-domain-context.js';
+import {APP_MODULES,appCapabilityAnswer,planAppWorkflow} from './ai-app-knowledge.js';
+import {INSPECTABLE_MODULES,inspectAppModule} from './ai-workspace-reader.js';
 
 // The model requests only these read-only tools; native writes stay on the
 // separately reviewed ACU/partida paths.
@@ -22,6 +24,16 @@ export function parseBudgetToolCall(raw){
   if(raw.name==='prepare_budget'||raw.name==='review_budget')return {name:raw.name,args:{brief:a.brief.trim()}};
   if(a.scope!=null&&!['selected','all_missing'].includes(a.scope))return null;
   return {name:raw.name,args:{brief:a.brief.trim(),scope:a.scope||'selected'}};
+ }
+ if(raw.name==='describe_capabilities'){
+  const module=a.module||'all';
+  return Object.hasOwn(APP_MODULES,module)||module==='all'?{name:raw.name,args:{module}}:null;
+ }
+ if(raw.name==='inspect_module'){
+  return INSPECTABLE_MODULES.includes(a.module)?{name:raw.name,args:{module:a.module}}:null;
+ }
+ if(raw.name==='plan_workflow'){
+  return typeof a.goal==='string'&&a.goal.trim()&&a.goal.length<=3000?{name:raw.name,args:{goal:a.goal.trim()}}:null;
  }
  if(raw.name==='manage_sections'){
   const parsed=parseSectionToolArgs(a);
@@ -129,6 +141,9 @@ export async function executeBudgetTool(raw,{invoke,state,today}){
  if(!call)throw new Error('La operación solicitada no está permitida o sus datos no son válidos.');
  if(['prepare_budget','prepare_acu','manage_sections','review_budget'].includes(call.name))throw new Error('Esta herramienta prepara una vista previa; no es una consulta de lectura.');
  if(call.name==='calculate_takeoff')return calculateTakeoff(call.args);
+ if(call.name==='describe_capabilities')return appCapabilityAnswer(call.args.module);
+ if(call.name==='plan_workflow')return planAppWorkflow(call.args.goal,state);
+ if(call.name==='inspect_module')return inspectAppModule(call.args.module,{invoke,state});
  if(!state.projectId||!state.estimateId||state.remoteProject)throw new Error('Abrí un presupuesto local para consultar costos.');
  if(call.name==='audit_budget'){
   const catalog=await invoke('ai_catalog_context',{projectId:state.projectId,estimateId:state.estimateId,asOf:today,currency:null});
