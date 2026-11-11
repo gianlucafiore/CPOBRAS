@@ -23,7 +23,7 @@ const inputs=[handler,permission];
 const native=entries.map(({module,name})=>{
  let source=inspected.get(module);
  if(!source){source=read(join(rust,'commands',module+'.rs'));inspected.set(module,source);inputs.push(source);}
- const signature=[...source.matchAll(/#\[tauri::command\]\s*pub(?:\([^)]*\))?\s+(?:async\s+)?fn\s+([a-z_]+)\s*(?:<[^>]*>)?\s*\(([\s\S]*?)\)\s*->/g)].find(m=>m[1]===name);
+ const signature=[...source.matchAll(/#\[tauri::command\]\s*pub(?:\([^)]*\))?\s+(?:async\s+)?fn\s+([a-z0-9_]+)\s*(?:<[^>]*>)?\s*\(([\s\S]*?)\)\s*->/g)].find(m=>m[1]===name);
  if(!signature)throw Error('Falta firma Tauri para '+module+'::'+name);
  const args=[...signature[2].matchAll(/(?:^|,)\s*([a-z_]+)\s*:\s*([^,\n]+)/g)]
   .filter(m=>!['db','backups','directory','session'].includes(m[1])).map(m=>m[1]);
