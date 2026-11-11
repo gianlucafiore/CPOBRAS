@@ -72,6 +72,8 @@ jobs:
         run: cargo test -p cpobras-storage conversational_section_crud_preserves_lines_children_and_rejects_stale_delete -- --nocapture
       - name: Validate reviewed rubro transactions and protected conversions
         run: cargo test -p cpobras-storage reviewed_section -- --nocapture
+      - name: Validate unified atomic budget classification
+        run: cargo test -p cpobras-storage reviewed_batch_moves_rubros_atomically_without_touching_prices -- --nocapture
 
   desktop-native:
     runs-on: ubuntu-24.04
