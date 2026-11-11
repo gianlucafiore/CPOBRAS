@@ -17,7 +17,7 @@ const allowedBlock=permission.match(/commands\.allow\s*=\s*\[([\s\S]*?)\]/)?.[1]
 const handlerBlock=handler.match(/\.invoke_handler\s*\(\s*tauri::generate_handler!\s*\[([\s\S]*?)\]\s*\)/)?.[1];
 if(!allowedBlock||!handlerBlock)throw Error('No se encontró el registro de handlers o permisos Tauri');
 const allowed=new Set([...allowedBlock.matchAll(/"([a-z0-9_]+)"/g)].map(m=>m[1]));
-const entries=[...handlerBlock.matchAll(/commands::([a-z_]+)::([a-z_]+)/g)].map(m=>({module:m[1],name:m[2]}));
+const entries=[...handlerBlock.matchAll(/commands::([a-z0-9_]+)::([a-z0-9_]+)/g)].map(m=>({module:m[1],name:m[2]}));
 const inspected=new Map();
 const inputs=[handler,permission];
 const native=entries.map(({module,name})=>{
