@@ -138,6 +138,7 @@ impl LocalStore {
         for moved in &batch.section_moves {
             if !section_move_ids.insert(moved.line_id)
                 || batch.deletes.iter().any(|d| d.line_id == moved.line_id)
+                || batch.updates.iter().any(|u| u.line_id == moved.line_id)
                 || batch.acus.iter().any(|a| a.line_id == moved.line_id)
             {
                 return Err(invalid("Una partida está repetida entre la clasificación, ACU o eliminaciones"));
