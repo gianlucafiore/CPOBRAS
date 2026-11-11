@@ -1,5 +1,6 @@
 import {createAcuWorkbench} from "./ai-acu-workbench.js";
 import {executeBudgetTool,budgetPreparationRequest} from '../services/ai-budget-tools.js';
+import {aiDomainContext,budgetReviewIntent} from '../services/ai-domain-context.js';
 import {prepareSectionEdits} from '../services/ai-budget-sections.js';
 import {recentCreatedSectionSources} from '../services/ai-section-operations.js';
 import {createApprovedPlanRunner} from "../services/ai-approved-plan.js";
@@ -38,7 +39,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     message.role='assistant';message.originalQuestion=question;
     const content={answer:message.answer};
     if(message.sectionPreview)content.section_plan=message.sectionPreview.display;
-    if(message.acuRequest)content.acu_request={mode:message.acuRequest.mode,brief:message.acuRequest.brief,...(message.acuRequest.mode==='fill'?{line_ids:message.acuRequest.lineIds}:{})};
+    if(message.acuRequest)content.acu_request={mode:message.acuRequest.mode,brief:message.acuRequest.brief,...(message.acuRequest.mode==='fill'?{line_ids:message.acuRequest.lineIds}:{}) ,...(message.acuRequest.reviewBudget?{review_budget:true}:{})};
     if(message.planRows)content.proposal_lines=message.planRows.map(row=>({description:row.description,unit:row.unit,quantity:row.quantity??null,unit_price:row.unit_price??null,section:row.section||''}));
     if(message.changeProposals)content.proposal_changes=message.changeProposals;
     if(message.proposal)content.proposal=message.proposal;
@@ -51,7 +52,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
   function actionContext(){
     const message=model.lastAction;if(!message)return '\nESTADO DE CARGAS DE CPOBRAS: no hay una ejecución registrada en este chat.';
     const approval=message.approval,result=approval?.result;
-    return '\nESTADO DE CARGAS REGISTRADO POR CPOBRAS (no es una afirmación del modelo):\n'+JSON.stringify({state:approval?.state||(message.actionError?'rejected':'pending'),committed:result?.committed===true,created:result?.created||0,saved:result?.saved||0,pending:result?.pending||0,estimate_id:result?.estimateId||null,line_ids:result?.lineIds||[],warnings:result?.warnings||[],message:approval?.message||message.actionError||'La propuesta no se ejecutó. Espera aprobación.'});
+    return '\nESTADO DE CARGAS REGISTRADO POR CPOBRAS (no es una afirmación del modelo):\n'+JSON.stringify({state:approval?.state||(message.actionError?'rejected':'pending'),committed:result?.committed===true,created:result?.created||0,saved:result?.saved||0,organized:result?.organized||0,pending:result?.pending||0,estimate_id:result?.estimateId||null,line_ids:result?.lineIds||[],warnings:result?.warnings||[],message:approval?.message||message.actionError||'La propuesta no se ejecutó. Espera aprobación.'});
   }
   function showActionState(question){
     const message=model.lastAction;
@@ -76,7 +77,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     const originalTopic=original.normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
     const asksComposition=/\b(?:acus?|rendimientos?|consumos?|composicion|dosificacion|metrado)\b|\binsumos?\b.*\bpartidas?\b|\bpartidas?\b.*\binsumos?\b/.test(originalTopic);
     const request=message?.acuRequest||acuChatRequest(brief,history)||(asksComposition?acuChatRequest('cargalos',history):null);
-    const resolved=request||{mode:'create',brief,lineIds:[]},addition=resolved.mode==='fill'&&!resolved.lineIds?.length?appendRequest(resolved.brief,state.lines,state.selectedLineId):null;
+    const resolved=request||{mode:'create',brief,lineIds:[]},addition=resolved.mode==='fill'&&!resolved.lineIds?.length&&!resolved.reviewBudget?appendRequest(resolved.brief,state.lines,state.selectedLineId):null;
     return {request:addition?{...resolved,...addition}:resolved,isAcu:!!request,outline:request?.mode==='fill'?null:message?.planRows||(message?.proposal?.kind==='line'?[{description:message.proposal.description,unit:message.proposal.unit,quantity:message.proposal.quantity??null,unit_price:message.proposal.unit_price??null,section:''}]:null)};
   }
   async function reviewAcuMessage(index){
@@ -100,7 +101,11 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       const rows=preview.rows||[];
       const list=rows.map(row=>`<div class="ai-ingredient-group"><b>${e(row.description)} · por ${e(row.unit)}</b><ul>${row.items.slice(0,12).map(item=>`<li>${e(item.description)}: <b>${e(item.quantity)} ${e(item.unit)}</b>${item.previous_quantity!=null?' (antes: '+e(item.previous_quantity)+')':''}${item.price!=null?' · precio de catálogo: '+e(item.price):' · sin precio'}</li>`).join('')}${row.items.length>12?`<li>+ ${row.items.length-12} insumos adicionales; abrí la revisión detallada.</li>`:''}</ul>${row.preserved?.length?`<details class="ai-preserved"><summary>Se conservan ${row.preserved.length} insumos existentes</summary><ul>${row.preserved.map(item=>`<li>${e(item.description)} · ${e(item.quantity)} ${e(item.unit)}</li>`).join('')}</ul></details>`:''}${row.warnings.map(w=>`<p class="ai-warning">⚠ ${e(w)}</p>`).join('')}</div>`).join('');
       const pending=(preview.pendingReasons||[]).map(row=>`<p class="ai-warning">Pendiente: ${e(row.description)} — ${e(row.reasons.join(' · '))}</p>`).join('');
-      return `<div class="ai-ingredient-preview"><strong>Insumos que se cargarán</strong>${list}${pending}${preview.rows.length?`<button type="button" class="ai-approve" data-ai="approve-load" data-index="${index}" ${canPlan()&&model.configured&&model.consent&&!model.busy?'':'disabled'}>Sí, aprobar y cargar esta lista</button>`:'<p>Sin insumos válidos para aprobar.</p>'}<button type="button" data-ai="discard-preview" data-index="${index}">Descartar</button></div>`;
+      const organized=(preview.movedSections||[]).map(row=>`<li>${e(row.description)}: ${e(row.from)} → ${e(row.to)}${row.reason?' · '+e(row.reason):''}</li>`).join('');
+      const sectionList=organized?`<div class="ai-ingredient-group"><strong>Partidas que cambiarán de rubro</strong><ul>${organized}</ul></div>`:'';
+      const sectionPending=(preview.sectionPending||[]).map(item=>`<p class="ai-warning">Pendiente de clasificación: ${e(item)}</p>`).join('');
+      const hasChanges=rows.length>0||(preview.movedSections||[]).length>0;
+      return `<div class="ai-ingredient-preview"><strong>Cambios preparados para el presupuesto</strong>${list}${sectionList}${pending}${sectionPending}${hasChanges?`<button type="button" class="ai-approve" data-ai="approve-load" data-index="${index}" ${canPlan()&&model.configured&&model.consent&&!model.busy?'':'disabled'}>Sí, aprobar y cargar esta lista</button>`:'<p>Sin cambios válidos para aprobar.</p>'}<button type="button" data-ai="discard-preview" data-index="${index}">Descartar</button></div>`;
     }
     if(message.changeProposals)return '';
     const name=state.estimates.find(e=>e.id===state.estimateId)?.title||'un presupuesto nuevo de esta obra';
@@ -174,10 +179,10 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       if(result.committed&&kind==='plan'&&result.created>0&&Array.isArray(result.lineIds)){
         model.recentCreatedLineIds=[...result.lineIds];model.recentCreatedEstimateId=result.estimateId;
       }
-       const saved=result.saved||0,created=result.created||0,pending=result.pending||0;
-      const counts=[saved?`${saved} ACU ${saved===1?'cargado':'cargados'}`:'',created?`${created} ${created===1?'partida nueva creada':'partidas nuevas creadas'}`:''].filter(Boolean).join(' y ');
+       const saved=result.saved||0,created=result.created||0,organized=result.organized||0,pending=result.pending||0;
+      const counts=[saved?`${saved} ACU ${saved===1?'cargado':'cargados'}`:'',created?`${created} ${created===1?'partida nueva creada':'partidas nuevas creadas'}`:'',organized?`${organized} ${organized===1?'partida organizada por rubro':'partidas organizadas por rubro'}`:''].filter(Boolean).join(' y ');
       const summary=result.committed?`Carga terminada: ${counts||'guardado confirmado'}${pending?`; ${pending} ${pending===1?'pendiente':'pendientes'}`:''}.`:`${result.cancelled?'Carga detenida. ':''}No hay un guardado confirmado para este pedido${pending?`; ${pending} ${pending===1?'pendiente':'pendientes'}`:''}.`;
-      const notice=[summary,...(result.warnings||[]),result.error,result.refreshError].filter(Boolean).join(' ');
+      const notice=[summary,...(result.warnings||[]),...(result.sectionPending||[]).map(item=>'Pendiente: '+item),result.error,result.refreshError].filter(Boolean).join(' ');
       message.answer=notice;message.approval={...message.approval,state:'done',message:notice,result};
       message.content=JSON.stringify({answer:message.answer+'\nResultado registrado por CPOBRAS: '+notice});model.notice=notice;
     }catch(error){if(run.scope===scope()){message.answer='La carga se detuvo: '+String(error);message.approval={...message.approval,state:'stopped',message:message.answer};message.content=JSON.stringify({answer:message.answer});}}
@@ -264,6 +269,15 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     const conversationalAdd=productivity||selectedRequest||advised?null:affirmativeMissingMaterialRequest(question,model.messages,selectedLine);
     const addition=productivity||selectedRequest||conversationalAdd||advised?null:materialAdditionFollowup(question,model.messages,additionContext);
     const recovered=addition?null:materialAdditionConfirmation(question,model.messages,additionContext);
+    if(canPlan()&&budgetReviewIntent(question)){
+      if(!state.estimateId)throw new Error('Abrí el presupuesto que querés revisar antes de solicitar la organización y los ACU.');
+      const lines=state.lines||[];
+      if(!lines.length){addReply(question,{answer:'Este presupuesto no contiene partidas. No hay ACU para completar ni partidas para reorganizar; no se modificó nada.'});paint();return;}
+      const missing=lines.filter(line=>!line.analysis_id&&!(line.components||[]).length).map(line=>line.id).slice(0,60);
+      const review={mode:'fill',brief:question.slice(0,3000),lineIds:missing,reviewBudget:true};
+      addReply(question,{answer:`Revisión de ${lines.length} partidas y ${(state.sections||[]).length} rubros. Prepararé cambios de rubros y ACU con precios reales; lo que falte quedará pendiente. Todavía no se guardó nada.`,acuRequest:review});
+      await approveMessage(model.messages.length-1);return;
+    }
     const acuRequest=productivity||selectedRequest||advised||conversationalAdd||addition||recovered||acuChatRequest(question,model.messages);
     if(canPlan()&&acuRequest){
       const answer=productivity?'Rendimiento identificado. Voy a ajustar solo el equipo seleccionado; cualquier diferencia de unidad se informará. Falta aprobar.':'Pedido listo para revisar o aprobar. No se guardó nada todavía.';
@@ -286,7 +300,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     if(model.includeContext&&model.contextMode==='screen')model.context=captureContext();
     const focusedLine=state.lines.find(line=>line.id===model.focusLineId);
     const pinnedContext=model.includeContext&&focusedLine?'\nPARTIDA ACTIVA DE ESTA CONVERSACIÓN (tiene prioridad sobre la selección visual hasta que el usuario elija expresamente otra): '+JSON.stringify({line_id:focusedLine.id,description:focusedLine.description,unit:focusedLine.unit,quantity:focusedLine.quantity,existing_component_ids:(focusedLine.components||[]).map(c=>c.resource_id)})+'\n':'';
-    const baseContext=actionContext()+pinnedContext+'\n'+(model.includeContext?model.context:'No se compartieron datos de pantalla ni del catálogo. Pedí únicamente la información imprescindible.');
+    const baseContext=aiDomainContext(state,question)+'\n'+actionContext()+pinnedContext+'\n'+(model.includeContext?model.context:'No se compartieron datos de pantalla ni del catálogo. Pedí únicamente la información imprescindible.');
     model.busy=true;model.error='';model.notice='';const token=++queryToken;
     let request,catalogSnapshot=null;
     try {
@@ -338,6 +352,14 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
           addReply(question,{answer:'Revisá el cambio de rubros propuesto. No se guardó nada.',sectionPreview:plan});
           model.notice='Los cambios quedan pendientes de una sola aprobación.';
           return;
+        }
+        if(parsed.toolCall.name==='review_budget'){
+          if(!canPlan()||!state.estimateId)throw new Error('Abrí un presupuesto propio en elaboración para revisar sus rubros y ACU.');
+          const missing=(state.lines||[]).filter(line=>!line.analysis_id&&!(line.components||[]).length).map(line=>line.id).slice(0,60);
+          const review={mode:'fill',brief:parsed.toolCall.args.brief,lineIds:missing,reviewBudget:true};
+          addReply(question,{answer:'Prepararé la revisión, clasificación por rubros y ACU con insumos reales. Nada se guardó todavía.',acuRequest:review});
+          model.busy=false;model.catalogLoading=false;
+          await approveMessage(model.messages.length-1);return;
         }
         if(parsed.toolCall.name==='prepare_budget'||parsed.toolCall.name==='prepare_acu'){
           if(!canPlan())throw new Error('Abrí un presupuesto propio en elaboración y cerrá los formularios pendientes para preparar esta carga');
