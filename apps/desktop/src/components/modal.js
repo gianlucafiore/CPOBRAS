@@ -248,7 +248,7 @@ export function createModalRenderer({
         : "Crear análisis de costo unitario";
       wide = true;
       body =
-        `<div class="form-grid three">
+        `<div class="acu-editor-sticky" aria-label="Datos y composición del ACU"><div class="form-grid three">
       ${field("Código ACU", "code", item.code || "", "required")}
       ${field("Descripción", "description", item.description || "", "required")}
       ${field("Unidad de la partida", "unit", item.unit || "m²", "required")}
@@ -256,7 +256,7 @@ export function createModalRenderer({
     ` +
         `<div class="form-subhead">COMPOSICIÓN DEL ACU
       <button class="btn tiny" type="button" data-action="add-component">＋ Agregar insumo</button>
-    </div>
+    </div></div>
     <div class="component-editor" id="component-editor">
       ${state.acuComponents
         .map(
