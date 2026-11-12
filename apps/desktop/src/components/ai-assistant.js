@@ -92,6 +92,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     paint();
   }
   async function proposeConversation(question,kind,previous=null){
+    if(previous)model.chatDraft=null; // A failed correction must not leave the old version approvable.
     const token=++queryToken,generation=model.generation;
     model.busy=true;model.error='';model.notice='Preparando una propuesta sin guardar…';
     let request=null;
@@ -119,7 +120,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       stageConversation(question,draft);
       model.usage={input:result.input_tokens,output:result.output_tokens};
     }catch(error){
-      if(token===queryToken&&generation===model.generation)model.error='No se modificó la base. '+String(error);
+      if(token===queryToken&&generation===model.generation)model.error=(previous?'Se descartó el borrador anterior para no aprobar una versión sin corregir. ':'')+'No se modificó la base. '+String(error);
     }finally{
       if(activeRequest===request)activeRequest=null;
       if(token===queryToken&&generation===model.generation){model.busy=false;paint();}
@@ -127,6 +128,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
   }
 
   async function proposeBudget(question,acuRequest,previous=null){
+    if(previous)model.chatDraft=null; // Never approve a stale version after a failed regeneration.
     const generation=model.generation,token=++queryToken;
     const request={...acuRequest};
     if(!previous&&request.mode==='fill'){
@@ -146,7 +148,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       const errors=result.previews.flatMap((row,i)=>row.errors.map(error=>(i+1)+': '+error));
       stageConversation(question,{kind:'budget_acu',answer:'Preparé '+result.previews.length+' ACU para el presupuesto: '+result.ready+' completos y '+result.pending+' pendientes. Los precios y consumos se leyeron del catálogo local. Podés corregir cualquier material o rendimiento escribiéndomelo.',rows:result.previews,errors,request,draftId:result.draftId,ready:result.ready});
     }catch(error){
-      if(generation===model.generation&&token===queryToken)model.error='No se modificó el presupuesto. '+String(error);
+      if(generation===model.generation&&token===queryToken)model.error=(previous?'Se descartó el borrador anterior para no aprobar una versión sin corregir. ':'')+'No se modificó el presupuesto. '+String(error);
     }finally{
       if(generation===model.generation&&token===queryToken){model.busy=false;model.chatPreparing=false;paint();}
     }
@@ -298,7 +300,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
           try{
             const localEdit=applyVerifiedPriceEdit(draft,question,state.resources||[]);
             if(localEdit){stageConversation(question,localEdit);return;}
-          }catch(error){model.error=String(error);model.question='';paint();return;}
+          }catch(error){model.chatDraft=null;model.error='No se modificó el precio y se descartó el borrador pendiente para evitar una aprobación equivocada. '+String(error);model.question='';paint();return;}
           await proposeConversation(question,draft.kind,draft);
         }else await proposeConversation(question,draft.kind,draft);
         return;
