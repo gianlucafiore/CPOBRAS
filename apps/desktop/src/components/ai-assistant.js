@@ -76,7 +76,13 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       return {resource,index,score};
     });
     scored.sort((a,b)=>b.score-a.score||a.index-b.index);
-    return scored.slice(0,90).map(x=>x.resource);
+    const selected=[];let length=0;
+    for(const item of scored){
+      const size=new TextEncoder().encode(JSON.stringify(item.resource)).length;
+      if(selected.length>=90||length+size>22000)break;
+      selected.push(item.resource);length+=size;
+    }
+    return selected;
   };
   function stageConversation(question,draft){
     model.chatDraft={...draft,origin:conversationScope(),id:globalThis.crypto.randomUUID(),status:'pending'};
@@ -341,6 +347,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
         try{if(parseCatalogQuery(result.text))result.text=JSON.stringify({answer:catalogAnswer(catalogSnapshot,additional)});}catch{result.text=JSON.stringify({answer:catalogAnswer(catalogSnapshot,additional)});}
       }
       let parsed=parseAiReply(result.text);
+      if(parsed.acuRequest&&canPlan()){activeRequest=null;await proposeBudget(question,parsed.acuRequest);return;}
       if(catalogSnapshot&&/no (?:tengo|dispongo de|cuento con) acceso.{0,50}(?:cat[aá]logo|biblioteca)|no puedo acceder.{0,40}(?:cat[aá]logo|biblioteca)/i.test(parsed.answer)){parsed={answer:catalogAnswer(catalogSnapshot,question,model.messages),proposal:null};result.text=JSON.stringify(parsed);}
       const executionClaim=/\b(?:agregue|anadi|incorpore|cargue|guarde|cree|aplique)\b|\bse (?:creo|crearon|agrego|agregaron|cargo|cargaron|guardo|guardaron|incorporo|incorporaron|aplico|aplicaron)\b|\b(?:fue|fueron|ha sido|han sido) (?:cread[oa]s?|cargad[oa]s?|guardad[oa]s?|agregad[oa]s?)\b/.test(fold(parsed.answer));
       const loadTurn=isAction(parsed)||/\b(?:crea|crear|agrega|agregar|carga|cargar|completa|completar|incorpora|incorporar|aplica|aplicar)\b/.test(fold(question));
