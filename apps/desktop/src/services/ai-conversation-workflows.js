@@ -15,6 +15,7 @@ export function conversationIntent(view,question){
  if(!action.test(q)||/^(?:como|que|cual|donde|por que|cuanto)\b/.test(q))return null;
  if(view==='resources'&&/\b(?:insumos?|materiales?|biblioteca|catalogo|mano de obra|equipos?)\b/.test(q))return 'resources';
  if(view==='analyses'&&/\b(?:acus?|analisis de (?:costos?|precios?)|composici[oó]n|recetas?)\b/.test(q))return 'generic_acu';
+ if(view==='projects'&&/\b(?:acus? genericos?|analisis (?:de costo|de precio) unitario|biblioteca de acus?)\b/.test(q))return 'generic_acu';
  return null;
 }
 export function proposalPrompt(kind,question,previous=null){
@@ -68,7 +69,7 @@ export function describeConversationProposal(draft){
  const lines=draft.rows.map((row,index)=>{
   if(draft.kind==='resources')return (index+1)+'. '+(row.description||'Sin descripción')+' · '+(row.kind||'Tipo pendiente')+' · '+(row.unit||'Unidad pendiente');
   const cs=row.components.map(c=>c.description+': '+c.quantity+' '+c.unit+' / '+row.unit).join('; ');
-  return (index+1)+'. '+row.description+' ('+row.unit+')\n   '+(cs||'Sin componentes')+(row.missing_resources?.length?'\n   Faltantes: '+row.missing_resources.join(', '):'');
+  return (index+1)+'. '+row.description+' ('+row.unit+')'+(row.unit_cost!=null?' · '+row.unit_cost+' ARS/'+row.unit:'')+'\n   '+(cs||'Sin componentes')+(row.missing_resources?.length?'\n   Faltantes: '+row.missing_resources.join(', '):'');
  });
  return lines.join('\n')+'\n'+(draft.errors.length?'\nPendientes de resolver:\n'+draft.errors.join('\n')+'\nCorregilos por mensaje antes de aprobar.':'\nSi está correcto, respondé «apruebo» y lo guardaré. Podés pedir cualquier cambio escribiéndolo.');
 }
