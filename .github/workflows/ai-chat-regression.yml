@@ -18,6 +18,7 @@ on:
       - "apps/desktop/tests/browser/ai-catalog-chat.spec.mjs"
       - "apps/desktop/tests/browser/ai-approved-load.spec.mjs"
       - "apps/desktop/tests/browser/ai-acu-chat.spec.mjs"
+      - "apps/desktop/tests/browser/ai-library-acu.spec.mjs"
       - "crates/cpobras-storage/src/budget_sections.rs"
       - "crates/cpobras-storage/src/section_batches.rs"
       - "apps/desktop/src-tauri/src/commands/sections.rs"
@@ -37,6 +38,7 @@ on:
       - "apps/desktop/tests/browser/ai-conversation-context.spec.mjs"
       - "apps/desktop/tests/browser/ai-app-capabilities.spec.mjs"
       - "apps/desktop/tests/browser/ai-budget-preparation.spec.mjs"
+      - "apps/desktop/tests/browser/ai-library-acu.spec.mjs"
       - "apps/desktop/tests/browser/ai-budget-sections.spec.mjs"
       - "crates/cpobras-storage/src/budget_sections.rs"
       - "crates/cpobras-storage/src/section_batches.rs"
@@ -69,7 +71,7 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: End-to-end chat ACU addition
         working-directory: apps/desktop
-        run: npm run test:browser -- ai-conversation-context.spec.mjs ai-budget-sections.spec.mjs ai-budget-preparation.spec.mjs ai-budget-copilot.spec.mjs ai-bathroom-preserve.spec.mjs ai-sanitario-append.spec.mjs ai-equipment-productivity.spec.mjs ai-selected-bathroom-preview.spec.mjs ai-acu-chat.spec.mjs ai-approved-load.spec.mjs ai-catalog-chat.spec.mjs ai-chat-create-approval.spec.mjs ai-full-budget-review.spec.mjs ai-app-capabilities.spec.mjs
+        run: npm run test:browser -- ai-conversation-context.spec.mjs ai-budget-sections.spec.mjs ai-budget-preparation.spec.mjs ai-budget-copilot.spec.mjs ai-bathroom-preserve.spec.mjs ai-sanitario-append.spec.mjs ai-equipment-productivity.spec.mjs ai-selected-bathroom-preview.spec.mjs ai-acu-chat.spec.mjs ai-approved-load.spec.mjs ai-catalog-chat.spec.mjs ai-chat-create-approval.spec.mjs ai-full-budget-review.spec.mjs ai-app-capabilities.spec.mjs ai-library-acu.spec.mjs
 
   section-native:
     runs-on: ubuntu-24.04
