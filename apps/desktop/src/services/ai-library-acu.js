@@ -168,16 +168,23 @@ export function readLibraryAcus(text, resources) {
         (raw.components != null && (!Array.isArray(raw.components) || raw.components.length > 40)) ||
         (!(raw.components?.length) && !raw.missing?.length) ||
         (raw.missing != null && (!Array.isArray(raw.missing) || raw.missing.length > 12 ||
-          raw.missing.some(item => !pendingLabel(item))))) {
+          raw.missing.some(item => !pendingLabel(item)))) ||
+        (raw.excluded != null && (!Array.isArray(raw.excluded) || raw.excluded.length > 20 ||
+          raw.excluded.some(item => !field(item,180))))) {
       throw new Error("El borrador del ACU tiene campos incompletos o inválidos.");
     }
     const seen = new Set();
     const pending = [];
+    // Exclusions are semantically extracted by the model from the user's own
+    // words; this layer has no material-specific blacklist.
+    const excluded = (raw.excluded||[]).map(foldCatalogText).filter(Boolean);
+    const omitted = text => excluded.some(label=>foldCatalogText(text).includes(label));
     const components = (raw.components || []).flatMap(component => {
       const resource = byId.get(component?.resource_id);
       const requestedName = typeof component?.description === "string" ? component.description.slice(0, 90)
         : typeof component?.requested_description === "string" ? component.requested_description.slice(0, 90)
         : "Insumo no identificado";
+      if (omitted(resource?.description||requestedName)) return [];
       if (!resource) {
         // Keep a named unresolved material visible, but never allow a made-up
         // identifier to become a component without any identifying evidence.
@@ -207,7 +214,7 @@ export function readLibraryAcus(text, resources) {
       description:raw.description.trim(),
       unit:raw.unit.trim(),
       components,
-      aiWarnings:[...(raw.missing ?? []).map(pendingLabel), ...pending],
+      aiWarnings:[...(raw.missing ?? []).map(pendingLabel).filter(item=>!omitted(item)), ...pending],
     };
   });
   return {answer:data.answer.slice(0, 2000), drafts, keepDraft:!drafts.length && data.keep_draft === true, missingField:data.missing_field};
