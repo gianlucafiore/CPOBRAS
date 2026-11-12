@@ -48,7 +48,7 @@ async function openLibrary(page, proseFirst = false, asksWork = 0) {
           if (question.startsWith("Usá requested_work") && context.requested_work.includes("yeso")) {
             return {text:JSON.stringify({answer:"Estimación por m².",library_acus:[
               {description:"Aplicación de yeso por vía húmeda",unit:"m²",components:[
-                {resource_id:"r17",quantity:"8",quantity_unit:"kg"},
+                {resource_id:"r17",quantity:"8",quantity_unit:"kg",catalog_quantity:"0.32",conversion_basis:{per_unit_quantity:"25",per_unit_unit:"kg"}},
               ],missing:[]},
             ]})};
           }
@@ -56,7 +56,7 @@ async function openLibrary(page, proseFirst = false, asksWork = 0) {
           if (question.includes("yeso") || question.includes("malla")) {
             const row = question.includes("malla")
               ? {resource_id:"r18",quantity:"1.05",quantity_unit:"m²"}
-              : {resource_id:"r17",quantity:"8",quantity_unit:"kg"};
+              : {resource_id:"r17",quantity:"8",quantity_unit:"kg",catalog_quantity:"0.32",conversion_basis:{per_unit_quantity:"25",per_unit_unit:"kg"}};
             return {text:JSON.stringify({answer:"Consumo estimado por m².",library_acus:[
               {description:"Aplicación de yeso por vía húmeda",unit:"m²",components:[row],missing:[]},
             ]})};
