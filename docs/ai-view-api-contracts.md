@@ -65,6 +65,36 @@ automáticamente en el backend. Los insumos tienen que existir; no inventar IDs.
 update_analysis y reprice_analysis existen en la interfaz, sin escritura
 libre de IA. El backend no devuelve un campo committed para estas operaciones.
 
+## Conversión de unidades en la biblioteca ACU (decisión de la IA)
+
+La IA es responsable de **razonar y calcular** los consumos por unidad de
+obra. Los valores numéricos de una presentación comercial se obtienen de la
+**descripción real del insumo en el catálogo**. CPObras no fija tamaños de bolsa,
+bolsón, dosis por material ni densidades en su código.
+
+Contrato del componente propuesto:
+- resource_id: ID real del insumo consultado;
+- quantity: consumo original positivo, expresado como decimal;
+- quantity_unit: unidad física del consumo antes de la compra;
+- catalog_quantity: cantidad **calculada por el modelo** en la unidad de precio
+  del catálogo cuando difiere de quantity_unit;
+- conversion_basis: {per_unit_quantity,per_unit_unit}, aportado por la IA
+  cuando el insumo se vende por una presentación comercial; expresa la
+  capacidad física de **una** unidad de compra documentada en el catálogo.
+
+El validador frontend verifica únicamente las identidades de unidades físicas
+universales y que los números y capacidades citados existan en la ficha del
+catálogo. Si no puede corroborar el cálculo, marca el componente pendiente y
+solicita al modelo **una única revisión automática**; no guarda una conjetura.
+No se infiere densidad a partir del nombre comercial. La IA debe explicitar la
+equivalencia cuando haya masa frente a volumen y, si no está documentada, dejar
+pendiente de revisión. El usuario puede abrir el editor con lenguaje natural;
+guardar sigue exigiendo un ACU válido y aprobación.
+
+Para insumos expresamente excluidos por el usuario, el modelo devuelve
+excluded y los omite de components y missing. El parser aplica esa lista
+genérica, sin excepciones programadas para materiales particulares.
+
 ## Presupuesto y ACU de partida (vista workspace)
 
 Consultas: list_project_estimates({projectId}),
