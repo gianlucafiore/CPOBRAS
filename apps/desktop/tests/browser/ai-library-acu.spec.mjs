@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-async function openLibrary(page, proseFirst = false, asksWork = 0) {
+async function openLibrary(page, proseFirst = false, asksWork = 0, selectedFixture = false) {
   await page.route("**/src/main.js*", route => route.fulfill({
     contentType: "application/javascript",
     body: `import "./style.css";
@@ -9,10 +9,17 @@ async function openLibrary(page, proseFirst = false, asksWork = 0) {
         id: "r" + i, code: "INS-" + i, description: i === 17 ? "Yeso húmedo bolsa 25 kg" : i === 18 ? "Malla de refuerzo" : i ? "Árido " + i : "Cemento Portland",
         unit: i === 17 ? "bolsa" : i === 18 ? "m²" : "kg", kind: "material", active: true, price: "50", currency: "ARS",
       }));
-      const analyses = [], writes = [];
+      const analyses = ${selectedFixture ? JSON.stringify([{
+        id:"analysis-fixture",code:"ACU-77",description:"Mampostería de prueba",unit:"m²",
+        unit_cost:"200",is_line_owned:false,components:[
+          {resource_id:"r0",description:"Cemento Portland",kind:"material",quantity:"1",unit_price:"50",total:"50"},
+          {resource_id:"r1",description:"Árido 1",kind:"material",quantity:"3",unit_price:"50",total:"150"}
+        ]
+      }]) : "[]"}, writes = [], selectedWrites=[];
       let remainingProse = ${Number(proseFirst)};
       let remainingWorkQuestions = ${asksWork};
       window.libraryWrites = writes;
+      window.selectedWrites = selectedWrites;
       window.exportOpens = [];
       const invoke = async (command, args) => {
         if (command === "list_resources") return resources;
@@ -34,6 +41,8 @@ async function openLibrary(page, proseFirst = false, asksWork = 0) {
             else if (text === "si" || text === "perfecto" || text === "mandale con esa composición") action = "approve";
             else if (text.startsWith("a donde") || text.startsWith("mostra") || text.includes("qué pasó con mi acu")) action = "show";
             else if (text.includes("formulario") || text.includes("editor")) action = "review";
+            else if (text.includes("aprob") || text.includes("guardá los cambios")) action = "approve";
+            else if (text.includes("modific") || text.includes("cambiale") || text.includes("ajust")) action = "edit";
             else if (text.includes("cómo")) action = "question";
             else if (text.startsWith("agregá")) action = "add";
             else if (text.includes("genérico") || text.includes("generico") || text.startsWith("aplicación")) {
@@ -41,6 +50,11 @@ async function openLibrary(page, proseFirst = false, asksWork = 0) {
               else work = undefined;
             } else if (text.endsWith("desde esta vista?")) work = undefined;
             return {text:JSON.stringify({action,work:action === "new" ? work : undefined})};
+          }
+          if(args.mode==="library_acu_edit"){
+            if(context.task!=="library_acu_edit" || !context.selected_analysis)throw Error("No se cargó el ACU seleccionado");
+            return {text:JSON.stringify({answer:"Actualizar solamente el rendimiento del cemento.",
+              analysis_edit:{changes:[{operation:"set",resource_id:"r0",quantity:"2",quantity_unit:"kg"}]}})};
           }
           if (args.mode !== "library_acu" || context.task !== "library_acu") throw Error("Pedido mal dirigido");
           if (remainingProse-- > 0) return {text:JSON.stringify({answer:"Preparé un ACU. Consultá para completar."})};
@@ -68,6 +82,24 @@ async function openLibrary(page, proseFirst = false, asksWork = 0) {
               {resource_id:context.resources.find(item => item.id === "r0").id,quantity:"2",unit_price:"999"},
             ],missing:["Revisar dosificación"]}],
           })};
+        }
+        if(command === "update_analysis"){
+          selectedWrites.push(structuredClone(args));
+          const analysis=analyses.find(item=>item.id===args.analysisId);
+          if(!analysis)throw Error("ACU inexistente");
+          const current=analysis.components;
+          const wanted=args.expectedSnapshot?.components || [];
+          if(wanted.length!==current.length ||
+            wanted.some((x,i)=>x.resourceId!==current[i].resource_id || x.quantity!==current[i].quantity || x.unitPrice!==current[i].unit_price))
+            throw Error("ACU modificado concurrentemente");
+          analysis.description=args.description;
+          analysis.unit=args.unit;
+          analysis.components=args.components.map(c=>({
+            resource_id:c.resourceId,quantity:c.quantity,unit_price:c.unitPrice,
+            description:resources.find(r=>r.id===c.resourceId)?.description||"",kind:"material",
+            total:"0"
+          }));
+          return {id:analysis.id,code:analysis.code,description:analysis.description,unit:analysis.unit,unit_cost:"250"};
         }
         if (command === "create_analysis") {
           writes.push(structuredClone(args));
@@ -266,4 +298,30 @@ test("natural-language review opens the existing ACU editor without writing inco
   await send("Quiero terminarlo en el formulario para revisar los pendientes");
   await expect(page.getByRole("dialog",{name:"Crear análisis de costo unitario"})).toBeVisible();
   expect(await page.evaluate(()=>window.libraryWrites)).toEqual([]);
+});
+
+
+test("conversational AI updates ONLY the selected existing ACU after approval",async ({page})=>{
+  await openLibrary(page,false,0,true);
+  await page.getByRole("row",{name:/ACU-77.*Mampostería de prueba/}).click();
+  await page.getByTitle("Asistente IA").click();
+  await page.locator("[name=ai-consent]").check();
+  const send=async question=>{
+    await page.getByRole("textbox",{name:"Consulta al asistente"}).fill(question);
+    await page.locator("#ai-question").getByRole("button",{name:/Enviar/}).click();
+  };
+  await send("Modificá el ACU seleccionado: cambiale el rendimiento de cemento a 2 kg y conservá lo demás");
+  const review=page.locator("[data-selected-acu-edit]");
+  await expect(review).toContainText("ACU-77");
+  await expect(review).toContainText("Modificar Cemento");
+  expect(await page.evaluate(()=>window.selectedWrites)).toEqual([]);
+  await send("Aprobá la modificación");
+  await expect(page.getByText(/Actualicé el ACU existente/)).toBeVisible();
+  const writes=await page.evaluate(()=>window.selectedWrites);
+  expect(writes).toHaveLength(1);
+  expect(writes[0].analysisId).toBe("analysis-fixture");
+  expect(writes[0].expectedSnapshot.components.map(row=>row.quantity)).toEqual(["1","3"]);
+  expect(writes[0].components.map(row=>row.quantity)).toEqual(["2","3"]);
+  expect(writes[0].components.map(row=>row.unitPrice)).toEqual(["50","50"]);
+  expect(await page.evaluate(()=>window.libraryWrites)).toEqual([]); // No duplicate ACU created
 });
