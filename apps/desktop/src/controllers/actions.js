@@ -207,6 +207,19 @@ async function act(button) {
     if (!entry) throw new Error("El ACU seleccionado ya no existe.");
     return openModal("analysis", { ...entry, components: info.components });
   }
+  if (action === "duplicate-analysis") {
+    const id=button.dataset.id;
+    const source=state.analyses.find(row=>row.id===id);
+    if(!source)throw new Error("El ACU de origen ya no existe.");
+    const detail=await invoke("get_analysis_details",{analysisId:id});
+    if(detail.is_line_owned)throw new Error("Este ACU pertenece a una partida. Guardalo primero como patrón de ACU.");
+    // No ID or code is inherited: the normal create_analysis path generates
+    // a new identity and automatic code only when the copy is approved.
+    return openModal("analysis",{
+      code:"",description:source.description+" · Variante",unit:source.unit,
+      components:detail.components.map(row=>({...row}))
+    });
+  }
   if (action === "edit-resource") {
     const resource = state.resources.find(r => r.id === button.dataset.id);
     if (resource) return openModal("resource", resource);
