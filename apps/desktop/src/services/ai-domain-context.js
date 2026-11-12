@@ -1,4 +1,5 @@
 // Knowledge used by the conversational budget copilot. Data comes from the
+import {aiViewApiContext} from './ai-view-api-contracts.js';
 // active workspace; these descriptions are NOT permissions or database writes.
 // Native Tauri commands and storage transactions remain the source of truth.
 import {appKnowledgeContext} from './ai-app-knowledge.js';
@@ -56,5 +57,5 @@ export function aiDomainContext(state,question=''){
   version:AI_DOMAIN_VERSION,conceptos:concepts,herramientas:tools,
   estado:{presupuesto_id:state.estimateId||null,proyecto_id:state.projectId||null,partidas:lines.length,rubros:sections.length,sin_acu:withoutAcu.length,sin_rubro:ungrouped.length},
   restricciones:['No afirmar guardado sin resultado nativo confirmado','No inventar precio, ID, conversión ni unidad','Los faltantes quedan pendientes sin impedir otras propuestas válidas']
- })+'\n'+appContext;
+ })+'\n'+appContext+'\n'+aiViewApiContext(state);
 }
