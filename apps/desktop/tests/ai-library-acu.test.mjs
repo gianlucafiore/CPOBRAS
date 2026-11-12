@@ -38,3 +38,37 @@ test("converts kg only when the package weight is verifiable in the catalog", ()
   assert.deepEqual(pending.components,[]);
   assert.match(pending.aiWarnings[0],/confirmar la equivalencia/);
 });
+
+
+test("masonry work includes real candidates for bricks, mortar ingredients and labor", () => {
+  const resources = [
+    {id:"brick",description:"Ladrillo hueco 12 x 18 x 33",unit:"un",kind:"material",price:"120"},
+    {id:"sand",description:"Arena gruesa",unit:"m³",kind:"material",price:"3000"},
+    {id:"cement",description:"Cemento Portland 25 kg",unit:"bolsa",kind:"material",price:"8000"},
+    {id:"worker",description:"Oficial albañil por hora",unit:"h",kind:"labor",price:"9500"},
+    {id:"other",description:"Cable eléctrico 2,5 mm",unit:"m",kind:"material",price:"750"},
+  ];
+  const {libraryAcuContext} = await import("../src/services/ai-library-acu.js");
+  const evidence=libraryAcuContext("Creá un ACU de mampostería de ladrillo hueco del 12",{
+    resources,currency:"ARS",as_of:"2026-11-12",
+  });
+  const listed = new Set(evidence.resources.map(item => item.id));
+  for(const id of ["brick","sand","cement","worker"]) assert.ok(listed.has(id),"Missing real catalog candidate: "+id);
+  assert.ok(JSON.parse(evidence.context).resources.every(item=>resources.some(r=>r.id===item.id)));
+});
+
+test("unavailable named materials remain visible as pending, while numbers are normalized safely", () => {
+  const resources=[{id:"brick",description:"Ladrillo hueco 12",unit:"un",kind:"material",price:"0"}];
+  const result=readLibraryAcus(JSON.stringify({answer:"Mampostería por m², pendiente de mortero.",library_acus:[
+    {description:"Mampostería de ladrillo hueco 12",unit:"m²",components:[
+      {resource_id:"brick",quantity:17,quantity_unit:"un"},
+      {resource_id:"missing-material",description:"Arena gruesa",quantity:"0.02",quantity_unit:"m³"},
+    ],missing:[{name:"Cemento Portland",quantity:"6",unit:"kg",reason:"Buscar en catálogo"}]},
+  ]}),resources);
+  assert.equal(result.drafts[0].components.length,1);
+  assert.equal(result.drafts[0].components[0].quantity,"17");
+  assert.equal(result.drafts[0].components[0].unit_price,"0");
+  assert.match(result.drafts[0].aiWarnings.join(" | "),/Arena gruesa/);
+  assert.match(result.drafts[0].aiWarnings.join(" | "),/Cemento Portland/);
+  assert.equal(result.drafts[0].aiWarnings.length,2);
+});
