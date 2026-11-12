@@ -1,8 +1,8 @@
 // Knowledge used by the conversational budget copilot. Data comes from the
-import {aiViewApiContext} from './ai-view-api-contracts.js';
 // active workspace; these descriptions are NOT permissions or database writes.
 // Native Tauri commands and storage transactions remain the source of truth.
 import {appKnowledgeContext} from './ai-app-knowledge.js';
+import {aiViewApiContext} from './ai-view-api-contracts.js';
 
 export const AI_DOMAIN_VERSION = '2026-11-10.1';
 
