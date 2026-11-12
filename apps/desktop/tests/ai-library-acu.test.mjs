@@ -40,7 +40,7 @@ test("converts kg only when the package weight is verifiable in the catalog", ()
 });
 
 
-test("masonry work includes real candidates for bricks, mortar ingredients and labor", () => {
+test("the catalog only retrieves real records for queries chosen by the user or model", () => {
   const resources = [
     {id:"brick",description:"Ladrillo hueco 12 x 18 x 33",unit:"un",kind:"material",price:"120"},
     {id:"sand",description:"Arena gruesa",unit:"m³",kind:"material",price:"3000"},
@@ -53,8 +53,14 @@ test("masonry work includes real candidates for bricks, mortar ingredients and l
     resources,currency:"ARS",as_of:"2026-11-12",
   });
   const listed = new Set(evidence.resources.map(item => item.id));
-  for(const id of ["brick","sand","cement","worker"]) assert.ok(listed.has(id),"Missing real catalog candidate: "+id);
+  assert.ok(listed.has("brick"));
+  const modelQuery=libraryAcuContext("cemento arena albañil",{
+    resources,currency:"ARS",as_of:"2026-11-12",
+  });
+  const discovered=new Set(modelQuery.resources.map(item=>item.id));
+  for(const id of ["sand","cement","worker"]) assert.ok(discovered.has(id),"Missing model-selected resource "+id);
   assert.ok(JSON.parse(evidence.context).resources.every(item=>resources.some(r=>r.id===item.id)));
+  assert.ok(JSON.parse(modelQuery.context).resources.every(item=>resources.some(r=>r.id===item.id)));
 });
 
 test("unavailable named materials remain visible as pending, while numbers are normalized safely", () => {
