@@ -33,6 +33,7 @@ async function openLibrary(page, proseFirst = false, asksWork = 0) {
             if (text.startsWith("no,")) action = "discard";
             else if (text === "si" || text === "perfecto" || text === "mandale con esa composición") action = "approve";
             else if (text.startsWith("a donde") || text.startsWith("mostra") || text.includes("qué pasó con mi acu")) action = "show";
+            else if (text.includes("formulario") || text.includes("editor")) action = "review";
             else if (text.includes("cómo")) action = "question";
             else if (text.startsWith("agregá")) action = "add";
             else if (text.includes("genérico") || text.includes("generico") || text.startsWith("aplicación")) {
@@ -45,7 +46,7 @@ async function openLibrary(page, proseFirst = false, asksWork = 0) {
           if (remainingProse-- > 0) return {text:JSON.stringify({answer:"Preparé un ACU. Consultá para completar."})};
           if (remainingWorkQuestions-- > 0) return {text:JSON.stringify({answer:"¿Para qué trabajo querés crear el ACU?",needs_details:true,missing_field:"work"})};
           const question = args.messages.at(-1).content;
-          if (question.startsWith("Usá requested_work") && context.requested_work.includes("yeso")) {
+          if ((question.startsWith("Usá requested_work") || question.includes("El trabajo YA está indicado")) && context.requested_work.includes("yeso")) {
             return {text:JSON.stringify({answer:"Estimación por m².",library_acus:[
               {description:"Aplicación de yeso por vía húmeda",unit:"m²",components:[
                 {resource_id:"r17",quantity:"8",quantity_unit:"kg",catalog_quantity:"0.32",conversion_basis:{per_unit_quantity:"25",per_unit_unit:"kg"}},
@@ -223,7 +224,7 @@ test("a prose-only reply is retried and where-is-it reveals a real library propo
   await expect(preview).toContainText("0.32 bolsa");
   await expect(page.getByText("Preparé un ACU. Consultá para completar.")).toHaveCount(0);
   await send("a donde está?");
-  await expect(page.getByText("La composición del ACU está en esta tarjeta del chat.")).toBeVisible();
+  await expect(page.getByText("La propuesta y sus insumos están disponibles en la conversación.")).toBeVisible();
   await send("si");
   await expect(page.getByRole("row", {name:/ACU-0001.*Aplicación de yeso/})).toBeVisible();
   expect(await page.evaluate(() => window.libraryWrites.length)).toBe(1);
@@ -249,4 +250,20 @@ test("a generic clarification and retry preserve the original requested work", a
   await expect(page.locator("[data-library-acu-preview]")).toContainText("0.32 bolsa");
   await expect(page.getByText("¿Para qué trabajo querés crear el ACU?", {exact:true})).toHaveCount(0);
   expect(await page.evaluate(() => window.libraryWrites.length)).toBe(0);
+});
+
+
+test("natural-language review opens the existing ACU editor without writing incomplete data",async ({page})=>{
+  await openLibrary(page);
+  await page.getByTitle("Asistente IA").click();
+  await page.locator("[name=ai-consent]").check();
+  const send=async content=>{
+    await page.getByRole("textbox",{name:"Consulta al asistente"}).fill(content);
+    await page.locator("#ai-question").getByRole("button",{name:/Enviar/}).click();
+  };
+  await send("Necesito un ACU de contrapiso para después completar los costos");
+  await expect(page.locator("[data-library-acu-preview]")).toBeVisible();
+  await send("Quiero terminarlo en el formulario para revisar los pendientes");
+  await expect(page.getByRole("dialog",{name:"Crear análisis de costo unitario"})).toBeVisible();
+  expect(await page.evaluate(()=>window.libraryWrites)).toEqual([]);
 });
