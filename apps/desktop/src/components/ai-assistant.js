@@ -284,14 +284,20 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
 
   async function confirmLibraryAcu(question, message) {
     const drafts = message.libraryAcus.filter(Boolean);
-    if (drafts.length !== 1 || !canSaveLibraryAcu(drafts[0])) {
-      addReply(question, {answer:drafts.length !== 1
-        ? "Elegí cuál querés guardar con «Revisar y guardar ACU»."
-        : "Quedan insumos, conversiones o precios pendientes. Podés pedirme un ajuste o completarlos en el formulario."});
+    if (drafts.length !== 1) {
+      addReply(question, {answer:"Hay varias propuestas. Elegí el ACU que querés revisar y guardar."});
       paint();
       return;
     }
     const draft = drafts[0];
+    if (!canSaveLibraryAcu(draft)) {
+      // Acknowledging an incomplete draft can open the existing native editor,
+      // but never writes without its fully validated form submission.
+      openModal("analysis",draft,()=>{message.libraryAcus=[];});
+      addReply(question, {answer:"Abrí el editor del ACU con los componentes verificados. Quedan insumos o precios por completar antes del guardado."});
+      paint();
+      return;
+    }
     model.busy = true;
     model.error = "";
     model.notice = "Guardando el ACU aprobado…";
@@ -354,6 +360,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
         description:draft.description, unit:draft.unit, missing:draft.aiWarnings,
         components:draft.components.map(row => ({
           resource_id:row.resource_id, description:row.description, quantity:row.quantity, quantity_unit:row.unit,
+          conversion:row.conversion||null,
         })),
       }));
       const contextWithDraft = context => JSON.stringify({
@@ -403,6 +410,25 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
         }], contextWithDraft(evidence.context));
         if (!current()) return;
         parsed = read(result);
+      }
+      // If the model omitted or miscalculated a catalog-unit conversion, ask
+      // the same model to reason over the verified presentation once more.
+      // This is not a product-specific conversion performed by the UI.
+      if (action !== "question" && parsed.drafts.some(draft=>draft.conversionPending)) {
+        try {
+          const correction=await sendRequest([...messages,
+            {role:"assistant",content:result.text.slice(0,3500)},
+            {role:"user",content:"Revisá la conversión de las cantidades a la unidad de COMPRA de cada insumo. Leé la descripción real del catálogo: calculá catalog_quantity; si es bolsa, bolsón u otra presentación con capacidad declarada, adjuntá conversion_basis con per_unit_quantity y per_unit_unit tal como aparece en ese insumo. Justificá las cuentas. Nunca supongas presentaciones ni densidades. Conservá los insumos admitidos, las exclusiones pedidas y la composición previa. Entregá la propuesta completa en library_acus."}
+          ],contextWithDraft(evidence.context));
+          if(!current())return;
+          const corrected=read(correction);
+          const pendingCount=value=>value.drafts.reduce((n,d)=>n+d.aiWarnings.length,0);
+          if(corrected.drafts.length && pendingCount(corrected)<pendingCount(parsed)){
+            parsed=corrected;result=correction;
+          }
+        }catch{
+          // Keep the original explicit pending warnings if the correction fails.
+        }
       }
       const {answer, drafts} = parsed;
       if (existing.length === 1 && drafts.length === 1 && action === "add") {
@@ -505,6 +531,19 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
           addReply(question, last?.libraryAcuSaved
             ? {answer:`El ACU ${last.libraryAcuSaved} está en Inicio → ACU.`, libraryAcuSaved:last.libraryAcuSaved}
             : {answer:"Todavía no hay una propuesta para mostrar. Decime qué trabajo querés analizar.", libraryAcuClarification:true});
+          paint();
+        }
+        break;
+      case "review":
+        if (proposal && proposal.libraryAcus.filter(Boolean).length===1) {
+          const drafts=proposal.libraryAcus,draft=drafts.find(Boolean);
+          openModal("analysis",draft,()=>{proposal.libraryAcus=[];});
+          addReply(question,{answer:"Abrí el editor con la composición actual para que puedas ajustar cantidades, insumos y precios antes de guardarla."});
+          paint();
+        } else if (followup?.libraryAcuRetry) {
+          await prepareLibraryAcu(question,followup,question,"clarify");
+        } else {
+          addReply(question,{answer:"Todavía no hay un único ACU para revisar. Describime el trabajo que querés preparar."});
           paint();
         }
         break;
