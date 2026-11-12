@@ -95,6 +95,36 @@ Para insumos expresamente excluidos por el usuario, el modelo devuelve
 excluded y los omite de components y missing. El parser aplica esa lista
 genérica, sin excepciones programadas para materiales particulares.
 
+## Edición conversacional del ACU seleccionado (vista analyses)
+
+La selección visible en la biblioteca es la única referencia de destino.
+`state.selectedAnalysisId` identifica el ACU; la IA nunca inventa ni cambia su ID.
+
+Flujo:
+1. Consultar `get_analysis_details({analysisId})` y extraer código,
+   descripción, unidad, recursos, cantidades y **precios históricos** actuales.
+2. Modo de IA `library_acu_edit`: devuelve `analysis_edit` con
+   operaciones **add / set / remove** solamente sobre los insumos solicitados,
+   y opcionalmente descripción o unidad. Sin edición implícita de otros insumos.
+3. Resolver IDs reales en el catálogo. Verificar las conversiones de la IA
+   con el método genérico de cantidad física/presentación comercial.
+   Mantener precios históricos existentes; un cambio de precio explícito se
+   muestra en la vista previa antes de aprobarse.
+4. Visualizar un diff acumulado respecto del ACU original; el usuario lo puede
+   revisar en el editor o autorizar desde el chat, sin palabras mágicas.
+5. Guardar mediante `update_analysis({analysisId,code,description,unit,components,
+   expectedSnapshot})`. Cada componente usa propiedades IPC camelCase:
+   `{resourceId,quantity,unitPrice}`. Respuesta:
+   `{id,code,description,unit,unit_cost}`.
+   `expectedSnapshot` contiene el estado original y Rust lo compara,
+   dentro del mismo bloqueo de SQLite, antes de sobrescribirlo.
+6. Un ACU seleccionado distinto, otro archivo SQLite, un ACU de partida o
+   datos actualizados desde otra interfaz invalidan la propuesta pendiente.
+   Una respuesta nativa inesperada no provoca reintentos de escritura.
+
+La edición de un ACU de biblioteca no debe actualizar automáticamente los
+análisis históricos guardados en presupuestos emitidos.
+
 ## Presupuesto y ACU de partida (vista workspace)
 
 Consultas: list_project_estimates({projectId}),
