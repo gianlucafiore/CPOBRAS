@@ -133,6 +133,7 @@ export function createSiteBook({
     act,
     submit,
     protect,
+    hasUnsaved: () => v.dirty,
     input: (t) => {
       if (t.name === "site-description") {
         v.description = t.value;

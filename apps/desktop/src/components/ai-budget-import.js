@@ -117,5 +117,5 @@ export function createAiBudgetImport({invoke,state,document,window,editable,load
   }
  });
  host.addEventListener('keydown',event=>{event.stopPropagation();if(event.key==='Escape')void action('close');});
- paint();return {open,openPlanRows,syncScope};
+ paint();return {open,openPlanRows,syncScope,isBusy:()=>Boolean(model.busy),hasDraft:()=>model.open};
 }

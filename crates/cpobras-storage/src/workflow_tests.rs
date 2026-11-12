@@ -326,7 +326,7 @@ fn upgrades_schema_six_without_losing_existing_clients() {
     let mut restored = LocalStore::in_memory().unwrap();
     restored.restore_from(&path).unwrap();
     assert_eq!(restored.list_clients().unwrap()[0].id, id);
-    let store = LocalStore::open(&path).unwrap();
+    let store = LocalStore::open_existing(&path).unwrap();
     assert_eq!(store.list_clients().unwrap()[0].id, id);
     store.verify_integrity().unwrap();
     drop(store);

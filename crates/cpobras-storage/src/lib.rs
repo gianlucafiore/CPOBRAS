@@ -11,7 +11,6 @@ pub mod assisted_budget;
 pub mod budget_patterns;
 pub mod budget_pricing;
 pub mod budget_sections;
-pub mod section_batches;
 pub mod budget_tools;
 pub mod construction_workflow;
 pub mod estimate_comparison;
@@ -34,6 +33,7 @@ pub mod quotation_edits;
 pub mod quotation_workflow;
 pub mod resource_catalog;
 pub mod resource_import;
+pub mod section_batches;
 pub mod sharing;
 pub mod site_book;
 pub mod supplier_logistics;
@@ -72,17 +72,60 @@ pub struct LocalStore {
 impl LocalStore {
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let conn = Connection::open(path)?;
-        Self::initialize(conn)
+        Self::initialize(conn, false)
     }
 
     pub fn in_memory() -> Result<Self> {
-        Self::initialize(Connection::open_in_memory()?)
+        Self::initialize(Connection::open_in_memory()?, false)
     }
 
-    fn initialize(mut conn: Connection) -> Result<Self> {
+    /// Opens an existing CPOBRAS file without SQLite's CREATE flag.
+    pub fn open_existing(path: impl AsRef<Path>) -> Result<Self> {
+        let conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+        Self::initialize(conn, true)
+    }
+
+    /// Used during application restart while holding the database mutex.
+    pub fn disconnect_after(
+        &mut self,
+        persist: impl FnOnce() -> std::io::Result<()>,
+    ) -> Result<()> {
+        if !self.conn.is_autocommit() {
+            return Err(StorageError::InvalidValue(
+                "Hay una transacción en curso".into(),
+            ));
+        }
+        let disconnected = Connection::open_in_memory().map_err(StorageError::from)?;
+        disconnected
+            .pragma_update(None, "query_only", "ON")
+            .map_err(StorageError::from)?;
+        persist()?;
+        // Closing normally lets SQLite checkpoint WAL when this is the last connection.
+        drop(std::mem::replace(&mut self.conn, disconnected));
+        Ok(())
+    }
+
+    fn initialize(conn: Connection, existing: bool) -> Result<Self> {
         conn.pragma_update(None, "foreign_keys", "ON")?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
-        conn.execute_batch("CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")?;
+        let store = Self { conn };
+        let tx = rusqlite::Transaction::new_unchecked(
+            &store.conn,
+            rusqlite::TransactionBehavior::Immediate,
+        )?;
+        if existing {
+            let recognized: bool = tx.query_row(
+                "SELECT COUNT(*) = 2 FROM sqlite_schema WHERE type='table' AND name IN ('schema_migrations','projects')",
+                [],
+                |row| row.get(0),
+            )?;
+            if !recognized {
+                return Err(StorageError::InvalidValue(
+                    "El archivo no es una base de CPOBRAS".into(),
+                ));
+            }
+        }
+        tx.execute_batch("CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")?;
         let migrations = [
             INITIAL_MIGRATION,
             RESOURCES_MIGRATION,
@@ -119,11 +162,16 @@ impl LocalStore {
             include_str!("../migrations/0033_entity_lifecycle.sql"),
             include_str!("../migrations/0034_assisted_budget_batches.sql"),
         ];
-        let latest: i64 = conn.query_row(
+        let latest: i64 = tx.query_row(
             "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
             [],
             |r| r.get(0),
         )?;
+        if existing && latest < 1 {
+            return Err(StorageError::InvalidValue(
+                "El archivo no es una base de CPOBRAS".into(),
+            ));
+        }
         if latest > migrations.len() as i64 {
             return Err(StorageError::InvalidValue(
                 "La base pertenece a una versión más nueva de CPOBRAS".into(),
@@ -131,7 +179,6 @@ impl LocalStore {
         }
         for (index, sql) in migrations.iter().enumerate() {
             let version = index as i64 + 1;
-            let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
             let applied: bool = tx.query_row(
                 "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=?1)",
                 [version],
@@ -144,13 +191,20 @@ impl LocalStore {
                     [version],
                 )?;
             }
-            tx.commit()?;
         }
-        let store = Self { conn };
         store.initialize_persons()?;
         store.initialize_organizations()?;
         store.install_audit_triggers()?;
         store.reconcile_draft_prices()?;
+        if existing {
+            store.verify_integrity()?;
+            if store.schema(true)? != Self::in_memory()?.schema(true)? {
+                return Err(StorageError::InvalidValue(
+                    "La estructura del archivo no coincide con una base de CPOBRAS".into(),
+                ));
+            }
+        }
+        tx.commit()?;
         Ok(store)
     }
 

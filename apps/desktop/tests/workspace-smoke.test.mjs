@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createWorkspaceApp } from "../src/app.js";
 
-function setup() {
+function setup({ databaseSwitching = false, switchDatabase, confirm = () => true } = {}) {
   const root = { innerHTML: "",querySelectorAll:()=>[] };
   const listeners = {};
   const line = {
@@ -12,6 +12,8 @@ function setup() {
   const lines = [line];
   const calls = [];
   const responses = {
+    active_database: () => ({path:"/obras/estudio.sqlite", name:"estudio.sqlite", scope:"test-scope"}),
+    switch_database: switchDatabase ?? (() => null),
     get_estimate_resource_prices:()=>({"resource-1":"2000"}),
     get_project_plan:()=>null,
     list_operations:()=>[],
@@ -71,18 +73,19 @@ function setup() {
     querySelectorAll() { return []; },
     addEventListener(name, callback) { listeners[name] = callback; },
   };
-  const window = { confirm: () => true, prompt: () => "Revisión" };
+  const alerts = [];
+  const window = { confirm, alert: message => alerts.push(message), prompt: () => "Revisión" };
   class FakeFormData {
     constructor(form) { this.values = form.values; }
     get(name) { return this.values[name] ?? null; }
   }
-  createWorkspaceApp({ invoke, document, window, FormData: FakeFormData });
+  const { state, ready } = createWorkspaceApp({ invoke, document, window, FormData: FakeFormData, databaseSwitching });
   const click = async (action, id, extra = {}) => {
     const button = { dataset: { action, id, ...extra }, disabled: false,
       classList: { contains: () => false } };
     await listeners.click({ target: { closest: () => button }, preventDefault() {} });
   };
-  return { root, calls, click, listeners, lines };
+  return { root, calls, click, listeners, lines, state, ready, alerts, document };
 }
 
 test("renders compact project list, budget grid and ACU breakdown", async () => {
@@ -194,3 +197,31 @@ test("resource metadata editing is separated from price history", async () => {
   assert.ok(app.calls.some(([name]) => name === "update_resource"));
 });
 
+
+test("database menu protects a draft and keeps the current view on picker cancellation or failure", async () => {
+  let discard = false;
+  const app = setup({
+    databaseSwitching: true,
+    confirm: () => discard,
+    switchDatabase: ({create}) => {
+      if (create) throw new Error("El archivo ya existe");
+      return null;
+    },
+  });
+  await app.ready;
+  assert.match(app.root.innerHTML, /Base activa · estudio.sqlite/);
+  app.state.pageDirty = true;
+  await app.click("database-open");
+  assert.ok(!app.calls.some(([command]) => command === "switch_database"));
+
+  discard = true;
+  const currentView = app.root.innerHTML;
+  await app.click("database-open");
+  assert.deepEqual(app.calls.at(-1), ["switch_database", {create:false}]);
+  await app.click("database-new");
+  assert.deepEqual(app.calls.at(-1), ["switch_database", {create:true}]);
+  assert.match(app.alerts.at(-1), /El archivo ya existe/);
+  assert.equal(app.document.body.inert, false);
+  assert.equal(app.state.pageDirty, true);
+  assert.equal(app.root.innerHTML, currentView);
+});

@@ -20,6 +20,12 @@ fn verify(conn: &Connection) -> Result<()> {
 }
 
 impl LocalStore {
+    pub(crate) fn schema(&self, include_views: bool) -> Result<Vec<(String, String, String)>> {
+        Ok(self.conn.prepare("SELECT type,name,sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' AND name<>'schema_migrations' AND (type IN ('table','index','trigger') OR (?1 AND type='view')) AND sql IS NOT NULL ORDER BY type,name")?
+            .query_map([include_views], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+            .collect::<std::result::Result<_, _>>()?)
+    }
+
     pub fn verify_integrity(&self) -> Result<()> {
         verify(&self.conn)
     }
@@ -78,7 +84,7 @@ impl LocalStore {
             Duration::from_millis(10),
             None,
         )?;
-        let migrated = LocalStore::initialize(cloned)?;
+        let migrated = LocalStore::initialize(cloned, false)?;
         migrated.verify_integrity()?;
         let source = &migrated.conn;
         let tables: Vec<String> = self
@@ -100,11 +106,7 @@ impl LocalStore {
                 ));
             }
         }
-        let schema = |conn: &Connection| -> Result<Vec<(String, String, String)>> {
-            Ok(conn.prepare("SELECT type,name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' AND name<>'schema_migrations' AND type IN ('table','index','trigger') AND sql IS NOT NULL ORDER BY type,name")?
-                .query_map([],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?.collect::<std::result::Result<_,_>>()?)
-        };
-        if schema(source)? != schema(&self.conn)? {
+        if migrated.schema(false)? != self.schema(false)? {
             return Err(StorageError::InvalidValue(
                 "La estructura de la copia no coincide con la base actual".into(),
             ));
@@ -162,6 +164,60 @@ mod tests {
         store.save_client(&client).unwrap();
         assert!(store.restore_from(&path).is_err());
         assert_eq!(store.list_clients().unwrap(), vec![client]);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn opens_committed_wal_data_and_closes_without_losing_it() {
+        let path = std::env::temp_dir().join(format!("cpobras-wal-{}.sqlite", Uuid::new_v4()));
+        let mut writer = LocalStore::open(&path).unwrap();
+        writer
+            .conn
+            .pragma_update(None, "journal_mode", "WAL")
+            .unwrap();
+        writer
+            .conn
+            .pragma_update(None, "wal_autocheckpoint", 0)
+            .unwrap();
+        let client = Client {
+            id: Uuid::new_v4(),
+            name: "Confirmado en WAL".into(),
+            cuit: None,
+        };
+        writer.save_client(&client).unwrap();
+        let reader = LocalStore::open_existing(&path).unwrap();
+        assert_eq!(reader.list_clients().unwrap(), vec![client.clone()]);
+        drop(reader);
+        writer.disconnect_after(|| Ok(())).unwrap();
+        let reopened = LocalStore::open_existing(&path).unwrap();
+        assert_eq!(reopened.list_clients().unwrap(), vec![client]);
+        drop(reopened);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn rejected_file_is_not_created_or_partially_migrated() {
+        let path =
+            std::env::temp_dir().join(format!("cpobras-incompatible-{}.sqlite", Uuid::new_v4()));
+        assert!(LocalStore::open_existing(&path).is_err());
+        assert!(!path.exists());
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(crate::INITIAL_MIGRATION).unwrap();
+        conn.execute("INSERT INTO schema_migrations(version) VALUES (1)", [])
+            .unwrap();
+        // Migration 2 can succeed, but migration 3 will collide with this table.
+        conn.execute("CREATE TABLE estimates (invalid TEXT)", [])
+            .unwrap();
+        drop(conn);
+        assert!(LocalStore::open_existing(&path).is_err());
+        let conn = Connection::open(&path).unwrap();
+        assert_eq!(
+            conn.query_row("SELECT MAX(version) FROM schema_migrations", [], |r| r
+                .get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+        drop(conn);
         std::fs::remove_file(path).unwrap();
     }
 

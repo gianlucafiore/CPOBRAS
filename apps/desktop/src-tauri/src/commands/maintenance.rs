@@ -1,5 +1,77 @@
 use crate::{BackupDirectory, Db};
+use std::{
+    collections::VecDeque,
+    path::{Path, PathBuf},
+    sync::Mutex,
+};
+use tauri::Manager;
 use uuid::Uuid;
+
+#[derive(Default)]
+pub(crate) struct RecentExports(Mutex<VecDeque<PathBuf>>);
+
+impl RecentExports {
+    fn record(&self, path: &Path) -> Result<(), String> {
+        let canonical = path.canonicalize().map_err(|error| error.to_string())?;
+        let mut paths = self.0.lock().map_err(|error| error.to_string())?;
+        paths.retain(|entry| entry != &canonical);
+        paths.push_back(canonical);
+        if paths.len() > 64 {
+            paths.pop_front();
+        }
+        Ok(())
+    }
+
+    fn resolve(&self, path: &Path) -> Result<PathBuf, String> {
+        let path = path
+            .canonicalize()
+            .map_err(|_| "El archivo exportado ya no está disponible")?;
+        let supported = path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| {
+                ["pdf", "xlsx", "csv", "json"]
+                    .iter()
+                    .any(|format| extension.eq_ignore_ascii_case(format))
+            });
+        if !supported
+            || !path.is_file()
+            || !self
+                .0
+                .lock()
+                .map_err(|error| error.to_string())?
+                .contains(&path)
+        {
+            return Err("El archivo no pertenece a las exportaciones recientes".into());
+        }
+        Ok(path)
+    }
+}
+
+#[tauri::command]
+pub(crate) async fn open_recent_export(
+    exports: tauri::State<'_, RecentExports>,
+    path: String,
+) -> Result<(), String> {
+    let path = exports.resolve(Path::new(&path))?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let status = crate::system_open::file_command(&path)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map_err(|e| format!("No se pudo abrir el archivo exportado: {e}"))?;
+        if !status.success() {
+            return Err(
+                "El sistema no pudo abrir el archivo exportado con la aplicación predeterminada"
+                    .into(),
+            );
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
 
 use crate::backups::{BackupSettings, BackupStatus, BackupView, Backups};
 #[tauri::command]
@@ -89,6 +161,7 @@ pub(crate) fn open_backup_folder(backups: tauri::State<'_, Backups>) -> Result<(
 
 #[tauri::command]
 pub(crate) fn write_export(
+    exports: tauri::State<'_, RecentExports>,
     directory: tauri::State<'_, BackupDirectory>,
     name: String,
     bytes: Vec<u8>,
@@ -122,6 +195,7 @@ pub(crate) fn write_export(
         .map_err(|e| e.to_string())?;
     file.write_all(&bytes).map_err(|e| e.to_string())?;
     file.sync_all().map_err(|e| e.to_string())?;
+    exports.record(&path)?;
     Ok(path.to_string_lossy().into())
 }
 
@@ -210,6 +284,7 @@ pub(crate) async fn save_export_file<R: tauri::Runtime>(
         file.write_all(&bytes)
             .and_then(|_| file.sync_all())
             .map_err(|e| e.to_string())?;
+        window.state::<RecentExports>().record(&path)?;
         let open_error = if open_after {
             crate::commands::printing::open_saved_pdf(&path).err()
         } else {
@@ -221,4 +296,31 @@ pub(crate) async fn save_export_file<R: tauri::Runtime>(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[cfg(test)]
+mod export_open_tests {
+    use super::*;
+
+    #[test]
+    fn only_recent_supported_export_files_can_be_opened() {
+        let directory = tempfile::tempdir().unwrap();
+        let export = directory.path().join("Plantilla de insumos.xlsx");
+        let unrelated = directory.path().join("Privado.xlsx");
+        let unsupported = directory.path().join("otro.exe");
+        for path in [&export, &unrelated, &unsupported] {
+            std::fs::write(path, []).unwrap();
+        }
+        let recent = RecentExports::default();
+        recent.record(&export).unwrap();
+        recent.record(&unsupported).unwrap();
+        assert_eq!(
+            recent.resolve(&export).unwrap(),
+            export.canonicalize().unwrap()
+        );
+        assert!(recent.resolve(&unrelated).is_err());
+        assert!(recent.resolve(&unsupported).is_err());
+        std::fs::remove_file(&export).unwrap();
+        assert!(recent.resolve(&export).is_err());
+    }
 }

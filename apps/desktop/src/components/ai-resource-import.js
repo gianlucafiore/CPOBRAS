@@ -152,5 +152,5 @@ export function createAiResourceImport({invoke,state,document,window,reloadCatal
  host.addEventListener('keydown',event=>{
   event.stopPropagation();if(event.key==='Escape'){event.preventDefault();close();}
  });
- return {open,close,syncScope,isOpen:()=>model.open};
+ return {open,close,syncScope,isOpen:()=>model.open,isBusy:()=>model.busy,hasDraft:()=>Boolean(model.rows.length || model.brief)};
 }

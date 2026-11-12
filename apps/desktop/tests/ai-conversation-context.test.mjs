@@ -43,3 +43,15 @@ test('esa partida follows the conversational referent after selection changes',(
  assert.equal(contextualAcuLine('completá esa partida',{selectedLineId:'line-2',focusLineId:'one',lines:state.lines}).id,'one');
  assert.equal(contextualAcuLine('completá la partida seleccionada',{selectedLineId:'line-2',focusLineId:'one',lines:state.lines}).id,'line-2');
 });
+
+test('database conversations stay separate even when project and budget IDs match', () => {
+ const entries = new Map();
+ const storage = {getItem: key => entries.get(key), setItem: (key, value) => entries.set(key, value)};
+ const original = conversationStore(storage, 'p', 'e');
+ const copy = conversationStore(storage, 'p', 'e', 'another-database');
+ original.write([{role:'user',content:'Conversación original'}], null);
+ assert.equal(copy.read(), null);
+ copy.write([{role:'user',content:'Conversación de la copia'}], null);
+ assert.equal(original.read().messages[0].content, 'Conversación original');
+ assert.equal(copy.read().messages[0].content, 'Conversación de la copia');
+});

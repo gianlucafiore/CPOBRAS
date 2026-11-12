@@ -20,7 +20,7 @@ async function handleSubmit(form) {
     state.estimateId = created.id;
     state.lastBudgetByProject ||= {};
     state.lastBudgetByProject[state.projectId] = created.id;
-    try {window?.localStorage?.setItem("cpobras:last-budget:"+state.projectId,created.id);} catch {}
+    try {window?.localStorage?.setItem("cpobras:last-budget:"+(state.database?.scope ? state.database.scope + ":" : "")+state.projectId,created.id);} catch {}
     state.view = "workspace";
   } else if (kind === "section") {
     const savedSection = await invoke("save_budget_section", { id: item.id || null, estimateId, code: v("code"), title: v("title"), parentId: v("parentId") || null, position: Number(v("position")) });
@@ -72,6 +72,7 @@ async function handleSubmit(form) {
     const saved = await invoke(item.id ? "update_analysis" : "create_analysis",
       item.id ? { ...args, analysisId: item.id } : args);
     state.selectedAnalysisId = saved.id;
+    state.modal?.onSaved?.(saved);
   } else if (kind === "reprice") {
     await invoke("reprice_analysis", { analysisId: item.id, effectiveDate: v("effectiveDate") });
     state.selectedAnalysisId = item.id;
@@ -199,12 +200,19 @@ async function act(button) {
   if (action === "modal-resource") return openModal("resource");
   if (action === "modal-price") return openModal("price", state.resources.find(r => r.id === button.dataset.id));
   if (action === "modal-analysis") return openModal("analysis");
-  if (action === "edit-analysis") {
+  if (action === "edit-analysis" || action === "duplicate-analysis") {
     const id = button.dataset.id || state.selectedAnalysisId;
     if (!id) return;
     const info = await invoke("get_analysis_details", { analysisId: id });
     const entry = state.analyses.find(a => a.id === id);
     if (!entry) throw new Error("El ACU seleccionado ya no existe.");
+    if (action === "duplicate-analysis") {
+      return openModal("analysis", {
+        description: entry.description + " (copia)",
+        unit: entry.unit,
+        components: info.components,
+      });
+    }
     return openModal("analysis", { ...entry, components: info.components });
   }
   if (action === "edit-resource") {

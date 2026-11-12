@@ -983,6 +983,7 @@ export function createQuotationWorkflow({
     change,
     submit,
     protect,
+    isSaving: () => pendingPriceSaves > 0,
     input: (t) => {
       if (t.matches?.("[data-quote-provider-query]")) {
         const list = document.querySelector("#quote-provider-options");

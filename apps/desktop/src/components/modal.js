@@ -248,15 +248,18 @@ export function createModalRenderer({
         : "Crear análisis de costo unitario";
       wide = true;
       body =
-        `<div class="form-grid three">
-      ${field("Código ACU", "code", item.code || "", "required")}
+        `<div class="analysis-dialog-heading"><div class="form-grid three">
+      ${field("Código ACU", "code", item.code || "", editing ? "required" : 'placeholder="Automático si se deja vacío"')}
       ${field("Descripción", "description", item.description || "", "required")}
       ${field("Unidad de la partida", "unit", item.unit || "m²", "required")}
     </div>
     ` +
-        `<div class="form-subhead">COMPOSICIÓN DEL ACU
+        `${item.aiWarnings?.length ? `<p class="modal-help">Pendiente de revisar: ${item.aiWarnings.map(e).join(" · ")}</p>` : ""}
+    <div class="form-subhead">COMPOSICIÓN DEL ACU
       <button class="btn tiny" type="button" data-action="add-component">＋ Agregar insumo</button>
     </div>
+    </div>
+    <div class="analysis-dialog-content">
     <div class="component-editor" id="component-editor">
       ${state.acuComponents
         .map(
@@ -269,7 +272,7 @@ export function createModalRenderer({
         )
         .join("")}
     </div>
-    ${!state.resources.length ? `<p class="modal-help">Buscá un insumo y elegí «Agregar» para crearlo sin salir de esta ventana.</p>` : ""}<p class="modal-help">Podés modificar rendimientos, insumos y precios de este ACU. La edición no cambia los presupuestos anteriores. Para trasladar los nuevos costos a un borrador, utilizá «Actualizar precios ACU».</p>`;
+    ${!state.resources.length ? `<p class="modal-help">Buscá un insumo y elegí «Agregar» para crearlo sin salir de esta ventana.</p>` : ""}<p class="modal-help">Podés modificar rendimientos, insumos y precios de este ACU. La edición no cambia los presupuestos anteriores. Para trasladar los nuevos costos a un borrador, utilizá «Actualizar precios ACU».</p></div>`;
     } else if (kind === "reprice") {
       title = "Actualizar precios del ACU";
       body =
@@ -356,10 +359,12 @@ export function createModalRenderer({
           : kind === "contracting"
             ? "Calcular"
             : "Guardar";
-    return `<div class="modal-overlay"><div class="dialog-shell ${wide ? "wide" : ""}" role="dialog" aria-modal="true" aria-label="${e(title)}">
+    const analysis = kind === "analysis";
+    const error = `<p class="modal-error" role="alert"></p>`;
+    return `<div class="modal-overlay"><div class="dialog-shell ${wide ? "wide" : ""}${analysis ? " analysis-dialog" : ""}" role="dialog" aria-modal="true" aria-label="${e(title)}">
     <div class="dialog-header"><h2>${e(title)}</h2><button type="button" class="close-dialog" data-action="close-modal" aria-label="Cerrar">×</button></div>
     <form id="dialog-form" class="dialog-body" data-kind="${kind}">
-      ${body}<p class="modal-error" role="alert"></p>
+      ${body}${error}
       <div class="dialog-actions"><button type="button" class="btn" data-action="close-modal">Cerrar</button>${!result ? `<button type="submit" class="btn primary" ${kind === "from-acu" && !state.analyses.length ? "disabled" : ""}>${save}</button>` : ""}</div>
     </form></div></div>`;
   }

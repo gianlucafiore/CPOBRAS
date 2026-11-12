@@ -1,5 +1,6 @@
 mod backups;
 mod commands;
+mod database;
 mod p2p;
 mod system_open;
 
@@ -15,8 +16,10 @@ pub fn run() {
         .setup(|app| {
             let directory = app.path().app_data_dir()?;
             std::fs::create_dir_all(&directory)?;
-            let store = LocalStore::open(directory.join("cpobras.sqlite"))
-                .map_err(|e| -> Box<dyn std::error::Error> { Box::new(e) })?;
+            let (session, store) = database::DatabaseSession::load(&directory)
+                .map_err(std::io::Error::other)?;
+            let directory = session.services_directory(&directory);
+            app.manage(session);
             let backups = directory.join("backups");
             std::fs::create_dir_all(&backups)?;
             app.manage(Mutex::new(
@@ -47,8 +50,11 @@ pub fn run() {
 pub(crate) fn configure<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
     builder
         .manage(commands::ai::AiSession::default())
+        .manage(commands::maintenance::RecentExports::default())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
+            commands::database::active_database,
+            commands::database::switch_database,
             commands::ai::ai_configure,
             commands::ai::ai_status,
             commands::ai::ai_catalog_context,
@@ -182,6 +188,7 @@ pub(crate) fn configure<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri:
             commands::maintenance::verify_database,
             commands::maintenance::write_export,
             commands::maintenance::save_export_file,
+            commands::maintenance::open_recent_export,
             commands::maintenance::create_backup,
             commands::maintenance::list_backups,
             commands::maintenance::restore_backup,

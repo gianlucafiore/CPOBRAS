@@ -118,17 +118,13 @@ impl LocalStore {
     }
     pub(crate) fn reconcile_draft_prices(&self) -> Result<()> {
         let ids:Vec<String>=self.conn.prepare("SELECT id FROM estimates WHERE status='draft' AND EXISTS(SELECT 1 FROM estimate_lines WHERE estimate_id=estimates.id AND analysis_id IS NOT NULL)")?.query_map([],|r|r.get(0))?.collect::<std::result::Result<_,_>>()?;
-        let tx = rusqlite::Transaction::new_unchecked(
-            &self.conn,
-            rusqlite::TransactionBehavior::Immediate,
-        )?;
+        let conn = &self.conn;
         for id in ids {
             // A legacy library recipe may have changed units since it was used. Keep that line's stored price as manual.
-            tx.execute("UPDATE estimate_lines SET analysis_id=NULL WHERE estimate_id=?1 AND EXISTS(SELECT 1 FROM analyses a WHERE a.id=estimate_lines.analysis_id AND a.unit<>estimate_lines.unit AND NOT EXISTS(SELECT 1 FROM line_analysis_snapshots p WHERE p.analysis_id=a.id))",[&id])?;
-            tx.execute("DELETE FROM line_analysis_sources WHERE line_id IN (SELECT id FROM estimate_lines WHERE estimate_id=?1 AND analysis_id IS NULL)",[&id])?;
-            synchronize(&tx, Uuid::parse_str(&id)?, &BTreeMap::new())?;
+            conn.execute("UPDATE estimate_lines SET analysis_id=NULL WHERE estimate_id=?1 AND EXISTS(SELECT 1 FROM analyses a WHERE a.id=estimate_lines.analysis_id AND a.unit<>estimate_lines.unit AND NOT EXISTS(SELECT 1 FROM line_analysis_snapshots p WHERE p.analysis_id=a.id))",[&id])?;
+            conn.execute("DELETE FROM line_analysis_sources WHERE line_id IN (SELECT id FROM estimate_lines WHERE estimate_id=?1 AND analysis_id IS NULL)",[&id])?;
+            synchronize(conn, Uuid::parse_str(&id)?, &BTreeMap::new())?;
         }
-        tx.commit()?;
         Ok(())
     }
 }

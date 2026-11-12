@@ -65,7 +65,14 @@ export function createViews({
               }[state.view]
             }</b>`
       }</div>
-      <div class="header-right">${
+      <div class="header-right">
+      ${state.database ? `<details class="database-menu"><summary>Archivo</summary>
+        <div class="database-menu-panel">
+          <span class="database-menu-path" title="${e(state.database.path)}">Base activa · ${e(state.database.name)}</span>
+          <button type="button" class="btn" data-action="database-new">Nueva base de datos…</button>
+          <button type="button" class="btn" data-action="database-open">Abrir base de datos…</button>
+        </div></details>` : ""}
+      ${
         work && currentEstimate()
           ? `${state.remoteProject ? `<span class="status-pill">${currentEstimate().issued ? "● Emitido" : "● En elaboración"} · Solo lectura</span>` : `<select class="status-pill ${currentEstimate().issued ? "issued" : ""}" name="estimate-status" aria-label="Estado del presupuesto"><option value="draft" ${!currentEstimate().issued ? "selected" : ""}>● En elaboración</option><option value="issued" ${currentEstimate().issued ? "selected" : ""}>● Emitido</option></select>`}
         <span class="total-head"><small>${state.view === "price-determination" && state.pricePreview?.dirty ? "VISTA PREVIA" : "TOTAL"}</small> ${e(currentEstimate()?.currency)} <strong>${state.view === "price-determination" && state.pricePreview ? (state.pricePreview.total == null ? "—" : money(state.pricePreview.total)) : state.totals?.pricing_error ? "—" : money(state.totals?.total)}</strong></span>`
@@ -116,7 +123,9 @@ export function createViews({
     <datalist id="unit-library">${state.units.map((unit) => `<option value="${e(unit.attributes.symbol || unit.code || unit.name)}">${e(unit.name)}</option>`).join("")}</datalist>
     ${helpBox(state.modal?.kind === "backups" ? "backups" : state.view === "management" && state.projectId ? "project-data" : state.view)}
     ${content}
-    ${state.message ? `<div class="toast" role="status">${e(state.message)} <button data-action="dismiss-toast" aria-label="Cerrar">×</button></div>` : ""}
+    ${state.message ? `<div class="toast" role="status">${state.message.path
+      ? `${e(state.message.text)} <a href="#" class="toast-export-link" data-action="open-recent-export" data-path="${e(state.message.path)}">${e(state.message.path)}</a>`
+      : e(state.message)} <button data-action="dismiss-toast" aria-label="Cerrar">×</button></div>` : ""}
     ${state.modal ? modalMarkup() : ""}
     ${contextMenu()}
   </div>`;
@@ -397,7 +406,7 @@ export function createViews({
       rows = state.analyses
         .map(
           (a) =>
-            `<tr class="${state.selectedAnalysisId === a.id ? "selected" : ""}" data-action="select-analysis" data-id="${e(a.id)}" data-searchable="${e((a.code + " " + a.description).toLowerCase())}"><td>${e(a.code)}</td><td><strong>${e(a.description)}</strong></td><td>${e(a.unit)}</td><td class="number">${money(a.unit_cost)}</td><td><button class="btn tiny" data-action="edit-analysis" data-id="${e(a.id)}">Editar ACU</button> <button class="btn tiny" data-action="modal-reprice" data-id="${e(a.id)}">Actualizar precios</button>${entityActions("analysis",a.id,a.description)}</td></tr>`,
+            `<tr class="${state.selectedAnalysisId === a.id ? "selected" : ""}" data-action="select-analysis" data-id="${e(a.id)}" data-searchable="${e((a.code + " " + a.description).toLowerCase())}"><td>${e(a.code)}</td><td><strong>${e(a.description)}</strong></td><td>${e(a.unit)}</td><td class="number">${money(a.unit_cost)}</td><td>${entityActions("analysis",a.id,a.description)}</td></tr>`,
         )
         .join("");
       inspector = `<aside class="list-inspector"><h3>COMPOSICIÓN DEL ACU</h3>${

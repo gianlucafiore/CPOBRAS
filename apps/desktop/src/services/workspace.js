@@ -148,7 +148,7 @@ export function createWorkspaceService({ invoke,globalInvoke=invoke, state, curr
     state.selectedLineId = null;
     await loadEstimates();
     state.lastBudgetByProject ||= {};
-    try {const last=window?.localStorage?.getItem("cpobras:last-budget:"+id);if(state.estimates.some(e=>e.id===last))state.lastBudgetByProject[id]=last;} catch {}
+    try {const last=window?.localStorage?.getItem("cpobras:last-budget:"+(state.database?.scope ? state.database.scope + ":" : "")+id);if(state.estimates.some(e=>e.id===last))state.lastBudgetByProject[id]=last;} catch {}
 
     state.search = "";
     await loadEstimate();
@@ -162,7 +162,7 @@ export function createWorkspaceService({ invoke,globalInvoke=invoke, state, curr
     state.lastBudgetByProject ||= {};
     if (id) {
       state.lastBudgetByProject[state.projectId] = id;
-      try {window?.localStorage?.setItem("cpobras:last-budget:"+state.projectId,id);} catch {}
+      try {window?.localStorage?.setItem("cpobras:last-budget:"+(state.database?.scope ? state.database.scope + ":" : "")+state.projectId,id);} catch {}
     }
     state.view = "workspace";
     state.selectedLineId = selectedLineId;

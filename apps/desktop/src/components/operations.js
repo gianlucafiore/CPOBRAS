@@ -164,7 +164,7 @@ export function createOperationsWorkspace({
     dirty: false,
     detail: null,
     get lastExport() { return this._lastExport || ""; },
-    set lastExport(path) { this._lastExport = path; if (path) state.message = "Guardado en " + path; },
+    set lastExport(path) { this._lastExport = path; if (path) state.message = {text:"Guardado en", path}; },
     cashSettings: null,
     detailFiles: [],
   };
@@ -1644,5 +1644,9 @@ export function createOperationsWorkspace({
     }
     return false;
   }
-  return { markup, act, change, submit, input, keyDown, protect, model };
+  return {
+    markup, act, change, submit, input, keyDown, protect, model,
+    isSaving: quotations.isSaving,
+    hasUnsaved: () => model.dirty || book.hasUnsaved() || certificates.view.dirty || quotations.v.dirty,
+  };
 }

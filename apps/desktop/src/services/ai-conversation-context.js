@@ -2,8 +2,8 @@ const fold = value => String(value || '').normalize('NFKD').replace(/[\u0300-\u0
 
 // Persist conversational data only. A restored intent never carries approval,
 // prepared batches, credentials or executable model output.
-export function conversationStore(storage, projectId, estimateId) {
- const key = 'cpobras:conversation:v1:' + JSON.stringify([projectId, estimateId]);
+export function conversationStore(storage, projectId, estimateId, databaseScope) {
+ const key = 'cpobras:conversation:v1:' + JSON.stringify(databaseScope ? [databaseScope, projectId, estimateId] : [projectId, estimateId]);
  return {
   read() {
    try {

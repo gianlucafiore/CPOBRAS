@@ -441,5 +441,5 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
  });
  host.addEventListener('toggle',event=>{const t=event.target;if(!t.isConnected)return;if(t.dataset.acuProposal){const row=model.rows.find(r=>r.id===t.dataset.acuProposal);if(row)row.expanded=t.open;}if(t.dataset.acuMeasureDetail){const row=model.rows.find(r=>r.id===t.dataset.acuMeasureDetail);if(row)row.measurementExpanded=t.open;}if(t.dataset.acuDetail){if(t.open)model.details.add(t.dataset.acuDetail);else model.details.delete(t.dataset.acuDetail);}},true);
  host.addEventListener('keydown',event=>{event.stopPropagation();if(event.key==='Escape')void action('close',event.target);});
- paint();return {open,syncScope,resumeFromLibrary,runApproved,commitPrepared,cancelPrepared,cancelApproved,showLatest:()=>open()};
+ paint();return {open,syncScope,resumeFromLibrary,isBusy:()=>Boolean(model.busy),hasDraft:()=>model.open || [...drafts.values()].some(draft=>!draft.applied),runApproved,commitPrepared,cancelPrepared,cancelApproved,showLatest:()=>open()};
 }

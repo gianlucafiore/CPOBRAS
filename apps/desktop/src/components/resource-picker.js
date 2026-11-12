@@ -78,6 +78,7 @@ export function createResourcePicker({
       `<button type="button" role="option" data-action="quick-resource">＋ Agregar${input.value.trim() ? ` «${e(input.value.trim())}»` : " nuevo insumo"}</button>`;
     box.hidden = false;
     input.setAttribute("aria-expanded", "true");
+    if (box.closest(".analysis-dialog")) box.scrollIntoView({block:"nearest"});
   }
   function hide() {
     document

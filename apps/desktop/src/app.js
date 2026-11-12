@@ -33,10 +33,22 @@ export function createWorkspaceApp({
   document = globalThis.document,
   window = globalThis.window,
   FormData = globalThis.FormData,
+  databaseSwitching = false,
 }) {
   const root = document.querySelector("#app");
   const state = createState();
-  const nativeInvoke=invoke;
+  const originalInvoke = invoke;
+  let pendingCommands = 0;
+  let switchingDatabase = false;
+  const nativeInvoke = async (command, args) => {
+    if (switchingDatabase) throw new Error("Se está cambiando la base de datos");
+    pendingCommands++;
+    try {
+      return await originalInvoke(command, args);
+    } finally {
+      pendingCommands--;
+    }
+  };
   invoke=createRemoteInvoke(nativeInvoke,state);
   const selectors = createSelectors(state);
   const service = createWorkspaceService({
@@ -186,10 +198,10 @@ export function createWorkspaceApp({
       );
     });
   }
-  function openModal(kind, record = null) {
+  function openModal(kind, record = null, onSaved = null) {
     state.contextMenu = null;
-    state.modalDirty = false;
-    state.modal = { kind, record };
+    state.modalDirty = Boolean(kind === "analysis" && record?.aiWarnings);
+    state.modal = { kind, record, onSaved };
     state.acuComponents =
       ["analysis", "line-resources"].includes(kind) && record?.components
         ? record.components.map((row) => ({
@@ -250,6 +262,47 @@ export function createWorkspaceApp({
       return false;
     state.pageDirty = false;
     return true;
+  }
+  async function switchDatabase(create) {
+    if (!databaseSwitching || switchingDatabase) return;
+    if (pendingCommands || aiAssistant.isBusy() || resourceImport.model.busy ||
+        aiResourceImport.isBusy() || operations.isSaving()) {
+      window.alert("Esperá a que termine la operación en curso antes de cambiar de base.");
+      return;
+    }
+    const unsaved = state.modalDirty || state.pageDirty || planning.model.dirty ||
+      pricing.model.dirty || pricing.model.modal?.dirty || operations.hasUnsaved() ||
+      people.model.modal?.dirty || agreement.model.dirty || resourceImport.model.rows.length ||
+      patterns.model.active || aiAssistant.hasDraft() || aiResourceImport.hasDraft() ||
+      Array.from(document.querySelectorAll("form input, form textarea, form select")).some(field => {
+        if (field.disabled || field.type === "hidden") return false;
+        if (field.type === "checkbox" || field.type === "radio") {
+          return field.checked !== field.defaultChecked;
+        }
+        if (field.options) {
+          const options = Array.from(field.options);
+          const defaults = options.filter(option => option.defaultSelected);
+          if (field.multiple) return options.some(option => option.selected !== option.defaultSelected);
+          return field.value !== (defaults.at(-1) ?? options[0])?.value;
+        }
+        return field.value !== field.defaultValue;
+      });
+    if (unsaved && !window.confirm(
+      "Tenés cambios sin guardar. Si cambiás de base, se perderán. ¿Continuar?",
+    )) return;
+
+    const menu = document.querySelector(".database-menu");
+    if (menu) menu.open = false;
+    switchingDatabase = true;
+    document.body.inert = true;
+    try {
+      await originalInvoke("switch_database", { create });
+    } catch (error) {
+      window.alert("No se pudo cambiar la base de datos. " + String(error));
+    } finally {
+      document.body.inert = false;
+      switchingDatabase = false;
+    }
   }
   async function openResourceLibrary({brief=""}={}) {
     if(state.remoteProject)throw new Error('Abrí una obra propia para preparar insumos');
@@ -469,7 +522,20 @@ export function createWorkspaceApp({
     if (evt.target.matches?.(".unit-search")) unitPicker.toggle(evt.target);
     if (evt.target.matches?.(".resource-search"))
       resourcePicker.toggle(evt.target);
-    if (!button || button.disabled || state.busy || state.navigating) return;
+    if (!button || button.disabled || switchingDatabase || state.busy || state.navigating) return;
+    if (button.dataset.action === "open-recent-export") {
+      evt.preventDefault();
+      try {
+        await nativeInvoke("open_recent_export", {path:button.dataset.path});
+      } catch (error) {
+        window.alert(String(error));
+      }
+      return;
+    }
+    if (button.dataset.action === "database-new" || button.dataset.action === "database-open") {
+      await switchDatabase(button.dataset.action === "database-new");
+      return;
+    }
     if (
       button.dataset.action === "close-modal" &&
       button.classList.contains("modal-overlay")
@@ -716,6 +782,19 @@ export function createWorkspaceApp({
     if(evt.target.isConnected && evt.target.matches?.(".planning-calendar")) planning.model.calendarOpen=evt.target.open;
   },true);
   document.addEventListener("change", async (evt) => {
+    if (evt.target.name === "analysis-action") {
+      const { value: action, dataset: { id, label } } = evt.target;
+      evt.target.value = "";
+      if (!action || state.busy || state.navigating || state.modal || switchingDatabase) return;
+      const button = { dataset: { action, id, label, kind: "analysis" } };
+      try {
+        if (!(await entityActions.act(button))) await act(button);
+      } catch (error) {
+        state.message = String(error);
+        render();
+      }
+      return;
+    }
     if (evt.target.name === "estimate-status") {
       const desired=evt.target.value;
       try {if (await protectContext()) await act({dataset:{action:desired==="issued" ? "issue" : "reopen-estimate"}});}catch(error){state.message=String(error);}finally{render();}
@@ -883,6 +962,10 @@ export function createWorkspaceApp({
 
   const ready = (async () => {
     try {
+      if (databaseSwitching) {
+        state.database = await nativeInvoke("active_database");
+        if (state.database.warning) state.message = state.database.warning;
+      }
       await loadCollections();
       render();
     } catch (error) {

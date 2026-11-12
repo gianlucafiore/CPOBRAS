@@ -1,5 +1,15 @@
 import { e } from "./helpers.js";
 export function entityActions(kind,id,label) {
+ if (kind === "analysis") {
+  return `<select name="analysis-action" class="analysis-action-select" data-action="entity-menu"
+    data-id="${e(id)}" data-label="${e(label)}" aria-label="Opciones de ${e(label)}" title="Opciones de ${e(label)}">
+    <option value="">⋯</option>
+    <option value="edit-analysis">Editar ACU</option>
+    <option value="modal-reprice">Actualizar precios</option>
+    <option value="duplicate-analysis">Duplicar ACU</option>
+    <option value="entity-archive">Eliminar de la biblioteca</option>
+  </select>`;
+ }
  return `<details class="entity-menu"><summary data-action="entity-menu" title="Opciones de ${e(label)}" aria-label="Opciones de ${e(label)}">⋯</summary><div><button class="btn tiny" data-action="entity-archive" data-kind="${e(kind)}" data-id="${e(id)}" data-label="${e(label)}">${['analysis','nested_analysis'].includes(kind)?'Eliminar de la biblioteca':'Eliminar '+(kind==='project'?'obra':'presupuesto')}</button></div></details>`;
 }
 export function createEntityActions({invoke,state,loadCollections,loadEstimates,reloadCatalog,openProject,render,window,onArchived=async()=>{}}) {

@@ -180,16 +180,15 @@ fn merge_legacy_person(conn: &rusqlite::Connection, from: Uuid, to: Uuid) -> Res
 }
 impl LocalStore {
     pub(crate) fn initialize_persons(&self) -> Result<()> {
-        let tx = self.conn.unchecked_transaction()?;
-        if tx.query_row(
+        let conn = &self.conn;
+        if conn.query_row(
             "SELECT EXISTS(SELECT 1 FROM people_migration_state)",
             [],
             |r| r.get::<_, bool>(0),
         )? {
-            tx.commit()?;
             return Ok(());
         }
-        let clients: Vec<(String, String, Option<String>)> = tx
+        let clients: Vec<(String, String, Option<String>)> = conn
             .prepare("SELECT id,name,cuit FROM persons ORDER BY id")?
             .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
             .collect::<std::result::Result<_, _>>()?;
@@ -202,19 +201,19 @@ impl LocalStore {
                 None
             };
             let target = canonical.clone().unwrap_or_else(|| id.clone());
-            tx.execute("INSERT INTO person_legacy_links(id,source,legacy_id,person_id,original_json) VALUES(?1,'client',?2,?3,?4)",params![format!("client:{id}"),id,target,serde_json::json!({"id":id,"name":name,"cuit":cuit}).to_string()])?;
+            conn.execute("INSERT INTO person_legacy_links(id,source,legacy_id,person_id,original_json) VALUES(?1,'client',?2,?3,?4)",params![format!("client:{id}"),id,target,serde_json::json!({"id":id,"name":name,"cuit":cuit}).to_string()])?;
             if canonical.is_some() {
-                tx.execute(
+                conn.execute(
                     "UPDATE projects SET client_id=?1 WHERE client_id=?2",
                     params![target, id],
                 )?;
-                tx.execute(
+                conn.execute(
                     "UPDATE management_records SET client_id=?1 WHERE client_id=?2",
                     params![target, id],
                 )?;
-                tx.execute("DELETE FROM persons WHERE id=?1", [id])?;
+                conn.execute("DELETE FROM persons WHERE id=?1", [id])?;
             } else {
-                tx.execute(
+                conn.execute(
                     "UPDATE persons SET tax_key=?1 WHERE id=?2",
                     params![key, id],
                 )?;
@@ -223,9 +222,9 @@ impl LocalStore {
                 }
             }
         }
-        let profile_ids:Vec<String>=tx.prepare("SELECT id FROM management_records WHERE kind='client_profile' AND client_id IS NOT NULL ORDER BY id")?.query_map([],|r|r.get(0))?.collect::<std::result::Result<_,_>>()?;
+        let profile_ids:Vec<String>=conn.prepare("SELECT id FROM management_records WHERE kind='client_profile' AND client_id IS NOT NULL ORDER BY id")?.query_map([],|r|r.get(0))?.collect::<std::result::Result<_,_>>()?;
         for alias in profile_ids {
-            let (client, name, code, json): (String, String, String, String) = tx.query_row(
+            let (client, name, code, json): (String, String, String, String) = conn.query_row(
                 "SELECT client_id,name,code,attributes_json FROM management_records WHERE id=?1",
                 [&alias],
                 |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
@@ -246,7 +245,7 @@ impl LocalStore {
                     let key = tax_key(cuit);
                     if let Some(target) = taxes.get(&key).filter(|s| *s != &id.to_string()) {
                         let target = Uuid::parse_str(target)?;
-                        merge_legacy_person(&tx, id, target)?;
+                        merge_legacy_person(conn, id, target)?;
                         id = target;
                         person = self
                             .person(id)?
@@ -269,11 +268,11 @@ impl LocalStore {
                     *target = attrs.get(key).cloned().unwrap_or_default();
                 }
             }
-            write_person(&tx, id, &person.role, person.revision, &person.data)?;
-            tx.execute("INSERT INTO person_legacy_links(id,source,legacy_id,person_id,original_json) VALUES(?1,'client_profile',?2,?3,?4)",params![format!("client_profile:{alias}"),alias,id.to_string(),original])?;
-            tx.execute("UPDATE management_records SET person_id=?1,name='Persona',code='',attributes_json=json_remove(attributes_json,'$.cuit','$.email','$.phone','$.address') WHERE id=?2",params![id.to_string(),alias])?;
+            write_person(conn, id, &person.role, person.revision, &person.data)?;
+            conn.execute("INSERT INTO person_legacy_links(id,source,legacy_id,person_id,original_json) VALUES(?1,'client_profile',?2,?3,?4)",params![format!("client_profile:{alias}"),alias,id.to_string(),original])?;
+            conn.execute("UPDATE management_records SET person_id=?1,name='Persona',code='',attributes_json=json_remove(attributes_json,'$.cuit','$.email','$.phone','$.address') WHERE id=?2",params![id.to_string(),alias])?;
         }
-        let suppliers:Vec<(String,String,String,String)>=tx.prepare("SELECT id,name,code,attributes_json FROM management_records WHERE kind='supplier' ORDER BY id")?.query_map([],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?)))?.collect::<std::result::Result<_,_>>()?;
+        let suppliers:Vec<(String,String,String,String)>=conn.prepare("SELECT id,name,code,attributes_json FROM management_records WHERE kind='supplier' ORDER BY id")?.query_map([],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?)))?.collect::<std::result::Result<_,_>>()?;
         for (id, name, code, json) in suppliers {
             let a: BTreeMap<String, String> = serde_json::from_str(&json)?;
             let cuit = a.get("cuit").filter(|v| !v.trim().is_empty()).cloned();
@@ -314,18 +313,17 @@ impl LocalStore {
             let role = old
                 .as_ref()
                 .map_or("supplier".into(), |p| union(&p.role, "supplier"));
-            write_person(&tx, person_id, &role, old.map_or(1, |p| p.revision), &data)?;
-            tx.execute("INSERT INTO person_legacy_links(id,source,legacy_id,person_id,original_json) VALUES(?1,'supplier',?2,?3,?4)",params![format!("supplier:{id}"),id,person_id.to_string(),serde_json::json!({"id":id,"name":name,"code":code,"attributes":a}).to_string()])?;
-            tx.execute("UPDATE management_records SET person_id=?1,name='Persona',code='',attributes_json=json_remove(attributes_json,'$.cuit','$.email','$.phone','$.address') WHERE id=?2",params![person_id.to_string(),id])?;
+            write_person(conn, person_id, &role, old.map_or(1, |p| p.revision), &data)?;
+            conn.execute("INSERT INTO person_legacy_links(id,source,legacy_id,person_id,original_json) VALUES(?1,'supplier',?2,?3,?4)",params![format!("supplier:{id}"),id,person_id.to_string(),serde_json::json!({"id":id,"name":name,"code":code,"attributes":a}).to_string()])?;
+            conn.execute("UPDATE management_records SET person_id=?1,name='Persona',code='',attributes_json=json_remove(attributes_json,'$.cuit','$.email','$.phone','$.address') WHERE id=?2",params![person_id.to_string(),id])?;
             if !key.is_empty() {
                 taxes.insert(key, person_id.to_string());
             }
         }
-        tx.execute(
+        conn.execute(
             "INSERT INTO people_migration_state(id) VALUES('initialized')",
             [],
         )?;
-        tx.commit()?;
         Ok(())
     }
     pub fn person(&self, id: Uuid) -> Result<Option<Person>> {

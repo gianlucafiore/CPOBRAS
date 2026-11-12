@@ -2,6 +2,8 @@
 identifier = "workspace"
 description = "Local workspace operations, granted only to the main window."
 commands.allow = [
+  "active_database",
+  "switch_database",
   "ai_configure",
   "ai_status",
   "ai_catalog_context",
@@ -145,6 +147,7 @@ commands.allow = [
   "verify_database",
   "write_export",
   "save_export_file",
+  "open_recent_export",
   "create_backup",
   "list_backups",
   "restore_backup",

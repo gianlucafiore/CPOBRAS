@@ -19,7 +19,7 @@ export function createResourceImport({invoke,state,document,render,reloadCatalog
    if(action==="resource-import-template"){
     const bytes=await resourceTemplateBytes();
     const result=await invoke("save_export_file",{name:"Plantilla_insumos_CPOBRAS.xlsx",bytes:Array.from(bytes),openAfter:false});
-    if(result?.path)state.message=`Plantilla guardada en ${result.path}`;
+    if(result?.path)state.message={text:"Plantilla guardada en",path:result.path};
    }
    if(action==="resource-import-confirm"){
     if(!model.rows.length||model.rows.some(r=>r.errors.length))throw new Error("Revisá las filas de la planilla antes de importar");

@@ -364,7 +364,6 @@ impl LocalStore {
         Ok(self.conn.prepare("SELECT sequence,entity_type,entity_id,operation,old_json,new_json,occurred_at FROM change_events WHERE sequence>?1 ORDER BY sequence LIMIT 1000")?.query_map([after],|r|Ok(ChangeEvent{sequence:r.get(0)?,entity_type:r.get(1)?,entity_id:r.get(2)?,operation:r.get(3)?,old_json:r.get(4)?,new_json:r.get(5)?,occurred_at:r.get(6)?}))?.collect::<std::result::Result<_,_>>()?)
     }
     pub(crate) fn install_audit_triggers(&self) -> Result<()> {
-        let transaction = self.conn.unchecked_transaction()?;
         let tables: Vec<String> = self.conn.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('schema_migrations','change_events','automatic_codes')")?
             .query_map([], |r|r.get(0))?.collect::<std::result::Result<_,_>>()?;
         for table in tables {
@@ -412,6 +411,8 @@ impl LocalStore {
                 let alias = if op == "delete" { "OLD" } else { "NEW" };
                 let key = if fields.iter().any(|field| field == "id") {
                     "id"
+                } else if fields.iter().any(|field| field == "entity_id") {
+                    "entity_id"
                 } else if fields.iter().any(|field| field == "operation_id") {
                     "operation_id"
                 } else if fields.iter().any(|field| field == "document_id") {
@@ -429,7 +430,6 @@ impl LocalStore {
                 self.conn.execute_batch(&format!("DROP TRIGGER IF EXISTS audit_{table}_{op}; CREATE TRIGGER audit_{table}_{op} AFTER {op} ON {table} BEGIN INSERT INTO change_events(entity_type,entity_id,operation,old_json,new_json) VALUES ('{table}',{id},'{op}',{old},{new}); END;"))?;
             }
         }
-        transaction.commit()?;
         Ok(())
     }
 }

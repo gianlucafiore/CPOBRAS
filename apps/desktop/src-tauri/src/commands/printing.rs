@@ -80,22 +80,7 @@ pub(crate) fn open_saved_pdf(path: &std::path::Path) -> Result<(), String> {
     Ok(())
 }
 fn pdf_command(path: &std::path::Path) -> std::process::Command {
-    #[cfg(target_os = "linux")]
-    let mut command = {
-        let mut c = crate::system_open::command("gio");
-        c.arg("open");
-        c
-    };
-    #[cfg(target_os = "macos")]
-    let mut command = crate::system_open::command("open");
-    #[cfg(target_os = "windows")]
-    let mut command = {
-        let mut c = crate::system_open::command("rundll32.exe");
-        c.arg("url.dll,FileProtocolHandler");
-        c
-    };
-    command.arg(path);
-    command
+    crate::system_open::file_command(path)
 }
 #[cfg(test)]
 mod tests {

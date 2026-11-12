@@ -7,6 +7,25 @@ pub(crate) fn command(program: impl AsRef<OsStr>) -> Command {
     }
     command
 }
+pub(crate) fn file_command(path: &std::path::Path) -> Command {
+    #[cfg(target_os = "linux")]
+    let mut opener = {
+        let mut opener = command("gio");
+        opener.arg("open");
+        opener
+    };
+    #[cfg(target_os = "macos")]
+    let mut opener = command("open");
+    #[cfg(target_os = "windows")]
+    let mut opener = {
+        let mut opener = command("rundll32.exe");
+        opener.arg("url.dll,FileProtocolHandler");
+        opener
+    };
+    opener.arg(path);
+    opener
+}
+
 fn clean_appimage_environment(command: &mut Command) {
     for name in [
         "APPIMAGE",

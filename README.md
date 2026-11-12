@@ -25,6 +25,20 @@ archivo `CPOBRAS_0.1.3_windows_x86_64_portable.exe` y abrilo directamente. Requi
 Windows 10/11 y Microsoft Edge WebView2 Runtime. Los datos se guardan en el perfil
 del usuario; copiar el ejecutable no traslada la base de datos.
 
+## Crear o cambiar de base de datos
+
+- En **Archivo → Nueva base de datos…**, elegí el nombre y la ubicación del
+  archivo. CPOBRAS abre una base vacía, con la organización inicial necesaria
+  para registrar obras.
+- En **Archivo → Abrir base de datos…**, elegí un archivo SQLite de CPOBRAS.
+  Si hay migraciones pendientes, se aplican antes de abrirlo.
+- CPOBRAS se vuelve a abrir con la base elegida y recuerda el archivo para el
+  próximo inicio. El menú **Archivo** muestra el nombre de la base activa y
+  su ruta completa al posar el puntero sobre el nombre.
+- Si querés volver a tus datos originales, abrí el archivo `cpobras.sqlite`
+  original. Si la última base seleccionada deja de estar disponible, el
+  programa abre la original y muestra un aviso.
+
 ## Cargar materiales y mano de obra desde Excel
 
 En **Inicio → Insumos**:

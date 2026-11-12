@@ -23,14 +23,14 @@ fn invalid(s: &str) -> StorageError {
 }
 impl LocalStore {
     pub(crate) fn initialize_organizations(&self) -> Result<()> {
-        let tx = self.conn.unchecked_transaction()?;
-        let exists: bool = tx.query_row(
+        let conn = &self.conn;
+        let exists: bool = conn.query_row(
             "SELECT EXISTS(SELECT 1 FROM organization_preferences WHERE id='default')",
             [],
             |r| r.get(0),
         )?;
         if !exists {
-            let companies: Vec<(String, String)> = tx
+            let companies: Vec<(String, String)> = conn
                 .prepare(
                     "SELECT id,name FROM management_records WHERE kind='company' ORDER BY name,id",
                 )?
@@ -41,9 +41,9 @@ impl LocalStore {
                     company_name: name.clone(),
                     ..Default::default()
                 };
-                tx.execute("INSERT INTO organizations(id,name,ownership,company_id,revision,profile_json) VALUES (?1,?2,'own',?1,0,?3)",params![id,name,serde_json::to_string(&p)?])?;
+                conn.execute("INSERT INTO organizations(id,name,ownership,company_id,revision,profile_json) VALUES (?1,?2,'own',?1,0,?3)",params![id,name,serde_json::to_string(&p)?])?;
             }
-            let legacy: Option<(u32, String)> = tx
+            let legacy: Option<(u32, String)> = conn
                 .query_row(
                     "SELECT revision,profile_json FROM print_profiles WHERE id='default'",
                     [],
@@ -68,7 +68,7 @@ impl LocalStore {
                     .find(|(_, n)| n.trim().to_lowercase() == name.trim().to_lowercase())
             });
             let id = if let Some((id, _)) = matched {
-                tx.execute(
+                conn.execute(
                     "UPDATE organizations SET profile_json=?1,revision=?2 WHERE id=?3",
                     params![serde_json::to_string(&profile)?, revision, id],
                 )?;
@@ -77,17 +77,16 @@ impl LocalStore {
                 companies[0].0.clone()
             } else {
                 let id = Uuid::new_v4().to_string();
-                tx.execute("INSERT INTO organizations(id,name,ownership,revision,profile_json) VALUES (?1,?2,'own',?3,?4)",params![id,issuer.unwrap_or_else(||"Mi organización".into()),revision,serde_json::to_string(&profile)?])?;
+                conn.execute("INSERT INTO organizations(id,name,ownership,revision,profile_json) VALUES (?1,?2,'own',?3,?4)",params![id,issuer.unwrap_or_else(||"Mi organización".into()),revision,serde_json::to_string(&profile)?])?;
                 id
             };
-            tx.execute(
+            conn.execute(
                 "INSERT INTO organization_preferences(id,organization_id) VALUES ('default',?1)",
                 [id],
             )?;
         }
         // Migration only fills missing associations; opening the app never reassigns existing projects.
-        tx.execute("INSERT OR IGNORE INTO project_organizations(project_id,organization_id) SELECT p.id,(SELECT organization_id FROM organization_preferences WHERE id='default') FROM projects p",[])?;
-        tx.commit()?;
+        conn.execute("INSERT OR IGNORE INTO project_organizations(project_id,organization_id) SELECT p.id,(SELECT organization_id FROM organization_preferences WHERE id='default') FROM projects p",[])?;
         Ok(())
     }
     pub fn organizations(&self) -> Result<Vec<Organization>> {
