@@ -15,7 +15,7 @@ export function conversationIntent(view,question){
  if(!action.test(q)||/^(?:como|que|cual|donde|por que|cuanto)\b/.test(q))return null;
  if(view==='resources'&&/\b(?:insumos?|materiales?|biblioteca|catalogo|mano de obra|equipos?)\b/.test(q))return 'resources';
  if(view==='analyses'&&/\b(?:acus?|analisis de (?:costos?|precios?)|composici[oó]n|recetas?)\b/.test(q))return 'generic_acu';
- if(view==='projects'&&/\b(?:acus? genericos?|analisis (?:de costo|de precio) unitario|biblioteca de acus?)\b/.test(q))return 'generic_acu';
+ if(view==='projects'&&/\b(?:acus?|analisis (?:de costo|de precio) unitario|biblioteca de acus?)\b/.test(q))return 'generic_acu';
  return null;
 }
 export function proposalPrompt(kind,question,previous=null){
