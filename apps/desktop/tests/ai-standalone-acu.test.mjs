@@ -54,3 +54,27 @@ test('no verbal response or all-invalid proposal can be approved as saved',()=>{
  assert.equal(p.ready,false);
  assert.throws(()=>standaloneAcuWriteArgs(p),/No hay insumos/);
 });
+
+test('duplicating an ACU uses the native creation form without inheriting ID or code',async()=>{
+ const {createActions}=await import('../src/controllers/actions.js');
+ const source={id:'original-acu',code:'ACU-0001',description:'Zapatas corridas',unit:'m³'};
+ const modal=[];
+ const handler=createActions({
+  invoke:async(name,args)=>{
+   assert.equal(name,'get_analysis_details');
+   assert.deepEqual(args,{analysisId:'original-acu'});
+   return {is_line_owned:false,components:[{resource_id:yeso,quantity:'2',unit_price:'950'}]};
+  },
+  state:{analyses:[source],remoteProject:null},
+  openModal:(kind,record)=>modal.push({kind,record}),
+  window:{confirm:()=>true}
+ });
+ await handler.act({dataset:{action:'duplicate-analysis',id:'original-acu'}});
+ assert.equal(modal.length,1);
+ assert.equal(modal[0].kind,'analysis');
+ assert.equal(modal[0].record.code,'');
+ assert.equal(modal[0].record.id,undefined);
+ assert.equal(modal[0].record.description,'Zapatas corridas · Variante');
+ assert.equal(modal[0].record.components[0].quantity,'2');
+ assert.equal(source.code,'ACU-0001');
+});
