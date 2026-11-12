@@ -159,7 +159,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
         addReply(question,{answer:'Guardado confirmado por CPObras: '+result.saved+' ACU y '+result.created+' partidas nuevas.'+(result.pending?' Pendientes: '+result.pending+'.':'')+(result.refreshError?' El guardado se confirmó, pero falló la actualización de la pantalla: '+result.refreshError:''),actionStatus:true});
         render?.();return;
       }else if(draft.kind==='generic_acu'){
-        if(state.view!=='analyses'||state.projectId)throw new Error('La propuesta pertenece a la biblioteca de ACU genéricos');
+        if(!['analyses','projects'].includes(state.view)||state.projectId)throw new Error('La propuesta pertenece a la biblioteca de ACU genéricos');
         if(draft.errors.length)throw new Error('La propuesta tiene datos pendientes: '+draft.errors.join(' · '));
         const [currentResources,currentAnalyses]=await Promise.all([invoke('list_resources'),invoke('list_analyses')]);
         const catalog=new Map(currentResources.map(r=>[r.id,r]));
@@ -181,8 +181,10 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       addReply(question,{answer:'Guardado confirmado por CPObras: '+created+' '+(draft.kind==='resources'?'insumos en la biblioteca.':'ACU genéricos en la biblioteca.')+' No se repitió la operación.',actionStatus:true});
       render?.();
     }catch(error){
-      draft.status='failed';model.chatDraft=null;
-      addReply(question,{answer:(uncertain||created?'No se reintentará automáticamente: puede haber cambios guardados ('+created+' confirmados). Revisá la biblioteca antes de solicitar otra carga. ':'No se guardó esta propuesta. ')+String(error),actionStatus:true});
+      const unsafe=uncertain||created>0;
+      draft.status=unsafe?'failed':'pending';
+      model.chatDraft=unsafe?null:draft;
+      addReply(question,{answer:(unsafe?'No se reintentará automáticamente: puede haber cambios guardados ('+created+' confirmados). Revisá la biblioteca antes de solicitar otra carga. ':'La propuesta se conserva sin guardar. Corregila por mensaje o volvé a aprobarla después de resolver el error. ')+String(error),actionStatus:true});
     }finally{model.busy=false;paint();}
   }
   async function openAcuRequest(request){
