@@ -1,4 +1,5 @@
 import {canSaveLibraryAcu,libraryAcuContext,readLibraryAcuIntent,readLibraryAcus,saveLibraryAcu} from "../services/ai-library-acu.js";
+import {invokeReviewedAiAction} from '../services/ai-view-api-contracts.js';
 import {conversationStore,conversationAcuRequest,structuredConversationContext} from '../services/ai-conversation-context.js';
 import {createAcuWorkbench} from "./ai-acu-workbench.js";
 import {executeBudgetTool,budgetPreparationRequest} from '../services/ai-budget-tools.js';
@@ -136,7 +137,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     paint();
     let persisted=false;
     try{
-      const result=await invoke('apply_reviewed_section_batch',{batch:plan.batch});
+      const result=await invokeReviewedAiAction(invoke,'workspace','apply_reviewed_section_batch',{batch:plan.batch},{approved:true});
       persisted=true;
       delete message.sectionPreview;
       model.pendingAction=null;
