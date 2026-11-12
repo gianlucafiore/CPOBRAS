@@ -215,7 +215,7 @@ test("converses about the proposal, revises it, and saves only on explicit appro
   await send("Crear nuevo ACU para aplicación de yeso");
   await expect(page.getByRole("button", {name:"Revisar y guardar ACU"})).toBeVisible();
   await send("No, gracias");
-  await expect(page.getByText("Descarté el pedido de ACU.")).toBeVisible();
+  await expect(page.getByText("Descarté la propuesta pendiente sin cambiar el ACU.")).toBeVisible();
   expect(await page.evaluate(() => window.libraryWrites.length)).toBe(1);
 });
 
@@ -316,6 +316,7 @@ test("conversational AI updates ONLY the selected existing ACU after approval",a
   await expect(review).toContainText("Modificar Cemento");
   expect(await page.evaluate(()=>window.selectedWrites)).toEqual([]);
   await send("Aprobá la modificación");
+  console.log("Selected ACU approval debug:",JSON.stringify({writes:await page.evaluate(()=>window.selectedWrites),error:await page.locator(".ai-error").innerText(),transcript:(await page.locator(".ai-transcript").innerText()).slice(-1000)}));
   await expect(page.getByText(/Actualicé el ACU existente/)).toBeVisible();
   const writes=await page.evaluate(()=>window.selectedWrites);
   expect(writes).toHaveLength(1);
