@@ -633,6 +633,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
   }
   async function handleLibraryTurn(question) {
     const proposal = pendingLibraryAcu();
+    const editProposal = pendingLibraryEdit();
     const last = model.messages.at(-1);
     const followup = proposal || (last?.libraryAcuClarification || last?.libraryAcuRetry ? last : null);
     const token = ++queryToken;
@@ -648,7 +649,9 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       activeRequest = createAiRequest(invoke, {
         messages:[{role:"user", content:question}],
         context:JSON.stringify({
-          pending_proposal:Boolean(proposal),
+          pending_proposal:Boolean(proposal||editProposal),
+          pending_edit:Boolean(editProposal),
+          selected_analysis:Boolean(state.selectedAnalysisId),
           pending_request:Boolean(followup),
           known_work:Boolean(followup?.libraryAcuBrief),
           last_saved:Boolean(last?.libraryAcuSaved),
@@ -672,7 +675,12 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       case "general":
         return false;
       case "show":
-        if (proposal) {
+        if(editProposal){
+          model.question="";
+          model.notice="Los cambios propuestos están detallados en la tarjeta del ACU seleccionado.";
+          paint();
+          host.querySelector("[data-selected-acu-edit]")?.scrollIntoView({block:"nearest"});
+        }else if (proposal) {
           model.question = "";
           model.notice = "La propuesta y sus insumos están disponibles en la conversación.";
           paint();
@@ -687,7 +695,12 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
         }
         break;
       case "review":
-        if (proposal && proposal.libraryAcus.filter(Boolean).length===1) {
+        if(editProposal){
+          openModal("analysis",{...editProposal.draft,
+            components:editProposal.draft.components},()=>{editProposal.spent=true;});
+          addReply(question,{answer:"Abrí la edición del ACU seleccionado, conservando su identificación y componentes."});
+          paint();
+        } else if (proposal && proposal.libraryAcus.filter(Boolean).length===1) {
           const drafts=proposal.libraryAcus,draft=drafts.find(Boolean);
           openModal("analysis",draft,()=>{proposal.libraryAcus=[];});
           addReply(question,{answer:"Abrí el editor con la composición actual para que puedas ajustar cantidades, insumos y precios antes de guardarla."});
@@ -700,7 +713,9 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
         }
         break;
       case "approve":
-        if (proposal) await confirmLibraryAcu(question, proposal);
+        if(editProposal)await confirmSelectedAcuEdit(question,
+          model.messages.findLast(message=>message.libraryEdit===editProposal));
+        else if (proposal) await confirmLibraryAcu(question, proposal);
         else {
           addReply(question, {answer:"Primero necesitás una composición visible para poder aprobarla. Decime qué trabajo querés analizar.", libraryAcuClarification:true,
             libraryAcuBrief:followup?.libraryAcuBrief, libraryAcuRetry:followup?.libraryAcuRetry});
@@ -708,13 +723,22 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
         }
         break;
       case "discard":
+        if(editProposal)editProposal.spent=true;
         if (followup) {
           followup.libraryAcus = [];
           followup.libraryAcuClarification = false;
           followup.libraryAcuRetry = null;
         }
-        addReply(question, {answer:followup ? "Descarté el pedido de ACU." : "No hay un pedido pendiente para descartar."});
+        addReply(question, {answer:followup||editProposal ? "Descarté la propuesta pendiente sin cambiar el ACU." : "No hay un pedido pendiente para descartar."});
         paint();
+        break;
+      case "edit":
+        if(state.selectedAnalysisId)await prepareSelectedAcuEdit(question,editProposal?
+          model.messages.findLast(message=>message.libraryEdit===editProposal):null);
+        else{
+          addReply(question,{answer:"Seleccioná primero el ACU existente que querés modificar."});
+          paint();
+        }
         break;
       case "new":
         for (const message of model.messages) {
@@ -730,7 +754,13 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
         }
         break;
       default:
-        if (followup) await prepareLibraryAcu(question, followup, question, intent.action);
+        if(editProposal&&["add","revise","clarify","question"].includes(intent.action)){
+          await prepareSelectedAcuEdit(question,model.messages.findLast(message=>message.libraryEdit===editProposal));
+        }else if(state.selectedAnalysisId&&["add","revise"].includes(intent.action)){
+          await prepareSelectedAcuEdit(question);
+        }else if(state.selectedAnalysisId&&last?.libraryAcuClarification&&intent.action==="clarify"){
+          await prepareSelectedAcuEdit(question,last);
+        }else if (followup) await prepareLibraryAcu(question, followup, question, intent.action);
         else {
           addReply(question, {answer:"Decime qué trabajo querés analizar para preparar un ACU de biblioteca.", libraryAcuClarification:true});
           paint();
@@ -947,6 +977,17 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     }
     model.error="";
     try{
+      if (action === "approve-selected-acu-edit" && canDraftLibraryAcu() && !model.busy){
+        const message=model.messages[Number(button.dataset.index)];
+        if(message?.libraryEdit)await confirmSelectedAcuEdit("Aprobación de la propuesta visible",message);
+      }
+      if (action === "review-selected-acu-edit" && canDraftLibraryAcu() && !model.busy){
+        const message=model.messages[Number(button.dataset.index)];
+        const edit=message?.libraryEdit;
+        if(edit&&!edit.applied&&!edit.spent&&edit.baseline.id===state.selectedAnalysisId){
+          openModal("analysis",{...edit.draft,components:edit.draft.components},()=>{edit.spent=true;});
+        }
+      }
       if (action === "review-library-acu" && canDraftLibraryAcu() && !model.busy) {
         const drafts = model.messages[Number(button.dataset.index)]?.libraryAcus;
         const index = Number(button.dataset.draft);
