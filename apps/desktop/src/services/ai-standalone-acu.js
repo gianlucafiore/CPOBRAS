@@ -5,6 +5,7 @@ const decimal=/^(?:0|[1-9]\d{0,7})(?:\.\d{1,6})?$/;
 const uuid=/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
 export function standaloneAcuIntent(question){
  const q=fold(question);
+ if(/[¿?]/.test(String(question||''))||/^(?:como|cual|cuales|que|cuanto|por que|se puede)\b/.test(q))return false;
  return /\bacus?\b/.test(q)
   && /\b(?:crea|crear|creame|gener[a-z]*|arma|armar|armame|prepara|preparar|necesito|quiero)\b/.test(q)
   && !/\b(?:partida|partidas|seleccionada|seleccionado|existentes|presupuesto|completa|completar|actualiza|editar)\b/.test(q);
