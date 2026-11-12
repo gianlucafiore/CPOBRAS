@@ -194,12 +194,12 @@ test("the export notification opens the file through the default-app command", a
   expect(await page.evaluate(() => window.exportOpens)).toEqual(["/tmp/Plantilla de insumos.xlsx"]);
 });
 
-test("the 2:1 AI button can be dragged and still opens on a click", async ({page}) => {
+test("the doubled square AI button can be dragged and still opens on a click", async ({page}) => {
   await openLibrary(page);
   const launch = page.getByRole("button", {name:"Asistente IA",exact:true});
   const start = await launch.boundingBox();
   expect(start.width).toBeCloseTo(75.6, 0);
-  expect(start.height).toBeCloseTo(37.8, 0);
+  expect(start.height).toBeCloseTo(75.6, 0);
   await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2);
   await page.mouse.down();
   await page.mouse.move(start.x - 110, start.y - 75, {steps:8});
