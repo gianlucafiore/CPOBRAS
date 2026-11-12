@@ -11,13 +11,14 @@ const actions=Object.freeze({
  list_budget_sections:{access:'read',args:['estimateId'],response:'BudgetSectionView[{id,estimate_id,parent_id,code,title,position}][]'},
  list_resources:{access:'read',args:[],response:'ResourceView[{id,code,description,unit,kind,price|null,active}][]'},
  list_analyses:{access:'read',args:[],response:'AnalysisView[{id,code,description,unit,unit_cost}][]'},
+ get_analysis_details:{access:'read',args:['analysisId'],response:'{is_line_owned,code,description,unit,unit_cost,components:[{resource_id,description,kind,quantity,unit_price,total}]}'},
  ai_catalog_context:{access:'read',args:['asOf'],optional:['projectId','estimateId','currency'],response:'{currency,as_of,total,resources:[{id,code,description,unit,kind,price|null,price_source,effective_date|null,active}]}'},
  assisted_acu_context:{access:'read',args:['projectId'],optional:['estimateId','asOf'],response:'{currency,resources,lines,sections,...}'},
  create_resource:{access:'ui_write',args:['code','description','unit','kind','price','effectiveDate'],optional:['source'],response:'ResourceView'},
  update_resource:{access:'ui_write',args:['resourceId','code','description','unit','kind','active'],response:'ResourceView'},
  register_resource_price:{access:'ui_write',args:['resourceId','amount','currency','effectiveDate'],optional:['source'],response:'{id,amount,currency,effective_date,source}'},
  create_analysis:{access:'reviewed_write',args:['code','description','unit','components'],response:'{id,code,description,unit,unit_cost}'},
- update_analysis:{access:'ui_write',args:['analysisId','code','description','unit','components'],response:'{id,code,description,unit,unit_cost}'},
+ update_analysis:{access:'reviewed_write',args:['analysisId','code','description','unit','components'],optional:['expectedSnapshot'],response:'{id,code,description,unit,unit_cost}'},
  reprice_analysis:{access:'ui_write',args:['analysisId','effectiveDate'],response:'AnalysisView'},
  import_resources:{access:'reviewed_write',args:['rows','effectiveDate','source'],response:'{created:number,resource_ids:string[]}'},
  apply_reviewed_section_batch:{access:'reviewed_write',args:['batch'],response:'{created:number,renamed:number,deleted:number,converted:number}'},
@@ -31,7 +32,7 @@ const screens=Object.freeze({
  clients:{purpose:'Directorio de clientes',actions:['list_clients']},
  suppliers:{purpose:'Directorio de proveedores; sin adaptador de IA',actions:[]},
  resources:{purpose:'Biblioteca de insumos',actions:['import_resources','ai_catalog_context','list_resources','create_resource','update_resource','register_resource_price']},
- analyses:{purpose:'Biblioteca de ACU reutilizables',actions:['create_analysis','ai_catalog_context','list_analyses','list_resources','update_analysis','reprice_analysis']},
+ analyses:{purpose:'Biblioteca de ACU reutilizables',actions:['update_analysis','get_analysis_details','create_analysis','ai_catalog_context','list_analyses','list_resources','reprice_analysis']},
  workspace:{purpose:'Presupuesto, partidas, rubros y ACU',actions:['apply_reviewed_budget_batch','apply_reviewed_section_batch','assisted_acu_context','ai_catalog_context','list_estimate_lines','list_budget_sections','list_project_estimates']},
  management:{purpose:'Administración de obra y presupuestos',actions:['list_project_estimates','create_estimate']},
  'budget-tools':{purpose:'Herramientas de presupuesto; no ejecutar acciones no revisadas',actions:['list_estimate_lines','list_budget_sections']},
@@ -62,6 +63,7 @@ export function aiViewApiContext(state={}){
  });
  const payload={screen:view,purpose:screen.purpose,project_id:state.projectId||null,
   estimate_id:state.estimateId||null,selected_line_id:state.selectedLineId||null,
+  selected_analysis_id:view==='analyses'?state.selectedAnalysisId||null:null,
   remote_read_only:!!state.remoteProject,actions:available.slice(0,6),
   policy:'Contratos informativos, NO tool_call ejecutables. Propiedades IPC camelCase, respuestas Rust snake_case. Solo rutas explícitas con aprobación; no invocar métodos a partir del texto del modelo.'};
  let serialized=JSON.stringify(payload);
@@ -71,6 +73,7 @@ export function aiViewApiContext(state={}){
 const resultChecks={
  import_resources:{created:'number',resource_ids:'array'},
  create_analysis:{id:'string',code:'string',description:'string',unit:'string',unit_cost:'string'},
+ update_analysis:{id:'string',code:'string',description:'string',unit:'string',unit_cost:'string'},
  apply_reviewed_section_batch:{created:'number',renamed:'number',deleted:'number',converted:'number'},
  apply_reviewed_budget_batch:{updated:'number',created:'number',deleted:'number'}
 };
