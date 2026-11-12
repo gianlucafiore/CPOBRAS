@@ -120,6 +120,11 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
   async function proposeBudget(question,acuRequest,previous=null){
     const generation=model.generation,token=++queryToken;
     const request={...acuRequest};
+    if(!previous&&request.mode==='fill'){
+      const addition=appendRequest(request.brief,state.lines,state.selectedLineId);
+      if(addition)Object.assign(request,addition);
+      else if(!request.lineIds?.length&&state.selectedLineId&&/\b(?:esta partida|partida seleccionada|este acu|acu seleccionado)\b/i.test(question))request.lineIds=[state.selectedLineId];
+    }
     if(previous){
       const prior=previous.rows.slice(0,5).map(row=>({description:row.description,unit:row.unit,components:row.components.map(c=>({insumo:c.description,consumo:c.quantity,unidad:c.unit})),pendientes:row.missing_resources}));
       request.brief=[previous.request.brief,'PROPUESTA ANTERIOR: '+JSON.stringify(prior),'CORRECCIÓN SOLICITADA: '+question,'Conservá todos los demás rendimientos, insumos y partidas.'].join('\n\n').slice(0,3000);
