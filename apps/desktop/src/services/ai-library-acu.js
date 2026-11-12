@@ -133,7 +133,7 @@ export function readLibraryAcus(text, resources) {
       const value = consumption(component.quantity);
       if (seen.has(resource.id) || !value ||
           (component.quantity_unit != null && !field(component.quantity_unit, 50))) {
-        throw new Error("El borrador contiene un insumo repetido o con un rendimiento inválido.");
+        throw new Error("El borrador contiene un insumo sin verificar, repetido o con un rendimiento inválido.");
       }
       seen.add(resource.id);
       const quantity = catalogQuantity({...component, quantity:value}, resource);
