@@ -1,4 +1,5 @@
 import {parsePlan,reviewedBatch,normalize} from './ai-budget-import.js';
+import {invokeReviewedAiAction} from './ai-view-api-contracts.js';
 
 const today=()=>{
  const date=new Date();
@@ -85,7 +86,7 @@ export function createApprovedPlanRunner({invoke,state,loadEstimate,loadEstimate
    const latest=authorized(origin),latestCurrency=String(latest.estimate?.currency||latest.project.currency||context.currency).toUpperCase();
    if(latestCurrency!==expectedCurrency||sourceSnapshot(rows)!==snapshot)throw new Error('La propuesta o sus datos cambiaron durante la validación. Revisalos y volvé a aprobar la carga');
    current.phase='saving';used.add(rows);attempted=true;
-   await invoke('apply_reviewed_budget_batch',{batch});committed=true;
+   await invokeReviewedAiAction(invoke,'workspace','apply_reviewed_budget_batch',{batch},{approved:true});committed=true;
    const lineIds=batch.creates.map(line=>line.id),summary={saved:0,created:lineIds.length,pending:0,estimateId,lineIds,committed:true};
    let message=`Se crearon ${summary.created} partidas en el presupuesto.`;
    if(sameScope(origin)){
