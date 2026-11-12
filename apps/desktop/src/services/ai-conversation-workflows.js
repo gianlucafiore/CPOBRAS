@@ -11,10 +11,10 @@ export const isConversationApproval=question=>/^(?:s[ií]|dale|ok|perfecto|adela
 export const isConversationCancel=question=>/^(?:cancel[áa]|descart[áa]|anul[áa]|olvidalo|no lo cargues|no guardar|cancelar propuesta)[.!]?$/.test(clean(question).toLocaleLowerCase('es-AR'));
 export function conversationIntent(view,question){
  const q=clean(question).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
- const action=/\b(?:crea|crear|agrega|agregar|carga|cargar|genera|generar|prepara|preparar|arma|armar|completa|completar|incorpora|incorporar|registra|registrar|necesito|quiero)\b/;
+ const action=/\b(?:crea|agrega|carga|genera|prepara|arma|completa|incorpora|registra|hace)(?:r|me|lo|la|los|las)?\b|\b(?:necesito|quiero|quisiera)\b/;
  if(!action.test(q)||/^(?:como|que|cual|donde|por que|cuanto)\b/.test(q))return null;
- if(view==='resources'&&/\b(?:insumos?|materiales?|biblioteca|catalogo|mano de obra|equipos?)\b/.test(q))return 'resources';
- if(view==='analyses'&&/\b(?:acus?|analisis de (?:costos?|precios?)|composici[oó]n|recetas?)\b/.test(q))return 'generic_acu';
+ if(view==='resources')return 'resources';
+ if(view==='analyses')return 'generic_acu';
  if(view==='projects'&&/\b(?:acus?|analisis (?:de costo|de precio) unitario|biblioteca de acus?)\b/.test(q))return 'generic_acu';
  return null;
 }
