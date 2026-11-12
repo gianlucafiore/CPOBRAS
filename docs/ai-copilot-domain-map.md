@@ -102,3 +102,39 @@ Para cada nueva operación, agregar contrato y descripción en
 backend, incorporar instrucciones específicas del dominio y probar
 interpretación, vista previa, commit y rechazo. La documentación textual
 **no reemplaza** los tipos ni las validaciones ejecutables.
+
+## Biblioteca de ACU: correcciones de interacción
+
+- El modal de crear/editar ACU mantiene fijos, al desplazarse, el código,
+  la descripción, la unidad y la barra de composición / agregar insumo.
+- En el listado de análisis, el menú «⋯» contiene Editar, Actualizar precios,
+  Duplicar y Eliminar. «Duplicar» abre una **copia independiente**, sin ID ni
+  código heredados, para que el backend genere un código nuevo al guardarla.
+  «Eliminar» oculta el análisis de la biblioteca y conserva el historial y
+  las relaciones existentes (no hace un DELETE físico).
+- El mensaje «Necesito crear un ACU de aplicación de yeso por vía húmeda»
+  prepara un **ACU autónomo en la biblioteca**, no partidas del presupuesto.
+  La respuesta del proveedor requiere un objeto `standalone_acu` real con
+  consumos unitarios verificables. La UI muestra una propuesta antes de
+  permitir el guardado, consulta IDs y precios de biblioteca y los vuelve
+  a validar antes de invocar `create_analysis`.
+- Si faltan insumos, sus nombres aparecen en la tarjeta y el guardado queda
+  marcado como parcial. No se fabrican IDs, precios, materiales ni
+  conversiones. Un texto de la IA como «Preparé ACU listo para revisión»
+  sin estructura verificable es un **error de preparación**, nunca un éxito.
+- Sólo una aprobación explícita a la tarjeta (botón o texto como «bueno
+  cargalos») puede ejecutar `create_analysis`; un éxito sólo se informa
+  tras recibir el resultado nativo confirmado.
+
+### Pruebas manuales
+
+```bash
+git fetch origin
+git switch feat/ai-domain-context-review-20261110
+cd apps/desktop
+npm ci
+npm run test:browser -- ai-standalone-acu.spec.mjs
+npm run tauri dev
+```
+
+Pruebas complementarias: `node --test tests/ai-standalone-acu.test.mjs`.
