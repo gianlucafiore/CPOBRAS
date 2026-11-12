@@ -32,7 +32,7 @@ async function openLibrary(page, proseFirst = false, asksWork = 0) {
             let action = "new", work = text;
             if (text.startsWith("no,")) action = "discard";
             else if (text === "si" || text === "perfecto" || text === "mandale con esa composición") action = "approve";
-            else if (text.startsWith("a donde") || text.startsWith("mostra")) action = "show";
+            else if (text.startsWith("a donde") || text.startsWith("mostra") || text.includes("qué pasó con mi acu")) action = "show";
             else if (text.includes("cómo")) action = "question";
             else if (text.startsWith("agregá")) action = "add";
             else if (text.includes("genérico") || text.includes("generico") || text.startsWith("aplicación")) {
@@ -240,10 +240,11 @@ test("a generic clarification and retry preserve the original requested work", a
     await page.locator("#ai-question").getByRole("button", {name:/Enviar/}).click();
   };
   await send("Necesito crear un ACU de yeso por vía humeda");
-  await expect(page.getByText(/No pude generar una composición revisable/)).toHaveCount(1);
+  await expect(page.getByText(/No pude preparar todavía un ACU válido/)).toHaveCount(1);
   await send("es generico para reutilizar luego en las partidas");
-  await expect(page.getByText(/No pude generar una composición revisable/)).toHaveCount(2);
-  await send("mostramela");
+  await expect(page.getByText(/No pude preparar todavía un ACU válido/)).toHaveCount(2);
+  // Natural reference to prior work: no obligatory retry phrase.
+  await send("¿Qué pasó con mi ACU de yeso, ya tenés la composición?");
   await expect(page.locator("[data-library-acu-preview]")).toContainText("Aplicación de yeso por vía húmeda");
   await expect(page.locator("[data-library-acu-preview]")).toContainText("0.32 bolsa");
   await expect(page.getByText("¿Para qué trabajo querés crear el ACU?", {exact:true})).toHaveCount(0);
