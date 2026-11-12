@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {conversationIntent,isConversationApproval,isConversationCancel,proposalPrompt,parseConversationProposal,describeConversationProposal} from '../src/services/ai-conversation-workflows.js';
+import {conversationIntent,isConversationApproval,isConversationCancel,proposalPrompt,parseConversationProposal,describeConversationProposal,applyVerifiedPriceEdit} from '../src/services/ai-conversation-workflows.js';
 
 const id='11111111-1111-4111-8111-111111111111';
 const catalog={resources:[{id,code:'MAT-1',description:'Cemento Portland',unit:'bolsa',kind:'material',price:'12500',active:true}]};
@@ -12,6 +12,8 @@ test('routes only explicit creation in correct screens',()=>{
  assert.equal(conversationIntent('analyses','Creá un ACU de contrapiso'),'generic_acu');
  assert.equal(conversationIntent('projects','Necesito un ACU genérico de revoque'),'generic_acu');
  assert.equal(conversationIntent('resources','Agregá insumos a la biblioteca'),'resources');
+ assert.equal(conversationIntent('resources','Agregame cemento y arena'),'resources');
+ assert.equal(conversationIntent('analyses','Armame contrapiso y revoque'),'generic_acu');
  assert.equal(conversationIntent('workspace','Agregá insumos a la partida'),null);
  assert.equal(conversationIntent('resources','¿Cuánto cuesta el cemento?'),null);
  assert.equal(conversationIntent('analyses','¿Cómo se calcula el ACU?'),null);
@@ -53,4 +55,24 @@ test('resource drafts strip model prices and existing identifiers',()=>{
  assert.equal('id' in draft.rows[0],false);
  assert.deepEqual(draft.errors,[]);
  assert.match(proposalPrompt('resources','agrega arena',{previous:'valores'}),/no guardar|no ejecutar/i);
+});
+
+test('only prices explicitly stated by user enter local resource drafts',()=>{
+ const draft=parseConversationProposal('resources',resource([{description:'Cemento Portland',kind:'material',unit:'bolsa',price:'999999'}]),null,[]);
+ assert.equal(draft.rows[0].price,null);
+ const confirmed=applyVerifiedPriceEdit(draft,'Poné el precio del cemento a 12.500,50',[]);
+ assert.equal(confirmed.rows[0].price,'12500.50');
+ assert.match(describeConversationProposal(confirmed),/12500.50 ARS/);
+ assert.deepEqual(draft.rows.map(r=>r.price),[null]);
+ assert.equal(applyVerifiedPriceEdit(draft,'Cambiale el nombre',[]),null);
+});
+test('ambiguous user prices cannot be assigned to the wrong resource',()=>{
+ const draft=parseConversationProposal('resources',resource([
+  {description:'Cemento Portland',kind:'material',unit:'bolsa'},
+  {description:'Arena fina',kind:'material',unit:'m³'},
+ ]),null,[]);
+ assert.throws(()=>applyVerifiedPriceEdit(draft,'Cambiá el precio a 10000',[]),/nombre único/);
+ const changed=applyVerifiedPriceEdit(draft,'Poné precio a la arena fina 9500',[]);
+ assert.equal(changed.rows[0].price,null);
+ assert.equal(changed.rows[1].price,'9500');
 });
