@@ -397,7 +397,7 @@ export function createViews({
       rows = state.analyses
         .map(
           (a) =>
-            `<tr class="${state.selectedAnalysisId === a.id ? "selected" : ""}" data-action="select-analysis" data-id="${e(a.id)}" data-searchable="${e((a.code + " " + a.description).toLowerCase())}"><td>${e(a.code)}</td><td><strong>${e(a.description)}</strong></td><td>${e(a.unit)}</td><td class="number">${money(a.unit_cost)}</td><td><button class="btn tiny" data-action="edit-analysis" data-id="${e(a.id)}">Editar ACU</button> <button class="btn tiny" data-action="modal-reprice" data-id="${e(a.id)}">Actualizar precios</button>${entityActions("analysis",a.id,a.description)}</td></tr>`,
+            `<tr class="${state.selectedAnalysisId === a.id ? "selected" : ""}" data-action="select-analysis" data-id="${e(a.id)}" data-searchable="${e((a.code + " " + a.description).toLowerCase())}"><td>${e(a.code)}</td><td><strong>${e(a.description)}</strong></td><td>${e(a.unit)}</td><td class="number">${money(a.unit_cost)}</td><td class="actions-cell">${entityActions("analysis",a.id,a.description)}</td></tr>`,
         )
         .join("");
       inspector = `<aside class="list-inspector"><h3>COMPOSICIÓN DEL ACU</h3>${
