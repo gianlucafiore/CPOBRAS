@@ -119,33 +119,17 @@ function catalogQuantity(component,resource){
     return {reason:"El cálculo de unidades de compra indicado por la IA no coincide con su fundamento."};
   return {quantity:calculated,conversion:original+" "+component.quantity_unit};
 }
-export function libraryAcuContext(question, catalog) {
-  const read = work => JSON.parse(buildCatalogContext({
-    question:work, resources:catalog.resources, currency:catalog.currency, asOf:catalog.as_of,
+export function libraryAcuContext(question,catalog) {
+  // Search only the model/user-supplied query. No fixed construction recipes or
+  // trade-specific material expansions are embedded in the app.
+  const evidence=JSON.parse(buildCatalogContext({
+    question,resources:catalog.resources,currency:catalog.currency,asOf:catalog.as_of,
   }));
-  const evidence = read(question);
-  const collected = [...evidence.matches, ...evidence.related];
-  // Searching only the work's title finds the brick but often hides mortar,
-  // cement, sand and labor. Add genuine catalog candidates for the trade,
-  // without claiming that any candidate is technically interchangeable.
-  const work = foldCatalogText(question);
-  const support = /\b(?:mamposteria|ladrillo|bloque|tabique)\b/.test(work)
-    ? 'cemento arena cal mortero albañil ayudante agua hidrofugo'
-    : /\b(?:revoque|enlucido)\b/.test(work)
-      ? 'cemento arena cal mortero albañil ayudante agua'
-      : '';
-  const secondary = support ? read(support) : null;
-  const resources = [], seen = new Set();
-  for (const item of [...collected.slice(0, 55), ...(secondary ? [...secondary.matches, ...secondary.related].slice(0, 35) : [])]) {
-    if (!seen.has(item.id)) {seen.add(item.id);resources.push(item);}
-    if (resources.length >= 80) break;
-  }
-  return {
-    resources,
-    context: JSON.stringify({task:"library_acu", currency:catalog.currency, as_of:catalog.as_of,
-      resources,
-      catalog_truncated:evidence.truncated||secondary?.truncated||false}),
-  };
+  const resources=[...evidence.matches,...evidence.related];
+  return {resources,context:JSON.stringify({
+    task:"library_acu",currency:catalog.currency,as_of:catalog.as_of,
+    resources,catalog_truncated:evidence.truncated,
+  })};
 }
 
 export function readLibraryAcus(text, resources) {
