@@ -1,7 +1,7 @@
 import {test,expect} from '@playwright/test';
 const yeso='a0000000-0000-4000-8000-000000000001',mo='a0000000-0000-4000-8000-000000000002';
 async function setup(page,{plain=false}={}){
- await page.route('**/src/main.js*',r=>r.fulfill({contentType:'application/javascript',body:'document.querySelector("#app").textContent="Biblioteca de ACU";'}));
+ await page.route('**/src/main.js*',r=>r.fulfill({contentType:'application/javascript',body:'import "./style.css";document.querySelector("#app").textContent="Biblioteca de ACU";'}));
  await page.goto('/');
  await page.evaluate(async({yeso,mo,plain})=>{
   const {createAiAssistant}=await import('/src/components/ai-assistant.js');
@@ -70,7 +70,7 @@ test('una respuesta verbal no se convierte en falsa propuesta ni guardado',async
  await expect(page.locator('[data-ai=approve-standalone]')).toHaveCount(0);
 });
 test('encabezado de ACU fijo y menú único de acciones',async({page})=>{
- await page.route('**/src/main.js*',r=>r.fulfill({contentType:'application/javascript',body:'document.querySelector("#app").textContent="Vista de ACU";'}));
+ await page.route('**/src/main.js*',r=>r.fulfill({contentType:'application/javascript',body:'import "./style.css";document.querySelector("#app").textContent="Vista de ACU";'}));
  await page.goto('/');
  const result=await page.evaluate(async()=>{
   const {createModalRenderer}=await import('/src/components/modal.js');
