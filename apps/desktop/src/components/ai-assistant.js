@@ -5,7 +5,7 @@ import {e,dateToday} from "./helpers.js";
 import {buildCatalogContext,parseCatalogQuery} from "../services/ai-catalog-context.js";
 import {appendRequest} from "../services/ai-acu-addition.js";
 import {reviewAiResourceRows} from "../services/ai-resource-import.js";
-import {conversationIntent,proposalPrompt,parseConversationProposal,describeConversationProposal,isConversationApproval,isConversationCancel} from "../services/ai-conversation-workflows.js";
+import {conversationIntent,proposalPrompt,parseConversationProposal,describeConversationProposal,isConversationApproval,isConversationCancel,applyVerifiedPriceEdit} from "../services/ai-conversation-workflows.js";
 import {parseAiReply,draftFromProposal,screenContext,createAiRequest,budgetScreenContext,acuChatRequest,resolvedPendingApproval,isApprovalReply} from "../services/ai-assistant.js";
 const defaults={openai:"gpt-4.1-mini",anthropic:"claude-haiku-4-5"};
 export function createAiAssistant({invoke,state,document,window,openModal,editable,loadEstimate,loadEstimates,openEstimate,openResourceLibrary,render}) {
@@ -106,7 +106,16 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       activeRequest=request;
       const result=await request.promise;
       if(token!==queryToken||generation!==model.generation)return;
-      const draft=parseConversationProposal(kind,result.text,{resources:selected},state.view==='resources'?state.resources||[]:state.analyses||[]);
+      let draft=parseConversationProposal(kind,result.text,{resources:selected},state.view==='resources'?state.resources||[]:state.analyses||[]);
+      if(kind==='resources'){
+        if(previous){
+          draft.rows=draft.rows.map(row=>{
+            const prior=previous.rows.find(old=>old.description===row.description&&old.kind===row.kind&&old.unit===row.unit);
+            return {...row,price:prior?.price??null};
+          });
+        }
+        draft=applyVerifiedPriceEdit(draft,question,state.resources||[])||draft;
+      }
       stageConversation(question,draft);
       model.usage={input:result.input_tokens,output:result.output_tokens};
     }catch(error){
@@ -153,10 +162,10 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       if(draft.kind==='resources'){
         if(state.view!=='resources'||state.projectId)throw new Error('La propuesta pertenece a la biblioteca de Insumos');
         const current=await invoke('list_resources');
-        const checked=reviewAiResourceRows(draft.rows.map(row=>({...row,price:'',selected:true})),current);
+        const checked=reviewAiResourceRows(draft.rows.map(row=>({...row,price:row.price??'',selected:true})),current);
         const invalid=checked.flatMap((row,index)=>row.errors.map(error=>(index+1)+': '+error));
         if(invalid.length)throw new Error('Hay insumos incompletos o repetidos: '+invalid.join(' · '));
-        const rows=checked.map(row=>({code:'',description:row.description,unit:row.unit,kind:row.kind,price:null}));
+        const rows=checked.map(row=>({code:'',description:row.description,unit:row.unit,kind:row.kind,price:row.price}));
         uncertain=true;
         const result=await invoke('import_resources',{rows,effectiveDate:dateToday(),source:'Alta aprobada por mensaje en el chat IA de CPObras'});
         uncertain=false;created=result.created;
@@ -285,7 +294,13 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       if(conversationalRevision(question)||conversationIntent(state.view,question)){
         const draft=model.chatDraft;
         if(draft.kind==='budget_acu')await proposeBudget(question,draft.request,draft);
-        else await proposeConversation(question,draft.kind,draft);
+        else if(draft.kind==='resources'){
+          try{
+            const localEdit=applyVerifiedPriceEdit(draft,question,state.resources||[]);
+            if(localEdit){stageConversation(question,localEdit);return;}
+          }catch(error){model.error=String(error);model.question='';paint();return;}
+          await proposeConversation(question,draft.kind,draft);
+        }else await proposeConversation(question,draft.kind,draft);
         return;
       }
     }
