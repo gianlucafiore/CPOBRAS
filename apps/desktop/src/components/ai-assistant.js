@@ -267,6 +267,8 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
   const canDraftLibraryAcu = () => state.view === "analyses" && !state.projectId &&
     !state.remoteProject && !state.modal && !state.navigating && !state.pageDirty;
   const pendingLibraryAcu = () => model.messages.findLast(message => message.libraryAcus?.some(Boolean));
+  // Free-form user language is classified by the model. Only explicit approval
+  // of a displayed proposal authorizes the separate, validated native write.
 
   function libraryDraftMarkup(message, index) {
     return (message.libraryAcus ?? []).map((draft, draftIndex) => draft ? `<div class="ai-proposal" data-library-acu-preview>
@@ -275,7 +277,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
         ${row.conversion ? ` (equivale a ${e(row.conversion)})` : ""}
         · ${row.unit_price === "" ? "sin precio" : "ARS " + e(row.unit_price) + " por " + e(row.unit)}</li>`).join("")}</ul>
       ${draft.aiWarnings.map(item => `<p class="ai-warning">Pendiente: ${e(item)}</p>`).join("")}
-      ${canSaveLibraryAcu(draft) ? "<p>Podés hacer preguntas, pedir cambios o responder «De acuerdo» para guardarlo.</p>" : "<p>Completá los insumos o precios pendientes para guardar desde el chat.</p>"}
+      ${canSaveLibraryAcu(draft) ? "<p>Podés pedir cambios o autorizar el guardado con tus propias palabras.</p>" : "<p>Hay datos por verificar. Podés corregirlos conversando o revisar el ACU antes de guardar.</p>"}
       <button type="button" data-ai="review-library-acu" data-index="${index}" data-draft="${draftIndex}" ${canDraftLibraryAcu() && !model.busy ? "" : "disabled"}>Revisar y guardar ACU</button>
     </div>` : "").join("");
   }
@@ -388,14 +390,16 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       let parsed;
       try {
         parsed = read(result);
-      } catch {
+      } catch (firstError) {
+        // Internal one-shot repair: preserve the exact user's work, and ask the
+        // model for a valid proposal without forcing any "magic" retry phrase.
         result = await sendRequest([...messages, {
-          role:"assistant", content:"Todavía no hay una composición válida en el chat.",
+          role:"assistant", content:"La respuesta no produjo un ACU validable: " + String(firstError?.message || firstError).slice(0, 260),
         }, {
           role:"user",
           content:action === "question"
-            ? "Explicá el borrador actual y devolvé JSON con answer y keep_draft:true, sin modificar la propuesta."
-            : "Usá requested_work: ahí ya está indicado el trabajo. Respondé ahora al pedido anterior en JSON con library_acus y componentes concretos, o needs_details:true con una pregunta sobre un dato técnico imprescindible. Mostrá los insumos estimados sin coincidencia en missing. No vuelvas a preguntar qué trabajo hay que analizar.",
+            ? "Explicá el ACU actualmente propuesto y devolvé JSON {answer,keep_draft:true} sin cambiar los componentes."
+            : "El trabajo YA está indicado en requested_work. Generá ahora library_acus con description,unit y components usando ÚNICAMENTE IDs del catálogo. Se admite components:[] y missing:[descripciones concretas] si los insumos aún no están disponibles. No inventes IDs, precios ni conversiones. Cantidades decimales positivas. Si falta una decisión técnica imprescindible, preguntá solo eso, pero no vuelvas a pedir el nombre del trabajo.",
         }], contextWithDraft(evidence.context));
         if (!current()) return;
         parsed = read(result);
@@ -429,8 +433,13 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       model.usage = {input:result.input_tokens, output:result.output_tokens};
     } catch (error) {
       if (current()) {
+        // Explain failures instead of hiding them behind a generic scripted
+        // answer. Follow-ups may naturally refine the original work.
+        const reason = String(error?.message || error).slice(0, 220);
         addReply(question, {
-          answer:"No pude generar una composición revisable. Podés decir «Mostrámela» para volver a intentar este ACU de biblioteca.",
+          answer:"No pude preparar todavía un ACU válido para «" + originalWork.slice(0, 120) +
+            "». No se guardó nada. Motivo: " + reason +
+            ". Conservo el trabajo que pediste; podés seguir aclarando o cambiando lo que necesites.",
           libraryAcuRetry:brief.slice(0, 3000),
           libraryAcuBrief:brief.slice(0, 3000),
         });
@@ -487,11 +496,11 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       case "show":
         if (proposal) {
           model.question = "";
-          model.notice = "La composición del ACU está en esta tarjeta del chat.";
+          model.notice = "La propuesta y sus insumos están disponibles en la conversación.";
           paint();
           host.querySelector("[data-library-acu-preview]")?.scrollIntoView({block:"nearest"});
         } else if (last?.libraryAcuRetry) {
-          await prepareLibraryAcu(question, null, last.libraryAcuRetry);
+          await prepareLibraryAcu(question, last, question, "clarify");
         } else {
           addReply(question, last?.libraryAcuSaved
             ? {answer:`El ACU ${last.libraryAcuSaved} está en Inicio → ACU.`, libraryAcuSaved:last.libraryAcuSaved}
@@ -523,6 +532,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
           message.libraryAcuRetry = null;
         }
         if (intent.work) await prepareLibraryAcu(question, null, intent.work);
+        else if (followup?.libraryAcuBrief) await prepareLibraryAcu(question, followup, question, "clarify");
         else {
           addReply(question, {answer:"¿Para qué trabajo querés crear el ACU de biblioteca?", libraryAcuClarification:true});
           paint();
