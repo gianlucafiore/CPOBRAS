@@ -249,7 +249,7 @@ export function createModalRenderer({
       wide = true;
       body =
         `<div class="acu-editor-sticky" aria-label="Datos y composición del ACU"><div class="form-grid three">
-      ${field("Código ACU", "code", item.code || "", "required")}
+      ${field("Código ACU", "code", item.code || "", editing ? "required" : 'placeholder="Automático al guardar"')}
       ${field("Descripción", "description", item.description || "", "required")}
       ${field("Unidad de la partida", "unit", item.unit || "m²", "required")}
     </div>
