@@ -261,7 +261,7 @@ test("natural-language review opens the existing ACU editor without writing inco
     await page.getByRole("textbox",{name:"Consulta al asistente"}).fill(content);
     await page.locator("#ai-question").getByRole("button",{name:/Enviar/}).click();
   };
-  await send("Necesito un ACU de contrapiso para después completar los costos");
+  await send("Necesito un ACU de contrapiso de cemento para después completar los costos");
   await expect(page.locator("[data-library-acu-preview]")).toBeVisible();
   await send("Quiero terminarlo en el formulario para revisar los pendientes");
   await expect(page.getByRole("dialog",{name:"Crear análisis de costo unitario"})).toBeVisible();
