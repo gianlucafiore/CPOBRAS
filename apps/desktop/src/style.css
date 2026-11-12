@@ -440,7 +440,7 @@ body:has(.analysis-dialog) .ai-launch{display:none}
 
 .toast-export-link{display:block;color:#d2edff;text-decoration:underline;overflow-wrap:anywhere}
 
-.ai-launch{width:1cm;height:1cm;box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:2px;padding:2px;font-size:11px;line-height:1;touch-action:none}
+.ai-launch{width:2cm;height:1cm;box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:2px;padding:2px;font-size:11px;line-height:1;touch-action:none}
 .ai-launch-dot{width:4px;height:4px;border-radius:50%;background:#65e89a;animation:ai-launch-colors 6s ease-in-out infinite}
 .ai-launch-caret{color:inherit;animation:ai-launch-blink 1.1s step-end infinite}
 @keyframes ai-launch-colors{0%,100%{background:#65e89a}33%{background:#68b9ff}66%{background:#ff777d}}
