@@ -1,5 +1,6 @@
 import {conversationStore,conversationAcuRequest,structuredConversationContext} from '../services/ai-conversation-context.js';
 import {createAcuWorkbench} from "./ai-acu-workbench.js";
+import {standaloneAcuIntent,standaloneAcuContext,parseStandaloneAcu,standaloneAcuWriteArgs} from '../services/ai-standalone-acu.js';
 import {executeBudgetTool,budgetPreparationRequest} from '../services/ai-budget-tools.js';
 import {aiDomainContext,budgetReviewIntent} from '../services/ai-domain-context.js';
 import {focusedAppSnapshot} from '../services/ai-workspace-reader.js';
@@ -13,7 +14,7 @@ import {appendRequest} from "../services/ai-acu-addition.js";
 import {productivityEditRequest} from "../services/ai-acu-productivity.js";
 import {parseAiReply,draftFromProposal,screenContext,createAiRequest,budgetScreenContext,acuChatRequest,resolvedPendingApproval,isApprovalReply,materialAdditionFollowup,materialAdditionConfirmation,selectedAcuRequest,affirmativeMissingMaterialRequest,contextualAcuLine,availableCatalogFollowup} from "../services/ai-assistant.js";
 const defaults={openai:"gpt-4.1-mini",anthropic:"claude-haiku-4-5"};
-export function createAiAssistant({invoke,state,document,window,openModal,editable,loadEstimate,loadEstimates,openEstimate,openResourceLibrary}) {
+export function createAiAssistant({invoke,state,document,window,openModal,editable,loadEstimate,loadEstimates,openEstimate,openResourceLibrary,reloadCatalog=async()=>{},render=()=>{}}) {
   const host=document.createElement("div");host.id="ai-assistant";document.body.append(host);
   const model={open:false,settings:false,configured:false,provider:"openai",model:defaults.openai,messages:[],question:"",busy:false,error:"",context:"",includeContext:true,contextMode:"screen",contextOpen:false,consent:false,scope:"",generation:0,usage:null,notice:"",approvedRun:null,lastApprovedId:null,lastAction:null,pendingAction:null,catalogLoading:false,focusLineId:null,lastCatalogAdvice:null,recentCreatedLineIds:[],recentCreatedEstimateId:null};
   const budgetImport=createAiBudgetImport({invoke,state,document,window,editable,loadEstimate,loadEstimates,openEstimate,canUseAi:()=>model.configured&&model.consent&&!model.busy});
@@ -42,11 +43,12 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
   }
   const captureContext=()=>budgetScreenContext(state,screenContext(document));
   const fold=value=>String(value||'').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
-  const isAction=message=>!!(message?.acuRequest||message?.sectionPreview||message?.planRows||message?.changeProposals||message?.proposal?.kind==='line'||message?.actionError);
+  const isAction=message=>!!(message?.acuRequest||message?.standalonePreview||message?.sectionPreview||message?.planRows||message?.changeProposals||message?.proposal?.kind==='line'||message?.actionError);
   function addReply(question,message){
     message.role='assistant';message.originalQuestion=question;
     const content={answer:message.answer};
     if(message.sectionPreview)content.section_plan=message.sectionPreview.display;
+    if(message.standalonePreview)content.standalone_acu_review={description:message.standalonePreview.description,unit:message.standalonePreview.unit,items:message.standalonePreview.items.length,pending:message.standalonePreview.pending.length};
     if(message.acuRequest)content.acu_request={mode:message.acuRequest.mode,brief:message.acuRequest.brief,...(message.acuRequest.mode==='fill'?{line_ids:message.acuRequest.lineIds}:{}) ,...(message.acuRequest.reviewBudget?{review_budget:true}:{})};
     if(message.planRows)content.proposal_lines=message.planRows.map(row=>({description:row.description,unit:row.unit,quantity:row.quantity??null,unit_price:row.unit_price??null,section:row.section||''}));
     if(message.changeProposals)content.proposal_changes=message.changeProposals;
@@ -100,6 +102,16 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
   function approvalMarkup(message,index){
     const approval=message.approval;
     if(approval)return `<p class="ai-approval-status" role="status">${e(approval.message||'Preparando carga…')}</p>${approval.result?.pendingReasons?.length?`<ul class="ai-pending-reasons">${approval.result.pendingReasons.map(item=>`<li>${e(item.description)}: ${item.reasons.map(e).join(' · ')}</li>`).join('')}</ul>`:''}${approval.state!=='running'&&approval.result?.committed&&approval.result.estimateId?`<button type="button" data-ai="approved-result" data-index="${index}" ${model.busy?'disabled':''}>Ver en presupuesto</button>`:''}${approval.state!=='running'&&approval.result?.pending&&approval.kind==='acu'&&approval.id===model.lastApprovedId?`<button type="button" data-ai="approved-pending" data-index="${index}" ${model.busy?'disabled':''}>Ver pendientes</button>`:''}`;
+    if(message.standalonePreview){
+      const proposal=message.standalonePreview;
+      return `<div class="ai-ingredient-preview"><strong>ACU independiente · ${e(proposal.description)} (${e(proposal.unit)})</strong>
+      <p>Se creará en la biblioteca de ACU, no en el presupuesto. Código nuevo automático.</p>
+      <ul>${proposal.items.map(item=>`<li>${e(item.description)}: ${e(item.quantity)} ${e(item.unit)} × ARS ${e(item.unitPrice)} / ${e(item.unit)}${item.note?' · '+e(item.note):''}</li>`).join('')}</ul>
+      ${proposal.assumptions.map(item=>`<p class="ai-warning">Hipótesis: ${e(item)}</p>`).join('')}
+      ${proposal.pending.map(item=>`<p class="ai-warning">Faltante: ${e(item)}</p>`).join('')}
+      ${proposal.ready?`<button type="button" class="ai-approve" data-ai="approve-standalone" data-index="${index}" ${!model.busy&&model.configured&&model.consent&&!state.remoteProject&&!state.modal&&!state.pageDirty?'':'disabled'}>Guardar este ACU${proposal.pending.length?' (parcial)':''}</button>`:'<p>No hay componentes válidos para guardar.</p>'}
+      <button type="button" data-ai="discard-standalone" data-index="${index}" ${model.busy?'disabled':''}>Descartar propuesta</button></div>`;
+    }
     if(message.sectionPreview){
       const plan=message.sectionPreview;
       return `<div class="ai-ingredient-preview"><strong>Rubros que se modificarán</strong><ul>${plan.display.map(item=>`<li>${e(item)}</li>`).join('')}</ul>${plan.warnings.map(item=>`<p class="ai-warning">⚠ ${e(item)}</p>`).join('')}<button type="button" class="ai-approve" data-ai="approve-section" data-index="${index}" ${canPlan()&&model.configured&&model.consent&&!model.busy?'':'disabled'}>Aprobar cambios de rubros</button><button type="button" data-ai="discard-section" data-index="${index}">Descartar</button></div>`;
@@ -123,6 +135,49 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     const planList=planned.length?`<div class="ai-ingredient-preview"><strong>Partidas que se crearán</strong><ul>${planned.slice(0,8).map(row=>`<li>${e(row.description)} · ${e(row.quantity??'cantidad pendiente')} ${e(row.unit)}</li>`).join('')}</ul>${planned.length>8?`<details><summary>Ver otras ${planned.length-8} partidas</summary><ul>${planned.slice(8).map(row=>`<li>${e(row.description)} · ${e(row.quantity??'cantidad pendiente')} ${e(row.unit)}</li>`).join('')}</ul></details>`:''}</div>`:'';
     const scopeHint=isAcu?(request?.mode==='create'?'Se crearán partidas nuevas con su ACU.':targets.length?'Partidas indicadas: '+targets.join(', ')+(request.operation==='append'?'. Se agregarán los insumos solicitados conservando la composición actual.':request.operation==='productivity'?'. Se ajustará solo el consumo del equipo indicado; los demás insumos se conservan. Si la unidad del catálogo no coincide con el uso por día, se guardará una advertencia.':'. Si ya tienen ACU, se reemplazará su composición.'):'Se completarán las partidas que todavía no tengan ACU.'):'';
     return `<p>${isAcu?'Primero se generará una lista real de insumos, cantidades y advertencias. Se guardará solamente después de aprobarla.':'Revisá las partidas antes de crearlas.'} Destino: ${e(name)}. ${e(scopeHint)}</p>${isAcu?'':planList}<button type="button" class="ai-approve" data-ai="approve-load" data-index="${index}" ${canPlan()&&model.configured&&model.consent&&!model.busy?'':'disabled'}>${isAcu?'Preparar listado de insumos':'Sí, aprobar y crear partidas'}</button>`;
+  }
+  async function approveStandaloneMessage(index){
+    const message=model.messages[index],proposal=message?.standalonePreview;
+    if(!proposal||message.approval||model.busy||!model.configured||!model.consent||state.remoteProject||state.modal||state.pageDirty)return;
+    if(!proposal.ready)throw new Error('No hay insumos validados para guardar el ACU.');
+    model.busy=true;model.error='';paint();
+    try{
+      // The plan never grants IDs or prices. Re-fetch catalog evidence before
+      // the commit; stale prices/missing materials require a new proposal.
+      const catalog=await invoke('ai_catalog_context',{projectId:null,estimateId:null,asOf:dateToday(),currency:'ARS'});
+      const byId=new Map((catalog.resources||[]).map(r=>[r.id,r]));
+      for(const row of proposal.items){
+        const current=byId.get(row.resourceId);
+        if(!current||current.unit!==row.unit||String(current.price)!==row.unitPrice)throw new Error('Cambió el catálogo o su precio; prepará nuevamente el ACU antes de guardarlo.');
+      }
+      const saved=await invoke('create_analysis',standaloneAcuWriteArgs(proposal));
+      delete message.standalonePreview;
+      const answer='ACU guardado en la biblioteca: '+saved.code+' · '+saved.description+'. No se creó ninguna partida del presupuesto.';
+      message.answer=answer;message.content=JSON.stringify({answer,analysis_id:saved.id});
+      message.approval={kind:'standalone',state:'done',message:answer,result:{committed:true,analysisId:saved.id}};
+      model.pendingAction=null;model.lastAction=message;
+      state.selectedAnalysisId=saved.id;
+      try{await reloadCatalog();render();}catch(error){model.notice='ACU guardado, pero no se pudo actualizar el listado: '+String(error);}
+    }catch(error){model.error='No se guardó el ACU: '+String(error);}
+    finally{model.busy=false;paint();}
+  }
+  async function prepareStandaloneAcu(question,generation){
+    const token=++queryToken;
+    model.busy=true;model.catalogLoading=true;model.error='';paint();
+    let request=null;
+    try{
+      const catalog=await invoke('ai_catalog_context',{projectId:null,estimateId:null,asOf:dateToday(),currency:'ARS'});
+      if(generation!==model.generation||token!==queryToken)return;
+      model.catalogLoading=false;paint();
+      request=createAiRequest(invoke,{messages:[{role:'user',content:question}],context:standaloneAcuContext(question,catalog),mode:'acu'});
+      activeRequest=request;
+      const reply=await request.promise;
+      if(generation!==model.generation||token!==queryToken)return;
+      const proposal=parseStandaloneAcu(reply.text,question,catalog);
+      addReply(question,{answer:proposal.ready?'Preparé una composición para revisar; todavía no se guardó ningún ACU.':'No encontré una composición completa verificable. Estos insumos o datos siguen pendientes.',standalonePreview:proposal});
+      model.usage={input:reply.input_tokens,output:reply.output_tokens};
+    }catch(error){if(generation===model.generation&&token===queryToken)model.error='No se preparó ningún ACU: '+String(error);}
+    finally{if(token===queryToken){activeRequest=null;model.busy=false;model.catalogLoading=false;paint();}}
   }
   async function approveSectionMessage(index){
     const message=model.messages[index],plan=message?.sectionPreview;
@@ -207,7 +262,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     const providerName=model.provider==="openai"?"OpenAI":"Claude";
     host.innerHTML=`<button class="ai-launch btn" ${model.open?"hidden":""} data-ai="toggle" aria-expanded="${model.open}" aria-controls="ai-console" title="Asistente IA">✦ IA</button>${model.open?`<section id="ai-console" class="ai-console ${model.settings||!model.configured||model.contextOpen?"ai-expanded":""}" aria-label="Consola de asistente IA"><header class="ai-bar"><strong>✦ CPOBRAS IA</strong><span>${e(providerName)} · ${e(model.model)}</span><button data-ai="settings" title="Configurar proveedor" ${model.busy?"disabled":""}>⚙ Configurar</button><button data-ai="clear" title="Limpiar conversación" ${model.busy?"disabled":""}>Limpiar</button><button data-ai="toggle" aria-label="Cerrar consola">×</button></header>
     ${model.settings||!model.configured?`<form id="ai-settings" class="ai-settings"><div class="ai-settings-fields"><label>Proveedor<select name="provider" ${model.busy?"disabled":""}><option value="openai" ${model.provider==="openai"?"selected":""}>OpenAI</option><option value="anthropic" ${model.provider==="anthropic"?"selected":""}>Claude · Anthropic</option></select></label><label>Modelo<input name="model" value="${e(model.model)}" required maxlength="120" ${model.busy?"disabled":""}></label><label>Clave de API<input name="key" type="password" autocomplete="off" placeholder="${model.configured?"Dejá vacío para conservar la clave guardada":"Pegá tu clave de API"}" ${model.configured?"":"required"} maxlength="512" ${model.busy?"disabled":""}></label></div><p>El proveedor, modelo y clave se guardan en el llavero de credenciales del sistema, fuera de los proyectos y sus respaldos. El proveedor cobra el uso de API por separado de las suscripciones de chat.</p><button class="btn" ${model.busy?"disabled":""}>Guardar configuración</button>${model.configured?'<button type="button" data-ai="forget" class="btn">Borrar clave guardada y chat</button>':""}</form>`:""}
-    <div class="ai-transcript" role="log" aria-label="Conversación IA" aria-live="polite">${!model.messages.length?'<div class="ai-welcome">Puedo ayudarte con:<br> • Explicar los datos de esta pantalla<br> • Preparar partidas e insumos para revisar<br> • Identificar datos que faltan en una carga<br><br>Las respuestas pueden contener errores. Los precios se consultan en el catálogo local. Podés aprobar una carga desde el chat y ajustar después los rendimientos estimados.</div>':model.messages.map((m,index)=>`<article class="ai-message ai-${m.role}"><b>${m.role==="user"?"Vos":"Asistente"}</b><div>${e(m.answer||m.content)}</div>${m.actionStatus?approvalMarkup(m,index):''}${m.sectionPreview||m.approval?.kind==='sections'?`<div class="ai-proposal">${approvalMarkup(m,index)}</div>`:''}${m.acuRequest?`<div class="ai-proposal"><strong>${m.acuRequest.mode==='fill'?'Completar ACU de partidas existentes':'Preparar partidas nuevas con ACU'}</strong>${approvalMarkup(m,index)}${!m.approval?`<button type="button" data-ai="review-acu-request" data-index="${index}" ${canPlan()&&!model.busy?'':'disabled'}>Revisar antes de cargar</button>`:''}</div>`:''}${m.planRows||m.changeProposals?`<div class="ai-proposal"><strong>${(m.planRows?.length||0)+(m.changeProposals?.length||0)} partidas / cambios propuestos</strong>${m.planRows&&!m.changeProposals?`<details class="ai-plan-preview"><summary>Ver partidas propuestas</summary><ul>${m.planRows.map(r=>`<li>${e(r.description)} · ${e(r.unit)} · Cantidad: ${e(r.quantity??'sin informar')} · Precio: ${e(r.unit_price??'sin informar')}${r.section?' · '+e(r.section):''}</li>`).join('')}</ul></details>${approvalMarkup(m,index)}`:'<p>Revisá los cambios antes de aplicarlos.</p>'}${!m.approval?`<button type="button" data-ai="review-plan" data-index="${index}" ${canPlan()&&!model.busy?"":"disabled"}>Revisar propuesta</button>`:''}${m.planRows&&!m.approval?`<button type="button" data-ai="review-acu-plan" data-index="${index}" ${canPlan()&&!model.busy?"":"disabled"}>Preparar ACU con insumos</button>`:""}</div>`:""}${m.proposal?`<div class="ai-proposal"><strong>Borrador de ${m.proposal.kind==="line"?"partida":"insumo"}</strong><p>${e(m.proposal.description)} · ${e(m.proposal.unit)}${m.proposal.quantity!=null?` · Cantidad ${e(m.proposal.quantity)}`:""}${m.proposal.unit_price!=null?` · Precio ${e(m.proposal.unit_price)}`:""}</p>${m.proposal.kind==='line'?approvalMarkup(m,index):''}${!m.approval?`<button class="btn" data-ai="draft" data-index="${index}" ${allowed(m.proposal)&&!m.approval?"":"disabled"}>Abrir formulario para revisar</button><small>Completá los campos faltantes y guardá desde el formulario habitual.${!allowed(m.proposal)?" Cerrá otros formularios; las partidas requieren un presupuesto editable.":""}</small>`:''}</div>`:""}</article>`).join("")}${model.busy&&!model.approvedRun?`<article class="ai-message ai-user"><b>Vos</b><div>${e(model.question)}</div></article><p role="status">${model.catalogLoading?'Consultando el catálogo local…':'Consultando al proveedor… Espera máxima: 60 segundos.'} <button type="button" data-ai="cancel">Cancelar consulta</button></p>`:""}${model.approvedRun?`<p role="status">Carga en curso. <button type="button" data-ai="stop-approved" ${model.approvedRun.phase==='saving'?'disabled':''}>${model.approvedRun.phase==='saving'?'Guardando…':'Detener carga'}</button></p>`:''}</div>
+    <div class="ai-transcript" role="log" aria-label="Conversación IA" aria-live="polite">${!model.messages.length?'<div class="ai-welcome">Puedo ayudarte con:<br> • Explicar los datos de esta pantalla<br> • Preparar partidas e insumos para revisar<br> • Identificar datos que faltan en una carga<br><br>Las respuestas pueden contener errores. Los precios se consultan en el catálogo local. Podés aprobar una carga desde el chat y ajustar después los rendimientos estimados.</div>':model.messages.map((m,index)=>`<article class="ai-message ai-${m.role}"><b>${m.role==="user"?"Vos":"Asistente"}</b><div>${e(m.answer||m.content)}</div>${m.actionStatus?approvalMarkup(m,index):''}${m.standalonePreview||m.sectionPreview||['standalone','sections'].includes(m.approval?.kind)?`<div class="ai-proposal">${approvalMarkup(m,index)}</div>`:''}${m.acuRequest?`<div class="ai-proposal"><strong>${m.acuRequest.mode==='fill'?'Completar ACU de partidas existentes':'Preparar partidas nuevas con ACU'}</strong>${approvalMarkup(m,index)}${!m.approval?`<button type="button" data-ai="review-acu-request" data-index="${index}" ${canPlan()&&!model.busy?'':'disabled'}>Revisar antes de cargar</button>`:''}</div>`:''}${m.planRows||m.changeProposals?`<div class="ai-proposal"><strong>${(m.planRows?.length||0)+(m.changeProposals?.length||0)} partidas / cambios propuestos</strong>${m.planRows&&!m.changeProposals?`<details class="ai-plan-preview"><summary>Ver partidas propuestas</summary><ul>${m.planRows.map(r=>`<li>${e(r.description)} · ${e(r.unit)} · Cantidad: ${e(r.quantity??'sin informar')} · Precio: ${e(r.unit_price??'sin informar')}${r.section?' · '+e(r.section):''}</li>`).join('')}</ul></details>${approvalMarkup(m,index)}`:'<p>Revisá los cambios antes de aplicarlos.</p>'}${!m.approval?`<button type="button" data-ai="review-plan" data-index="${index}" ${canPlan()&&!model.busy?"":"disabled"}>Revisar propuesta</button>`:''}${m.planRows&&!m.approval?`<button type="button" data-ai="review-acu-plan" data-index="${index}" ${canPlan()&&!model.busy?"":"disabled"}>Preparar ACU con insumos</button>`:""}</div>`:""}${m.proposal?`<div class="ai-proposal"><strong>Borrador de ${m.proposal.kind==="line"?"partida":"insumo"}</strong><p>${e(m.proposal.description)} · ${e(m.proposal.unit)}${m.proposal.quantity!=null?` · Cantidad ${e(m.proposal.quantity)}`:""}${m.proposal.unit_price!=null?` · Precio ${e(m.proposal.unit_price)}`:""}</p>${m.proposal.kind==='line'?approvalMarkup(m,index):''}${!m.approval?`<button class="btn" data-ai="draft" data-index="${index}" ${allowed(m.proposal)&&!m.approval?"":"disabled"}>Abrir formulario para revisar</button><small>Completá los campos faltantes y guardá desde el formulario habitual.${!allowed(m.proposal)?" Cerrá otros formularios; las partidas requieren un presupuesto editable.":""}</small>`:''}</div>`:""}</article>`).join("")}${model.busy&&!model.approvedRun?`<article class="ai-message ai-user"><b>Vos</b><div>${e(model.question)}</div></article><p role="status">${model.catalogLoading?'Consultando el catálogo local…':'Consultando al proveedor… Espera máxima: 60 segundos.'} <button type="button" data-ai="cancel">Cancelar consulta</button></p>`:""}${model.approvedRun?`<p role="status">Carga en curso. <button type="button" data-ai="stop-approved" ${model.approvedRun.phase==='saving'?'disabled':''}>${model.approvedRun.phase==='saving'?'Guardando…':'Detener carga'}</button></p>`:''}</div>
     <details class="ai-context" ${model.contextOpen?"open":""}><summary>Contexto de la pantalla ${model.includeContext?(model.contextMode==="screen"?"· automático":"· editado"):"· sin incluir"}</summary><p>Se enviarán la consulta y el historial de esta conversación. Se incluyen la vista actual y las coincidencias del catálogo local con sus unidades, precios y fecha. En Presupuesto también se incluye el resumen de partidas. Podés desactivarlo o editar el texto antes de enviar. El chat conserva el contexto al cambiar de pestaña dentro del mismo presupuesto; se recupera por obra y presupuesto por hasta 24 horas. Al recuperarlo se preparará una propuesta nueva antes de guardar.</p><button class="btn" data-ai="capture" ${model.busy?"disabled":""}>Capturar / actualizar vista</button><label><input type="checkbox" name="ai-include-context" ${model.includeContext?"checked":""} ${model.busy?"disabled":""}> Incluir vista y catálogo local</label><textarea name="ai-context-text" aria-label="Datos de pantalla para enviar" maxlength="7000" ${model.busy?"disabled":""}>${e(model.context)}</textarea></details>
     <div class="ai-quick"><button data-ai="acu-workbench" ${model.busy||!canPlan()?"disabled":""}>▦ ACU · rendimientos y metrado</button><button data-ai="manage-import" ${model.busy||!editable()||state.remoteProject?"disabled":""}>✎ Editar / eliminar partidas</button><button data-ai="budget-import" ${model.busy||!editable()||state.remoteProject?"disabled":""}>▤ Cargar precios · texto / Excel</button><button data-ai="plan-import" ${model.busy||!canPlan()?"disabled":""}>＋ Crear partidas con ACU</button><button data-ai="quick" data-question="Explicame los datos de esta pantalla y señalá qué información falta.">▤ Explicar pantalla</button><button data-ai="quick" data-question="Ayudame a preparar una partida. Preguntame primero qué trabajo, unidad, cantidad y precio quiero cargar.">▱ Partida</button><button data-ai="quick" data-question="Ayudame a cargar un insumo. Preguntame su descripción, tipo, unidad y precio si no los conocés.">▣ Insumo</button></div>
     <form id="ai-question"><label class="ai-consent"><input type="checkbox" name="ai-consent" ${model.consent?"checked":""} ${model.busy?"disabled":""}> Autorizo enviar la consulta, el historial y los datos de pantalla incluidos a ${e(providerName)}. El uso puede generar cargos.</label><div class="ai-input-row"><label class="ai-sr-only" for="ai-prompt">Consulta al asistente</label><textarea id="ai-prompt" name="question" rows="1" placeholder="Preguntá sobre esta pantalla o pedí ayuda para cargar datos…" maxlength="2000" required ${model.busy?"disabled":""}>${e(model.question)}</textarea><button class="btn primary" ${model.busy||!model.configured||!model.consent?"disabled":""}>↵ Enviar</button></div></form>
@@ -241,6 +296,15 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       }
       addReply(question,{answer:'Preparando la partida '+(state.lines.find(l=>l.id===continuation.lineIds[0])?.description||continuation.lineIds[0])+' con los criterios indicados. Revisá la propuesta antes de guardar.',acuRequest:continuation});
       await approveMessage(model.messages.length-1);return;
+    }
+    const pendingStandalone=model.messages.findLast(m=>m?.standalonePreview&&!m?.approval);
+    if(pendingStandalone&&isApprovalReply(question)){
+      model.question='';
+      await approveStandaloneMessage(model.messages.indexOf(pendingStandalone));return;
+    }
+    if(standaloneAcuIntent(question)){
+      if(state.remoteProject||state.modal||state.pageDirty)throw new Error('Cerrá el formulario actual o abrí la biblioteca local antes de crear un ACU independiente.');
+      await prepareStandaloneAcu(question,generation);return;
     }
     const pendingSection=model.messages.findLast(m=>m?.sectionPreview&&!m?.approval);
     if(pendingSection&&isApprovalReply(question)){
@@ -434,6 +498,11 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       if(action==="budget-import"&&!model.busy)budgetImport.open("prices",model.question);
       if(action==="plan-import"&&!model.busy)await acuWorkbench.open(model.question,null,"create");
       if(action==="review-plan"&&!model.busy){const message=model.messages[Number(button.dataset.index)];if(message?.planRows&&!message?.changeProposals)await reviewAcuMessage(Number(button.dataset.index));else budgetImport.openPlanRows(message?.planRows||[],message?.changeProposals||[]);}
+      if(action==='approve-standalone')await approveStandaloneMessage(Number(button.dataset.index));
+      if(action==='discard-standalone'&&!model.busy){
+        const message=model.messages[Number(button.dataset.index)];
+        if(message?.standalonePreview){delete message.standalonePreview;message.answer='Propuesta de ACU independiente descartada. No se guardó nada.';message.actionError='Descartada';model.pendingAction=null;}
+      }
       if(action==='approve-load')await approveMessage(Number(button.dataset.index));
        if(action==='approve-section')await approveSectionMessage(Number(button.dataset.index));
        if(action==='discard-section'&&!model.busy){
