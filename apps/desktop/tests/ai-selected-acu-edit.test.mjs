@@ -65,7 +65,9 @@ test("add, remove and follow-up edits are a cumulative delta over the same selec
 test("invalid model instructions cannot replace unrelated components or fabricate IDs",()=>{
  assert.throws(()=>parse({changes:[{operation:"remove",resource_id:"not-in-acu"}]}),/no está en el ACU/);
  assert.throws(()=>parse({changes:[{operation:"add",resource_id:"not-in-catalog",quantity:"1"}]}),/no pertenece al catálogo/);
- assert.throws(()=>parse({changes:[{operation:"set",resource_id:"cement",quantity:"999"}]}),/no coincide|dimensional|no indicó/);
+ const unresolved=parse({changes:[{operation:"set",resource_id:"cement",quantity:"999",quantity_unit:"kg"}]});
+ assert.match(unresolved.warnings.join(" "),/IA no indicó/);
+ assert.equal(canApplySelectedAcuEdit(unresolved),false);
  assert.throws(()=>parse({changes:[
   {operation:"remove",resource_id:"labor"},{operation:"remove",resource_id:"labor"}
  ]}),/repetido/);
