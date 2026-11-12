@@ -1,6 +1,6 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { readLibraryAcus, readLibraryAcuIntent, saveLibraryAcu } from "../src/services/ai-library-acu.js";
+import { readLibraryAcus, readLibraryAcuIntent, saveLibraryAcu, libraryAcuContext } from "../src/services/ai-library-acu.js";
 
 test("the library API accepts only typed intents and blocks incomplete writes", () => {
   assert.deepEqual(readLibraryAcuIntent('{"action":"new","work":"Yeso húmedo"}'), {action:"new",work:"Yeso húmedo"});
@@ -48,7 +48,7 @@ test("masonry work includes real candidates for bricks, mortar ingredients and l
     {id:"worker",description:"Oficial albañil por hora",unit:"h",kind:"labor",price:"9500"},
     {id:"other",description:"Cable eléctrico 2,5 mm",unit:"m",kind:"material",price:"750"},
   ];
-  const {libraryAcuContext} = await import("../src/services/ai-library-acu.js");
+  // Use the same catalog selector as the live assistant.
   const evidence=libraryAcuContext("Creá un ACU de mampostería de ladrillo hueco del 12",{
     resources,currency:"ARS",as_of:"2026-11-12",
   });
