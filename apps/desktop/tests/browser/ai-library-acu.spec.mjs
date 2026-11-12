@@ -194,7 +194,7 @@ test("the export notification opens the file through the default-app command", a
   expect(await page.evaluate(() => window.exportOpens)).toEqual(["/tmp/Plantilla de insumos.xlsx"]);
 });
 
-test("the square AI button can be dragged and still opens on a click", async ({page}) => {
+test("the 2:1 AI button can be dragged and still opens on a click", async ({page}) => {
   await openLibrary(page);
   const launch = page.getByRole("button", {name:"Asistente IA",exact:true});
   const start = await launch.boundingBox();
