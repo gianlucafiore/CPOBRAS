@@ -2,7 +2,7 @@ import { divideDecimals, multiplyDecimals, compareDecimals } from "../decimal.js
 import {invokeReviewedAiAction} from './ai-view-api-contracts.js';
 import { buildCatalogContext,foldCatalogText } from "./ai-catalog-context.js";
 
-const intents = new Set(["new", "clarify", "revise", "add", "question", "show", "approve", "discard", "general"]);
+const intents = new Set(["new", "clarify", "revise", "add", "question", "show", "review", "approve", "discard", "general"]);
 
 export function readLibraryAcuIntent(text) {
   const result = JSON.parse(text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, ""));
