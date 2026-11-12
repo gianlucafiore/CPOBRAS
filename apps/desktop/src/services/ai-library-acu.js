@@ -1,4 +1,5 @@
 import { divideDecimals } from "../decimal.js";
+import {invokeReviewedAiAction} from './ai-view-api-contracts.js';
 import { buildCatalogContext } from "./ai-catalog-context.js";
 
 const intents = new Set(["new", "clarify", "revise", "add", "question", "show", "approve", "discard", "general"]);
@@ -19,12 +20,12 @@ export function canSaveLibraryAcu(draft) {
 
 export function saveLibraryAcu(invoke, draft) {
   if (!canSaveLibraryAcu(draft)) throw new Error("La composición tiene datos pendientes.");
-  return invoke("create_analysis", {
+  return invokeReviewedAiAction(invoke,"analyses","create_analysis", {
     code:"", description:draft.description, unit:draft.unit,
     components:draft.components.map(row => ({
       resourceId:row.resource_id, quantity:row.quantity, unitPrice:row.unit_price,
     })),
-  });
+  },{approved:true});
 }
 
 const decimal = /^\d{1,12}(?:\.\d{1,6})?$/;
