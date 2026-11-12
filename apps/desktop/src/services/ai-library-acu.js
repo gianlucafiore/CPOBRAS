@@ -1,4 +1,4 @@
-import { divideDecimals } from "../decimal.js";
+import { divideDecimals, multiplyDecimals, compareDecimals } from "../decimal.js";
 import {invokeReviewedAiAction} from './ai-view-api-contracts.js';
 import { buildCatalogContext,foldCatalogText } from "./ai-catalog-context.js";
 
@@ -44,24 +44,81 @@ const pendingLabel = item => {
     ? String(item.quantity) + (item.unit ? " " + String(item.unit) : "") : "";
   return [name, estimate, note].filter(Boolean).join(" · ").slice(0, 180);
 };
-const normalizedUnit = value => value.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase().trim().replace(/²/g, "2").replace(/³/g, "3");
-function catalogQuantity(component, resource) {
-  const quantity = consumption(component.quantity);
-  if (!quantity) return null;
-  if (!component.quantity_unit) return quantity;
-  const source = normalizedUnit(component.quantity_unit);
-  const target = normalizedUnit(resource.unit);
-  if (source === target) return quantity;
-  // A package conversion is valid only when the catalog explicitly gives one package weight.
-  if (!/^(?:kg|kilos?|kilogramos?)$/.test(source) || !/^(?:bolsa|bolson|saco)\b/.test(target)) return null;
-  const weights = new Set([...target.matchAll(/(\d+(?:[.,]\d+)?)\s*kg\b/g),
-    ...normalizedUnit(resource.description).matchAll(/(\d+(?:[.,]\d+)?)\s*kg\b/g)]
-    .map(match => match[1].replace(",", ".").replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "")));
-  const [weight] = weights;
-  if (weights.size !== 1 || !decimal.test(weight) || Number(weight) <= 0) return null;
-  return divideDecimals(quantity, weight, 6);
+const normalizedUnit = value => String(value ?? "").normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase().trim().replace(/²/g,"2").replace(/³/g,"3").replace(/\s+/g," ");
+// The model must compute catalog-unit quantities and cite the product
+// presentation. These are universal metric identities only: there are NO
+// built-in weights for cement, sand, bags, big-bags or construction recipes.
+const physicalUnits = new Map([
+ ["mg",["mass","0.000001"]],["g",["mass","0.001"]],["gr",["mass","0.001"]],
+ ["gramo",["mass","0.001"]],["gramos",["mass","0.001"]],
+ ["kg",["mass","1"]],["kgs",["mass","1"]],["kilo",["mass","1"]],["kilos",["mass","1"]],
+ ["kilogramo",["mass","1"]],["kilogramos",["mass","1"]],
+ ["t",["mass","1000"]],["tn",["mass","1000"]],["ton",["mass","1000"]],
+ ["tonelada",["mass","1000"]],["toneladas",["mass","1000"]],
+ ["ml",["volume","0.001"]],["l",["volume","1"]],["lt",["volume","1"]],
+ ["litro",["volume","1"]],["litros",["volume","1"]],
+ ["m3",["volume","1000"]],["metro cubico",["volume","1000"]],
+ ["metros cubicos",["volume","1000"]],
+ ["mm",["length","0.001"]],["cm",["length","0.01"]],["m",["length","1"]],
+ ["metro",["length","1"]],["metros",["length","1"]],
+ ["m2",["area","1"]],["metro cuadrado",["area","1"]],["metros cuadrados",["area","1"]]
+]);
+const physicalUnit = unit => physicalUnits.get(normalizedUnit(unit).replace(/\.$/,"")) || null;
+const isSame = (a,b) => a && b && a[0] === b[0];
+const quantityIn = (value,source,target) => isSame(source,target)
+  ? divideDecimals(multiplyDecimals(value,source[1]),target[1],6) : null;
+const sameAmount = (a,b) => {
+  try {return compareDecimals(a,b)===0;}
+  catch {return false;}
+};
+// Evidence comes from the catalog record, not a model's untrusted prose.
+const presentationEvidence = resource => {
+  const text=normalizedUnit((resource.description||"")+" "+(resource.unit||""));
+  const values=[];
+  for(const match of text.matchAll(/(\d{1,12}(?:[.,]\d{1,6})?)\s*(mg|kgs?|kilogramos?|kilos?|gramos?|gr|g|toneladas?|ton|tn|t|m3|ml|litros?|lt|l|cm|mm|m)\b/g)){
+    const value=consumption(match[1].replace(",",".")),unit=physicalUnit(match[2]);
+    if(value && unit)values.push({value,unit});
+  }
+  return values;
+};
+function catalogQuantity(component,resource){
+  const original=consumption(component.quantity);
+  if(!original)return {reason:"El consumo no es un decimal positivo válido."};
+  const from=normalizedUnit(component.quantity_unit||resource.unit);
+  const to=normalizedUnit(resource.unit);
+  if(from === to){
+    if(component.catalog_quantity != null && !sameAmount(component.catalog_quantity,original))
+      return {reason:"La cantidad declarada para la unidad del catálogo no coincide con el consumo."};
+    return {quantity:original};
+  }
+  const calculated=consumption(component.catalog_quantity);
+  if(!calculated)
+    return {reason:"La IA no indicó cuánto corresponde en "+resource.unit+"; debe calcularlo con el catálogo."};
+  const source=physicalUnit(from),target=physicalUnit(to);
+  if(source && target){
+    const expected=quantityIn(original,source,target);
+    if(expected == null)return {reason:"La unidad del consumo y la del catálogo tienen dimensiones físicas distintas; falta una equivalencia justificada."};
+    if(!sameAmount(calculated,expected))
+      return {reason:"El resultado calculado por IA no coincide con la conversión entre unidades físicas."};
+    return {quantity:calculated,conversion:original+" "+component.quantity_unit};
+  }
+  // A non-physical catalog unit is a product presentation. The model states
+  // its capacity per unit, which must be independently present in the catalog.
+  if(!source || target)
+    return {reason:"La equivalencia propuesta no es dimensionalmente verificable en el catálogo."};
+  const basis=component.conversion_basis;
+  const per=consumption(basis?.per_unit_quantity),perUnit=physicalUnit(basis?.per_unit_unit);
+  if(!per || !isSame(source,perUnit))
+    return {reason:"La IA no justificó la capacidad física de una unidad de compra."};
+  const fact=presentationEvidence(resource).some(entry=>
+    isSame(entry.unit,perUnit)&&sameAmount(quantityIn(entry.value,entry.unit,perUnit),per));
+  if(!fact)
+    return {reason:"La presentación declarada por la IA no figura en la descripción real del insumo."};
+  const expected=divideDecimals(quantityIn(original,source,perUnit),per,6);
+  if(!sameAmount(calculated,expected))
+    return {reason:"El cálculo de unidades de compra indicado por la IA no coincide con su fundamento."};
+  return {quantity:calculated,conversion:original+" "+component.quantity_unit};
 }
-
 export function libraryAcuContext(question, catalog) {
   const read = work => JSON.parse(buildCatalogContext({
     question:work, resources:catalog.resources, currency:catalog.currency, asOf:catalog.as_of,
@@ -136,14 +193,14 @@ export function readLibraryAcus(text, resources) {
         throw new Error("El borrador contiene un insumo sin verificar, repetido o con un rendimiento inválido.");
       }
       seen.add(resource.id);
-      const quantity = catalogQuantity({...component, quantity:value}, resource);
-      if (!quantity || Number(quantity) <= 0) {
-        pending.push(`${resource.description}: ${value} ${component.quantity_unit} por ${raw.unit}. Falta confirmar la equivalencia con ${resource.unit}.`);
+      const converted = catalogQuantity({...component,quantity:value},resource);
+      if (!converted.quantity) {
+        pending.push(resource.description+": "+value+" "+(component.quantity_unit||resource.unit)+" por "+raw.unit+". "+converted.reason);
         return [];
       }
       return [{resource_id:resource.id, description:resource.description, unit:resource.unit,
-        quantity, unit_price:resource.price ?? "", ...(quantity !== value ? {
-          conversion:`${value} ${component.quantity_unit}`,
+        quantity:converted.quantity, unit_price:resource.price ?? "", ...(converted.conversion ? {
+          conversion:converted.conversion,
         } : {})}];
     });
     return {
