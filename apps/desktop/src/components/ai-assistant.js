@@ -4,11 +4,13 @@ import {createAiBudgetImport} from "./ai-budget-import.js";
 import {e,dateToday} from "./helpers.js";
 import {buildCatalogContext,parseCatalogQuery} from "../services/ai-catalog-context.js";
 import {appendRequest} from "../services/ai-acu-addition.js";
+import {reviewAiResourceRows} from "../services/ai-resource-import.js";
+import {conversationIntent,proposalPrompt,parseConversationProposal,describeConversationProposal,isConversationApproval,isConversationCancel} from "../services/ai-conversation-workflows.js";
 import {parseAiReply,draftFromProposal,screenContext,createAiRequest,budgetScreenContext,acuChatRequest,resolvedPendingApproval,isApprovalReply} from "../services/ai-assistant.js";
 const defaults={openai:"gpt-4.1-mini",anthropic:"claude-haiku-4-5"};
-export function createAiAssistant({invoke,state,document,window,openModal,editable,loadEstimate,loadEstimates,openEstimate,openResourceLibrary}) {
+export function createAiAssistant({invoke,state,document,window,openModal,editable,loadEstimate,loadEstimates,openEstimate,openResourceLibrary,render}) {
   const host=document.createElement("div");host.id="ai-assistant";document.body.append(host);
-  const model={open:false,settings:false,configured:false,provider:"openai",model:defaults.openai,messages:[],question:"",busy:false,error:"",context:"",includeContext:true,contextMode:"screen",contextOpen:false,consent:false,scope:"",generation:0,usage:null,notice:"",approvedRun:null,lastApprovedId:null,lastAction:null,pendingAction:null,catalogLoading:false};
+  const model={open:false,settings:false,configured:false,provider:"openai",model:defaults.openai,messages:[],question:"",busy:false,error:"",context:"",includeContext:true,contextMode:"screen",contextOpen:false,consent:false,scope:"",generation:0,usage:null,notice:"",approvedRun:null,lastApprovedId:null,lastAction:null,pendingAction:null,catalogLoading:false,chatDraft:null};
   const budgetImport=createAiBudgetImport({invoke,state,document,window,editable,loadEstimate,loadEstimates,openEstimate,canUseAi:()=>model.configured&&model.consent&&!model.busy});
   const acuWorkbench=createAcuWorkbench({invoke,state,document,window,loadEstimate,loadEstimates,openEstimate,openResourceLibrary,canUseAi:()=>model.configured&&model.consent&&(!model.busy||model.approvedRun?.running)});
   const approvedPlans=createApprovedPlanRunner({invoke,state,loadEstimate,loadEstimates,openEstimate});
@@ -21,7 +23,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     if(state.modal){cancelApprovedRun();model.open=false;}
     const next=scope();
     if(model.scope!==next&&model.approvedRun?.running&&model.approvedRun.phase==='saving'&&state.projectId===model.approvedRun.projectId&&state.estimateId===model.approvedRun.estimateId&&state.view==='workspace'){model.scope=next;model.approvedRun.scope=next;}
-    if(model.scope!==next){cancelApprovedRun();activeRequest?.cancel();activeRequest=null;queryToken++;if(!model.approvedRun)model.busy=false;model.catalogLoading=false;model.scope=next;model.generation++;model.messages=[];model.lastAction=null;model.pendingAction=null;model.context="";model.includeContext=true;model.contextMode="screen";model.question="";model.error="";model.usage=null;model.notice="";}
+    if(model.scope!==next){cancelApprovedRun();activeRequest?.cancel();activeRequest=null;queryToken++;if(!model.approvedRun)model.busy=false;model.catalogLoading=false;model.scope=next;model.generation++;model.messages=[];model.lastAction=null;model.pendingAction=null;model.chatDraft=null;model.context="";model.includeContext=true;model.contextMode="screen";model.question="";model.error="";model.usage=null;model.notice="";}
     if(model.open&&model.contextMode==="screen"&&!state.navigating)model.context=captureContext();
     paint();
   }
@@ -35,6 +37,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     if(message.planRows)content.proposal_lines=message.planRows.map(row=>({description:row.description,unit:row.unit,quantity:row.quantity??null,unit_price:row.unit_price??null,section:row.section||''}));
     if(message.changeProposals)content.proposal_changes=message.changeProposals;
     if(message.proposal)content.proposal=message.proposal;
+    if(message.chatPreview)content.conversation_proposal={kind:message.chatPreview.kind,rows:message.chatPreview.rows};
     message.content=JSON.stringify(content);
     if(new TextEncoder().encode(message.content).length>11000)message.content=JSON.stringify({answer:message.answer.slice(0,2000),proposed_lines:message.planRows?.length||0});
     model.messages.push({role:'user',content:question},message);model.messages=model.messages.slice(-10);
@@ -59,6 +62,100 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     paint();return true;
   }
   const canPlan=()=>!!state.projectId&&!state.modal&&!state.pageDirty&&!state.remoteProject&&!state.projects.find(p=>p.id===state.projectId)?.read_only&&!state.estimates.find(e=>e.id===state.estimateId)?.issued;
+
+  // The chat's draft belongs to this exact screen. Only a fresh, explicit user
+  // message can authorize a native write. Model text is NEVER executed as a command.
+  const conversationScope=()=>scope();
+  const conversationalRevision=q=>/\b(?:cambi[áa]|modific[áa]|correg[íi]|quit[áa]|sac[áa]|elimin[áa]|agreg[áa]|sum[áa]|reemplaz[áa]|ajust[áa]|dej[áa]|pon[ée]|inclu[íi]|exclu[íi]|en vez|mejor|falt[óo]|rendimiento|cantidad|precio|unidad|tipo)\b/i.test(q);
+  const snapshotResources=(catalog,question,previous)=>{
+    const words=String(question+' '+(previous?JSON.stringify(previous.rows):'')).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().split(/[^a-z0-9]+/).filter(word=>word.length>=4);
+    const extras=['cemento','arena','cal','ladrillo','hormigon','mortero','adhesivo','agua','oficial','ayudante','pintura','revoque','porcelanato','hierro','acero','encofrado','impermeabilizante'];
+    const scored=catalog.resources.filter(r=>r.active!==false).map((resource,index)=>{
+      const text=(resource.code+' '+resource.description).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+      const score=words.reduce((value,word)=>value+(text.includes(word)?8:0),0)+extras.reduce((value,word)=>value+(text.includes(word)?1:0),0)+(resource.price!=null?1:0);
+      return {resource,index,score};
+    });
+    scored.sort((a,b)=>b.score-a.score||a.index-b.index);
+    return scored.slice(0,90).map(x=>x.resource);
+  };
+  function stageConversation(question,draft){
+    model.chatDraft={...draft,origin:conversationScope(),id:globalThis.crypto.randomUUID(),status:'pending'};
+    const preview={kind:draft.kind,rows:draft.rows,summary:describeConversationProposal(draft)};
+    addReply(question,{answer:draft.answer+'\n\nPropuesta sin guardar:\n'+preview.summary,chatPreview:preview});
+    model.notice='Podés corregir la propuesta conversando. Solo se guarda después de tu aprobación explícita.';
+    paint();
+  }
+  async function proposeConversation(question,kind,previous=null){
+    const token=++queryToken,generation=model.generation;
+    model.busy=true;model.error='';model.notice='Preparando una propuesta sin guardar…';
+    let request=null;
+    try{
+      const catalog=await invoke('ai_catalog_context',{projectId:null,estimateId:null,asOf:dateToday(),currency:'ARS'});
+      if(token!==queryToken||generation!==model.generation)return;
+      const selected=kind==='generic_acu'?snapshotResources(catalog,question,previous):[];
+      const taskContext={task:kind,view:state.view,as_of:dateToday(),currency:'ARS',resources:kind==='generic_acu'?selected.map(r=>({id:r.id,code:r.code,description:r.description,unit:r.unit,kind:r.kind,price:r.price})):[],rules:'Solo los UUID reales de resources son utilizables. No ejecutar cambios.'};
+      if(kind==='resources')taskContext.existing_count=(state.resources||[]).length;
+      const text=proposalPrompt(kind,question,previous?previous.rows:null);
+      request=createAiRequest(invoke,{messages:[{role:'user',content:text}],context:JSON.stringify(taskContext),mode:kind==='resources'?'resources':'generic_acu'});
+      activeRequest=request;
+      const result=await request.promise;
+      if(token!==queryToken||generation!==model.generation)return;
+      const draft=parseConversationProposal(kind,result.text,{resources:selected},state.view==='resources'?state.resources||[]:state.analyses||[]);
+      stageConversation(question,draft);
+      model.usage={input:result.input_tokens,output:result.output_tokens};
+    }catch(error){
+      if(token===queryToken&&generation===model.generation)model.error='No se modificó la base. '+String(error);
+    }finally{
+      if(activeRequest===request)activeRequest=null;
+      if(token===queryToken&&generation===model.generation){model.busy=false;paint();}
+    }
+  }
+  async function commitConversation(question){
+    const draft=model.chatDraft;
+    if(!draft||draft.status!=='pending'||draft.origin!==conversationScope())return;
+    // Freeze the proposal before the first native write. Never auto-retry a possibly committed request.
+    draft.status='writing';model.busy=true;model.error='';model.question='';paint();
+    let created=0,uncertain=false;
+    try{
+      if(state.remoteProject||state.modal||state.pageDirty||state.navigating)throw new Error('Cerrá los formularios y guardá los cambios pendientes antes de cargar');
+      if(draft.kind==='resources'){
+        if(state.view!=='resources'||state.projectId)throw new Error('La propuesta pertenece a la biblioteca de Insumos');
+        const current=await invoke('list_resources');
+        const checked=reviewAiResourceRows(draft.rows.map(row=>({...row,price:'',selected:true})),current);
+        const invalid=checked.flatMap((row,index)=>row.errors.map(error=>(index+1)+': '+error));
+        if(invalid.length)throw new Error('Hay insumos incompletos o repetidos: '+invalid.join(' · '));
+        const rows=checked.map(row=>({code:'',description:row.description,unit:row.unit,kind:row.kind,price:null}));
+        uncertain=true;
+        const result=await invoke('import_resources',{rows,effectiveDate:dateToday(),source:'Alta aprobada por mensaje en el chat IA de CPObras'});
+        uncertain=false;created=result.created;
+        state.resources=await invoke('list_resources');
+      }else if(draft.kind==='generic_acu'){
+        if(state.view!=='analyses'||state.projectId)throw new Error('La propuesta pertenece a la biblioteca de ACU genéricos');
+        if(draft.errors.length)throw new Error('La propuesta tiene datos pendientes: '+draft.errors.join(' · '));
+        const [currentResources,currentAnalyses]=await Promise.all([invoke('list_resources'),invoke('list_analyses')]);
+        const catalog=new Map(currentResources.map(r=>[r.id,r]));
+        for(const row of draft.rows){
+          if(currentAnalyses.some(a=>String(a.description).toLowerCase()===row.description.toLowerCase()&&String(a.unit).toLowerCase()===row.unit.toLowerCase()))throw new Error('Ya existe el ACU: '+row.description);
+          for(const c of row.components){
+            const current=catalog.get(c.resource_id);
+            if(!current||current.active===false||current.unit!==c.unit||current.price==null||String(current.price)!==c.unit_price)throw new Error('Cambió el precio o identidad de '+c.description+'. Solicitá actualizar la propuesta antes de aprobar.');
+          }
+        }
+        for(const row of draft.rows){
+          uncertain=true;
+          await invoke('create_analysis',{code:'',description:row.description,unit:row.unit,components:row.components.map(c=>({resource_id:c.resource_id,quantity:c.quantity,unit_price:c.unit_price}))});
+          created++;uncertain=false;
+        }
+        state.analyses=await invoke('list_analyses');
+      }else throw new Error('La propuesta no tiene una operación permitida');
+      draft.status='committed';model.chatDraft=null;
+      addReply(question,{answer:'Guardado confirmado por CPObras: '+created+' '+(draft.kind==='resources'?'insumos en la biblioteca.':'ACU genéricos en la biblioteca.')+' No se repitió la operación.',actionStatus:true});
+      render?.();
+    }catch(error){
+      draft.status='failed';model.chatDraft=null;
+      addReply(question,{answer:(uncertain||created?'No se reintentará automáticamente: puede haber cambios guardados ('+created+' confirmados). Revisá la biblioteca antes de solicitar otra carga. ':'No se guardó esta propuesta. ')+String(error),actionStatus:true});
+    }finally{model.busy=false;paint();}
+  }
   async function openAcuRequest(request){
     if(request.error)throw new Error(request.error);
     await acuWorkbench.open(request.brief,null,request.mode,request.lineIds,null,request.operation||null);
@@ -140,6 +237,16 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
   async function send(){
     if(model.busy||!model.configured||!model.consent||!model.question.trim())return;
     const question=model.question.trim(),generation=model.generation;
+    if(model.chatDraft?.status==='pending'&&model.chatDraft.origin===conversationScope()){
+      if(isConversationCancel(question)){model.chatDraft=null;addReply(question,{answer:'Propuesta descartada. No se guardó ningún cambio.'});paint();return;}
+      if(isConversationApproval(question)){await commitConversation(question);return;}
+      if(conversationalRevision(question)||conversationIntent(state.view,question)){
+        await proposeConversation(question,model.chatDraft.kind,model.chatDraft);return;
+      }
+    }
+    const newWorkflow=conversationIntent(state.view,question);
+    if(newWorkflow){await proposeConversation(question,newWorkflow);return;}
+
     const statusQuestion=/^(?:no (?:la|lo|las|los) (?:veo|encuentro)|no (?:veo|encuentro) (?:la partida|el acu|el pedido)|no (?:me )?aparece(?: la partida| el acu| el pedido)?|(?:y )?(?:se guardo|se cargo|se creo|la creaste|lo cargaste|donde quedo|donde esta)(?: la partida| el acu| el pedido)?)(?: en (?:la lista|la tabla|el presupuesto))?$/.test(fold(question));
     if(statusQuestion){if(!showActionState(question)){addReply(question,{answer:'No hay un guardado registrado en este chat. Indicame qué partida buscás para identificarla; no se realizará otra carga al consultar su estado.'});paint();}return;}
     const pendingApproval=resolvedPendingApproval(question,model.messages);
@@ -237,9 +344,9 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
         if(model.open&&!model.configured){model.notice="Leyendo configuración guardada…";paint();const status=await invoke("ai_status");Object.assign(model,status);model.notice=status.configured?"Configuración de IA restaurada desde el llavero del sistema.":"";if(status.storage_error)model.error=status.storage_error;}
       }
       if(action==="settings")model.settings=!model.settings;
-      if(action==="clear"&&!model.busy){model.generation++;model.messages=[];model.lastAction=null;model.pendingAction=null;model.usage=null;model.question="";model.context="";model.includeContext=true;model.contextMode="screen";model.contextOpen=false;}
+      if(action==="clear"&&!model.busy){model.generation++;model.messages=[];model.lastAction=null;model.pendingAction=null;model.chatDraft=null;model.usage=null;model.question="";model.context="";model.includeContext=true;model.contextMode="screen";model.contextOpen=false;}
       if(action==="capture"&&!model.busy){model.context=captureContext();model.includeContext=true;model.contextMode="screen";model.contextOpen=true;}
-      if(action==="forget"&&!model.busy){await invoke("ai_forget");Object.assign(model,{configured:false,settings:true,messages:[],lastAction:null,pendingAction:null,question:"",context:"",includeContext:true,contextMode:"screen",contextOpen:false,consent:false,usage:null,notice:""});model.generation++;}
+      if(action==="forget"&&!model.busy){await invoke("ai_forget");Object.assign(model,{configured:false,settings:true,messages:[],lastAction:null,pendingAction:null,chatDraft:null,question:"",context:"",includeContext:true,contextMode:"screen",contextOpen:false,consent:false,usage:null,notice:""});model.generation++;}
       if(action==="quick"&&!model.busy){
         model.question=button.dataset.question;
         if(button.dataset.question.startsWith("Explicame")){
@@ -271,7 +378,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     if(event.target.id!=="ai-settings"||model.busy)return;
     const form=event.target,provider=form.elements.provider.value,name=form.elements.model.value,key=form.elements.key.value;
     model.busy=true;form.elements.key.value="";
-    try{const status=await invoke("ai_configure",{provider,model:name,key});Object.assign(model,status,{settings:false,messages:[],lastAction:null,pendingAction:null,consent:false,error:"",usage:null,notice:"Configuración guardada en el llavero del sistema. Se restaurará al abrir CPOBRAS. La conexión se verificará al enviar una consulta."});model.generation++;}
+    try{const status=await invoke("ai_configure",{provider,model:name,key});Object.assign(model,status,{settings:false,messages:[],lastAction:null,pendingAction:null,chatDraft:null,consent:false,error:"",usage:null,notice:"Configuración guardada en el llavero del sistema. Se restaurará al abrir CPOBRAS. La conexión se verificará al enviar una consulta."});model.generation++;}
     catch(error){model.error=String(error);}finally{model.busy=false;paint();}
   });
   syncContext();
