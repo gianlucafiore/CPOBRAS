@@ -373,13 +373,17 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       const additional = parseCatalogQuery(result.text);
       if (additional) {
         evidence = libraryAcuContext(additional, catalog);
-        resources = [...resources, ...evidence.resources];
+        // Preserve already discovered records while adding precisely the new
+        // candidates requested by the model. The model gets the actual combined
+        // catalog, not an assumed material recipe.
+        resources = [...new Map([...resources,...evidence.resources].map(row=>[row.id,row])).values()];
+        const mergedContext=JSON.stringify({...JSON.parse(evidence.context),resources:resources.slice(0,80)});
         result = await sendRequest([...messages, {
-          role:"assistant", content:"Busqué en el catálogo: " + additional,
+          role:"assistant", content:"Consulté el catálogo por los insumos que identificaste: " + additional,
         }, {
           role:"user",
-          content:"Usá las coincidencias del contexto actualizado. Respondé a mi pedido con library_acus o pedime una precisión. No solicites otra búsqueda.",
-        }], contextWithDraft(evidence.context));
+          content:"Conservá los insumos del contexto completo y prepará la composición con cantidades y unidades de compra razonadas; indicá los pendientes reales sin inventar datos.",
+        }], contextWithDraft(mergedContext));
         if (!current()) return;
       }
       const retainedIds = new Set(existing.flatMap(draft => draft.components.map(row => row.resource_id)));
