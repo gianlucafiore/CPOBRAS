@@ -1,6 +1,11 @@
 import { e } from "./helpers.js";
 export function entityActions(kind,id,label) {
- return `<details class="entity-menu"><summary data-action="entity-menu" title="Opciones de ${e(label)}" aria-label="Opciones de ${e(label)}">⋯</summary><div><button class="btn tiny" data-action="entity-archive" data-kind="${e(kind)}" data-id="${e(id)}" data-label="${e(label)}">${['analysis','nested_analysis'].includes(kind)?'Eliminar de la biblioteca':'Eliminar '+(kind==='project'?'obra':'presupuesto')}</button></div></details>`;
+ const actions=kind==='analysis'
+   ? `<button type="button" class="btn tiny" data-action="edit-analysis" data-id="${e(id)}">Editar ACU</button>
+      <button type="button" class="btn tiny" data-action="modal-reprice" data-id="${e(id)}">Actualizar precios</button>
+      <button type="button" class="btn tiny" data-action="duplicate-analysis" data-id="${e(id)}">Duplicar ACU</button>`
+   : '';
+ return `<details class="entity-menu"><summary data-action="entity-menu" title="Opciones de ${e(label)}" aria-label="Opciones de ${e(label)}" aria-haspopup="menu">⋯</summary><div role="group" aria-label="Acciones de ${e(label)}">${actions}<button type="button" class="btn tiny" data-action="entity-archive" data-kind="${e(kind)}" data-id="${e(id)}" data-label="${e(label)}">${kind==='analysis'?'Eliminar ACU':['nested_analysis'].includes(kind)?'Eliminar de la biblioteca':'Eliminar '+(kind==='project'?'obra':'presupuesto')}</button></div></details>`;
 }
 export function createEntityActions({invoke,state,loadCollections,loadEstimates,reloadCatalog,openProject,render,window,onArchived=async()=>{}}) {
  return {async act(button){
