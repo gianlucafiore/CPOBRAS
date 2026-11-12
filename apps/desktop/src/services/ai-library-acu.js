@@ -73,7 +73,7 @@ export function libraryAcuContext(question, catalog) {
   // without claiming that any candidate is technically interchangeable.
   const work = foldCatalogText(question);
   const support = /\b(?:mamposteria|ladrillo|bloque|tabique)\b/.test(work)
-    ? 'cemento arena cal mortero albaníl albañil ayudante agua hidrofugo'
+    ? 'cemento arena cal mortero albañil ayudante agua hidrofugo'
     : /\b(?:revoque|enlucido)\b/.test(work)
       ? 'cemento arena cal mortero albañil ayudante agua'
       : '';
@@ -86,7 +86,7 @@ export function libraryAcuContext(question, catalog) {
   return {
     resources,
     context: JSON.stringify({task:"library_acu", currency:catalog.currency, as_of:catalog.as_of,
-      requested_catalog_evidence:resources, resources,
+      resources,
       catalog_truncated:evidence.truncated||secondary?.truncated||false}),
   };
 }
@@ -122,6 +122,11 @@ export function readLibraryAcus(text, resources) {
         : typeof component?.requested_description === "string" ? component.requested_description.slice(0, 90)
         : "Insumo no identificado";
       if (!resource) {
+        // Keep a named unresolved material visible, but never allow a made-up
+        // identifier to become a component without any identifying evidence.
+        if (requestedName === "Insumo no identificado") {
+          throw new Error("El borrador contiene un insumo sin verificar.");
+        }
         pending.push(requestedName + ": no se encontró una referencia verificable en el catálogo.");
         return [];
       }
