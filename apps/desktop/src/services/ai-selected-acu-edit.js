@@ -106,9 +106,26 @@ export function readSelectedAcuEdit(text,{baseline,resources,previous=null}){
  const draft={...current,description,unit,components:[...map.values()],
    aiWarnings:warnings,code:base.code,id:base.id};
  if(!draft.components.length)warnings.push("El ACU debe mantener al menos un insumo.");
- if(!changes.length&&!warnings.length)
+ // Show the entire cumulative delta, not just this turn's edits. A follow-up
+ // that undoes a previous request must remove it from the proposed changes.
+ const original=new Map(base.components.map(c=>[c.resource_id,c]));
+ const fullChanges=[];
+ for(const old of base.components){
+  const next=map.get(old.resource_id);
+  if(!next){fullChanges.push("Quitar "+old.description);continue;}
+  if(compareDecimals(old.quantity,next.quantity)!==0)
+   fullChanges.push("Modificar "+(next.description||old.description)+": "+old.quantity+" → "+next.quantity+" "+(next.unit||old.unit));
+  if(compareDecimals(old.unit_price,next.unit_price)!==0)
+   fullChanges.push("Precio de "+(next.description||old.description)+": "+old.unit_price+" → "+next.unit_price+" ARS");
+ }
+ for(const next of map.values()){
+  if(!original.has(next.resource_id))fullChanges.push("Agregar "+next.description+": "+next.quantity+" "+next.unit);
+ }
+ if(description!==base.description)fullChanges.push("Descripción: "+base.description+" → "+description);
+ if(unit!==base.unit)fullChanges.push("Unidad: "+base.unit+" → "+unit);
+ if(!fullChanges.length&&!warnings.length)
   throw new Error("La IA no propuso diferencias sobre el ACU seleccionado.");
- return {answer:data.answer,proposal:{baseline:base,draft,changes,warnings}};
+ return {answer:data.answer,proposal:{baseline:base,draft,changes:fullChanges,warnings}};
 }
 export function canApplySelectedAcuEdit(proposal){
  return !!proposal&&proposal.changes.length>0&&proposal.draft.components.length>0&&
