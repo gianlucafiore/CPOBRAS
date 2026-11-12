@@ -267,11 +267,19 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
   }
   const canDraftLibraryAcu = () => state.view === "analyses" && !state.projectId &&
     !state.remoteProject && !state.modal && !state.navigating && !state.pageDirty;
-  const pendingLibraryAcu = () => model.messages.findLast(message => message.libraryAcus?.some(Boolean));
-  const pendingLibraryEdit = () => model.messages.findLast(message =>
-    message.libraryEdit && !message.libraryEdit.applied && !message.libraryEdit.spent &&
-    message.libraryEdit.baseline?.id === state.selectedAnalysisId &&
-    message.libraryEdit.databaseScope === (state.database?.scope??null));
+  // Only the most recent library transaction may be approved. In
+  // particular, an older edit must not win over a newer CREATE proposal.
+  const latestLibraryProposal=()=>model.messages.findLast(message=>
+    message.libraryEdit || message.libraryAcus?.some(Boolean) || message.libraryAcuSaved);
+  const pendingLibraryAcu=()=>{
+    const message=latestLibraryProposal();
+    return message?.libraryAcus?.some(Boolean)?message:null;
+  };
+  const pendingLibraryEdit=()=>{
+    const edit=latestLibraryProposal()?.libraryEdit;
+    return edit&&!edit.applied&&!edit.spent&&edit.baseline?.id===state.selectedAnalysisId &&
+      edit.databaseScope===(state.database?.scope??null)?edit:null;
+  };
   // Free-form user language is classified by the model. Only explicit approval
   // of a displayed proposal authorizes the separate, validated native write.
 
