@@ -175,6 +175,7 @@ export function readLibraryAcus(text, resources) {
     }
     const seen = new Set();
     const pending = [];
+    let conversionPending=false;
     // Exclusions are semantically extracted by the model from the user's own
     // words; this layer has no material-specific blacklist.
     const excluded = (raw.excluded||[]).map(foldCatalogText).filter(Boolean);
@@ -202,6 +203,7 @@ export function readLibraryAcus(text, resources) {
       seen.add(resource.id);
       const converted = catalogQuantity({...component,quantity:value},resource);
       if (!converted.quantity) {
+        conversionPending=true;
         pending.push(resource.description+": "+value+" "+(component.quantity_unit||resource.unit)+" por "+raw.unit+". "+converted.reason);
         return [];
       }
@@ -215,6 +217,7 @@ export function readLibraryAcus(text, resources) {
       unit:raw.unit.trim(),
       components,
       aiWarnings:[...(raw.missing ?? []).map(pendingLabel).filter(item=>!omitted(item)), ...pending],
+      conversionPending,
     };
   });
   return {answer:data.answer.slice(0, 2000), drafts, keepDraft:!drafts.length && data.keep_draft === true, missingField:data.missing_field};
