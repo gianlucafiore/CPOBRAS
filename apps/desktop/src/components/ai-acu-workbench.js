@@ -6,7 +6,7 @@ import {parseAcuAdditions,mergeAcuAddition,additionPreservationErrors} from '../
 import {acuSeed,newAcuSeeds,emptyAcu,parseAcuProposals,measurementQuantity,acuTotals,acuPreapprovalErrors,copyAcuExample,acuPromptContext,acuBatch} from '../services/ai-acu.js';
 export function createAcuWorkbench({invoke,state,document,window,loadEstimate,loadEstimates,openEstimate,canUseAi,openResourceLibrary=null}){
  const host=document.createElement('div');host.id='ai-acu-workbench';document.body.append(host);
- let model={open:false},request=null,generation=0,stop=false,approvedRun=null;const drafts=new Map();
+ let model={open:false},request=null,generation=0,stop=false,approvedRun=null,chatPrepared=null;const drafts=new Map();
  const draftKey=()=>[state.projectId,state.estimateId||'new'].join(':');
  function keepDraft(){
   if(!model.draftKey)return;
@@ -53,7 +53,8 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
  function approvedProgress(authorization,phase,message,extra={}){
   try{const result=authorization.onProgress?.({phase,message,projectId:authorization.projectId,estimateId:authorization.model?.estimate.id,...extra});result?.catch?.(()=>{});}catch{}
  }
- async function runApproved(input,{onProgress}={}){
+ async function runApproved(input,{onProgress,dryRun=false}={}){
+  if(dryRun)chatPrepared=null;
   if(approvedRun||model.busy)throw new Error('Esperá a que termine la preparación actual o detenela antes de iniciar otra carga');
   if(!input||!['fill','create'].includes(input.mode)||typeof input.brief!=='string'||!input.brief.trim()||input.brief.length>3000)throw new Error('La carga aprobada necesita un objetivo y criterios acotados');
   if(input.lineIds!=null&&(!Array.isArray(input.lineIds)||input.lineIds.some(id=>typeof id!=='string')||new Set(input.lineIds).size!==input.lineIds.length||input.lineIds.length>60))throw new Error('Las partidas aprobadas no son válidas');
@@ -101,6 +102,20 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
     row.apply_measurements=false;row.preapproval_errors=[...acuPreapprovalErrors(row,model.context.resources),...(append?additionPreservationErrors(row):[])];
     row.selected=authorization.targetIds.has(row.id)&&!acuTotals(row,model.context.resources).errors.length&&!row.preapproval_errors.length;
    }
+   const selected=model.rows.filter(row=>row.selected);
+   if(dryRun){
+    const draftId=globalThis.crypto.randomUUID();
+    const resourceMap=new Map(model.context.resources.map(resource=>[resource.id,resource]));
+    const previews=model.rows.map(row=>{
+      const totals=acuTotals(row,model.context.resources);
+      const errors=[...new Set([...totals.errors,...(row.preapproval_errors||[])])];
+      return {line_id:row.id,description:row.seed.description,unit:row.seed.unit,quantity:row.seed.quantity,unit_cost:totals.unit_cost,section:row.section_title||'',components:row.components.map(component=>({resource_id:component.resource_id,description:resourceMap.get(component.resource_id)?.description||component.description||'Insumo desconocido',quantity:component.quantity,unit:resourceMap.get(component.resource_id)?.unit||'',price:resourceMap.get(component.resource_id)?.price??null})),errors,missing_resources:row.missing_resources};
+    });
+    const batch=selected.length?acuBatch({rows:model.rows,context:model.context,estimate:model.estimate,newEstimate:model.newEstimate,batchId:model.batchId,asOf:model.asOf}):null;
+    chatPrepared={id:draftId,scope:scope(),projectId:authorization.projectId,estimateId:model.estimate.id,newEstimate:!!model.newEstimate,batch:batch?structuredClone(batch):null,previews:structuredClone(previews),used:false};
+    model.notice='Propuesta lista para conversar. Ningún ACU fue guardado.';
+    return {draftId,previews,pending:previews.length-selected.length,ready:selected.length,committed:false};
+   }
    const selected=model.rows.filter(row=>row.selected);if(!selected.length){model.notice=`No se guardó ningún ACU: ${authorization.targetIds.size} partidas necesitan revisión. Las propuestas se conservaron.`;return finish();}
    const batch=acuBatch({rows:model.rows,context:model.context,estimate:model.estimate,newEstimate:model.newEstimate,batchId:model.batchId,asOf:model.asOf});
    if(batch.updates.length||batch.deletes.length||batch.acus.some(acu=>!authorization.targetIds.has(acu.line_id)||acu.measurements!==null)||batch.creates.some(line=>!authorization.targetIds.has(line.id))||(model.mode==='fill'&&batch.creates.length))throw new Error('La carga supera el alcance de las partidas aprobadas');
@@ -139,6 +154,26 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
    }
    return summary();
   }
+ }
+
+ // A preview is generated BEFORE consent to save, then frozen. Approval commits
+ // exactly that locally-validated batch; no second model call can alter it.
+ async function commitChatPrepared(id){
+   const prepared=chatPrepared;
+   if(!prepared||prepared.id!==id||prepared.used||prepared.scope!==scope()||prepared.projectId!==state.projectId)throw new Error('La propuesta ya no corresponde a este presupuesto. Volvé a prepararla.');
+   if(!prepared.batch)throw new Error('No hay ACU completos para guardar. Corregí los pendientes desde el chat.');
+   if(state.modal||state.pageDirty||state.navigating||state.remoteProject||state.projects.find(p=>p.id===state.projectId)?.read_only||state.estimates.find(e=>e.id===state.estimateId)?.issued)throw new Error('No se puede modificar este presupuesto ahora.');
+   prepared.used=true;chatPrepared=null;
+   // The native transaction checks expected line versions and resource/price snapshots.
+   const result=await invoke('apply_reviewed_budget_batch',{batch:prepared.batch});
+   const lineIds=prepared.batch.acus.map(acu=>acu.line_id);
+   const summary={committed:true,saved:result.composed,created:result.created,pending:prepared.previews.length-result.composed,estimateId:prepared.estimateId,lineIds};
+   try{
+     if(prepared.newEstimate){await loadEstimates();await openEstimate(prepared.estimateId,lineIds[0]);}
+     else if(state.view==='workspace'){state.selectedLineId=lineIds[0];state.panel='acu';await loadEstimate();}
+     else await openEstimate(prepared.estimateId,lineIds[0]);
+   }catch(error){summary.refreshError=String(error);}
+   return summary;
  }
  function targets(){return model.mode==='create'?model.seeds.filter(s=>model.targetIds.has(s.id)):model.context.lines.filter(l=>model.targetIds.has(l.id)&&(model.operation!=='append'||model.appendTargetIds.has(l.id))).map(acuSeed);}
  function additionPrompt(){return 'OPERACIÓN ADITIVA: components debe contener SOLO los insumos adicionales de este pedido y sus incrementos, nunca la composición existente ni reemplazos. CPOBRAS preserva la composición original y suma esos incrementos. Para cada incremento informá quantity_scope:"per_unit" si es consumo por una unidad de partida, o "total" si quantity es una cantidad total explícita del pedido; CPOBRAS la dividirá por la cantidad actual de la partida. No confundas cantidades totales con consumos. quantity_unit debe ser la unidad real del catálogo. Si el pedido usa otra unidad y falta una conversión comprobable (por ejemplo m² frente a m), indicá el faltante y no asumas equivalencia. No cambies el rubro ni propongas mediciones. ';}
@@ -339,5 +374,5 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
  });
  host.addEventListener('toggle',event=>{const t=event.target;if(!t.isConnected)return;if(t.dataset.acuProposal){const row=model.rows.find(r=>r.id===t.dataset.acuProposal);if(row)row.expanded=t.open;}if(t.dataset.acuMeasureDetail){const row=model.rows.find(r=>r.id===t.dataset.acuMeasureDetail);if(row)row.measurementExpanded=t.open;}if(t.dataset.acuDetail){if(t.open)model.details.add(t.dataset.acuDetail);else model.details.delete(t.dataset.acuDetail);}},true);
  host.addEventListener('keydown',event=>{event.stopPropagation();if(event.key==='Escape')void action('close',event.target);});
- paint();return {open,syncScope,resumeFromLibrary,runApproved,cancelApproved,showLatest:()=>open()};
+ paint();return {open,syncScope,resumeFromLibrary,runApproved,commitChatPrepared,cancelApproved,showLatest:()=>open()};
 }
