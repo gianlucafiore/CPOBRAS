@@ -116,7 +116,7 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
     model.notice='Propuesta lista para conversar. Ningún ACU fue guardado.';
     return {draftId,previews,pending:previews.length-selected.length,ready:selected.length,committed:false};
    }
-   const selected=model.rows.filter(row=>row.selected);if(!selected.length){model.notice=`No se guardó ningún ACU: ${authorization.targetIds.size} partidas necesitan revisión. Las propuestas se conservaron.`;return finish();}
+   if(!selected.length){model.notice=`No se guardó ningún ACU: ${authorization.targetIds.size} partidas necesitan revisión. Las propuestas se conservaron.`;return finish();}
    const batch=acuBatch({rows:model.rows,context:model.context,estimate:model.estimate,newEstimate:model.newEstimate,batchId:model.batchId,asOf:model.asOf});
    if(batch.updates.length||batch.deletes.length||batch.acus.some(acu=>!authorization.targetIds.has(acu.line_id)||acu.measurements!==null)||batch.creates.some(line=>!authorization.targetIds.has(line.id))||(model.mode==='fill'&&batch.creates.length))throw new Error('La carga supera el alcance de las partidas aprobadas');
    if(!approvalCurrent(authorization)){cancelled=true;return finish();}
