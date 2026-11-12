@@ -48,13 +48,17 @@ export function parseStandaloneAcu(text,brief,catalog){
   seen.add(comp.resource_id);
   const resource=known.get(comp.resource_id);
   if(!resource){pending.push('La IA propuso un insumo no verificado en la biblioteca');continue;}
-  if(typeof comp.quantity!=='string'||!decimal.test(comp.quantity)||Number(comp.quantity)<=0){pending.push('Consumo inválido: '+resource.description);continue;}
+  // A provider may serialize the estimated consumption as a JSON number.
+  // Normalize only short, finite decimals, rejecting scientific notation and
+  // unsafe precision rather than guessing a conversion or rounding a price.
+  const quantity=typeof comp.quantity==='number'&&Number.isFinite(comp.quantity)&&!/[eE]/.test(String(comp.quantity))?String(comp.quantity):comp.quantity;
+  if(typeof quantity!=='string'||!decimal.test(quantity)||Number(quantity)<=0){pending.push('Consumo inválido: '+resource.description);continue;}
   if(comp.quantity_unit!==resource.unit){pending.push('Unidad incompatible: '+resource.description);continue;}
   if(resource.currency&&resource.currency!=='ARS'){pending.push('Precio sin cotización ARS: '+resource.description);continue;}
   if(typeof resource.price!=='string'||!decimal.test(resource.price)){
     pending.push('Sin precio ARS verificable: '+resource.description);continue;
   }
-  items.push({resourceId:resource.id,description:resource.description,kind:resource.kind,unit:resource.unit,quantity:comp.quantity,unitPrice:resource.price,
+  items.push({resourceId:resource.id,description:resource.description,kind:resource.kind,unit:resource.unit,quantity,unitPrice:resource.price,
    note:typeof comp.consumption_support==='string'?comp.consumption_support.slice(0,220):''});
  }
  return {description:a.description.trim(),unit:a.unit.trim(),items,
