@@ -198,7 +198,7 @@ test("the 2:1 AI button can be dragged and still opens on a click", async ({page
   await openLibrary(page);
   const launch = page.getByRole("button", {name:"Asistente IA",exact:true});
   const start = await launch.boundingBox();
-  expect(start.width).toBeCloseTo(37.8, 0);
+  expect(start.width).toBeCloseTo(75.6, 0);
   expect(start.height).toBeCloseTo(37.8, 0);
   await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2);
   await page.mouse.down();
