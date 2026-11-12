@@ -65,9 +65,34 @@ export function parseConversationProposal(kind,response,catalog,existing=[]){
  });
  return {kind,answer:parsed.answer,rows,errors:rows.flatMap((row,i)=>row.errors.map(error=>String(i+1)+': '+error))};
 }
+
+// A price may enter a chat draft ONLY when its exact decimal was supplied by
+// the user in this message. Model-suggested prices remain discarded.
+export function applyVerifiedPriceEdit(draft,question,existing=[]){
+ if(draft.kind!=='resources')return null;
+ const instruction=clean(question);
+ if(!/(?:precio|valor|cuesta|\$)/i.test(instruction))return null;
+ const explicit=/(?:precio|valor|cuesta)\s*(?:(?:de|a|en|por|:|=)\s*)?(?:ARS|\$)?\s*(\d[\d.,]*)/i.exec(instruction);
+ const all=[...instruction.matchAll(/\b\d[\d.,]*\b/g)].map(match=>match[0]);
+ const amount=explicit?.[1]||(all.length===1?all[0]:null);
+ if(!amount)return null;
+ const normalized=value=>clean(value).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+ const query=normalized(instruction),scores=draft.rows.map(row=>{
+  const tokens=normalized(row.description).split(/[^a-z0-9]+/).filter(token=>token.length>=4);
+  return tokens.reduce((score,token)=>score+(query.includes(token)?1:0),0);
+ });
+ const peak=Math.max(...scores),matches=scores.map((score,i)=>score===peak?i:-1).filter(i=>i>=0);
+ if(draft.rows.length!==1&&(peak===0||matches.length!==1))throw new Error('Indicá el nombre único del insumo al que corresponde el precio.');
+ const index=draft.rows.length===1?0:matches[0];
+ const rows=draft.rows.map((row,i)=>({...row,price:i===index?amount:row.price}));
+ const checked=reviewAiResourceRows(rows.map(row=>({...row,selected:true})),existing);
+ const row=checked[index];if(row.errors.length)throw new Error('Precio inválido para '+row.description+': '+row.errors.join(' · '));
+ const safeRows=checked.map(row=>({description:row.description,kind:row.kind,unit:row.unit,price:row.price}));
+ return {...draft,rows:safeRows,answer:'Se ajustó el precio de '+row.description+' a '+row.price+' ARS por '+row.unit+'. El dato provino de tu mensaje; no de una estimación de IA.',errors:checked.flatMap((row,i)=>row.errors.map(error=>(i+1)+': '+error))};
+}
 export function describeConversationProposal(draft){
  const lines=draft.rows.map((row,index)=>{
-  if(draft.kind==='resources')return (index+1)+'. '+(row.description||'Sin descripción')+' · '+(row.kind||'Tipo pendiente')+' · '+(row.unit||'Unidad pendiente');
+  if(draft.kind==='resources')return (index+1)+'. '+(row.description||'Sin descripción')+' · '+(row.kind||'Tipo pendiente')+' · '+(row.unit||'Unidad pendiente')+(row.price!=null?' · Precio confirmado '+row.price+' ARS':' · Sin precio');
   const cs=row.components.map(c=>c.description+': '+c.quantity+' '+c.unit+' / '+row.unit).join('; ');
   return (index+1)+'. '+row.description+' ('+row.unit+')'+(row.unit_cost!=null?' · '+row.unit_cost+' ARS/'+row.unit:'')+'\n   '+(cs||'Sin componentes')+(row.missing_resources?.length?'\n   Faltantes: '+row.missing_resources.join(', '):'');
  });
