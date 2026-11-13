@@ -5413,27 +5413,54 @@ fn reviewed_batch_moves_rubros_atomically_without_touching_prices() {
     use crate::assisted_budget::*;
     let (mut store, _, estimate, line) = fixture();
     let target = crate::budget_sections::BudgetSection {
-        id: Uuid::new_v4(), estimate_id: estimate.id, parent_id: None,
-        code: "99".into(), title: "Estructuras".into(), position: 0,
+        id: Uuid::new_v4(),
+        estimate_id: estimate.id,
+        parent_id: None,
+        code: "99".into(),
+        title: "Estructuras".into(),
+        position: 0,
     };
     store.save_budget_section(&target).unwrap();
     let move_plan = SectionMove {
-        line_id: line.id, expected: reviewed_update(&line, line.unit_cost_snapshot).expected,
-        expected_section: None, section_id: target.id,
+        line_id: line.id,
+        expected: reviewed_update(&line, line.unit_cost_snapshot).expected,
+        expected_section: None,
+        section_id: target.id,
     };
     let mut batch = ReviewedBatch {
-        id: Uuid::new_v4(), estimate_id: estimate.id, currency: "ARS".into(),
-        new_estimate: None, updates: vec![], creates: vec![], deletes: vec![],
-        acus: vec![], section_moves: vec![move_plan],
+        id: Uuid::new_v4(),
+        estimate_id: estimate.id,
+        currency: "ARS".into(),
+        new_estimate: None,
+        updates: vec![],
+        creates: vec![],
+        deletes: vec![],
+        acus: vec![],
+        section_moves: vec![move_plan],
     };
     let result = store.apply_reviewed_budget_batch(&batch).unwrap();
     assert_eq!(result.moved_sections, 1);
-    assert_eq!(store.list_line_sections(estimate.id).unwrap(), vec![(line.id, target.id)]);
-    assert_eq!(store.estimate_items(estimate.id).unwrap()[0].unit_cost_snapshot, line.unit_cost_snapshot);
-    assert_eq!(store.apply_reviewed_budget_batch(&batch).unwrap().moved_sections, 1);
+    assert_eq!(
+        store.list_line_sections(estimate.id).unwrap(),
+        vec![(line.id, target.id)]
+    );
+    assert_eq!(
+        store.estimate_items(estimate.id).unwrap()[0].unit_cost_snapshot,
+        line.unit_cost_snapshot
+    );
+    assert_eq!(
+        store
+            .apply_reviewed_budget_batch(&batch)
+            .unwrap()
+            .moved_sections,
+        1
+    );
     batch.id = Uuid::new_v4();
     assert!(store.apply_reviewed_budget_batch(&batch).is_err());
-    assert_eq!(store.list_line_sections(estimate.id).unwrap(), vec![(line.id, target.id)]);
+    assert_eq!(
+        store.list_line_sections(estimate.id).unwrap(),
+        vec![(line.id, target.id)]
+    );
 }
 
 fn assisted_acu_fixture() -> (LocalStore, Project, Estimate, EstimateItem, Uuid) {

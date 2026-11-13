@@ -137,5 +137,7 @@ pub(crate) fn apply_reviewed_section_batch(
     batch: cpobras_storage::section_batches::ReviewedSectionBatch,
 ) -> Result<cpobras_storage::section_batches::ReviewedSectionResult, String> {
     let mut store = db.lock().map_err(|e| e.to_string())?;
-    store.apply_reviewed_section_batch(&batch).map_err(|e| e.to_string())
+    store
+        .apply_reviewed_section_batch(&batch)
+        .map_err(|e| e.to_string())
 }
