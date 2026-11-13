@@ -726,6 +726,26 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       }
     }
   }
+  async function showSelectedLibraryAcu(question){
+    const id=state.selectedAnalysisId,dbScope=state.database?.scope??null;
+    if(!id){
+      addReply(question,{answer:"No hay ningún ACU seleccionado en la biblioteca."});paint();return;
+    }
+    model.busy=true;paint();
+    try{
+      const detail=await invoke("get_analysis_details",{analysisId:id});
+      if(id!==state.selectedAnalysisId||dbScope!==(state.database?.scope??null))return;
+      const components=(detail.components||[]).slice(0,60);
+      const lines=components.map(row=>"- "+row.description+": "+row.quantity+
+        " × ARS "+row.unit_price+" = ARS "+row.total);
+      addReply(question,{answer:"ACU seleccionado: "+detail.code+" — "+detail.description+
+        " · por "+detail.unit+"\nCosto unitario: ARS "+detail.unit_cost+
+        "\nComponentes ("+components.length+"):\n"+(lines.join("\n")||"Sin insumos cargados.")+
+        "\n\nEsta es la composición guardada actualmente. Podés pedirme cambios y los prepararé para aprobación."});
+    }catch(error){
+      addReply(question,{answer:"No pude consultar el ACU seleccionado: "+String(error).slice(0,200)+". No se modificaron datos."});
+    }finally{model.busy=false;paint();}
+  }
   async function handleLibraryTurn(question) {
     rememberAcuTurn(question);
     const proposal = pendingLibraryAcu();
@@ -744,7 +764,10 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       // Preserve conversational referents but NEVER treat prior messages or
       // catalog strings as approval for a new database write.
       let selected=null;
-      if(state.selectedAnalysisId){
+      // An in-progress NEW ACU takes precedence over the background row.
+      // Omit that unrelated row from the model's task-specific context.
+      const activeDraft=proposal?.libraryAcus?.find(Boolean)||null;
+      if(!activeDraft && state.selectedAnalysisId){
         const detail=await invoke("get_analysis_details",{analysisId:state.selectedAnalysisId});
         selected={id:state.selectedAnalysisId,code:detail?.code,
           description:detail?.description,unit:detail?.unit,
@@ -759,6 +782,11 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
         messages:[{role:"user", content:question}],
         context:JSON.stringify({
           pending_proposal:Boolean(proposal||editProposal),
+          active_library_draft:activeDraft?{description:activeDraft.description,
+            unit:activeDraft.unit,components:activeDraft.components.map(c=>({
+              resource_id:c.resource_id,description:c.description,quantity:c.quantity,unit:c.unit
+            })),missing:activeDraft.aiWarnings||[]}:null,
+          background_selected_analysis:Boolean(state.selectedAnalysisId),
           pending_edit:Boolean(editProposal),
           selected_analysis:Boolean(selected),
           selected_analysis_context:conversation.selected_analysis,
@@ -785,18 +813,26 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
         paint();
       }
     }
+    const focus=libraryAcuTurnFocus(intent,{
+      pendingDraft:!!proposal,pendingEdit:!!editProposal,selectedId:state.selectedAnalysisId
+    });
     switch (intent.action) {
+      case "finish":
+        if(proposal||editProposal){
+          addReply(question,{answer:"Hay una propuesta de ACU todavía sin guardar. ¿Querés descartarla y cerrar esta tarea, o seguir revisándola?"});
+        }else{
+          finishTaskSession("Listo, cerré la tarea. No hice modificaciones adicionales.",{askMore:false});
+        }
+        paint();
+        break;
       case "general":
         return false;
       case "question":
-        if(state.selectedAnalysisId){
-          await prepareSelectedAcuEdit(question,editProposal?
-            model.messages.findLast(message=>message.libraryEdit===editProposal):null,"question");
-        }else if(followup){
-          await prepareLibraryAcu(question,followup,question,"question");
-        }else{
-          return false;
-        }
+        if(focus==="draft")await prepareLibraryAcu(question,proposal,question,"question");
+        else if(focus==="selected"||focus==="edit")await prepareSelectedAcuEdit(question,
+          focus==="edit"?model.messages.findLast(message=>message.libraryEdit===editProposal):null,"question");
+        else if(followup)await prepareLibraryAcu(question,followup,question,"question");
+        else return false;
         break;
       case "show":
         if(editProposal){
@@ -811,6 +847,8 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
           host.querySelector("[data-library-acu-preview]")?.scrollIntoView({block:"nearest"});
         } else if (last?.libraryAcuRetry) {
           await prepareLibraryAcu(question, last, question, "clarify");
+        } else if(focus==="selected"){
+          await showSelectedLibraryAcu(question);
         } else {
           addReply(question, last?.libraryAcuSaved
             ? {answer:`El ACU ${last.libraryAcuSaved} está en Inicio → ACU.`, libraryAcuSaved:last.libraryAcuSaved}
@@ -857,15 +895,16 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
         paint();
         break;
       case "edit":
-        if(state.selectedAnalysisId)await prepareSelectedAcuEdit(question,editProposal?
-          model.messages.findLast(message=>message.libraryEdit===editProposal):null);
-        else{
-          addReply(question,{answer:"Seleccioná primero el ACU existente que querés modificar."});
-          paint();
-        }
+        if(focus==="draft")await prepareLibraryAcu(question,proposal,question,"revise");
+        else if(focus==="selected"||focus==="edit")
+          await prepareSelectedAcuEdit(question,focus==="edit"?
+            model.messages.findLast(message=>message.libraryEdit===editProposal):null);
+        else{addReply(question,{answer:"Seleccioná un ACU existente o indicame qué ACU nuevo querés preparar."});paint();}
         break;
       case "new":
+        acuWorkingNotes.clear();
         for (const message of model.messages) {
+          if(message.libraryEdit)message.libraryEdit.spent=true;
           if (message.libraryAcus) message.libraryAcus = [];
           message.libraryAcuClarification = false;
           message.libraryAcuRetry = null;
@@ -878,17 +917,12 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
         }
         break;
       default:
-        if(editProposal&&["add","revise","clarify"].includes(intent.action)){
-          await prepareSelectedAcuEdit(question,model.messages.findLast(message=>message.libraryEdit===editProposal));
-        }else if(state.selectedAnalysisId&&["add","revise"].includes(intent.action)){
-          await prepareSelectedAcuEdit(question);
-        }else if(state.selectedAnalysisId&&intent.action==="clarify"){
-          await prepareSelectedAcuEdit(question,last);
-        }else if (followup) await prepareLibraryAcu(question, followup, question, intent.action);
-        else {
-          addReply(question, {answer:"Decime qué trabajo querés analizar para preparar un ACU de biblioteca.", libraryAcuClarification:true});
-          paint();
-        }
+        if(focus==="draft")await prepareLibraryAcu(question,proposal,question,intent.action);
+        else if(focus==="edit"||focus==="selected")
+          await prepareSelectedAcuEdit(question,focus==="edit"?
+            model.messages.findLast(message=>message.libraryEdit===editProposal):null);
+        else if(followup)await prepareLibraryAcu(question,followup,question,intent.action);
+        else{addReply(question,{answer:"Decime qué trabajo querés analizar para preparar un ACU de biblioteca.",libraryAcuClarification:true});paint();}
     }
     return true;
   }
@@ -987,6 +1021,9 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       if(!showActionState(question)){addReply(question,{answer:'No hay un pedido listo para cargar ni un guardado confirmado. Indicame qué partida querés crear o completar.'});paint();}return;
     }
     const history=model.messages.slice(-10).map(m=>({role:m.role,content:m.content}));
+    // After a completed task only its assistant receipt remains; do not
+    // send it as the first message of an unrelated new provider request.
+    while(history.length&&history[0].role!=="user")history.shift();
     const byteSize=items=>new TextEncoder().encode(items.map(m=>m.content).join("")).length;
     while(history.length&&byteSize([...history,{content:question}])>28000)history.splice(0,2);
     const messages=[...history,{role:"user",content:question}];
