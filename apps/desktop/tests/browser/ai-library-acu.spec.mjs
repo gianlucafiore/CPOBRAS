@@ -57,7 +57,16 @@ async function openLibrary(page, proseFirst = false, asksWork = 0, selectedFixtu
             return {text:JSON.stringify({action,work:action === "new" ? work : undefined})};
           }
           if(args.mode==="library_acu_edit"){
+            // Mirror Tauri's alternating-role validation to catch regressions
+            // that a permissive mocked provider would otherwise overlook.
+            if(!args.messages?.length || args.messages.length>12 ||
+              args.messages.at(-1).role!=="user" ||
+              args.messages.some((msg,i)=>msg.role!==(i%2===0?"user":"assistant") ||
+                !String(msg.content||"").trim()))throw Error("Historial de chat inválido");
             if(context.task!=="library_acu_edit" || !context.selected_analysis)throw Error("No se cargó el ACU seleccionado");
+            if(context.requested_change==="quiero cargarle un insumo"){
+              return {text:JSON.stringify({answer:"¿Qué insumo querés agregar al ACU seleccionado?",needs_details:true})};
+            }
             if(context.interaction==="question"){
               if(!context.conversation?.selected_analysis?.description)throw Error("No se preservó el trabajo seleccionado");
               return {text:JSON.stringify({answer:"Para este ACU de mampostería hace falta mortero de asiento; el consumo exacto depende de la junta.",keep_draft:true})};
@@ -370,5 +379,27 @@ test("an ACU question retains the wall and later clarification rejects an unrela
   const review=page.locator("[data-selected-acu-edit]").last();
   await expect(review).toContainText("no coincide con el material solicitado");
   await expect(review.getByRole("button",{name:"Aprobar y actualizar ACU"})).toBeDisabled();
+  expect(await page.evaluate(()=>window.selectedWrites)).toEqual([]);
+});
+
+
+test("short selected ACU task asks for an unspecified input without an invalid chat history",async ({page})=>{
+  await openLibrary(page,false,0,true);
+  await page.getByRole("row",{name:/ACU-77.*Mampostería de prueba/}).click();
+  await page.getByTitle("Asistente IA").click();
+  await page.locator("[name=ai-consent]").check();
+  const send=async question=>{
+    await page.getByRole("textbox",{name:"Consulta al asistente"}).fill(question);
+    await page.locator("#ai-question").getByRole("button",{name:/Enviar/}).click();
+  };
+  await send("quiero cargarle un insumo");
+  await expect(page.getByText("¿Qué insumo querés agregar al ACU seleccionado?")).toBeVisible();
+  await expect(page.getByText(/Historial de chat inválido/)).toHaveCount(0);
+  expect(await page.evaluate(()=>window.selectedWrites)).toEqual([]);
+  // The previous turn remains a read-only reference, not an additional
+  // consecutive user message in the OpenAI/Tauri chat payload.
+  await send("agregar arena al acu seleccionado");
+  await expect(page.locator("[data-selected-acu-edit]")).toContainText("Agregar Arena fina");
+  await expect(page.getByText(/Historial de chat inválido/)).toHaveCount(0);
   expect(await page.evaluate(()=>window.selectedWrites)).toEqual([]);
 });
