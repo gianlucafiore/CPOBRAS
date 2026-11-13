@@ -449,6 +449,8 @@ mod tests {
         let (temp, mut m, db) = fixture();
         let target = temp.path().join("cloud");
         configured(&mut m, target.clone());
+        // Use the configured path, including the Windows verbatim prefix returned to the UI.
+        let target = m.folder().to_path_buf();
         m.tick(&db, 1000);
         fs::rename(&target, temp.path().join("disconnected")).unwrap();
         m.tick(&db, 1900);
