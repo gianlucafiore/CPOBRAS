@@ -1,4 +1,4 @@
-import {canSaveLibraryAcu,libraryAcuContext,readLibraryAcuIntent,readLibraryAcus,saveLibraryAcu} from "../services/ai-library-acu.js";
+import {canSaveLibraryAcu,libraryAcuContext,readLibraryAcuIntent,readLibraryAcus,saveLibraryAcu,libraryAcuTurnFocus} from "../services/ai-library-acu.js";
 import {selectedAcuSnapshot,selectedAcuSnapshotMatches,readSelectedAcuEdit,canApplySelectedAcuEdit,applySelectedAcuEdit} from "../services/ai-selected-acu-edit.js";
 import {libraryAcuConversationState,requestedAddedMaterials} from "../services/ai-library-conversation.js";
 import {invokeReviewedAiAction} from '../services/ai-view-api-contracts.js';
@@ -49,9 +49,9 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       if(key?.startsWith("cpobras:conversation:"))storage.removeItem(key);
     }
   }catch{/* Local storage can be blocked; in-memory sessions still work. */}
-  function finishTaskSession(summary,{approval=null,savedCode=null}={}){
+  function finishTaskSession(summary,{approval=null,savedCode=null,askMore=true}={}){
     const answer=String(summary||"Operación completada.").slice(0,2500).trim()+
-      "\n\n¿Necesitás hacer algo más?";
+      (askMore?"\n\n¿Necesitás hacer algo más?":"");
     const message={role:"assistant",answer,content:JSON.stringify({answer}),
       taskCompleted:true,...(approval?{approval}:{}),
       ...(savedCode?{libraryAcuSaved:savedCode}:{})};
@@ -586,9 +586,11 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       const existing = prior?.libraryAcus?.filter(Boolean) ?? [];
       const search = [brief, ...existing.map(draft => draft.description)].filter(Boolean).join(" ");
       let evidence = libraryAcuContext(search, catalog);
-      const messages = prior ? model.messages.slice(-8).map(message => ({
-        role:message.role, content:message.content.slice(0, 2000),
-      })) : [];
+      // The draft is already serialized in current_library_acus below.
+      // Replaying the UI log may start with the previous task's assistant
+      // receipt and violate Tauri's user/assistant alternation, and it also
+      // leaks the selected ACU into an unrelated new one.
+      const messages = [{role:"user",content:String(requestedWork).slice(0,4000)}];
       const currentDrafts = existing.map(draft => ({
         description:draft.description, unit:draft.unit, missing:draft.aiWarnings,
         components:draft.components.map(row => ({
@@ -599,7 +601,6 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       const contextWithDraft = context => JSON.stringify({
         ...JSON.parse(context), requested_work:brief, action, current_library_acus:currentDrafts,
       });
-      messages.push({role:"user", content:brief.slice(0, 4000)});
       let result = await sendRequest(messages, contextWithDraft(evidence.context));
       if (!current()) return;
       let resources = evidence.resources;
@@ -623,6 +624,15 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       resources.push(...catalog.resources.filter(row => retainedIds.has(row.id)));
       const read = response => {
         const parsed = readLibraryAcus(response.text, resources);
+        // A request to ADD material may not be answered by claiming that a
+        // different ACU already has those components. Check the actual draft.
+        if (action === "add" && existing.length === 1 && parsed.drafts.length === 1) {
+          const currentIds = new Set(existing[0].components.map(row => row.resource_id));
+          const additions = parsed.drafts[0].components.filter(row => !currentIds.has(row.resource_id));
+          if (!additions.length && !parsed.drafts[0].aiWarnings.length) {
+            throw new Error("No se incorporó ningún insumo nuevo al borrador ni se identificaron faltantes.");
+          }
+        }
         if (parsed.keepDraft !== (action === "question" && existing.length > 0)) {
           throw new Error("La respuesta no corresponde a la acción solicitada.");
         }
