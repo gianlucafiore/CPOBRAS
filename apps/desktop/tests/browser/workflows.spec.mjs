@@ -139,6 +139,7 @@ async function bridge(page, options={}) {
     if(fixture.unavailableBackup)throw new Error('La carpeta de respaldo no está disponible');
     const id=crypto.randomUUID();backupSettings.last_success=1794056400;backupSettings.last_file='cpobras-manual-2026-11-07-'+id+'.sqlite';backupCopies.unshift({id,name:backupSettings.last_file,directory:backupSettings.directory,created_at:1794056400,bytes:1048576});return id;
    }
+   if(command==='restore_backup')throw new Error('Restauración de prueba: base activa conservada');
    if(command==='choose_backup_folder')return fixture.cancelFolder?null:'/home/usuario/Nube/Respaldos CPOBRAS';
    if(command==='open_backup_folder'||command==='verify_database')return null;
    if(command==='reopen_estimate'){estimate.issued=false;return null;}
@@ -1165,4 +1166,25 @@ test('supplier cost analysis card groups columns and adds providers from searcha
  await page.getByRole('button',{name:'Guardar precios',exact:true}).click();
  const saved=await page.evaluate(()=>window.__calls.filter(c=>c.command==='save_quote_response').at(-1).args.response);expect(saved.terms).toBe('Entrega en obra');
  await card.locator(':scope>summary').click();await expect(card).not.toHaveAttribute('open');await card.locator(':scope>summary').click();await expect(page.locator('[data-quote-cell]')).toHaveValue('100');
+});
+
+
+test('backup restoration asks inside the app even when browser confirmation is unavailable',async({page})=>{
+ await bridge(page);
+ await page.evaluate(()=>{window.confirm=()=>{throw new Error('window.confirm no está disponible');};});
+ await page.getByRole('button',{name:'Copias de seguridad',exact:true}).click();
+ const dialog=page.getByRole('dialog',{name:'Copias de seguridad'});
+ await dialog.getByRole('button',{name:'Crear copia ahora',exact:true}).click();
+ await dialog.getByRole('button',{name:'Restaurar',exact:true}).click();
+ await expect(dialog.getByRole('alert',{name:'Confirmar restauración'})).toBeVisible();
+ await expect.poll(()=>page.evaluate(()=>window.__calls.filter(x=>x.command==='restore_backup').length)).toBe(0);
+ await dialog.getByRole('button',{name:'Cancelar restauración',exact:true}).click();
+ await expect(dialog.getByRole('alert',{name:'Confirmar restauración'})).toHaveCount(0);
+ await dialog.getByRole('button',{name:'Restaurar',exact:true}).click();
+ await dialog.getByRole('button',{name:'Sí, restaurar esta copia',exact:true}).click();
+ await expect(dialog.locator('.modal-error')).toContainText('base activa conservada');
+ await expect.poll(()=>page.evaluate(()=>window.__calls.filter(x=>x.command==='restore_backup').length)).toBe(1);
+ const ids=await page.evaluate(()=>({restored:window.__calls.find(x=>x.command==='restore_backup').args.id,created:document.querySelector('[data-action="restore-backup"]').dataset.id}));
+ expect(ids.restored).toBe(ids.created);
+ await expect(dialog.getByRole('button',{name:'Sí, restaurar esta copia',exact:true})).toBeEnabled();
 });
