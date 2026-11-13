@@ -7,6 +7,34 @@ test('unstructured responses remain text; only whitelisted proposals become draf
   assert.deepEqual(draftFromProposal(reply.proposal),{kind:'line',record:{description:'Excavación',unit:'m³',quantity:'15.25',unit_cost:'30000'}});
   assert.equal('id' in reply.proposal,false);
 });
+test('Bonsai single-quoted tool calls are parsed and validated instead of printed',()=>{
+  const raw="{'tool_call': {'name': 'describe_capabilities', 'args': {'module': 'all'}}}";
+  const parsed=parseAiReply(raw);
+  assert.deepEqual(parsed.toolCall,{name:'describe_capabilities',args:{module:'all'}});
+  assert.equal(parsed.proposal,null);
+  assert.equal(parsed.answer,'Solicitud de consulta interpretada.');
+  assert.ok(!parsed.answer.includes('tool_call'));
+
+  const withAnswer=parseAiReply("{'answer': 'Consulto la capacidad del programa', 'tool_call': {'name': 'describe_capabilities', 'args': {'module': 'all'}}}");
+  assert.deepEqual(withAnswer.toolCall,parsed.toolCall);
+  assert.equal(withAnswer.answer,'Consulto la capacidad del programa');
+  const fenced=parseAiReply("```python\n{'tool_call': {'name': 'describe_capabilities', 'args': {'module': 'all'}}}\n```");
+  assert.deepEqual(fenced.toolCall,parsed.toolCall);
+
+  // The conversion never evaluates expressions, and only whitelisted tools survive.
+  for(const unsafe of [
+    "{'tool_call': {'name': 'delete_database', 'args': {}}}",
+    "{'tool_call': {'name': 'describe_capabilities', 'args': {'module': 'unknown'}}}",
+    "{'tool_call': {'name': 'describe_capabilities', 'args': {'module': 'all'}}}; process.exit(1)",
+    "{'tool_call': {'name': 'describe_capabilities', 'args': {'module': 'all'}}, 'answer': (function(){throw 1})()}",
+  ]){
+    assert.equal(parseAiReply(unsafe).toolCall,undefined,unsafe);
+  }
+  assert.deepEqual(parseAiReply('Hola, puedo ayudarte.'),{answer:'Hola, puedo ayudarte.',proposal:null});
+  assert.deepEqual(parseAiReply("{'proposal': {'kind':'line','description':'Falso'}}"),{answer:"{'proposal': {'kind':'line','description':'Falso'}}",proposal:null});
+  assert.deepEqual(parseAiReply('{"tool_call":{"name":"describe_capabilities","args":{"module":"all"}}}').toolCall,parsed.toolCall);
+});
+
 test('rejects money movements, negative values, locale ambiguity and invalid resource kinds',()=>{
   const valid={kind:'resource',description:'Cemento',unit:'kg'};
   for(const extra of [{kind:'payment'},{unit_price:'-1'},{quantity:'1,500'},{resource_type:'unknown'},{quantity:'1e50'},{unit:'x'.repeat(31)}]){
