@@ -544,6 +544,7 @@ pub(crate) fn apply_changes(conn: &Connection, batch: &ReviewedBatch) -> Result<
             .direct_unit_cost()
             .map_err(|e| invalid(&e.to_string()))?;
         let mut quantity = decimal(&old_quantity)?;
+        let mut measured_manual = None;
         if let Some(measurements) = &change.measurements {
             if measurements.is_empty() || measurements.len() > 100 {
                 return Err(invalid("La medición debe tener entre 1 y 100 renglones"));
@@ -589,7 +590,7 @@ pub(crate) fn apply_changes(conn: &Connection, batch: &ReviewedBatch) -> Result<
             if quantity < D::ZERO {
                 return Err(invalid("La medición neta no puede ser negativa"));
             }
-            conn.execute("INSERT OR REPLACE INTO measured_lines(line_id,source,previous_quantity) VALUES(?1,'takeoff',?2)",params![change.line_id.to_string(),manual])?;
+            measured_manual = Some(manual);
         }
         if quantity.checked_mul(cost).is_none() {
             return Err(invalid("Importe de partida fuera de rango"));
@@ -609,6 +610,10 @@ pub(crate) fn apply_changes(conn: &Connection, batch: &ReviewedBatch) -> Result<
             [id.to_string()],
         )?;
         conn.execute("UPDATE estimate_lines SET analysis_id=?1,unit_cost_snapshot=?2,quantity=?3 WHERE id=?4 AND estimate_id=?5",params![id.to_string(),cost.to_string(),quantity.to_string(),change.line_id.to_string(),batch.estimate_id.to_string()])?;
+        // Quantity updates clear measurement provenance; restore it after the trigger runs.
+        if let Some(manual) = measured_manual {
+            conn.execute("INSERT OR REPLACE INTO measured_lines(line_id,source,previous_quantity) VALUES(?1,'takeoff',?2)",params![change.line_id.to_string(),manual])?;
+        }
         conn.execute(
             "DELETE FROM line_analysis_sources WHERE line_id=?1",
             [change.line_id.to_string()],

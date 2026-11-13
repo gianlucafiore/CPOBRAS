@@ -53,7 +53,7 @@ fn undo_people_migration_for_fixture(conn: &rusqlite::Connection) {
         conn.execute_batch(&format!("DROP TRIGGER {name}")).unwrap();
     }
     conn.execute_batch("UPDATE management_records SET name=(SELECT name FROM persons p WHERE p.id=management_records.person_id),code=(SELECT code FROM persons p WHERE p.id=management_records.person_id),attributes_json=json_set(attributes_json,'$.cuit',COALESCE((SELECT cuit FROM persons p WHERE p.id=management_records.person_id),''),'$.email',(SELECT email FROM persons p WHERE p.id=management_records.person_id),'$.phone',(SELECT phone FROM persons p WHERE p.id=management_records.person_id),'$.address',(SELECT address FROM persons p WHERE p.id=management_records.person_id)) WHERE kind IN ('supplier','client_profile') AND person_id IS NOT NULL;
-    DROP VIEW clients;DROP INDEX supplier_person_link;DROP TABLE project_suppliers;DROP TABLE person_legacy_links;DROP TABLE people_migration_state;ALTER TABLE management_records DROP COLUMN person_id;DELETE FROM persons WHERE role='supplier';DROP INDEX person_tax_identity;
+    DROP TRIGGER IF EXISTS inactive_supplier_new_offer;DROP VIEW clients;DROP INDEX supplier_person_link;DROP TABLE project_suppliers;DROP TABLE person_legacy_links;DROP TABLE people_migration_state;ALTER TABLE management_records DROP COLUMN person_id;DELETE FROM persons WHERE role='supplier';DROP INDEX person_tax_identity;
     ALTER TABLE persons DROP COLUMN role;ALTER TABLE persons DROP COLUMN code;ALTER TABLE persons DROP COLUMN email;ALTER TABLE persons DROP COLUMN phone;ALTER TABLE persons DROP COLUMN address;ALTER TABLE persons DROP COLUMN tax_key;ALTER TABLE persons DROP COLUMN revision;ALTER TABLE persons RENAME TO clients;DELETE FROM schema_migrations WHERE version=21;").unwrap();
 }
 
@@ -1345,7 +1345,7 @@ fn upgrades_populated_schema_fifteen_and_deletes_its_preexisting_linked_line() {
         old.execute_batch(&format!("DROP TRIGGER {name}")).unwrap();
     }
     undo_people_migration_for_fixture(&old);
-    old.execute_batch("DROP TRIGGER assisted_batches_no_update; DROP TRIGGER assisted_batches_no_delete; DROP TABLE assisted_budget_batches; DROP TRIGGER inactive_client_new_project; DROP TRIGGER inactive_client_change_project; DROP TRIGGER inactive_supplier_new_offer; DROP TABLE advance_agreement_links; DROP TABLE entity_archives; DROP TABLE supplier_movements; DROP TABLE operation_files; ALTER TABLE operation_links DROP COLUMN archived_line_id; DROP TABLE deleted_estimate_lines; DROP TABLE line_analysis_sources; DROP TABLE estimate_resource_prices; DROP TABLE quotation_request_revisions;DROP TABLE quotation_response_files;DROP TABLE quotation_awards;DROP TABLE quotation_responses;DROP TABLE site_book_entries;DROP TABLE certificate_drafts;DROP TABLE certificate_sheets;DROP TABLE certified_sources;DROP TABLE quotation_requests;DROP TABLE estimate_adjustment_agreements;DROP TABLE index_points;DROP TABLE system_calendar;DROP TABLE estimate_price_definitions; DROP TABLE price_definition_templates;
+    old.execute_batch("DROP TRIGGER assisted_batches_no_update; DROP TRIGGER assisted_batches_no_delete; DROP TABLE assisted_budget_batches; DROP TRIGGER inactive_client_new_project; DROP TRIGGER inactive_client_change_project; DROP TRIGGER IF EXISTS inactive_supplier_new_offer; DROP TABLE advance_agreement_links; DROP TABLE entity_archives; DROP TABLE supplier_movements; DROP TABLE operation_files; ALTER TABLE operation_links DROP COLUMN archived_line_id; DROP TABLE deleted_estimate_lines; DROP TABLE line_analysis_sources; DROP TABLE estimate_resource_prices; DROP TABLE quotation_request_revisions;DROP TABLE quotation_response_files;DROP TABLE quotation_awards;DROP TABLE quotation_responses;DROP TABLE site_book_entries;DROP TABLE certificate_drafts;DROP TABLE certificate_sheets;DROP TABLE certified_sources;DROP TABLE quotation_requests;DROP TABLE estimate_adjustment_agreements;DROP TABLE index_points;DROP TABLE system_calendar;DROP TABLE estimate_price_definitions; DROP TABLE price_definition_templates;
              DROP TABLE print_profiles; DROP TRIGGER new_project_organization; DROP TRIGGER external_company_readonly_update; DROP TRIGGER external_company_readonly_delete; DROP TRIGGER clear_measured_quantity; DROP TABLE automatic_codes; DROP TABLE measured_lines; DROP TABLE project_attachments; DROP TABLE project_organizations; DROP TABLE organization_preferences; DROP TABLE organizations; DELETE FROM schema_migrations WHERE version>=16; CREATE TRIGGER operation_links_no_update BEFORE UPDATE ON operation_links BEGIN SELECT RAISE(ABORT,'operation links are immutable'); END;").unwrap();
     drop(old);
     let mut upgraded = LocalStore::open(&path).unwrap();
@@ -3136,7 +3136,9 @@ fn monthly_rentals_reconcile_partial_invoices_payments_and_cash_before_collectio
     let after = s.operations_report(p.id, Some(e.id), "2026-11-05").unwrap();
     assert_eq!(after.recurring_costs[0].unbilled, 80.into());
     let f = after.financial_projection.unwrap();
-    assert_eq!(f.additional_cash, 540.into());
+    // The paid 60 reduces outstanding debt and also reduces opening cash by 60.
+    assert_eq!(f.opening_cash, (-60).into());
+    assert_eq!(f.additional_cash, 600.into());
     assert_eq!(f.periods[0].gross, 600.into());
     assert_eq!(f.periods[0].collection_date, "2026-12-10");
     assert_eq!(
@@ -3315,7 +3317,9 @@ fn crew_friday_payments_cap_advance_recovery_and_replace_liquidated_wages() {
     let report = s.operations_report(p.id, Some(e.id), "2026-11-05").unwrap();
     assert_eq!(report.summaries[0].advance_paid_balance, 50.into());
     let f = report.financial_projection.unwrap();
-    assert_eq!(f.additional_cash, 300.into());
+    // The advance already left the project fund; recovery only reduces future wages.
+    assert_eq!(f.opening_cash, (-100).into());
+    assert_eq!(f.additional_cash, 400.into());
     let mut bad = operation(p.id, "payable");
     bad.partner_id = Some(crew);
     bad.amount = 200.into();
