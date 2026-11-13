@@ -22,7 +22,12 @@ fn verify(conn: &Connection) -> Result<()> {
 impl LocalStore {
     pub(crate) fn schema(&self, include_views: bool) -> Result<Vec<(String, String, String)>> {
         Ok(self.conn.prepare("SELECT type,name,sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' AND name<>'schema_migrations' AND (type IN ('table','index','trigger') OR (?1 AND type='view')) AND sql IS NOT NULL ORDER BY type,name")?
-            .query_map([include_views], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+            .query_map([include_views], |row| {
+                let sql: String = row.get(2)?;
+                // SQLite preserves CRLF from SQL files checked out on Windows.
+                // Normalize that representation only; keep all other schema text exact.
+                Ok((row.get(0)?, row.get(1)?, sql.replace("\r\n", "\n")))
+            })?
             .collect::<std::result::Result<_, _>>()?)
     }
 
@@ -125,6 +130,55 @@ mod tests {
     use super::*;
     use cpobras_core::Client;
     use uuid::Uuid;
+
+    #[test]
+    fn opens_and_restores_backup_with_windows_schema_line_endings() {
+        let path = std::env::temp_dir().join(format!("cpobras-crlf-{}.sqlite", Uuid::new_v4()));
+        let mut original = LocalStore::in_memory().unwrap();
+        let client = Client {
+            id: Uuid::new_v4(),
+            name: "Copia entre sistemas".into(),
+            cuit: None,
+        };
+        original.save_client(&client).unwrap();
+        original.backup_to(&path).unwrap();
+        // SQLite preserves CRLF from include_str! SQL migrations on Windows checkouts.
+        // Rewrite only schema text in this fixture; the SQL and records remain equivalent.
+        let fixture = Connection::open(&path).unwrap();
+        fixture.execute_batch("PRAGMA writable_schema=ON; UPDATE sqlite_schema SET sql=replace(replace(sql,char(13),''),char(10),char(13)||char(10)) WHERE sql IS NOT NULL; PRAGMA writable_schema=OFF;").unwrap();
+        drop(fixture);
+        let reopened = LocalStore::open_existing(&path).unwrap();
+        assert_eq!(reopened.list_clients().unwrap(), vec![client.clone()]);
+        drop(reopened);
+        let mut restored = LocalStore::in_memory().unwrap();
+        restored.restore_from(&path).unwrap();
+        assert_eq!(restored.list_clients().unwrap(), vec![client]);
+        restored.verify_integrity().unwrap();
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn line_ending_compatibility_still_rejects_different_columns() {
+        let path =
+            std::env::temp_dir().join(format!("cpobras-extra-column-{}.sqlite", Uuid::new_v4()));
+        let candidate = LocalStore::in_memory().unwrap();
+        candidate
+            .conn
+            .execute_batch("ALTER TABLE projects ADD COLUMN unexpected TEXT")
+            .unwrap();
+        candidate.backup_to(&path).unwrap();
+        assert!(LocalStore::open_existing(&path).is_err());
+        let mut live = LocalStore::in_memory().unwrap();
+        let client = Client {
+            id: Uuid::new_v4(),
+            name: "Conservar".into(),
+            cuit: None,
+        };
+        live.save_client(&client).unwrap();
+        assert!(live.restore_from(&path).is_err());
+        assert_eq!(live.list_clients().unwrap(), vec![client]);
+        std::fs::remove_file(path).unwrap();
+    }
 
     #[test]
     fn snapshot_restores_without_overwriting_backups() {
