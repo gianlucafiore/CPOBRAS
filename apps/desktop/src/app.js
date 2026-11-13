@@ -298,7 +298,9 @@ export function createWorkspaceApp({
     document.body.inert = true;
     try {
       state.databaseError="";
-      await originalInvoke("switch_database", { create });
+      const result=await originalInvoke("switch_database", { create });
+      if(result==="unchanged")state.message="La base seleccionada ya está activa.";
+      if(result==="cancelled")state.message="No se seleccionó un archivo. La base activa se conserva.";
     } catch (error) {
       state.databaseError="No se pudo cambiar la base de datos. " + String(error);
     } finally {
