@@ -7,9 +7,12 @@ const take=(s,n)=>String(s??"").slice(0,n);
 const userUtterances=(messages=[])=>messages.filter(m=>m?.role==="user"&&typeof m.content==="string")
  .slice(-6).map(m=>take(m.content,450));
 
-export function libraryAcuConversationState({messages=[],selectedAnalysis=null,pendingEdit=null,currentQuestion=""}={}){
+export function libraryAcuConversationState({messages=[],history=[],selectedAnalysis=null,pendingEdit=null,currentQuestion=""}={}){
+ // The working dialogue survives the UI's small rendered-message window.
+ // Record user turns only, scoped to the selected ACU in the calling app.
  const recent=userUtterances(messages);
- const lastTopic=recent.slice(-4);
+ const all=Array.isArray(history)&&history.length?history.slice(-16).map(x=>take(x,240)):recent;
+ const lastTopic=all.slice(-4);
  const focused=selectedAnalysis&&{
   id:take(selectedAnalysis.id,128),code:take(selectedAnalysis.code,120),
   description:take(selectedAnalysis.description,350),unit:take(selectedAnalysis.unit,40),
@@ -21,6 +24,7 @@ export function libraryAcuConversationState({messages=[],selectedAnalysis=null,p
  return {
   selected_analysis:focused||null,
   recent_user_turns:lastTopic,
+  earlier_user_decisions:all.slice(-12,-4),
   current_question:take(currentQuestion,450),
   pending_edit:pendingEdit?{changes:(pendingEdit.changes||[]).slice(0,20),
    description:take(pendingEdit.draft?.description,350)}:null,
@@ -55,5 +59,7 @@ export function candidateMatchesExplicitMaterial(resource,phrases){
  // Require at least one exact material noun from a user's explicit request.
  // Morphological substring matches (e.g. "arena" inside an unrelated item)
  // and model-invented explanations cannot satisfy this.
- return phrases.some(parts=>parts.some(word=>name.has(word)));
+ // The most recently requested material supersedes older additions. A
+ // previously requested product cannot validate a new unrelated request.
+ return phrases.at(-1).some(word=>name.has(word));
 }
