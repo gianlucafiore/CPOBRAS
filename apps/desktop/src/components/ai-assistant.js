@@ -499,8 +499,12 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
           changes:pending.changes}:null,
         policy:"Proponer SOLO operaciones para los componentes nombrados. Ninguna modificación se guarda sin aprobación."
       });
-      const messages=[...recentUserTurns.map(content=>({role:"user",content})),
-        {role:"user",content:brief.slice(0,3000)}].slice(-7);
+      // Previous user decisions are already present in contextFor().
+      // Tauri validates a strict user/assistant alternation: a group of
+      // consecutive user messages is rejected as "Historial de chat inválido".
+      // Start every short ACU operation with ONE current user message. Any
+      // catalog or format repair appends an assistant/user pair below.
+      const messages=[{role:"user",content:brief.slice(0,3000)}];
       let response=await send(messages,contextFor(resources));
       if(!current())return;
       // Incomplete provider JSON is repaired by the typed-edit retry below.
