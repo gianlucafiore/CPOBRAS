@@ -1,6 +1,6 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { readLibraryAcus, readLibraryAcuIntent, saveLibraryAcu, libraryAcuContext } from "../src/services/ai-library-acu.js";
+import { readLibraryAcus, readLibraryAcuIntent, saveLibraryAcu, libraryAcuContext, libraryAcuTurnFocus } from "../src/services/ai-library-acu.js";
 
 test("the library API accepts only typed intents and blocks incomplete writes", () => {
   assert.deepEqual(readLibraryAcuIntent('{"action":"new","work":"Yeso húmedo"}'), {action:"new",work:"Yeso húmedo"});
@@ -134,4 +134,21 @@ test("materials explicitly omitted by the user are not reported as missing, with
   ]).drafts[0];
   assert.equal(results.components.length,1);
   assert.deepEqual(results.aiWarnings,[]);
+});
+
+
+test("library follow-ups prefer a new unsaved draft over a highlighted older ACU",()=>{
+ const withDraft={pendingDraft:true,pendingEdit:false,selectedId:"old-masonry"};
+ for(const action of ["show","review","approve","question","add","revise","clarify","edit"]){
+  assert.equal(libraryAcuTurnFocus({action},withDraft),"draft",action);
+ }
+ assert.equal(libraryAcuTurnFocus({action:"new"},withDraft),"new");
+ assert.equal(libraryAcuTurnFocus({action:"finish"},withDraft),"finish");
+ assert.equal(libraryAcuTurnFocus({action:"edit",target:"selected"},withDraft),"selected");
+ const withoutDraft={pendingDraft:false,pendingEdit:false,selectedId:"old-masonry"};
+ assert.equal(libraryAcuTurnFocus({action:"show"},withoutDraft),"selected");
+ assert.equal(libraryAcuTurnFocus({action:"add"},withoutDraft),"selected");
+ assert.equal(libraryAcuTurnFocus({action:"question"},withoutDraft),"selected");
+ assert.deepEqual(readLibraryAcuIntent('{"action":"finish"}'),{action:"finish",work:undefined});
+ assert.deepEqual(readLibraryAcuIntent('{"action":"edit","target":"draft"}'),{action:"edit",work:undefined,target:"draft"});
 });
