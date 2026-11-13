@@ -453,6 +453,25 @@ fn lmstudio_failure_hint(status: u16, body: &Value) -> String {
     format!("LM Studio rechazó la solicitud (HTTP {status}). Revisá Developer → Server Logs para conocer el motivo; CPOBRAS no muestra el cuerpo de error porque podría contener datos privados.")
 }
 
+fn is_bonsai_model(model: &str) -> bool {
+    model.to_ascii_lowercase().contains("bonsai")
+}
+
+fn lmstudio_empty_reply_hint(body: &Value) -> String {
+    let choice = &body["choices"][0];
+    let finish = choice["finish_reason"].as_str().unwrap_or("");
+    let has_reasoning = choice["message"]["reasoning_content"]
+        .as_str().is_some_and(|value| !value.trim().is_empty())
+        || choice["message"]["reasoning"].as_str().is_some_and(|value| !value.trim().is_empty());
+    if finish == "length" {
+        return "LM Studio agotó los tokens de salida antes de dar una respuesta. El modelo pudo haberlos consumido razonando. Desactivá «Enable Thinking» en LM Studio o aumentá el límite de tokens del modelo.".into();
+    }
+    if has_reasoning {
+        return "LM Studio devolvió razonamiento pero no una respuesta final. Desactivá «Enable Thinking» para este modelo en LM Studio. CPOBRAS no mostrará razonamientos internos como si fueran respuestas.".into();
+    }
+    "LM Studio devolvió una respuesta vacía. Verificá la carga del modelo y su configuración de razonamiento en LM Studio.".into()
+}
+
 fn payload(
     provider: &str,
     model: &str,
@@ -510,8 +529,21 @@ fn payload(
         // The latest turns matter most to local models with limited context.
         let recent = messages.iter().rev().take(3).collect::<Vec<_>>();
         chat.extend(recent.iter().rev().map(|message| json!(message)));
-        let local_limit = if mode.is_none() { 768 } else { limit.min(1800) };
-        json!({"model":model,"messages":chat,"max_tokens":local_limit,"stream":false})
+        let local_limit = if is_bonsai_model(model) {
+            if mode.is_none() { 4096 } else { limit.max(4096).min(8192) }
+        } else if mode.is_none() {
+            768
+        } else {
+            limit.min(1800)
+        };
+        let mut request = json!({"model":model,"messages":chat,"max_tokens":local_limit,"stream":false});
+        if is_bonsai_model(model) && mode.is_none() {
+            // Bonsai defaults to thinking mode. Small output budgets were exhausted
+            // without a final answer. Request the non-thinking Jinja variant for
+            // general conversations; advanced ACU preparation retains reasoning.
+            request["chat_template_kwargs"] = json!({"enable_thinking":false});
+        }
+        request
     } else {
         json!({"model":model,"system":system,"messages":messages,"max_tokens":limit})
     }
@@ -529,10 +561,16 @@ fn decode(provider: &str, body: Value) -> Result<AiReply, String> {
             .collect::<Vec<_>>()
             .join("\n")
     } else if provider == "lmstudio" {
-        body["choices"][0]["message"]["content"]
-            .as_str()
-            .unwrap_or("")
-            .to_owned()
+        let content = &body["choices"][0]["message"]["content"];
+        if let Some(text) = content.as_str() {
+            text.to_owned()
+        } else if let Some(parts) = content.as_array() {
+            parts.iter().filter(|part| part["type"] == "text")
+                .filter_map(|part| part["text"].as_str())
+                .collect::<Vec<_>>().join("\n")
+        } else {
+            String::new()
+        }
     } else {
         body["content"]
             .as_array()
@@ -544,6 +582,9 @@ fn decode(provider: &str, body: Value) -> Result<AiReply, String> {
             .join("\n")
     };
     if text.trim().is_empty() {
+        if provider == "lmstudio" {
+            return Err(lmstudio_empty_reply_hint(&body));
+        }
         return Err("El proveedor no devolvió una respuesta de texto. Revisá el modelo o reformulá la consulta".into());
     }
     Ok(AiReply {
@@ -890,6 +931,34 @@ mod tests {
         )
         .contains("private irrelevant"));
     }
+    #[test]
+    fn bonsai_thinking_can_finish_without_text_and_is_not_leaked() {
+        let user = vec![Message { role: "user".into(), content: "¿Qué podés hacer?".into() }];
+        let basic = payload("lmstudio", "deepseek/deepseek-r1-0528-qwen3-8b", &user, "{}", None);
+        assert_eq!(basic["max_tokens"], 768);
+        assert!(basic.get("chat_template_kwargs").is_none());
+
+        let bonsai = payload("lmstudio", "prism-ml/bonsai-27b", &user, "{}", None);
+        assert_eq!(bonsai["max_tokens"], 4096);
+        assert_eq!(bonsai["chat_template_kwargs"]["enable_thinking"], false);
+        let advanced = payload("lmstudio", "prism-ml/bonsai-27b", &user, "{}", Some("acu"));
+        assert_eq!(advanced["max_tokens"], 5500);
+        assert!(advanced.get("chat_template_kwargs").is_none());
+
+        let only_thoughts = json!({"choices":[{"finish_reason":"length","message":{
+            "content":null,"reasoning_content":"private step-by-step reasoning"}}]});
+        let error = decode("lmstudio", only_thoughts).err().unwrap();
+        assert!(error.contains("tokens"));
+        assert!(!error.contains("private step-by-step"));
+        assert!(decode("lmstudio", json!({"choices":[{"finish_reason":"stop","message":{
+            "content":null,"reasoning_content":"private reasoning"}}]})).err().unwrap().contains("razonamiento"));
+
+        let parts = json!({"choices":[{"finish_reason":"stop","message":{"content":[
+            {"type":"text","text":"{\"answer\":\"Puedo ayudar\"}"}
+        ]}}]});
+        assert!(decode("lmstudio", parts).unwrap().text.contains("Puedo ayudar"));
+    }
+
     #[test]
     fn lmstudio_lists_and_responds() {
         let models = parse_local_models(&json!({"models":[
