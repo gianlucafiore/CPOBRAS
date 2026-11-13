@@ -62,6 +62,10 @@ async function openLibrary(page, proseFirst = false, asksWork = 0, selectedFixtu
               if(!context.conversation?.selected_analysis?.description)throw Error("No se preservó el trabajo seleccionado");
               return {text:JSON.stringify({answer:"Para este ACU de mampostería hace falta mortero de asiento; el consumo exacto depende de la junta.",keep_draft:true})};
             }
+            if(context.requested_change.startsWith("agregar arena")){
+              return {text:JSON.stringify({answer:"Agrego arena sin alterar los demás insumos.",
+                analysis_edit:{changes:[{operation:"add",resource_id:"r21",quantity:"0.02",quantity_unit:"m3"}]}})};
+            }
             if(context.requested_change.includes("para la mampostería")){
               if(!context.conversation.recent_user_turns.some(x=>x.includes("agregar arena")))throw Error("Se perdió el material solicitado");
               return {text:JSON.stringify({answer:"Coincidencia semántica no válida.",
