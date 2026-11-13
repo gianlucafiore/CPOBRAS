@@ -1,9 +1,9 @@
 name: Backup portability
 on:
   push:
-    paths: ["apps/desktop/src-tauri/src/backups.rs", "apps/desktop/src-tauri/src/database.rs", "crates/**", "tools/backup-check/**", ".github/workflows/backup-check.yml"]
+    paths: [".gitattributes", "apps/desktop/src-tauri/src/backups.rs", "apps/desktop/src-tauri/src/database.rs", "crates/**", "tools/backup-check/**", ".github/workflows/backup-check.yml"]
   pull_request:
-    paths: ["apps/desktop/src-tauri/src/backups.rs", "apps/desktop/src-tauri/src/database.rs", "crates/**", "tools/backup-check/**", ".github/workflows/backup-check.yml"]
+    paths: [".gitattributes", "apps/desktop/src-tauri/src/backups.rs", "apps/desktop/src-tauri/src/database.rs", "crates/**", "tools/backup-check/**", ".github/workflows/backup-check.yml"]
 jobs:
   backup:
     strategy:
@@ -18,3 +18,5 @@ jobs:
           toolchain: "1.99.1"
       - name: Test production backup manager
         run: cargo test --manifest-path tools/backup-check/Cargo.toml --locked
+      - name: Test database schema compatibility
+        run: cargo test --package cpobras-storage maintenance::tests --locked

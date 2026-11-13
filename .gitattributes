@@ -1,2 +1,5 @@
 # Preserve the original vendored license byte-for-byte.
 vendor/glib-0.18.5/LICENSE whitespace=-blank-at-eof
+
+# SQL schema text must be identical in Windows and Unix builds.
+*.sql text eol=lf
