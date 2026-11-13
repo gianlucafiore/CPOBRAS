@@ -65,6 +65,35 @@ automáticamente en el backend. Los insumos tienen que existir; no inventar IDs.
 update_analysis y reprice_analysis existen en la interfaz, sin escritura
 libre de IA. El backend no devuelve un campo committed para estas operaciones.
 
+## Contexto conversacional del ACU seleccionado
+
+Para cada mensaje de la biblioteca ACU el clasificador debe recibir
+**la selección real** (`selectedAnalysisId` leída con
+`get_analysis_details`), la descripción, unidad, los insumos actuales y las últimas
+intervenciones del usuario. No se debe interpretar un mensaje aislado ni
+reiniciar el trabajo por un seguimiento breve sobre rendimientos, materiales o
+dosificación.
+
+`ai-library-conversation.js` construye un resumen acotado y **solo de lectura**;
+`interaction:"question"` produce `{answer,keep_draft:true}` sin modificaciones
+propuestas. Las aclaraciones del trabajo se incorporan al siguiente turno de
+edición sin depender de palabras especiales.
+
+Una búsqueda de insumos devuelve candidatos, **no equivalencias técnicas**.
+Una adición de material nombrado explícitamente debe coincidir con el
+material solicitado. `requestedAddedMaterials` recupera los términos
+literales del usuario (sin nombres de materiales programados) y
+`candidateMatchesExplicitMaterial` impide aprobar productos de
+denominación no correspondiente, aunque compartan verbos de uso o palabras
+parecidas. Si el nombre es diferente pero realmente equivalente, se pide
+revisión explícita: no inventar la equivalencia.
+
+Las respuestas del modelo a la biblioteca deben ser objetos JSON; para
+OpenAI Responses se solicita `text.format=json_object`. La aplicación
+valida además el contrato tipado y puede reintentar internamente **una sola
+vez** una propuesta inválida. Las respuestas incoherentes no pueden habilitar
+el botón de escritura.
+
 ## Conversión de unidades en la biblioteca ACU (decisión de la IA)
 
 La IA es responsable de **razonar y calcular** los consumos por unidad de
