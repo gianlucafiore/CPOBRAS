@@ -24,6 +24,18 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
   const acuWorkbench=createAcuWorkbench({invoke,state,document,window,loadEstimate,loadEstimates,openEstimate,openResourceLibrary,canUseAi:()=>model.configured&&model.consent&&(!model.busy||model.approvedRun?.running)});
   const approvedPlans=createApprovedPlanRunner({invoke,state,loadEstimate,loadEstimates,openEstimate});
   let activeRequest=null,queryToken=0;
+  // User-only working notes, scoped by active SQLite database + ACU ID.
+  // Keeps technical decisions through the small UI history window; it never
+  // grants approval or stores provider-generated content.
+  const acuWorkingNotes=new Map();
+  const acuWorkingKey=()=>JSON.stringify([state.database?.scope??null,state.selectedAnalysisId||null]);
+  function rememberAcuTurn(question){
+    if(state.view!=="analyses"||!state.selectedAnalysisId)return [];
+    const key=acuWorkingKey(),items=acuWorkingNotes.get(key)||[];
+    if(items.at(-1)!==question)items.push(String(question).slice(0,240));
+    const recent=items.slice(-16);acuWorkingNotes.set(key,recent);
+    return recent;
+  }
   let pendingIntent=null;
   const store=()=>conversationStore(window.localStorage,state.projectId,state.estimateId,state.database?.scope);
   // Keep conversational referents across tabs of the same budget. The ACU
@@ -398,8 +410,10 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     const current=()=>token===queryToken && generation===model.generation &&
       canDraftLibraryAcu()&&state.selectedAnalysisId===selectedId&&
       (state.database?.scope??null)===databaseScope;
-    const recentUserTurns=model.messages.filter(message=>message.role==="user")
-      .slice(-6).map(message=>String(message.content||"").slice(0,450));
+    const remembered=acuWorkingNotes.get(acuWorkingKey())||[];
+    const recentUserTurns=remembered.length?remembered.slice(-12):
+      model.messages.filter(message=>message.role==="user").slice(-6)
+        .map(message=>String(message.content||"").slice(0,450));
     const requestedMaterialPhrases=requestedAddedMaterials([...recentUserTurns,question]);
     const brief=question;
     const send=async(messages,context)=>{
@@ -427,8 +441,8 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       const contextFor=items=>JSON.stringify({
         task:"library_acu_edit",interaction,requested_change:brief,
         conversation:libraryAcuConversationState({
-          messages:model.messages,selectedAnalysis:baseline,pendingEdit:pending,
-          currentQuestion:question,
+          messages:model.messages,history:recentUserTurns,selectedAnalysis:baseline,
+          pendingEdit:pending,currentQuestion:question,
         }),
         requested_material_names:requestedMaterialPhrases,
         currency:catalog.currency,as_of:catalog.as_of,resources:items.slice(0,80),
@@ -652,6 +666,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     }
   }
   async function handleLibraryTurn(question) {
+    rememberAcuTurn(question);
     const proposal = pendingLibraryAcu();
     const editProposal = pendingLibraryEdit();
     const last = model.messages.at(-1);
@@ -676,8 +691,8 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       }
       if (token !== queryToken || generation !== model.generation || !canDraftLibraryAcu()) return true;
       const conversation=libraryAcuConversationState({
-        messages:model.messages,selectedAnalysis:selected,pendingEdit:editProposal,
-        currentQuestion:question,
+        messages:model.messages,history:acuWorkingNotes.get(acuWorkingKey())||[],
+        selectedAnalysis:selected,pendingEdit:editProposal,currentQuestion:question,
       });
       activeRequest = createAiRequest(invoke, {
         messages:[{role:"user", content:question}],
@@ -687,6 +702,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
           selected_analysis:Boolean(selected),
           selected_analysis_context:conversation.selected_analysis,
           recent_user_turns:conversation.recent_user_turns,
+          earlier_user_decisions:conversation.earlier_user_decisions,
           current_question:conversation.current_question,
           pending_request:Boolean(followup),
           known_work:Boolean(followup?.libraryAcuBrief),
