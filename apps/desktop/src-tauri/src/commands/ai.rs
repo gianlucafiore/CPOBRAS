@@ -464,6 +464,18 @@ fn connection_error(error: reqwest::Error) -> String {
         "Se interrumpió la comunicación con el proveedor. La aplicación no reintenta automáticamente".into()
     }
 }
+fn provider_status_error(status: u16) -> &'static str {
+    match status {
+        400 => "El proveedor rechazó el formato de la solicitud (HTTP 400). Revisá que CPObras esté actualizado.",
+        401 | 403 => "El proveedor rechazó la clave o sus permisos (HTTP 401/403)",
+        404 => "El proveedor no encontró el modelo o recurso solicitado (HTTP 404)",
+        422 => "El proveedor rechazó un parámetro de la solicitud (HTTP 422)",
+        429 => "El proveedor informó un límite de uso o saldo insuficiente (HTTP 429)",
+        500..=599 => "El proveedor tuvo un error interno (HTTP 5xx). Intentá más tarde",
+        _ => "El proveedor no pudo responder. Revisá la conexión y el estado del servicio",
+    }
+}
+
 async fn perform_request(
     provider: String,
     model: String,
@@ -495,15 +507,10 @@ async fn perform_request(
         .await
         .map_err(connection_error)?;
     if !response.status().is_success() {
-        return Err(match response.status().as_u16() {
-            401 | 403 => "El proveedor rechazó la clave o sus permisos",
-            429 => "El proveedor informó un límite de uso o saldo insuficiente",
-            400 | 404 | 422 => {
-                "El proveedor rechazó la consulta. Revisá el nombre del modelo y su disponibilidad"
-            }
-            _ => "El proveedor no pudo responder. Intentá más tarde",
-        }
-        .into());
+        // Do not display raw provider response bodies (may contain prompts or
+        // sensitive information). An HTTP 400 is a malformed API request,
+        // NOT evidence that the model name or user key is incorrect.
+        return Err(provider_status_error(response.status().as_u16()).into());
     }
     let mut bytes = Vec::new();
     while let Some(chunk) = response.chunk().await.map_err(connection_error)? {
@@ -661,6 +668,9 @@ mod tests {
         assert_eq!(r.text, "Hola");
         assert!(decode("openai", json!({"error":"private"})).is_err());
         assert!(validate_settings("custom", "test", "1234567890").is_err());
+        assert!(provider_status_error(400).contains("formato"));
+        assert!(provider_status_error(404).contains("modelo"));
+        assert!(provider_status_error(429).contains("límite"));
     }
 }
 
