@@ -125,7 +125,9 @@ fn validate_settings(provider: &str, model: &str, key: &str) -> Result<(), Strin
     {
         return Err("Nombre de modelo inválido".into());
     }
-    if provider != "lmstudio" && (key.len() < 10 || key.len() > 512 || !key.bytes().all(|b| b.is_ascii_graphic())) {
+    if provider != "lmstudio"
+        && (key.len() < 10 || key.len() > 512 || !key.bytes().all(|b| b.is_ascii_graphic()))
+    {
         return Err("Clave de API inválida".into());
     }
     Ok(())
@@ -204,7 +206,11 @@ fn save_credentials(
     key: String,
 ) -> Result<AiStatus, String> {
     let model = model.trim().to_owned();
-    let mut key = if provider == "lmstudio" { "local-no-api-key".to_owned() } else { key.trim().to_owned() };
+    let mut key = if provider == "lmstudio" {
+        "local-no-api-key".to_owned()
+    } else {
+        key.trim().to_owned()
+    };
     if key.is_empty() {
         restore_credentials(state, vault)?;
         key = state
@@ -259,34 +265,86 @@ pub struct LocalAiModel {
 }
 fn parse_local_models(body: &Value) -> Vec<LocalAiModel> {
     let mut result = Vec::new();
-    let rows = body.get("models").and_then(Value::as_array)
+    let rows = body
+        .get("models")
+        .and_then(Value::as_array)
         .or_else(|| body.get("data").and_then(Value::as_array));
     for row in rows.into_iter().flatten() {
         let kind = row.get("type").and_then(Value::as_str).unwrap_or("llm");
-        if kind != "llm" && kind != "vlm" { continue; }
-        let id = row.get("key").or_else(|| row.get("id")).and_then(Value::as_str).unwrap_or("");
-        if id.is_empty() || id.len() > 120 || !id.bytes().all(|b| b.is_ascii_alphanumeric() || b"-._:/".contains(&b)) { continue; }
-        if result.iter().any(|m: &LocalAiModel| m.id == id) { continue; }
-        let name = row.get("display_name").and_then(Value::as_str).unwrap_or(id);
-        let loaded = row.get("loaded_instances").and_then(Value::as_array).is_some_and(|v| !v.is_empty())
+        if kind != "llm" && kind != "vlm" {
+            continue;
+        }
+        let id = row
+            .get("key")
+            .or_else(|| row.get("id"))
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        if id.is_empty()
+            || id.len() > 120
+            || !id
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"-._:/".contains(&b))
+        {
+            continue;
+        }
+        if result.iter().any(|m: &LocalAiModel| m.id == id) {
+            continue;
+        }
+        let name = row
+            .get("display_name")
+            .and_then(Value::as_str)
+            .unwrap_or(id);
+        let loaded = row
+            .get("loaded_instances")
+            .and_then(Value::as_array)
+            .is_some_and(|v| !v.is_empty())
             || row.get("state").and_then(Value::as_str) == Some("loaded");
-        result.push(LocalAiModel { id: id.into(), name: name.into(), loaded });
+        result.push(LocalAiModel {
+            id: id.into(),
+            name: name.into(),
+            loaded,
+        });
     }
     result
 }
 #[tauri::command]
 pub async fn ai_local_models() -> Result<Vec<LocalAiModel>, String> {
     let client = http_client()?;
-    let response = client.get("http://127.0.0.1:1234/api/v1/models").timeout(Duration::from_secs(8))
-        .send().await.map_err(|_| "No se pudo conectar a LM Studio. Activá Developer → Start Server (puerto 1234).".to_string())?;
+    let response = client
+        .get("http://127.0.0.1:1234/api/v1/models")
+        .timeout(Duration::from_secs(8))
+        .send()
+        .await
+        .map_err(|_| {
+            "No se pudo conectar a LM Studio. Activá Developer → Start Server (puerto 1234)."
+                .to_string()
+        })?;
     let response = if response.status().as_u16() == 404 {
-        client.get("http://127.0.0.1:1234/v1/models").timeout(Duration::from_secs(8)).send().await
+        client
+            .get("http://127.0.0.1:1234/v1/models")
+            .timeout(Duration::from_secs(8))
+            .send()
+            .await
             .map_err(|_| "LM Studio no respondió al buscar modelos.".to_string())?
-    } else { response };
-    if !response.status().is_success() { return Err("LM Studio rechazó el listado de modelos. Revisá su servidor y la autenticación.".into()); }
-    let body: Value = response.json().await.map_err(|_| "Respuesta de modelos inválida.".to_string())?;
+    } else {
+        response
+    };
+    if !response.status().is_success() {
+        return Err(
+            "LM Studio rechazó el listado de modelos. Revisá su servidor y la autenticación."
+                .into(),
+        );
+    }
+    let body: Value = response
+        .json()
+        .await
+        .map_err(|_| "Respuesta de modelos inválida.".to_string())?;
     let models = parse_local_models(&body);
-    if models.is_empty() { return Err("LM Studio está conectado, pero no informó modelos de lenguaje instalados.".into()); }
+    if models.is_empty() {
+        return Err(
+            "LM Studio está conectado, pero no informó modelos de lenguaje instalados.".into(),
+        );
+    }
     Ok(models)
 }
 #[tauri::command]
@@ -392,7 +450,10 @@ fn decode(provider: &str, body: Value) -> Result<AiReply, String> {
             .collect::<Vec<_>>()
             .join("\n")
     } else if provider == "lmstudio" {
-        body["choices"][0]["message"]["content"].as_str().unwrap_or("").to_owned()
+        body["choices"][0]["message"]["content"]
+            .as_str()
+            .unwrap_or("")
+            .to_owned()
     } else {
         body["content"]
             .as_array()
@@ -408,8 +469,12 @@ fn decode(provider: &str, body: Value) -> Result<AiReply, String> {
     }
     Ok(AiReply {
         text,
-        input_tokens: body["usage"]["input_tokens"].as_u64().or_else(|| body["usage"]["prompt_tokens"].as_u64()),
-        output_tokens: body["usage"]["output_tokens"].as_u64().or_else(|| body["usage"]["completion_tokens"].as_u64()),
+        input_tokens: body["usage"]["input_tokens"]
+            .as_u64()
+            .or_else(|| body["usage"]["prompt_tokens"].as_u64()),
+        output_tokens: body["usage"]["output_tokens"]
+            .as_u64()
+            .or_else(|| body["usage"]["completion_tokens"].as_u64()),
     })
 }
 struct BusyGuard<'a> {
@@ -499,7 +564,9 @@ pub async fn ai_chat(
         _=tokio::time::sleep(Duration::from_secs(if local_timeout { 180 } else { 60 }))=>{task.abort();Err("El proveedor agotó el tiempo de espera. Revisá el modelo y la conexión.".into())},
     }
 }
-fn http_client() -> Result<reqwest::Client, String> { http_client_timeout(60) }
+fn http_client() -> Result<reqwest::Client, String> {
+    http_client_timeout(60)
+}
 fn http_client_timeout(seconds: u64) -> Result<reqwest::Client, String> {
     // reqwest rustls-no-provider panics unless a provider is explicitly installed.
     // Reuse an existing default, otherwise install the ring backend already used by P2P.
@@ -568,7 +635,18 @@ async fn perform_request(
         ))
         .send()
         .await
-        .map_err(|e| if provider == "lmstudio" { if e.is_timeout() { "LM Studio tardó demasiado. Verificá si el modelo se cargó correctamente.".into() } else { "No se pudo contactar al servidor local de LM Studio (puerto 1234).".into() } } else { connection_error(e) })?;
+        .map_err(|e| {
+            if provider == "lmstudio" {
+                if e.is_timeout() {
+                    "LM Studio tardó demasiado. Verificá si el modelo se cargó correctamente."
+                        .into()
+                } else {
+                    "No se pudo contactar al servidor local de LM Studio (puerto 1234).".into()
+                }
+            } else {
+                connection_error(e)
+            }
+        })?;
     if !response.status().is_success() {
         // Do not display raw provider response bodies (may contain prompts or
         // sensitive information). An HTTP 400 is a malformed API request,
@@ -702,15 +780,34 @@ mod tests {
         assert_eq!(models.len(), 2);
         assert!(models[0].loaded);
         assert!(!models[1].loaded);
-        assert_eq!(parse_local_models(&json!({"data":[{"id":"other"}]})).len(), 1);
+        assert_eq!(
+            parse_local_models(&json!({"data":[{"id":"other"}]})).len(),
+            1
+        );
         let vault = MockVault::default();
-        save_credentials(&mut CredentialState::default(), &vault, "lmstudio".into(), "bonsai/27b".into(), "".into()).unwrap();
-        let request = payload("lmstudio","bonsai/27b",&[Message {role:"user".into(),content:"Hola".into()}],"{}",None);
-        assert_eq!(request["messages"][0]["role"],"system");
-        assert_eq!(request["messages"][1]["role"],"user");
+        save_credentials(
+            &mut CredentialState::default(),
+            &vault,
+            "lmstudio".into(),
+            "bonsai/27b".into(),
+            "".into(),
+        )
+        .unwrap();
+        let request = payload(
+            "lmstudio",
+            "bonsai/27b",
+            &[Message {
+                role: "user".into(),
+                content: "Hola".into(),
+            }],
+            "{}",
+            None,
+        );
+        assert_eq!(request["messages"][0]["role"], "system");
+        assert_eq!(request["messages"][1]["role"], "user");
         let reply=decode("lmstudio",json!({"choices":[{"message":{"content":"Hola"}}],"usage":{"prompt_tokens":20,"completion_tokens":3}})).unwrap();
-        assert_eq!(reply.input_tokens,Some(20));
-        assert_eq!(reply.text,"Hola");
+        assert_eq!(reply.input_tokens, Some(20));
+        assert_eq!(reply.text, "Hola");
     }
     #[test]
     fn fixed_provider_payloads_and_parsers() {
