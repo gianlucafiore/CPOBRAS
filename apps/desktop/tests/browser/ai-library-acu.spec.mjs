@@ -439,7 +439,7 @@ test("after a selected ACU edit, finish the task and add labor to a NEW ACU with
   };
   await send("podés ver el acu seleccionado?");
   await expect(page.getByText(/ACU seleccionado: ACU-77/)).toBeVisible();
-  await expect(page.getByText(/Cemento Portland/).last()).toBeVisible();
+  await expect(page.locator(".ai-transcript .ai-assistant").last()).toContainText("Cemento Portland");
   await send("modificá el rendimiento del cemento a 2 kg");
   await expect(page.locator("[data-selected-acu-edit]")).toContainText("Modificar Cemento");
   await send("aprobá la modificación");
