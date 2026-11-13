@@ -314,9 +314,16 @@ fn payload(
     };
     if provider == "openai" {
         if matches!(mode, Some("library_acu_intent" | "library_acu" | "library_acu_edit")) {
-            // The library workflow requires JSON; constrain OpenAI responses
-            // at the API instead of relying on a prose instruction alone.
-            json!({"model":model,"instructions":system,"input":messages,
+            // Responses JSON mode validates the *input messages*, not only
+            // the top-level instructions. With only the user's natural-language
+            // question ("agregá arena"), json_object otherwise returns HTTP 400.
+            // Add one trusted developer message; keep user messages unmodified.
+            let mut json_input = vec![json!({
+                "role": "developer",
+                "content": "Respondé exclusivamente con un objeto JSON válido."
+            })];
+            json_input.extend(messages.iter().map(|message| json!(message)));
+            json!({"model":model,"instructions":system,"input":json_input,
                 "max_output_tokens":limit,"store":false,
                 "text":{"format":{"type":"json_object"}}})
         } else {
@@ -624,6 +631,26 @@ mod tests {
         let p = payload("openai", "test", &msgs, "dato", None);
         assert_eq!(p["store"], false);
         assert!(p.get("tools").is_none());
+        assert_eq!(p["input"][0]["role"], "user");
+        // Regression: JSON mode REQUIRES the term JSON within an input
+        // message. The top-level instructions field does not count.
+        for mode in ["library_acu_intent", "library_acu", "library_acu_edit"] {
+            let request = payload("openai", "gpt-4.1-mini", &msgs, "{}", Some(mode));
+            assert_eq!(request["text"]["format"]["type"], "json_object");
+            assert_eq!(request["input"][0]["role"], "developer");
+            assert!(request["input"][0]["content"]
+                .as_str()
+                .unwrap()
+                .contains("JSON"));
+            assert_eq!(request["input"][1]["role"], "user");
+            assert_eq!(request["input"][1]["content"], "Hola");
+        }
+        // No extra instructions or constrained-output mode are added to
+        // unrelated conversations or to the Anthropic request format.
+        assert!(p.get("text").is_none());
+        let anthropic = payload("anthropic", "test", &msgs, "dato", Some("library_acu_intent"));
+        assert!(anthropic.get("text").is_none());
+        assert_eq!(anthropic["messages"][0]["content"], "Hola");
         let r=decode("openai",json!({"output":[{"type":"message","content":[{"type":"output_text","text":"Hola"}]}],"usage":{"input_tokens":2,"output_tokens":1}})).unwrap();
         assert_eq!(r.text, "Hola");
         let r = decode(
