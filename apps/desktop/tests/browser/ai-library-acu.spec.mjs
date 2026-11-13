@@ -11,7 +11,9 @@ async function openLibrary(page, proseFirst = false, asksWork = 0, selectedFixtu
       }));
       if(${selectedFixture})resources.push(
         {id:"r20",code:"INS-20",description:"Jabonera chica para pegar",unit:"un",kind:"material",active:true,price:"120",currency:"ARS"},
-        {id:"r21",code:"INS-21",description:"Arena fina",unit:"m3",kind:"material",active:true,price:"9000",currency:"ARS"}
+        {id:"r21",code:"INS-21",description:"Arena fina",unit:"m3",kind:"material",active:true,price:"9000",currency:"ARS"},
+        {id:"r22",code:"INS-22",description:"Mano de obra oficial",unit:"jor",kind:"labor",active:true,price:"90000",currency:"ARS"},
+        {id:"r23",code:"INS-23",description:"Mano de obra ayudante",unit:"jor",kind:"labor",active:true,price:"65000",currency:"ARS"}
       );
       const analyses = ${selectedFixture ? JSON.stringify([{
         id:"analysis-fixture",code:"ACU-77",description:"Mampostería de prueba",unit:"m²",
@@ -41,15 +43,19 @@ async function openLibrary(page, proseFirst = false, asksWork = 0, selectedFixtu
           if (args.mode === "library_acu_intent") {
             const text = args.messages[0].content.toLowerCase();
             let action = "new", work = text;
-            if (text.startsWith("no,")) action = "discard";
+            if(context.active_library_draft && context.selected_analysis)
+              throw Error("El ACU nuevo se confundió con el ACU seleccionado");
+            if (text.includes("no necesito nada más") || text.includes("no necesito nada mas")) action = "finish";
+            else if (text.startsWith("no,")) action = "discard";
             else if (text === "si" || text === "perfecto" || text === "mandale con esa composición") action = "approve";
-            else if (text.startsWith("a donde") || text.startsWith("mostra") || text.includes("qué pasó con mi acu")) action = "show";
+            else if (text.startsWith("a donde") || text.startsWith("mostra") ||
+              text.includes("ver el acu seleccionado") || text.includes("qué pasó con mi acu")) action = "show";
             else if (text.includes("formulario") || text.includes("editor")) action = "review";
             else if (text.includes("aprob") || text.includes("guardá los cambios")) action = "approve";
             else if (text.includes("modific") || text.includes("cambiale") || text.includes("ajust") || (text.includes("cargarle un insumo") && context.selected_analysis)) action = "edit";
             else if (text.includes("cómo") || text.includes("cuánta arena")) action = "question";
             else if (text.includes("para la mampostería") && context.selected_analysis) action = "clarify";
-            else if (text.startsWith("agregá") || text.startsWith("agregar")) action = "add";
+            else if (text.startsWith("agregá") || text.startsWith("agregar") || text.startsWith("agrega ")) action = "add";
             else if (text.includes("genérico") || text.includes("generico") || text.startsWith("aplicación")) {
               if (context.pending_request) action = "clarify";
               else work = undefined;
@@ -84,6 +90,22 @@ async function openLibrary(page, proseFirst = false, asksWork = 0, selectedFixtu
               analysis_edit:{changes:[{operation:"set",resource_id:"r0",quantity:"2",quantity_unit:"kg"}]}})};
           }
           if (args.mode !== "library_acu" || context.task !== "library_acu") throw Error("Pedido mal dirigido");
+          if(!args.messages?.length || args.messages.at(-1).role!=="user" ||
+            args.messages.some((msg,i)=>msg.role!==(i%2?"assistant":"user") ||
+              !String(msg.content||"").trim()))throw Error("Historial de chat inválido");
+          if(context.action==="add" && context.current_library_acus?.some(d=>/yeso/i.test(d.description))){
+            const names=new Set(context.resources.map(row=>row.id));
+            if(!names.has("r22") || !names.has("r23"))
+              return {text:JSON.stringify({answer:"Buscando insumos de mano de obra.",catalog_query:{terms:["oficial","ayudante"]}})};
+            return {text:JSON.stringify({answer:"Agrego el oficial y el ayudante al ACU nuevo de yeso.",
+              library_acus:[{description:"Aplicación de yeso por vía húmeda",unit:"m²",
+                components:[
+                  {resource_id:"r17",quantity:"8",quantity_unit:"kg",catalog_quantity:"0.32",
+                    conversion_basis:{per_unit_quantity:"25",per_unit_unit:"kg"}},
+                  {resource_id:"r22",quantity:"0.15",quantity_unit:"jor"},
+                  {resource_id:"r23",quantity:"0.15",quantity_unit:"jor"}
+                ],missing:[]}]})};
+          }
           if (remainingProse-- > 0) return {text:JSON.stringify({answer:"Preparé un ACU. Consultá para completar."})};
           if (remainingWorkQuestions-- > 0) return {text:JSON.stringify({answer:"¿Para qué trabajo querés crear el ACU?",needs_details:true,missing_field:"work"})};
           const question = args.messages.at(-1).content;
@@ -402,4 +424,38 @@ test("short selected ACU task asks for an unspecified input without an invalid c
   await expect(page.locator("[data-selected-acu-edit]")).toContainText("Agregar Arena fina");
   await expect(page.getByText(/Historial de chat inválido/)).toHaveCount(0);
   expect(await page.evaluate(()=>window.selectedWrites)).toEqual([]);
+});
+
+
+test("after a selected ACU edit, finish the task and add labor to a NEW ACU without leaking selection",async ({page})=>{
+  await openLibrary(page,false,0,true);
+  await page.getByRole("row",{name:/ACU-77.*Mampostería de prueba/}).click();
+  await page.getByTitle("Asistente IA").click();
+  await page.locator("[name=ai-consent]").check();
+  const send=async question=>{
+    await page.getByRole("textbox",{name:"Consulta al asistente"}).fill(question);
+    await page.locator("#ai-question").getByRole("button",{name:/Enviar/}).click();
+  };
+  await send("podés ver el acu seleccionado?");
+  await expect(page.getByText(/ACU seleccionado: ACU-77/)).toBeVisible();
+  await expect(page.getByText(/Cemento Portland/).last()).toBeVisible();
+  await send("modificá el rendimiento del cemento a 2 kg");
+  await expect(page.locator("[data-selected-acu-edit]")).toContainText("Modificar Cemento");
+  await send("aprobá la modificación");
+  await expect(page.getByText(/Actualicé el ACU existente/)).toBeVisible();
+  expect(await page.evaluate(()=>window.selectedWrites.length)).toBe(1);
+  await send("No necesito nada más por ahora");
+  await expect(page.getByText(/cerré la tarea/)).toBeVisible();
+  await expect(page.locator(".ai-transcript .ai-message")).toHaveCount(1);
+  await expect(page.getByText("¿Necesitás hacer algo más?")).toHaveCount(0);
+  await send("Necesito agregar un ACU de aplicación de yeso húmedo");
+  await expect(page.locator("[data-library-acu-preview]")).toContainText("Yeso");
+  await send("agrega mano de obra de un oficial y ayudante");
+  const draft=page.locator("[data-library-acu-preview]").last();
+  await expect(draft).toContainText("Yeso");
+  await expect(draft).toContainText("Mano de obra oficial");
+  await expect(draft).toContainText("Mano de obra ayudante");
+  await expect(page.locator("[data-selected-acu-edit]")).toHaveCount(0);
+  expect(await page.evaluate(()=>window.selectedWrites.length)).toBe(1);
+  expect(await page.evaluate(()=>window.libraryWrites)).toEqual([]);
 });
