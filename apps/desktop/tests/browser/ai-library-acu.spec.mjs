@@ -93,7 +93,7 @@ async function openLibrary(page, proseFirst = false, asksWork = 0, selectedFixtu
           if(!args.messages?.length || args.messages.at(-1).role!=="user" ||
             args.messages.some((msg,i)=>msg.role!==(i%2?"assistant":"user") ||
               !String(msg.content||"").trim()))throw Error("Historial de chat inválido");
-          if(context.action==="add" && context.current_library_acus?.some(d=>/yeso/i.test(d.description))){
+          if(context.action==="add" && /(?:oficial|ayudante|mano de obra)/i.test(args.messages[0]?.content||"") && context.current_library_acus?.some(d=>/yeso/i.test(d.description))){
             const names=new Set(context.resources.map(row=>row.id));
             if(!names.has("r22") || !names.has("r23"))
               return {text:JSON.stringify({answer:"Buscando insumos de mano de obra.",catalog_query:{terms:["oficial","ayudante"]}})};
@@ -252,7 +252,6 @@ test("converses about the proposal, revises it, and saves only on explicit appro
   await send("¿cómo convertiste el yeso?");
   await expect(page.getByText(/Dividí 8 kg por los 25 kg/)).toBeVisible();
   await send("Agregá malla de refuerzo");
-  console.log("DEBUG_ACU_FOLLOWUP",JSON.stringify({chat:(await page.locator(".ai-transcript").innerText()).slice(-2500),error:await page.locator(".ai-error").innerText()}));
   await expect(page.getByText(/Malla de refuerzo: 1.05 m²/)).toBeVisible();
   await expect(page.locator(".ai-proposal li").filter({hasText:"0.32 bolsa"})).toBeVisible();
   expect(await page.evaluate(() => window.libraryWrites)).toEqual([]);
