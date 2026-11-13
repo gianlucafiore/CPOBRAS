@@ -1,9 +1,9 @@
 name: Backup portability
 on:
   push:
-    paths: ["apps/desktop/src-tauri/src/backups.rs", "crates/**", "tools/backup-check/**", ".github/workflows/backup-check.yml"]
+    paths: ["apps/desktop/src-tauri/src/backups.rs", "apps/desktop/src-tauri/src/database.rs", "crates/**", "tools/backup-check/**", ".github/workflows/backup-check.yml"]
   pull_request:
-    paths: ["apps/desktop/src-tauri/src/backups.rs", "crates/**", "tools/backup-check/**", ".github/workflows/backup-check.yml"]
+    paths: ["apps/desktop/src-tauri/src/backups.rs", "apps/desktop/src-tauri/src/database.rs", "crates/**", "tools/backup-check/**", ".github/workflows/backup-check.yml"]
 jobs:
   backup:
     strategy:

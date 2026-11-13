@@ -42,6 +42,7 @@ async function bridge(page, options={}) {
   const schedule = current => ({ tasks: current.tasks.map((task, index) => ({ id: task.id, start: fixture.ganttDates?"2026-11-09":"2026-11-05", finish: fixture.ganttDates?"2026-11-16":"2026-11-09", start_day: index, finish_day: index + task.duration_days, float_days: 0, critical: true })), duration_days: current.tasks.reduce((n, task) => n + task.duration_days, 0), finish: "2026-11-09", curve: [{ date: "2026-11-05", period_cost: "100", cumulative_cost: "100" }], budget: "100", planned_progress: "50", actual_progress: current.tasks[0]?.actual_progress || "0", warnings: [] });
   window.__TAURI_INTERNALS__ = { invoke: async (command, args = {}) => {
    calls.push({ command, args: structuredClone(args) });
+   if(command==='switch_database')throw new Error('No se puede escribir en la carpeta seleccionada (os error 5)');
    if(command==='active_database')return {name:'Prueba',path:'/tmp/cpobras-test.sqlite',scope:'browser-workflows',warning:null};
    if(command==='list_persons')return structuredClone(persons.filter(p=>p.role===args.role||p.role==='both'));
    if(command==='save_person'){let p=args.id?persons.find(p=>p.id===args.id):null;if((p?.revision||0)!==args.revision)throw new Error('El contacto cambió. Recargá');const tax=normalizePerson(args.person.cuit);if(tax&&persons.some(q=>q.id!==args.id&&normalizePerson(q.cuit)===tax))throw new Error('Ya existe una persona con ese CUIT');if(p){const role=p.role===args.role?p.role:'both';Object.assign(p,args.person,{role,revision:p.revision+1});if(role!=='client')p.supplier_record_id||=p.id;}else{p={id:crypto.randomUUID(),...args.person,role:args.role,revision:1,supplier_record_id:null};if(args.role!=='client')p.supplier_record_id=p.id;persons.push(p);}return structuredClone(p);}
@@ -1187,4 +1188,19 @@ test('backup restoration asks inside the app even when browser confirmation is u
  const ids=await page.evaluate(()=>({restored:window.__calls.find(x=>x.command==='restore_backup').args.id,created:document.querySelector('[data-action="restore-backup"]').dataset.id}));
  expect(ids.restored).toBe(ids.created);
  await expect(dialog.getByRole('button',{name:'Sí, restaurar esta copia',exact:true})).toBeEnabled();
+});
+
+
+test('opening a database displays native errors inside the app without browser alerts',async({page})=>{
+ await bridge(page);
+ await page.evaluate(()=>{window.alert=()=>{throw new Error('window.alert no está disponible');};});
+ await page.locator('.database-menu summary').click();
+ await page.getByRole('button',{name:'Abrir base de datos…',exact:true}).click();
+ await expect(page.getByRole('alert')).toContainText('os error 5');
+ await expect(page.locator('.database-menu-path')).toContainText('Prueba');
+ await expect(page.locator('body')).not.toHaveAttribute('inert','');
+ await page.locator('.database-menu summary').click();
+ await page.getByRole('button',{name:'Abrir base de datos…',exact:true}).click();
+ await expect.poll(()=>page.evaluate(()=>window.__calls.filter(x=>x.command==='switch_database').length)).toBe(2);
+ await expect(page.getByRole('alert')).toContainText('os error 5');
 });

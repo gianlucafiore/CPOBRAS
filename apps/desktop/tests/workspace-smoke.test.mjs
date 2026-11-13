@@ -215,13 +215,15 @@ test("database menu protects a draft and keeps the current view on picker cancel
   assert.ok(!app.calls.some(([command]) => command === "switch_database"));
 
   discard = true;
-  const currentView = app.root.innerHTML;
+  const currentView = app.state.view;
   await app.click("database-open");
   assert.deepEqual(app.calls.at(-1), ["switch_database", {create:false}]);
   await app.click("database-new");
   assert.deepEqual(app.calls.at(-1), ["switch_database", {create:true}]);
-  assert.match(app.alerts.at(-1), /El archivo ya existe/);
+  assert.match(app.state.databaseError, /El archivo ya existe/);
+  assert.match(app.root.innerHTML, /role="alert"/);
+  assert.equal(app.alerts.length, 0);
   assert.equal(app.document.body.inert, false);
   assert.equal(app.state.pageDirty, true);
-  assert.equal(app.root.innerHTML, currentView);
+  assert.equal(app.state.view, currentView);
 });

@@ -3,3 +3,6 @@
 type Db = std::sync::Mutex<cpobras_storage::LocalStore>;
 #[path = "../../../apps/desktop/src-tauri/src/backups.rs"]
 mod backups;
+
+#[path = "../../../apps/desktop/src-tauri/src/database.rs"]
+mod database;
