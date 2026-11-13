@@ -816,6 +816,14 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     const focus=libraryAcuTurnFocus(intent,{
       pendingDraft:!!proposal,pendingEdit:!!editProposal,selectedId:state.selectedAnalysisId
     });
+    if(proposal&&focus==="selected"&&intent.action!=="show"){
+      // Never silently abandon an unsaved new ACU to mutate the background
+      // selection, even if the classifier ambiguously changes its target.
+      addReply(question,{answer:"Hay un ACU nuevo en preparación («"+
+        proposal.libraryAcus.find(Boolean)?.description+
+        "»). Primero guardalo o descartalo antes de modificar el ACU seleccionado. No se modificó ningún análisis."});
+      paint();return true;
+    }
     switch (intent.action) {
       case "finish":
         if(proposal||editProposal){
@@ -835,7 +843,9 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
         else return false;
         break;
       case "show":
-        if(editProposal){
+        if(focus==="selected"){
+          await showSelectedLibraryAcu(question);
+        }else if(editProposal){
           model.question="";
           model.notice="Los cambios propuestos están detallados en la tarjeta del ACU seleccionado.";
           paint();
@@ -847,8 +857,6 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
           host.querySelector("[data-library-acu-preview]")?.scrollIntoView({block:"nearest"});
         } else if (last?.libraryAcuRetry) {
           await prepareLibraryAcu(question, last, question, "clarify");
-        } else if(focus==="selected"){
-          await showSelectedLibraryAcu(question);
         } else {
           addReply(question, last?.libraryAcuSaved
             ? {answer:`El ACU ${last.libraryAcuSaved} está en Inicio → ACU.`, libraryAcuSaved:last.libraryAcuSaved}
@@ -885,6 +893,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
         }
         break;
       case "discard":
+        acuWorkingNotes.clear();
         if(editProposal)editProposal.spent=true;
         if (followup) {
           followup.libraryAcus = [];
