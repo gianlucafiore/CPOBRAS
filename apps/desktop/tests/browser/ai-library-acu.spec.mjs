@@ -49,7 +49,7 @@ async function openLibrary(page, proseFirst = false, asksWork = 0, selectedFixtu
             else if (text.includes("modific") || text.includes("cambiale") || text.includes("ajust")) action = "edit";
             else if (text.includes("cómo") || text.includes("cuánta arena")) action = "question";
             else if (text.includes("para la mampostería") && context.selected_analysis) action = "clarify";
-            else if (text.startsWith("agregá")) action = "add";
+            else if (text.startsWith("agregá") || text.startsWith("agregar")) action = "add";
             else if (text.includes("genérico") || text.includes("generico") || text.startsWith("aplicación")) {
               if (context.pending_request) action = "clarify";
               else work = undefined;
