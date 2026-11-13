@@ -92,6 +92,35 @@ no de cuántos mensajes se muestran. Por eso el flujo evita reenviar el
 historial de tareas terminadas y no genera una respuesta adicional de IA
 solo para despedirse.
 
+## Prioridad de tareas y referencias de ACU
+
+En la biblioteca puede haber **una fila de ACU seleccionada** y, al mismo
+tiempo, **un ACU nuevo en preparación**. Son objetos distintos:
+
+- `active_library_draft` contiene la composición del ACU nuevo aún sin guardar.
+  Los seguimientos («agregá...», «sacá...», «cambiá...», «¿cuánto requiere...?»)
+  se refieren por defecto a **ese borrador**, incluso cuando la tabla mantenga
+  seleccionado otro ACU.
+- `selected_analysis_context` se consulta para editar un ACU existente **solo**
+  cuando no hay borrador nuevo en curso, o cuando el usuario solicita
+  expresamente mirar ese ACU. No se filtra su composición en el contexto
+  técnico de un borrador ajeno.
+- Si hay un borrador nuevo y el usuario quiere modificar el ACU existente
+  seleccionado, el sistema solicita cerrar o descartar el borrador antes de
+  iniciar esa modificación: no se cambia el objetivo silenciosamente.
+- «Mostrame el ACU seleccionado» es una **lectura directa** de
+  `get_analysis_details({analysisId})`, no una búsqueda de propuestas IA.
+- La acción semántica `finish` cierra una tarea **sin guardados pendientes**,
+  vacía la memoria temporal y no envía llamadas adicionales al proveedor.
+  Si hay un borrador sin aplicar, pide resolverlo antes de cerrar.
+- En las llamadas de `library_acu` se envía **un único mensaje de usuario**
+  más el estado estructurado `current_library_acus`. Nunca se reenvía
+  un historial de otra tarea ni se crean mensajes user-user incompatibles
+  con la validación nativa de Tauri.
+- Al pedir que se **agregue** un insumo, una respuesta que afirme
+  erróneamente que ya está incluido, sin nuevos componentes ni faltantes,
+  no es una propuesta válida. Se intenta repararla internamente una vez.
+
 ## Contexto conversacional del ACU seleccionado
 
 Para cada mensaje de la biblioteca ACU el clasificador debe recibir
