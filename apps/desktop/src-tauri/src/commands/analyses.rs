@@ -280,6 +280,15 @@ pub(crate) struct EditedAnalysisComponent {
     unit_price: String,
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ExpectedAnalysisSnapshot {
+    code: String,
+    description: String,
+    unit: String,
+    components: Vec<EditedAnalysisComponent>,
+}
+
 #[tauri::command]
 pub(crate) fn update_analysis(
     db: tauri::State<'_, Db>,
@@ -288,6 +297,7 @@ pub(crate) fn update_analysis(
     description: String,
     unit: String,
     components: Vec<EditedAnalysisComponent>,
+    expected_snapshot: Option<ExpectedAnalysisSnapshot>,
 ) -> Result<AnalysisView, String> {
     let id = Uuid::parse_str(&analysis_id).map_err(|e| e.to_string())?;
     if components.is_empty()
@@ -298,8 +308,41 @@ pub(crate) fn update_analysis(
         return Err("El ACU requiere datos completos y al menos un insumo".into());
     }
     let mut store = db.lock().map_err(|e| e.to_string())?;
-    if store.get_analysis(id).map_err(|e| e.to_string())?.is_none() {
-        return Err("ACU inexistente".into());
+    let previous = store
+        .get_analysis(id)
+        .map_err(|e| e.to_string())?
+        .ok_or("ACU inexistente")?;
+    // For reviewed AI edits, check the EXACT original inside the same DB lock
+    // used for writing. Manual UI calls omit expected_snapshot and keep their
+    // previous behavior. Prevent stale AI proposals from overwriting changes.
+    if let Some(expected) = expected_snapshot {
+        let components_match = expected.components.len() == previous.components.len()
+            && expected
+                .components
+                .iter()
+                .zip(previous.components.iter())
+                .all(|(sent, stored)| {
+                    let resource = Uuid::parse_str(&sent.resource_id);
+                    let quantity = Decimal::from_str(&sent.quantity.replace(',', "."));
+                    let price = Decimal::from_str(&sent.unit_price.replace(',', "."));
+                    matches!((resource, quantity, price), (Ok(a), Ok(b), Ok(c))
+                        if a == stored.resource_id
+                            && b == stored.quantity_per_unit
+                            && c == stored.unit_price)
+                });
+        if !components_match
+            || previous.code != expected.code
+            || previous.description != expected.description
+            || previous.unit != expected.unit
+        {
+            return Err(
+                "El ACU fue modificado después de preparar esta propuesta. Volvé a revisarlo."
+                    .into(),
+            );
+        }
+        if store.is_line_analysis(id).map_err(|e| e.to_string())? {
+            return Err("Los ACU vinculados a partidas se editan desde el presupuesto".into());
+        }
     }
     let mut snapshots = Vec::new();
     for component in components {

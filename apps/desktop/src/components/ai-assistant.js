@@ -1,4 +1,7 @@
-import {canSaveLibraryAcu,libraryAcuContext,readLibraryAcuIntent,readLibraryAcus,saveLibraryAcu} from "../services/ai-library-acu.js";
+import {canSaveLibraryAcu,libraryAcuContext,readLibraryAcuIntent,readLibraryAcus,saveLibraryAcu,libraryAcuTurnFocus} from "../services/ai-library-acu.js";
+import {selectedAcuSnapshot,selectedAcuSnapshotMatches,readSelectedAcuEdit,canApplySelectedAcuEdit,applySelectedAcuEdit} from "../services/ai-selected-acu-edit.js";
+import {libraryAcuConversationState,requestedAddedMaterials} from "../services/ai-library-conversation.js";
+import {invokeReviewedAiAction} from '../services/ai-view-api-contracts.js';
 import {conversationStore,conversationAcuRequest,structuredConversationContext} from '../services/ai-conversation-context.js';
 import {createAcuWorkbench} from "./ai-acu-workbench.js";
 import {executeBudgetTool,budgetPreparationRequest} from '../services/ai-budget-tools.js';
@@ -21,8 +24,51 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
   const acuWorkbench=createAcuWorkbench({invoke,state,document,window,loadEstimate,loadEstimates,openEstimate,openResourceLibrary,canUseAi:()=>model.configured&&model.consent&&(!model.busy||model.approvedRun?.running)});
   const approvedPlans=createApprovedPlanRunner({invoke,state,loadEstimate,loadEstimates,openEstimate});
   let activeRequest=null,queryToken=0;
+  // User-only working notes, scoped by active SQLite database + ACU ID.
+  // Keeps technical decisions through the small UI history window; it never
+  // grants approval or stores provider-generated content.
+  const acuWorkingNotes=new Map();
+  const acuWorkingKey=()=>JSON.stringify([state.database?.scope??null,state.selectedAnalysisId||null]);
+  function rememberAcuTurn(question){
+    if(state.view!=="analyses"||!state.selectedAnalysisId)return [];
+    const key=acuWorkingKey(),items=acuWorkingNotes.get(key)||[];
+    if(items.at(-1)!==question)items.push(String(question).slice(0,240));
+    const recent=items.slice(-16);acuWorkingNotes.set(key,recent);
+    return recent;
+  }
   let pendingIntent=null;
+  // The assistant is task-scoped, not a chat archive. Existing stored chats
+  // are cleared and no new conversational transcript is persisted on disk.
   const store=()=>conversationStore(window.localStorage,state.projectId,state.estimateId,state.database?.scope);
+  // Remove transcripts persisted by earlier releases, across all budgets.
+  // No conversations are saved to localStorage in the new task-based mode.
+  try{
+    const storage=window.localStorage;
+    for(let i=storage.length-1;i>=0;i--){
+      const key=storage.key(i);
+      if(key?.startsWith("cpobras:conversation:"))storage.removeItem(key);
+    }
+  }catch{/* Local storage can be blocked; in-memory sessions still work. */}
+  function finishTaskSession(summary,{approval=null,savedCode=null,askMore=true}={}){
+    const answer=String(summary||"Operación completada.").slice(0,2500).trim()+
+      (askMore?"\n\n¿Necesitás hacer algo más?":"");
+    const message={role:"assistant",answer,content:JSON.stringify({answer}),
+      taskCompleted:true,...(approval?{approval}:{}),
+      ...(savedCode?{libraryAcuSaved:savedCode}:{})};
+    pendingIntent=null;
+    acuWorkingNotes.clear();
+    model.messages=[message];
+    model.lastAction=null;
+    model.pendingAction=null;
+    model.focusLineId=null;
+    model.lastCatalogAdvice=null;
+    model.recentCreatedLineIds=[];
+    model.recentCreatedEstimateId=null;
+    model.question="";
+    model.error="";
+    // Do not trigger an additional AI request merely to ask if work remains.
+    store().clear();
+  }
   // Keep conversational referents across tabs of the same budget. The ACU
   // executor maintains its own stricter view/editability scope for writes.
   const scope=()=>[state.projectId,state.estimateId].join(":");
@@ -34,9 +80,11 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     const next=scope();
     if(model.scope!==next&&model.approvedRun?.running&&model.approvedRun.phase==='saving'&&state.projectId===model.approvedRun.projectId&&state.estimateId===model.approvedRun.estimateId&&state.view==='workspace'){model.scope=next;model.approvedRun.scope=next;}
     if(model.scope!==next){
-      if(model.scope) { const [projectId,estimateId]=model.scope.split(":"); conversationStore(window.localStorage,projectId,estimateId,state.database?.scope).write(model.messages,pendingIntent); }
+      if(model.scope) { const [projectId,estimateId]=model.scope.split(":"); conversationStore(window.localStorage,projectId,estimateId,state.database?.scope).clear(); }
       cancelApprovedRun();activeRequest?.cancel();activeRequest=null;queryToken++;if(!model.approvedRun)model.busy=false;model.catalogLoading=false;model.scope=next;model.generation++;model.messages=[];model.lastAction=null;model.pendingAction=null;model.focusLineId=null;model.lastCatalogAdvice=null;model.recentCreatedLineIds=[];model.recentCreatedEstimateId=null;model.context="";model.includeContext=true;model.contextMode="screen";model.question="";model.error="";model.usage=null;model.notice="";
-      const restored=store().read();model.messages=restored?.messages||[];pendingIntent=restored?.intent||null;model.focusLineId=pendingIntent?.lineIds[0]||null;
+      // Purge any legacy conversation saved by earlier CPObras versions.
+      // A new screen starts a fresh task using the current selected data.
+      store().clear();pendingIntent=null;
     }
     if(model.open&&model.contextMode==="screen"&&!state.navigating)model.context=captureContext();
     paint();
@@ -136,7 +184,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     paint();
     let persisted=false;
     try{
-      const result=await invoke('apply_reviewed_section_batch',{batch:plan.batch});
+      const result=await invokeReviewedAiAction(invoke,'workspace','apply_reviewed_section_batch',{batch:plan.batch},{approved:true});
       persisted=true;
       delete message.sectionPreview;
       model.pendingAction=null;
@@ -152,6 +200,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       model.lastAction=message;
       message.content=JSON.stringify({answer:message.answer});
       try{await loadEstimate();}catch(error){message.answer+=' Guardado confirmado; no se pudo refrescar la vista: '+String(error);message.approval.message=message.answer;}
+      finishTaskSession(message.answer,{approval:message.approval});
     }catch(error){
       if(!persisted){
         message.answer='No se modificaron los rubros: '+String(error);
@@ -199,6 +248,14 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       const notice=[summary,...(result.warnings||[]),...(result.sectionPending||[]).map(item=>'Pendiente: '+item),result.error,result.refreshError].filter(Boolean).join(' ');
       message.answer=notice;message.approval={...message.approval,state:'done',message:notice,result};
       message.content=JSON.stringify({answer:message.answer+'\nResultado registrado por CPOBRAS: '+notice});model.notice=notice;
+      // Partial batches with unresolved items remain an open task.
+      if(result.committed&&!pending&&!(result.pendingReasons||[]).length&&
+        !(result.sectionPending||[]).length)finishTaskSession(notice,{
+        approval:{...message.approval,result:{
+          committed:true,estimateId:result.estimateId||null,lineIds:result.lineIds||[],
+          pending:result.pending||0,pendingReasons:(result.pendingReasons||[]).slice(0,20)
+        }}
+      });
     }catch(error){if(run.scope===scope()){message.answer='La carga se detuvo: '+String(error);message.approval={...message.approval,state:'stopped',message:message.answer};message.content=JSON.stringify({answer:message.answer});}}
     finally{run.running=false;if(model.approvedRun===run){model.approvedRun=null;model.busy=false;paint();}}
   }
@@ -239,14 +296,13 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     });
   }
   function paint(){
-    if(model.scope===scope())store().write(model.messages,pendingIntent);
     const providerName=model.provider==="openai"?"OpenAI":"Claude";
     host.innerHTML=`<button class="ai-launch btn" ${model.open?"hidden":""} data-ai="toggle" aria-expanded="${model.open}" aria-controls="ai-console" title="Asistente IA" aria-label="Asistente IA"><span class="ai-launch-dot" aria-hidden="true"></span><span>IA</span><span class="ai-launch-caret" aria-hidden="true">|</span></button>${model.open?`<section id="ai-console" class="ai-console ${model.settings||!model.configured||model.contextOpen?"ai-expanded":""}" aria-label="Consola de asistente IA"><header class="ai-bar"><strong>✦ CPOBRAS IA</strong><span>${e(providerName)} · ${e(model.model)}</span><button data-ai="settings" title="Configurar proveedor" ${model.busy?"disabled":""}>⚙ Configurar</button><button data-ai="clear" title="Limpiar conversación" ${model.busy?"disabled":""}>Limpiar</button><button data-ai="toggle" aria-label="Cerrar consola">×</button></header>
     ${model.settings||!model.configured?`<form id="ai-settings" class="ai-settings"><div class="ai-settings-fields"><label>Proveedor<select name="provider" ${model.busy?"disabled":""}><option value="openai" ${model.provider==="openai"?"selected":""}>OpenAI</option><option value="anthropic" ${model.provider==="anthropic"?"selected":""}>Claude · Anthropic</option></select></label><label>Modelo<input name="model" value="${e(model.model)}" required maxlength="120" ${model.busy?"disabled":""}></label><label>Clave de API<input name="key" type="password" autocomplete="off" placeholder="${model.configured?"Dejá vacío para conservar la clave guardada":"Pegá tu clave de API"}" ${model.configured?"":"required"} maxlength="512" ${model.busy?"disabled":""}></label></div><p>El proveedor, modelo y clave se guardan en el llavero de credenciales del sistema, fuera de los proyectos y sus respaldos. El proveedor cobra el uso de API por separado de las suscripciones de chat.</p><button class="btn" ${model.busy?"disabled":""}>Guardar configuración</button>${model.configured?'<button type="button" data-ai="forget" class="btn">Borrar clave guardada y chat</button>':""}</form>`:""}
-    <div class="ai-transcript" role="log" aria-label="Conversación IA" aria-live="polite">${!model.messages.length?'<div class="ai-welcome">Puedo ayudarte con:<br> • Explicar los datos de esta pantalla<br> • Preparar partidas e insumos para revisar<br> • Identificar datos que faltan en una carga<br><br>Las respuestas pueden contener errores. Los precios se consultan en el catálogo local. Podés aprobar una carga desde el chat y ajustar después los rendimientos estimados.</div>':model.messages.map((m,index)=>`<article class="ai-message ai-${m.role}"><b>${m.role==="user"?"Vos":"Asistente"}</b><div>${e(m.answer||m.content)}</div>${libraryDraftMarkup(m,index)}${m.actionStatus?approvalMarkup(m,index):''}${m.sectionPreview||m.approval?.kind==='sections'?`<div class="ai-proposal">${approvalMarkup(m,index)}</div>`:''}${m.acuRequest?`<div class="ai-proposal"><strong>${m.acuRequest.mode==='fill'?'Completar ACU de partidas existentes':'Preparar partidas nuevas con ACU'}</strong>${approvalMarkup(m,index)}${!m.approval?`<button type="button" data-ai="review-acu-request" data-index="${index}" ${canPlan()&&!model.busy?'':'disabled'}>Revisar antes de cargar</button>`:''}</div>`:''}${m.planRows||m.changeProposals?`<div class="ai-proposal"><strong>${(m.planRows?.length||0)+(m.changeProposals?.length||0)} partidas / cambios propuestos</strong>${m.planRows&&!m.changeProposals?`<details class="ai-plan-preview"><summary>Ver partidas propuestas</summary><ul>${m.planRows.map(r=>`<li>${e(r.description)} · ${e(r.unit)} · Cantidad: ${e(r.quantity??'sin informar')} · Precio: ${e(r.unit_price??'sin informar')}${r.section?' · '+e(r.section):''}</li>`).join('')}</ul></details>${approvalMarkup(m,index)}`:'<p>Revisá los cambios antes de aplicarlos.</p>'}${!m.approval?`<button type="button" data-ai="review-plan" data-index="${index}" ${canPlan()&&!model.busy?"":"disabled"}>Revisar propuesta</button>`:''}${m.planRows&&!m.approval?`<button type="button" data-ai="review-acu-plan" data-index="${index}" ${canPlan()&&!model.busy?"":"disabled"}>Preparar ACU con insumos</button>`:""}</div>`:""}${m.proposal?`<div class="ai-proposal"><strong>Borrador de ${m.proposal.kind==="line"?"partida":"insumo"}</strong><p>${e(m.proposal.description)} · ${e(m.proposal.unit)}${m.proposal.quantity!=null?` · Cantidad ${e(m.proposal.quantity)}`:""}${m.proposal.unit_price!=null?` · Precio ${e(m.proposal.unit_price)}`:""}</p>${m.proposal.kind==='line'?approvalMarkup(m,index):''}${!m.approval?`<button class="btn" data-ai="draft" data-index="${index}" ${allowed(m.proposal)&&!m.approval?"":"disabled"}>Abrir formulario para revisar</button><small>Completá los campos faltantes y guardá desde el formulario habitual.${!allowed(m.proposal)?" Cerrá otros formularios; las partidas requieren un presupuesto editable.":""}</small>`:''}</div>`:""}</article>`).join("")}${model.busy&&!model.approvedRun?`<article class="ai-message ai-user"><b>Vos</b><div>${e(model.question)}</div></article><p role="status">${model.catalogLoading?'Consultando el catálogo local…':'Consultando al proveedor… Espera máxima: 60 segundos.'} <button type="button" data-ai="cancel">Cancelar consulta</button></p>`:""}${model.approvedRun?`<p role="status">Carga en curso. <button type="button" data-ai="stop-approved" ${model.approvedRun.phase==='saving'?'disabled':''}>${model.approvedRun.phase==='saving'?'Guardando…':'Detener carga'}</button></p>`:''}</div>
-    <details class="ai-context" ${model.contextOpen?"open":""}><summary>Contexto de la pantalla ${model.includeContext?(model.contextMode==="screen"?"· automático":"· editado"):"· sin incluir"}</summary><p>Se enviarán la consulta y el historial de esta conversación. Se incluyen la vista actual y las coincidencias del catálogo local con sus unidades, precios y fecha. En Presupuesto también se incluye el resumen de partidas. Podés desactivarlo o editar el texto antes de enviar. El chat conserva el contexto al cambiar de pestaña dentro del mismo presupuesto; se recupera por obra y presupuesto por hasta 24 horas. Al recuperarlo se preparará una propuesta nueva antes de guardar.</p><button class="btn" data-ai="capture" ${model.busy?"disabled":""}>Capturar / actualizar vista</button><label><input type="checkbox" name="ai-include-context" ${model.includeContext?"checked":""} ${model.busy?"disabled":""}> Incluir vista y catálogo local</label><textarea name="ai-context-text" aria-label="Datos de pantalla para enviar" maxlength="7000" ${model.busy?"disabled":""}>${e(model.context)}</textarea></details>
+    <div class="ai-transcript" role="log" aria-label="Conversación IA" aria-live="polite">${!model.messages.length?'<div class="ai-welcome">Puedo ayudarte con:<br> • Explicar los datos de esta pantalla<br> • Preparar partidas e insumos para revisar<br> • Identificar datos que faltan en una carga<br><br>Las respuestas pueden contener errores. Los precios se consultan en el catálogo local. Podés aprobar una carga desde el chat y ajustar después los rendimientos estimados.</div>':model.messages.map((m,index)=>`<article class="ai-message ai-${m.role}"><b>${m.role==="user"?"Vos":"Asistente"}</b><div>${e(m.answer||m.content)}</div>${libraryDraftMarkup(m,index)}${libraryEditMarkup(m,index)}${m.actionStatus?approvalMarkup(m,index):''}${m.sectionPreview||m.approval?.kind==='sections'||(m.taskCompleted&&m.approval)?`<div class="ai-proposal">${approvalMarkup(m,index)}</div>`:''}${m.acuRequest?`<div class="ai-proposal"><strong>${m.acuRequest.mode==='fill'?'Completar ACU de partidas existentes':'Preparar partidas nuevas con ACU'}</strong>${approvalMarkup(m,index)}${!m.approval?`<button type="button" data-ai="review-acu-request" data-index="${index}" ${canPlan()&&!model.busy?'':'disabled'}>Revisar antes de cargar</button>`:''}</div>`:''}${m.planRows||m.changeProposals?`<div class="ai-proposal"><strong>${(m.planRows?.length||0)+(m.changeProposals?.length||0)} partidas / cambios propuestos</strong>${m.planRows&&!m.changeProposals?`<details class="ai-plan-preview"><summary>Ver partidas propuestas</summary><ul>${m.planRows.map(r=>`<li>${e(r.description)} · ${e(r.unit)} · Cantidad: ${e(r.quantity??'sin informar')} · Precio: ${e(r.unit_price??'sin informar')}${r.section?' · '+e(r.section):''}</li>`).join('')}</ul></details>${approvalMarkup(m,index)}`:'<p>Revisá los cambios antes de aplicarlos.</p>'}${!m.approval?`<button type="button" data-ai="review-plan" data-index="${index}" ${canPlan()&&!model.busy?"":"disabled"}>Revisar propuesta</button>`:''}${m.planRows&&!m.approval?`<button type="button" data-ai="review-acu-plan" data-index="${index}" ${canPlan()&&!model.busy?"":"disabled"}>Preparar ACU con insumos</button>`:""}</div>`:""}${m.proposal?`<div class="ai-proposal"><strong>Borrador de ${m.proposal.kind==="line"?"partida":"insumo"}</strong><p>${e(m.proposal.description)} · ${e(m.proposal.unit)}${m.proposal.quantity!=null?` · Cantidad ${e(m.proposal.quantity)}`:""}${m.proposal.unit_price!=null?` · Precio ${e(m.proposal.unit_price)}`:""}</p>${m.proposal.kind==='line'?approvalMarkup(m,index):''}${!m.approval?`<button class="btn" data-ai="draft" data-index="${index}" ${allowed(m.proposal)&&!m.approval?"":"disabled"}>Abrir formulario para revisar</button><small>Completá los campos faltantes y guardá desde el formulario habitual.${!allowed(m.proposal)?" Cerrá otros formularios; las partidas requieren un presupuesto editable.":""}</small>`:''}</div>`:""}</article>`).join("")}${model.busy&&!model.approvedRun?`<article class="ai-message ai-user"><b>Vos</b><div>${e(model.question)}</div></article><p role="status">${model.catalogLoading?'Consultando el catálogo local…':'Consultando al proveedor… Espera máxima: 60 segundos.'} <button type="button" data-ai="cancel">Cancelar consulta</button></p>`:""}${model.approvedRun?`<p role="status">Carga en curso. <button type="button" data-ai="stop-approved" ${model.approvedRun.phase==='saving'?'disabled':''}>${model.approvedRun.phase==='saving'?'Guardando…':'Detener carga'}</button></p>`:''}</div>
+    <details class="ai-context" ${model.contextOpen?"open":""}><summary>Contexto de la pantalla ${model.includeContext?(model.contextMode==="screen"?"· automático":"· editado"):"· sin incluir"}</summary><p>Se enviarán la consulta, los mensajes necesarios de la tarea actual y los datos de la pantalla seleccionados. Tras confirmar un guardado, el contexto conversacional se reinicia y queda solo el resultado. Las conversaciones no se almacenan como historial local; la próxima solicitud vuelve a consultar el ACU o presupuesto seleccionado. Podés desactivar o editar el contexto antes de enviar.</p><button class="btn" data-ai="capture" ${model.busy?"disabled":""}>Capturar / actualizar vista</button><label><input type="checkbox" name="ai-include-context" ${model.includeContext?"checked":""} ${model.busy?"disabled":""}> Incluir vista y catálogo local</label><textarea name="ai-context-text" aria-label="Datos de pantalla para enviar" maxlength="7000" ${model.busy?"disabled":""}>${e(model.context)}</textarea></details>
     <div class="ai-quick"><button data-ai="acu-workbench" ${model.busy||!canPlan()?"disabled":""}>▦ ACU · rendimientos y metrado</button><button data-ai="manage-import" ${model.busy||!editable()||state.remoteProject?"disabled":""}>✎ Editar / eliminar partidas</button><button data-ai="budget-import" ${model.busy||!editable()||state.remoteProject?"disabled":""}>▤ Cargar precios · texto / Excel</button><button data-ai="plan-import" ${model.busy||!canPlan()?"disabled":""}>＋ Crear partidas con ACU</button><button data-ai="quick" data-question="Explicame los datos de esta pantalla y señalá qué información falta.">▤ Explicar pantalla</button><button data-ai="quick" data-question="Ayudame a preparar una partida. Preguntame primero qué trabajo, unidad, cantidad y precio quiero cargar.">▱ Partida</button><button data-ai="quick" data-question="Ayudame a cargar un insumo. Preguntame su descripción, tipo, unidad y precio si no los conocés.">▣ Insumo</button></div>
-    <form id="ai-question"><label class="ai-consent"><input type="checkbox" name="ai-consent" ${model.consent?"checked":""} ${model.busy?"disabled":""}> Autorizo enviar la consulta, el historial y los datos de pantalla incluidos a ${e(providerName)}. El uso puede generar cargos.</label><div class="ai-input-row"><label class="ai-sr-only" for="ai-prompt">Consulta al asistente</label><textarea id="ai-prompt" name="question" rows="1" placeholder="Preguntá sobre esta pantalla o pedí ayuda para cargar datos…" maxlength="2000" required ${model.busy?"disabled":""}>${e(model.question)}</textarea><button class="btn primary" ${model.busy||!model.configured||!model.consent?"disabled":""}>↵ Enviar</button></div></form>
+    <form id="ai-question"><label class="ai-consent"><input type="checkbox" name="ai-consent" ${model.consent?"checked":""} ${model.busy?"disabled":""}> Autorizo enviar la consulta, el contexto temporal de la tarea y los datos de pantalla incluidos a ${e(providerName)}. El uso puede generar cargos.</label><div class="ai-input-row"><label class="ai-sr-only" for="ai-prompt">Consulta al asistente</label><textarea id="ai-prompt" name="question" rows="1" placeholder="Preguntá sobre esta pantalla o pedí ayuda para cargar datos…" maxlength="2000" required ${model.busy?"disabled":""}>${e(model.question)}</textarea><button class="btn primary" ${model.busy||!model.configured||!model.consent?"disabled":""}>↵ Enviar</button></div></form>
     ${model.notice?`<small class="ai-usage" role="status">${e(model.notice)}</small>`:""}<p class="ai-error" role="alert">${e(model.error)}</p>${model.usage?`<small class="ai-usage">Última respuesta: ${model.usage.input??"—"} tokens de entrada · ${model.usage.output??"—"} de salida. Consultá los cargos en tu proveedor.</small>`:""}</section>`:""}`;
     restoreLauncherPosition();
     const log=host.querySelector(".ai-transcript");if(log)log.scrollTop=log.scrollHeight;
@@ -265,7 +321,21 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
   }
   const canDraftLibraryAcu = () => state.view === "analyses" && !state.projectId &&
     !state.remoteProject && !state.modal && !state.navigating && !state.pageDirty;
-  const pendingLibraryAcu = () => model.messages.findLast(message => message.libraryAcus?.some(Boolean));
+  // Only the most recent library transaction may be approved. In
+  // particular, an older edit must not win over a newer CREATE proposal.
+  const latestLibraryProposal=()=>model.messages.findLast(message=>
+    message.libraryEdit || message.libraryAcus?.some(Boolean) || message.libraryAcuSaved);
+  const pendingLibraryAcu=()=>{
+    const message=latestLibraryProposal();
+    return message?.libraryAcus?.some(Boolean)?message:null;
+  };
+  const pendingLibraryEdit=()=>{
+    const edit=latestLibraryProposal()?.libraryEdit;
+    return edit&&!edit.applied&&!edit.spent&&edit.baseline?.id===state.selectedAnalysisId &&
+      edit.databaseScope===(state.database?.scope??null)?edit:null;
+  };
+  // Free-form user language is classified by the model. Only explicit approval
+  // of a displayed proposal authorizes the separate, validated native write.
 
   function libraryDraftMarkup(message, index) {
     return (message.libraryAcus ?? []).map((draft, draftIndex) => draft ? `<div class="ai-proposal" data-library-acu-preview>
@@ -274,21 +344,78 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
         ${row.conversion ? ` (equivale a ${e(row.conversion)})` : ""}
         · ${row.unit_price === "" ? "sin precio" : "ARS " + e(row.unit_price) + " por " + e(row.unit)}</li>`).join("")}</ul>
       ${draft.aiWarnings.map(item => `<p class="ai-warning">Pendiente: ${e(item)}</p>`).join("")}
-      ${canSaveLibraryAcu(draft) ? "<p>Podés hacer preguntas, pedir cambios o responder «De acuerdo» para guardarlo.</p>" : "<p>Completá los insumos o precios pendientes para guardar desde el chat.</p>"}
+      ${canSaveLibraryAcu(draft) ? "<p>Podés pedir cambios o autorizar el guardado con tus propias palabras.</p>" : "<p>Hay datos por verificar. Podés corregirlos conversando o revisar el ACU antes de guardar.</p>"}
       <button type="button" data-ai="review-library-acu" data-index="${index}" data-draft="${draftIndex}" ${canDraftLibraryAcu() && !model.busy ? "" : "disabled"}>Revisar y guardar ACU</button>
     </div>` : "").join("");
   }
 
+  function libraryEditMarkup(message,index){
+    const edit=message.libraryEdit;
+    if(!edit)return "";
+    const target=edit.draft;
+    const current=state.view==="analyses" && state.selectedAnalysisId===edit.baseline.id &&
+      edit.databaseScope===(state.database?.scope??null);
+    const valid=!edit.spent&&!edit.applied&&current&&canApplySelectedAcuEdit(edit);
+    return `<div class="ai-proposal" data-selected-acu-edit>
+      <strong>Editar ACU seleccionado: ${e(edit.baseline.code)}</strong>
+      <p>${e(edit.baseline.description)} · ${e(edit.baseline.unit)} · ${e(edit.changes.length)} cambios</p>
+      <ul>${edit.changes.map(item=>`<li>${e(item)}</li>`).join("")}</ul>
+      ${edit.warnings.map(item=>`<p class="ai-warning">Pendiente: ${e(item)}</p>`).join("")}
+      ${edit.applied?"<p>Edición guardada.</p>":edit.spent?"<p>Guardado pendiente de verificación; no se reintentará.</p>":!current?"<p>Seleccioná nuevamente este ACU para continuar; la propuesta no se aplicará a otro.</p>":!valid?"<p>La propuesta requiere resolver los pendientes antes de guardarla.</p>":"<p>Los demás componentes y precios se conservan.</p>"}
+      <button type="button" data-ai="approve-selected-acu-edit" data-index="${index}" ${valid&&!model.busy?"":"disabled"}>Aprobar y actualizar ACU</button>
+      <button type="button" data-ai="review-selected-acu-edit" data-index="${index}" ${current&&!edit.spent&&!model.busy?"":"disabled"}>Revisar en el editor</button>
+    </div>`;
+  }
+
+  async function confirmSelectedAcuEdit(question,message){
+    const proposal=message?.libraryEdit;
+    if(!proposal||proposal.spent||proposal.applied)return;
+    if(!canApplySelectedAcuEdit(proposal)){
+      addReply(question,{answer:"Quedan conversiones o precios pendientes en esta edición. Podemos resolverlos en la conversación o en el editor."});
+      paint();return;
+    }
+    if(!canDraftLibraryAcu()||state.selectedAnalysisId!==proposal.baseline.id||
+       (state.database?.scope??null)!==proposal.databaseScope){
+      addReply(question,{answer:"La selección o base activa cambió. Volvé a seleccionar el ACU y prepará la modificación nuevamente."});
+      paint();return;
+    }
+    proposal.spent=true;model.busy=true;model.error="";paint();
+    try{
+      const saved=await applySelectedAcuEdit(invoke,proposal,{
+        selectedAnalysisId:state.selectedAnalysisId,selectedDatabaseScope:state.database?.scope??null
+      });
+      proposal.applied=true;
+      addReply(question,{answer:"Actualicé el ACU existente «"+saved.description+"» ("+saved.code+"). "+
+        proposal.changes.length+(proposal.changes.length===1?" cambio guardado.":" cambios guardados.")+" Los ACU de presupuestos ya emitidos no se modificaron.",
+        libraryAcuSaved:saved.code});
+      let summary="Actualicé el ACU existente «"+saved.description+"» ("+saved.code+"). "+
+        proposal.changes.length+(proposal.changes.length===1?" cambio guardado.":" cambios guardados.")+
+        " Los ACU de presupuestos ya emitidos no se modificaron.";
+      try{await reloadCatalog();if(canDraftLibraryAcu())await refreshAnalysis();render();}
+      catch(error){summary+=" No se pudo actualizar la lista: "+String(error);}
+      finishTaskSession(summary,{savedCode:saved.code});
+    }catch(error){
+      model.error="No pude confirmar la actualización del ACU: "+String(error)+
+        ". No se volverá a enviar automáticamente esta modificación.";
+    }finally{model.busy=false;paint();}
+  }
+
   async function confirmLibraryAcu(question, message) {
     const drafts = message.libraryAcus.filter(Boolean);
-    if (drafts.length !== 1 || !canSaveLibraryAcu(drafts[0])) {
-      addReply(question, {answer:drafts.length !== 1
-        ? "Elegí cuál querés guardar con «Revisar y guardar ACU»."
-        : "Quedan insumos, conversiones o precios pendientes. Podés pedirme un ajuste o completarlos en el formulario."});
+    if (drafts.length !== 1) {
+      addReply(question, {answer:"Hay varias propuestas. Elegí el ACU que querés revisar y guardar."});
       paint();
       return;
     }
     const draft = drafts[0];
+    if (!canSaveLibraryAcu(draft)) {
+      // Acknowledging an incomplete draft can open the existing native editor,
+      // but never writes without its fully validated form submission.
+      openModal("analysis",draft,()=>{message.libraryAcus=[];});
+      addReply(question, {answer:"Abrí el editor del ACU con los componentes verificados. Quedan insumos o precios por completar antes del guardado."});
+      paint();
+      return;
+    }
     model.busy = true;
     model.error = "";
     model.notice = "Guardando el ACU aprobado…";
@@ -305,6 +432,8 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       } catch (error) {
         model.notice = "El ACU se guardó. No se pudo actualizar la lista: " + String(error);
       }
+      finishTaskSession("Guardé «"+saved.description+"» ("+saved.code+") en la biblioteca de ACU."+
+        (model.notice.startsWith("El ACU se guardó.")?" "+model.notice:""),{savedCode:saved.code});
     } catch (error) {
       model.error = "No se pudo guardar el ACU: " + String(error);
     } finally {
@@ -313,6 +442,119 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       paint();
     }
   }
+  async function prepareSelectedAcuEdit(question,prior=null,interaction="edit") {
+    const selectedId=state.selectedAnalysisId;
+    if(!selectedId||!canDraftLibraryAcu()){
+      addReply(question,{answer:"Seleccioná un ACU de la biblioteca para poder modificar su composición."});
+      paint();return;
+    }
+    if(!model.includeContext){
+      model.error="Para editar el ACU desde IA, activá el contexto de pantalla y catálogo.";
+      paint();return;
+    }
+    const databaseScope=state.database?.scope??null;
+    const token=++queryToken,generation=model.generation;
+    const current=()=>token===queryToken && generation===model.generation &&
+      canDraftLibraryAcu()&&state.selectedAnalysisId===selectedId&&
+      (state.database?.scope??null)===databaseScope;
+    const remembered=acuWorkingNotes.get(acuWorkingKey())||[];
+    const recentUserTurns=remembered.length?remembered.slice(-12):
+      model.messages.filter(message=>message.role==="user").slice(-6)
+        .map(message=>String(message.content||"").slice(0,450));
+    const requestedMaterialPhrases=requestedAddedMaterials([...recentUserTurns,question]);
+    const brief=question;
+    const send=async(messages,context)=>{
+      activeRequest=createAiRequest(invoke,{mode:"library_acu_edit",messages,context});
+      model.catalogLoading=false;paint();
+      return activeRequest.promise;
+    };
+    model.busy=true;model.catalogLoading=true;model.error="";model.notice="";paint();
+    try{
+      const [detail,catalog]=await Promise.all([
+        invoke("get_analysis_details",{analysisId:selectedId}),
+        invoke("ai_catalog_context",{projectId:null,estimateId:null,currency:"ARS",asOf:dateToday()})
+      ]);
+      if(!current())return;
+      const fresh=selectedAcuSnapshot(selectedId,detail);
+      const pending=prior?.libraryEdit?.baseline?.id===selectedId ? prior.libraryEdit : null;
+      if(pending && !selectedAcuSnapshotMatches(pending.baseline,fresh))
+        throw new Error("El ACU fue editado desde otra vista. Tenés que preparar una propuesta actualizada.");
+      const evidence=libraryAcuContext(brief+" "+requestedMaterialPhrases.flat().join(" ")+" "+fresh.description,catalog);
+      let resources=evidence.resources;
+      const selectedResourceIds=new Set(fresh.components.map(row=>row.resource_id));
+      resources=[...new Map([...resources,
+        ...catalog.resources.filter(row=>selectedResourceIds.has(row.id))].map(row=>[row.id,row])).values()];
+      const baseline=pending?.baseline||fresh;
+      const contextFor=items=>JSON.stringify({
+        task:"library_acu_edit",interaction,requested_change:brief,
+        conversation:libraryAcuConversationState({
+          messages:model.messages,history:recentUserTurns,selectedAnalysis:baseline,
+          pendingEdit:pending,currentQuestion:question,
+        }),
+        requested_material_names:requestedMaterialPhrases,
+        currency:catalog.currency,as_of:catalog.as_of,resources:items.slice(0,80),
+        selected_analysis:baseline,
+        pending_edit:pending?{description:pending.draft.description,unit:pending.draft.unit,
+          components:pending.draft.components,
+          changes:pending.changes}:null,
+        policy:"Proponer SOLO operaciones para los componentes nombrados. Ninguna modificación se guarda sin aprobación."
+      });
+      // Previous user decisions are already present in contextFor().
+      // Tauri validates a strict user/assistant alternation: a group of
+      // consecutive user messages is rejected as "Historial de chat inválido".
+      // Start every short ACU operation with ONE current user message. Any
+      // catalog or format repair appends an assistant/user pair below.
+      const messages=[{role:"user",content:brief.slice(0,3000)}];
+      let response=await send(messages,contextFor(resources));
+      if(!current())return;
+      // Incomplete provider JSON is repaired by the typed-edit retry below.
+      // Catalog-query parsing must not abort that recovery early.
+      let query=null;
+      try{query=parseCatalogQuery(response.text);}
+      catch{query=null;}
+      if(query){
+        const addition=libraryAcuContext(query,catalog);
+        resources=[...new Map([...resources,...addition.resources].map(row=>[row.id,row])).values()];
+        response=await send([...messages,
+          {role:"assistant",content:"Consulté los recursos solicitados para editar el ACU."},
+          {role:"user",content:"Con las coincidencias del catálogo, devolvé analysis_edit con operaciones puntuales y cantidades verificables. Conservá todos los componentes no mencionados."}
+        ],contextFor(resources));
+        if(!current())return;
+      }
+      let parsed;
+      try{
+        parsed=readSelectedAcuEdit(response.text,{baseline,resources:catalog.resources,previous:pending,requestedMaterialPhrases});
+      }catch(firstError){
+        const repaired=await send([...messages,
+          {role:"assistant",content:"No se pudo verificar la edición: "+String(firstError).slice(0,240)},
+          {role:"user",content:"Devolvé JSON con answer y analysis_edit:{changes:[{operation:'set'|'add'|'remove',resource_id,quantity,quantity_unit,catalog_quantity,conversion_basis,unit_price}],description,unit}. Cambiá solamente lo que pidió el usuario; no inventes IDs ni precios y preservá insumos no mencionados. Si falta un dato necesario, devolvé needs_details:true con una pregunta concreta."}
+        ],contextFor(resources));
+        if(!current())return;
+        response=repaired;
+        parsed=readSelectedAcuEdit(response.text,{baseline,resources:catalog.resources,previous:pending,requestedMaterialPhrases});
+      }
+      if(!parsed.proposal){
+        addReply(question,{answer:parsed.answer,libraryAcuClarification:true,
+          libraryAcuBrief:brief.slice(0,3000)});
+      }else{
+        parsed.proposal.databaseScope=databaseScope;
+        if(prior?.libraryEdit)prior.libraryEdit=null;
+        addReply(question,{answer:"Preparé los cambios sobre el ACU seleccionado, sin guardar. "+parsed.answer,
+          libraryEdit:parsed.proposal,libraryAcuBrief:brief.slice(0,3000)});
+      }
+      model.usage={input:response.input_tokens,output:response.output_tokens};
+    }catch(error){
+      if(current())addReply(question,{answer:"No se modificó el ACU seleccionado. "+
+        String(error?.message||error).slice(0,220)+
+        ". Podés seguir describiendo el ajuste; la composición guardada sigue intacta.",
+        libraryAcuClarification:true,libraryAcuBrief:brief.slice(0,3000)});
+    }finally{
+      if(token===queryToken){
+        activeRequest=null;model.busy=false;model.catalogLoading=false;paint();
+      }
+    }
+  }
+
   async function prepareLibraryAcu(question, prior, requestedWork = question, action = "new") {
     if (!model.includeContext) {
       model.error = "Incluí el contexto de la pantalla para que el asistente pueda consultar los insumos de la biblioteca.";
@@ -344,38 +586,53 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       const existing = prior?.libraryAcus?.filter(Boolean) ?? [];
       const search = [brief, ...existing.map(draft => draft.description)].filter(Boolean).join(" ");
       let evidence = libraryAcuContext(search, catalog);
-      const messages = prior ? model.messages.slice(-8).map(message => ({
-        role:message.role, content:message.content.slice(0, 2000),
-      })) : [];
+      // The draft is already serialized in current_library_acus below.
+      // Replaying the UI log may start with the previous task's assistant
+      // receipt and violate Tauri's user/assistant alternation, and it also
+      // leaks the selected ACU into an unrelated new one.
+      const messages = [{role:"user",content:String(requestedWork).slice(0,4000)}];
       const currentDrafts = existing.map(draft => ({
         description:draft.description, unit:draft.unit, missing:draft.aiWarnings,
         components:draft.components.map(row => ({
           resource_id:row.resource_id, description:row.description, quantity:row.quantity, quantity_unit:row.unit,
+          conversion:row.conversion||null,
         })),
       }));
       const contextWithDraft = context => JSON.stringify({
         ...JSON.parse(context), requested_work:brief, action, current_library_acus:currentDrafts,
       });
-      messages.push({role:"user", content:brief.slice(0, 4000)});
       let result = await sendRequest(messages, contextWithDraft(evidence.context));
       if (!current()) return;
       let resources = evidence.resources;
       const additional = parseCatalogQuery(result.text);
       if (additional) {
         evidence = libraryAcuContext(additional, catalog);
-        resources = [...resources, ...evidence.resources];
+        // Preserve already discovered records while adding precisely the new
+        // candidates requested by the model. The model gets the actual combined
+        // catalog, not an assumed material recipe.
+        resources = [...new Map([...resources,...evidence.resources].map(row=>[row.id,row])).values()];
+        const mergedContext=JSON.stringify({...JSON.parse(evidence.context),resources:resources.slice(0,80)});
         result = await sendRequest([...messages, {
-          role:"assistant", content:"Busqué en el catálogo: " + additional,
+          role:"assistant", content:"Consulté el catálogo por los insumos que identificaste: " + additional,
         }, {
           role:"user",
-          content:"Usá las coincidencias del contexto actualizado. Respondé a mi pedido con library_acus o pedime una precisión. No solicites otra búsqueda.",
-        }], contextWithDraft(evidence.context));
+          content:"Conservá los insumos del contexto completo y prepará la composición con cantidades y unidades de compra razonadas; indicá los pendientes reales sin inventar datos.",
+        }], contextWithDraft(mergedContext));
         if (!current()) return;
       }
       const retainedIds = new Set(existing.flatMap(draft => draft.components.map(row => row.resource_id)));
       resources.push(...catalog.resources.filter(row => retainedIds.has(row.id)));
       const read = response => {
         const parsed = readLibraryAcus(response.text, resources);
+        // A request to ADD material may not be answered by claiming that a
+        // different ACU already has those components. Check the actual draft.
+        if (action === "add" && existing.length === 1 && parsed.drafts.length === 1) {
+          const currentIds = new Set(existing[0].components.map(row => row.resource_id));
+          const additions = parsed.drafts[0].components.filter(row => !currentIds.has(row.resource_id));
+          if (!additions.length && !parsed.drafts[0].aiWarnings.length) {
+            throw new Error("No se incorporó ningún insumo nuevo al borrador ni se identificaron faltantes.");
+          }
+        }
         if (parsed.keepDraft !== (action === "question" && existing.length > 0)) {
           throw new Error("La respuesta no corresponde a la acción solicitada.");
         }
@@ -387,17 +644,38 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       let parsed;
       try {
         parsed = read(result);
-      } catch {
+      } catch (firstError) {
+        // Internal one-shot repair: preserve the exact user's work, and ask the
+        // model for a valid proposal without forcing any "magic" retry phrase.
         result = await sendRequest([...messages, {
-          role:"assistant", content:"Todavía no hay una composición válida en el chat.",
+          role:"assistant", content:"La respuesta no produjo un ACU validable: " + String(firstError?.message || firstError).slice(0, 260),
         }, {
           role:"user",
           content:action === "question"
-            ? "Explicá el borrador actual y devolvé JSON con answer y keep_draft:true, sin modificar la propuesta."
-            : "Usá requested_work: ahí ya está indicado el trabajo. Respondé ahora al pedido anterior en JSON con library_acus y componentes concretos, o needs_details:true con una pregunta sobre un dato técnico imprescindible. Mostrá los insumos estimados sin coincidencia en missing. No vuelvas a preguntar qué trabajo hay que analizar.",
+            ? "Explicá el ACU actualmente propuesto y devolvé JSON {answer,keep_draft:true} sin cambiar los componentes."
+            : "El trabajo YA está indicado en requested_work. Generá ahora library_acus con description,unit y components usando ÚNICAMENTE IDs del catálogo. Se admite components:[] y missing:[descripciones concretas] si los insumos aún no están disponibles. No inventes IDs, precios ni conversiones. Cantidades decimales positivas. Si falta una decisión técnica imprescindible, preguntá solo eso, pero no vuelvas a pedir el nombre del trabajo.",
         }], contextWithDraft(evidence.context));
         if (!current()) return;
         parsed = read(result);
+      }
+      // If the model omitted or miscalculated a catalog-unit conversion, ask
+      // the same model to reason over the verified presentation once more.
+      // This is not a product-specific conversion performed by the UI.
+      if (action !== "question" && parsed.drafts.some(draft=>draft.conversionPending)) {
+        try {
+          const correction=await sendRequest([...messages,
+            {role:"assistant",content:result.text.slice(0,3500)},
+            {role:"user",content:"Revisá la conversión de las cantidades a la unidad de COMPRA de cada insumo. Leé la descripción real del catálogo: calculá catalog_quantity; si es bolsa, bolsón u otra presentación con capacidad declarada, adjuntá conversion_basis con per_unit_quantity y per_unit_unit tal como aparece en ese insumo. Justificá las cuentas. Nunca supongas presentaciones ni densidades. Conservá los insumos admitidos, las exclusiones pedidas y la composición previa. Entregá la propuesta completa en library_acus."}
+          ],contextWithDraft(evidence.context));
+          if(!current())return;
+          const corrected=read(correction);
+          const pendingCount=value=>value.drafts.reduce((n,d)=>n+d.aiWarnings.length,0);
+          if(corrected.drafts.length && pendingCount(corrected)<pendingCount(parsed)){
+            parsed=corrected;result=correction;
+          }
+        }catch{
+          // Keep the original explicit pending warnings if the correction fails.
+        }
       }
       const {answer, drafts} = parsed;
       if (existing.length === 1 && drafts.length === 1 && action === "add") {
@@ -428,8 +706,13 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       model.usage = {input:result.input_tokens, output:result.output_tokens};
     } catch (error) {
       if (current()) {
+        // Explain failures instead of hiding them behind a generic scripted
+        // answer. Follow-ups may naturally refine the original work.
+        const reason = String(error?.message || error).slice(0, 220);
         addReply(question, {
-          answer:"No pude generar una composición revisable. Podés decir «Mostrámela» para volver a intentar este ACU de biblioteca.",
+          answer:"No pude preparar todavía un ACU válido para «" + originalWork.slice(0, 120) +
+            "». No se guardó nada. Motivo: " + reason +
+            ". Conservo el trabajo que pediste; podés seguir aclarando o cambiando lo que necesites.",
           libraryAcuRetry:brief.slice(0, 3000),
           libraryAcuBrief:brief.slice(0, 3000),
         });
@@ -443,8 +726,30 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       }
     }
   }
+  async function showSelectedLibraryAcu(question){
+    const id=state.selectedAnalysisId,dbScope=state.database?.scope??null;
+    if(!id){
+      addReply(question,{answer:"No hay ningún ACU seleccionado en la biblioteca."});paint();return;
+    }
+    model.busy=true;paint();
+    try{
+      const detail=await invoke("get_analysis_details",{analysisId:id});
+      if(id!==state.selectedAnalysisId||dbScope!==(state.database?.scope??null))return;
+      const components=(detail.components||[]).slice(0,60);
+      const lines=components.map(row=>"- "+row.description+": "+row.quantity+
+        " × ARS "+row.unit_price+" = ARS "+row.total);
+      addReply(question,{answer:"ACU seleccionado: "+detail.code+" — "+detail.description+
+        " · por "+detail.unit+"\nCosto unitario: ARS "+detail.unit_cost+
+        "\nComponentes ("+components.length+"):\n"+(lines.join("\n")||"Sin insumos cargados.")+
+        "\n\nEsta es la composición guardada actualmente. Podés pedirme cambios y los prepararé para aprobación."});
+    }catch(error){
+      addReply(question,{answer:"No pude consultar el ACU seleccionado: "+String(error).slice(0,200)+". No se modificaron datos."});
+    }finally{model.busy=false;paint();}
+  }
   async function handleLibraryTurn(question) {
+    rememberAcuTurn(question);
     const proposal = pendingLibraryAcu();
+    const editProposal = pendingLibraryEdit();
     const last = model.messages.at(-1);
     const followup = proposal || (last?.libraryAcuClarification || last?.libraryAcuRetry ? last : null);
     const token = ++queryToken;
@@ -455,15 +760,43 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     paint();
     let intent;
     try {
-      // Only the current user utterance can authorize an action. No catalog rows
-      // or provider-generated text are included in the intent request.
+      // Read the actual selected ACU before classifying this utterance.
+      // Preserve conversational referents but NEVER treat prior messages or
+      // catalog strings as approval for a new database write.
+      let selected=null;
+      // An in-progress NEW ACU takes precedence over the background row.
+      // Omit that unrelated row from the model's task-specific context.
+      const activeDraft=proposal?.libraryAcus?.find(Boolean)||null;
+      if(!activeDraft && state.selectedAnalysisId){
+        const detail=await invoke("get_analysis_details",{analysisId:state.selectedAnalysisId});
+        selected={id:state.selectedAnalysisId,code:detail?.code,
+          description:detail?.description,unit:detail?.unit,
+          components:detail?.components||[]};
+      }
+      if (token !== queryToken || generation !== model.generation || !canDraftLibraryAcu()) return true;
+      const conversation=libraryAcuConversationState({
+        messages:model.messages,history:acuWorkingNotes.get(acuWorkingKey())||[],
+        selectedAnalysis:selected,pendingEdit:editProposal,currentQuestion:question,
+      });
       activeRequest = createAiRequest(invoke, {
         messages:[{role:"user", content:question}],
         context:JSON.stringify({
-          pending_proposal:Boolean(proposal),
+          pending_proposal:Boolean(proposal||editProposal),
+          active_library_draft:activeDraft?{description:activeDraft.description,
+            unit:activeDraft.unit,components:activeDraft.components.map(c=>({
+              resource_id:c.resource_id,description:c.description,quantity:c.quantity,unit:c.unit
+            })),missing:activeDraft.aiWarnings||[]}:null,
+          background_selected_analysis:Boolean(state.selectedAnalysisId),
+          pending_edit:Boolean(editProposal),
+          selected_analysis:Boolean(selected),
+          selected_analysis_context:conversation.selected_analysis,
+          recent_user_turns:conversation.recent_user_turns,
+          earlier_user_decisions:conversation.earlier_user_decisions,
+          current_question:conversation.current_question,
           pending_request:Boolean(followup),
           known_work:Boolean(followup?.libraryAcuBrief),
           last_saved:Boolean(last?.libraryAcuSaved),
+          grounding:conversation.grounding,
         }),
         mode:"library_acu_intent",
       });
@@ -480,17 +813,50 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
         paint();
       }
     }
+    const focus=libraryAcuTurnFocus(intent,{
+      pendingDraft:!!proposal,pendingEdit:!!editProposal,selectedId:state.selectedAnalysisId
+    });
+    if(proposal&&focus==="selected"&&intent.action!=="show"){
+      // Never silently abandon an unsaved new ACU to mutate the background
+      // selection, even if the classifier ambiguously changes its target.
+      addReply(question,{answer:"Hay un ACU nuevo en preparación («"+
+        proposal.libraryAcus.find(Boolean)?.description+
+        "»). Primero guardalo o descartalo antes de modificar el ACU seleccionado. No se modificó ningún análisis."});
+      paint();return true;
+    }
     switch (intent.action) {
+      case "finish":
+        if(proposal||editProposal){
+          addReply(question,{answer:"Hay una propuesta de ACU todavía sin guardar. ¿Querés descartarla y cerrar esta tarea, o seguir revisándola?"});
+        }else{
+          finishTaskSession("Listo, cerré la tarea. No hice modificaciones adicionales.",{askMore:false});
+        }
+        paint();
+        break;
       case "general":
         return false;
+      case "question":
+        if(focus==="draft")await prepareLibraryAcu(question,proposal,question,"question");
+        else if(focus==="selected"||focus==="edit")await prepareSelectedAcuEdit(question,
+          focus==="edit"?model.messages.findLast(message=>message.libraryEdit===editProposal):null,"question");
+        else if(followup)await prepareLibraryAcu(question,followup,question,"question");
+        else return false;
+        break;
       case "show":
-        if (proposal) {
+        if(focus==="selected"){
+          await showSelectedLibraryAcu(question);
+        }else if(editProposal){
+          model.question="";
+          model.notice="Los cambios propuestos están detallados en la tarjeta del ACU seleccionado.";
+          paint();
+          host.querySelector("[data-selected-acu-edit]")?.scrollIntoView({block:"nearest"});
+        }else if (proposal) {
           model.question = "";
-          model.notice = "La composición del ACU está en esta tarjeta del chat.";
+          model.notice = "La propuesta y sus insumos están disponibles en la conversación.";
           paint();
           host.querySelector("[data-library-acu-preview]")?.scrollIntoView({block:"nearest"});
         } else if (last?.libraryAcuRetry) {
-          await prepareLibraryAcu(question, null, last.libraryAcuRetry);
+          await prepareLibraryAcu(question, last, question, "clarify");
         } else {
           addReply(question, last?.libraryAcuSaved
             ? {answer:`El ACU ${last.libraryAcuSaved} está en Inicio → ACU.`, libraryAcuSaved:last.libraryAcuSaved}
@@ -498,8 +864,28 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
           paint();
         }
         break;
+      case "review":
+        if(editProposal){
+          openModal("analysis",{...editProposal.draft,
+            components:editProposal.draft.components},()=>{editProposal.spent=true;});
+          addReply(question,{answer:"Abrí la edición del ACU seleccionado, conservando su identificación y componentes."});
+          paint();
+        } else if (proposal && proposal.libraryAcus.filter(Boolean).length===1) {
+          const drafts=proposal.libraryAcus,draft=drafts.find(Boolean);
+          openModal("analysis",draft,()=>{proposal.libraryAcus=[];});
+          addReply(question,{answer:"Abrí el editor con la composición actual para que puedas ajustar cantidades, insumos y precios antes de guardarla."});
+          paint();
+        } else if (followup?.libraryAcuRetry) {
+          await prepareLibraryAcu(question,followup,question,"clarify");
+        } else {
+          addReply(question,{answer:"Todavía no hay un único ACU para revisar. Describime el trabajo que querés preparar."});
+          paint();
+        }
+        break;
       case "approve":
-        if (proposal) await confirmLibraryAcu(question, proposal);
+        if(editProposal)await confirmSelectedAcuEdit(question,
+          model.messages.findLast(message=>message.libraryEdit===editProposal));
+        else if (proposal) await confirmLibraryAcu(question, proposal);
         else {
           addReply(question, {answer:"Primero necesitás una composición visible para poder aprobarla. Decime qué trabajo querés analizar.", libraryAcuClarification:true,
             libraryAcuBrief:followup?.libraryAcuBrief, libraryAcuRetry:followup?.libraryAcuRetry});
@@ -507,32 +893,45 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
         }
         break;
       case "discard":
+        acuWorkingNotes.clear();
+        if(editProposal)editProposal.spent=true;
         if (followup) {
           followup.libraryAcus = [];
           followup.libraryAcuClarification = false;
           followup.libraryAcuRetry = null;
         }
-        addReply(question, {answer:followup ? "Descarté el pedido de ACU." : "No hay un pedido pendiente para descartar."});
+        addReply(question, {answer:followup||editProposal ? "Descarté la propuesta pendiente sin cambiar el ACU." : "No hay un pedido pendiente para descartar."});
         paint();
         break;
+      case "edit":
+        if(focus==="draft")await prepareLibraryAcu(question,proposal,question,"revise");
+        else if(focus==="selected"||focus==="edit")
+          await prepareSelectedAcuEdit(question,focus==="edit"?
+            model.messages.findLast(message=>message.libraryEdit===editProposal):null);
+        else{addReply(question,{answer:"Seleccioná un ACU existente o indicame qué ACU nuevo querés preparar."});paint();}
+        break;
       case "new":
+        acuWorkingNotes.clear();
         for (const message of model.messages) {
+          if(message.libraryEdit)message.libraryEdit.spent=true;
           if (message.libraryAcus) message.libraryAcus = [];
           message.libraryAcuClarification = false;
           message.libraryAcuRetry = null;
         }
         if (intent.work) await prepareLibraryAcu(question, null, intent.work);
+        else if (followup?.libraryAcuBrief) await prepareLibraryAcu(question, followup, question, "clarify");
         else {
           addReply(question, {answer:"¿Para qué trabajo querés crear el ACU de biblioteca?", libraryAcuClarification:true});
           paint();
         }
         break;
       default:
-        if (followup) await prepareLibraryAcu(question, followup, question, intent.action);
-        else {
-          addReply(question, {answer:"Decime qué trabajo querés analizar para preparar un ACU de biblioteca.", libraryAcuClarification:true});
-          paint();
-        }
+        if(focus==="draft")await prepareLibraryAcu(question,proposal,question,intent.action);
+        else if(focus==="edit"||focus==="selected")
+          await prepareSelectedAcuEdit(question,focus==="edit"?
+            model.messages.findLast(message=>message.libraryEdit===editProposal):null);
+        else if(followup)await prepareLibraryAcu(question,followup,question,intent.action);
+        else{addReply(question,{answer:"Decime qué trabajo querés analizar para preparar un ACU de biblioteca.",libraryAcuClarification:true});paint();}
     }
     return true;
   }
@@ -631,6 +1030,9 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       if(!showActionState(question)){addReply(question,{answer:'No hay un pedido listo para cargar ni un guardado confirmado. Indicame qué partida querés crear o completar.'});paint();}return;
     }
     const history=model.messages.slice(-10).map(m=>({role:m.role,content:m.content}));
+    // After a completed task only its assistant receipt remains; do not
+    // send it as the first message of an unrelated new provider request.
+    while(history.length&&history[0].role!=="user")history.shift();
     const byteSize=items=>new TextEncoder().encode(items.map(m=>m.content).join("")).length;
     while(history.length&&byteSize([...history,{content:question}])>28000)history.splice(0,2);
     const messages=[...history,{role:"user",content:question}];
@@ -745,6 +1147,17 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     }
     model.error="";
     try{
+      if (action === "approve-selected-acu-edit" && canDraftLibraryAcu() && !model.busy){
+        const message=model.messages[Number(button.dataset.index)];
+        if(message?.libraryEdit)await confirmSelectedAcuEdit("Aprobación de la propuesta visible",message);
+      }
+      if (action === "review-selected-acu-edit" && canDraftLibraryAcu() && !model.busy){
+        const message=model.messages[Number(button.dataset.index)];
+        const edit=message?.libraryEdit;
+        if(edit&&!edit.applied&&!edit.spent&&edit.baseline.id===state.selectedAnalysisId){
+          openModal("analysis",{...edit.draft,components:edit.draft.components},()=>{edit.spent=true;});
+        }
+      }
       if (action === "review-library-acu" && canDraftLibraryAcu() && !model.busy) {
         const drafts = model.messages[Number(button.dataset.index)]?.libraryAcus;
         const index = Number(button.dataset.draft);
@@ -780,9 +1193,9 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
         if(model.open&&!model.configured){model.notice="Leyendo configuración guardada…";paint();const status=await invoke("ai_status");Object.assign(model,status);model.notice=status.configured?"Configuración de IA restaurada desde el llavero del sistema.":"";if(status.storage_error)model.error=status.storage_error;}
       }
       if(action==="settings")model.settings=!model.settings;
-      if(action==="clear"&&!model.busy){pendingIntent=null;store().clear();acuWorkbench.cancelPrepared();model.generation++;model.messages=[];model.lastAction=null;model.pendingAction=null;model.focusLineId=null;model.lastCatalogAdvice=null;model.recentCreatedLineIds=[];model.recentCreatedEstimateId=null;model.usage=null;model.question="";model.context="";model.includeContext=true;model.contextMode="screen";model.contextOpen=false;}
+      if(action==="clear"&&!model.busy){pendingIntent=null;store().clear();acuWorkingNotes.clear();acuWorkbench.cancelPrepared();model.generation++;model.messages=[];model.lastAction=null;model.pendingAction=null;model.focusLineId=null;model.lastCatalogAdvice=null;model.recentCreatedLineIds=[];model.recentCreatedEstimateId=null;model.usage=null;model.question="";model.context="";model.includeContext=true;model.contextMode="screen";model.contextOpen=false;}
       if(action==="capture"&&!model.busy){model.context=captureContext();model.includeContext=true;model.contextMode="screen";model.contextOpen=true;}
-      if(action==="forget"&&!model.busy){pendingIntent=null;store().clear();await invoke("ai_forget");Object.assign(model,{configured:false,settings:true,messages:[],lastAction:null,pendingAction:null,question:"",context:"",includeContext:true,contextMode:"screen",contextOpen:false,consent:false,usage:null,notice:""});model.generation++;}
+      if(action==="forget"&&!model.busy){pendingIntent=null;store().clear();acuWorkingNotes.clear();await invoke("ai_forget");Object.assign(model,{configured:false,settings:true,messages:[],lastAction:null,pendingAction:null,question:"",context:"",includeContext:true,contextMode:"screen",contextOpen:false,consent:false,usage:null,notice:""});model.generation++;}
       if(action==="quick"&&!model.busy){
         model.question=button.dataset.question;
         if(button.dataset.question.startsWith("Explicame")){

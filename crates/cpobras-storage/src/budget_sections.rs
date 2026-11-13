@@ -13,7 +13,6 @@ pub struct BudgetSection {
     pub position: i64,
 }
 
-
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SectionEdit {
     pub action: String,
@@ -50,16 +49,22 @@ impl LocalStore {
         edits: &[SectionEdit],
     ) -> Result<SectionEditResult> {
         if edits.is_empty() || edits.len() > 20 {
-            return Err(StorageError::InvalidValue("invalid section plan size".into()));
+            return Err(StorageError::InvalidValue(
+                "invalid section plan size".into(),
+            ));
         }
         let tx = self.conn.transaction()?;
-        let state: Option<String> = tx.query_row(
-            "SELECT status FROM estimates WHERE id=?1",
-            [estimate_id.to_string()],
-            |row| row.get(0),
-        ).optional()?;
+        let state: Option<String> = tx
+            .query_row(
+                "SELECT status FROM estimates WHERE id=?1",
+                [estimate_id.to_string()],
+                |row| row.get(0),
+            )
+            .optional()?;
         if state.as_deref() != Some("draft") {
-            return Err(StorageError::InvalidValue("estimate is not an editable draft".into()));
+            return Err(StorageError::InvalidValue(
+                "estimate is not an editable draft".into(),
+            ));
         }
         let mut summary = SectionEditResult::default();
         for edit in edits {
@@ -79,14 +84,19 @@ impl LocalStore {
                     let mut code_number = 1;
                     let code = loop {
                         if code_number > 9999 {
-                            return Err(StorageError::InvalidValue("no section code available".into()));
+                            return Err(StorageError::InvalidValue(
+                                "no section code available".into(),
+                            ));
                         }
                         let candidate = format!("{code_number:02}");
                         let taken: i64 = tx.query_row(
                             "SELECT COUNT(*) FROM budget_sections WHERE estimate_id=?1 AND code=?2",
-                            params![estimate_id.to_string(), candidate], |row| row.get(0),
+                            params![estimate_id.to_string(), candidate],
+                            |row| row.get(0),
                         )?;
-                        if taken == 0 { break candidate; }
+                        if taken == 0 {
+                            break candidate;
+                        }
                         code_number += 1;
                     };
                     let position: i64 = tx.query_row(
@@ -100,23 +110,35 @@ impl LocalStore {
                     summary.created += 1;
                 }
                 "update" | "delete" => {
-                    let id = edit.section_id.ok_or_else(|| StorageError::InvalidValue("missing section ID".into()))?;
+                    let id = edit
+                        .section_id
+                        .ok_or_else(|| StorageError::InvalidValue("missing section ID".into()))?;
                     let previous: Option<(String, Option<String>, String)> = tx.query_row(
                         "SELECT title,parent_id,code FROM budget_sections WHERE id=?1 AND estimate_id=?2",
                         params![id.to_string(), estimate_id.to_string()],
                         |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                     ).optional()?;
-                    let (previous_title,parent_id,previous_code) = previous
-                        .ok_or_else(|| StorageError::InvalidValue("section no longer exists in this estimate".into()))?;
+                    let (previous_title, parent_id, previous_code) = previous.ok_or_else(|| {
+                        StorageError::InvalidValue(
+                            "section no longer exists in this estimate".into(),
+                        )
+                    })?;
                     if edit.expected_title.as_deref() != Some(previous_title.as_str()) {
-                        return Err(StorageError::InvalidValue("section was modified since preview".into()));
+                        return Err(StorageError::InvalidValue(
+                            "section was modified since preview".into(),
+                        ));
                     }
                     if edit.action == "update" {
                         let title = edit.title.as_deref().unwrap_or(&previous_title).trim();
                         let code = edit.code.as_deref().unwrap_or(&previous_code).trim();
-                        if title.is_empty() || title.chars().count() > 100 ||
-                            code.is_empty() || code.chars().count() > 30 {
-                            return Err(StorageError::InvalidValue("invalid section title or code".into()));
+                        if title.is_empty()
+                            || title.chars().count() > 100
+                            || code.is_empty()
+                            || code.chars().count() > 30
+                        {
+                            return Err(StorageError::InvalidValue(
+                                "invalid section title or code".into(),
+                            ));
                         }
                         tx.execute(
                             "UPDATE budget_sections SET title=?1,code=?2 WHERE id=?3 AND estimate_id=?4",
@@ -126,16 +148,25 @@ impl LocalStore {
                     } else {
                         let assigned: i64 = tx.query_row(
                             "SELECT COUNT(*) FROM estimate_line_sections WHERE section_id=?1",
-                            [id.to_string()], |row| row.get(0),
+                            [id.to_string()],
+                            |row| row.get(0),
                         )?;
                         let children: i64 = tx.query_row(
                             "SELECT COUNT(*) FROM budget_sections WHERE parent_id=?1",
-                            [id.to_string()], |row| row.get(0),
+                            [id.to_string()],
+                            |row| row.get(0),
                         )?;
-                        if edit.expected_lines != Some(assigned) || edit.expected_children != Some(children) {
-                            return Err(StorageError::InvalidValue("section membership changed since preview".into()));
+                        if edit.expected_lines != Some(assigned)
+                            || edit.expected_children != Some(children)
+                        {
+                            return Err(StorageError::InvalidValue(
+                                "section membership changed since preview".into(),
+                            ));
                         }
-                        tx.execute("DELETE FROM estimate_line_sections WHERE section_id=?1", [id.to_string()])?;
+                        tx.execute(
+                            "DELETE FROM estimate_line_sections WHERE section_id=?1",
+                            [id.to_string()],
+                        )?;
                         tx.execute(
                             "UPDATE budget_sections SET parent_id=?1 WHERE parent_id=?2 AND estimate_id=?3",
                             params![parent_id, id.to_string(), estimate_id.to_string()],
@@ -417,53 +448,120 @@ mod tests {
     #[test]
     fn conversational_section_crud_preserves_lines_children_and_rejects_stale_delete() {
         let mut store = LocalStore::in_memory().unwrap();
-        let client = Client { id: Uuid::new_v4(), name: "Cliente".into(), cuit: None };
+        let client = Client {
+            id: Uuid::new_v4(),
+            name: "Cliente".into(),
+            cuit: None,
+        };
         store.save_client(&client).unwrap();
-        let project = Project { id: Uuid::new_v4(), client_id: client.id,
-            name: "Proyecto".into(), currency: Currency::Ars };
+        let project = Project {
+            id: Uuid::new_v4(),
+            client_id: client.id,
+            name: "Proyecto".into(),
+            currency: Currency::Ars,
+        };
         store.save_project(&project).unwrap();
-        let estimate = Estimate { id: Uuid::new_v4(), project_id: project.id,
-            title: "Antepresupuesto".into(), currency: Currency::Ars, issued: false };
+        let estimate = Estimate {
+            id: Uuid::new_v4(),
+            project_id: project.id,
+            title: "Antepresupuesto".into(),
+            currency: Currency::Ars,
+            issued: false,
+        };
         store.create_estimate(&estimate).unwrap();
-        let edits = vec!["Fundaciones", "Estructuras", "Cubiertas"].into_iter()
-            .map(|title| SectionEdit { action:"create".into(), section_id:None,
-                title:Some(title.into()), code:None, expected_title:None,
-                expected_lines:None, expected_children:None }).collect::<Vec<_>>();
-        let created = store.apply_budget_section_edits(estimate.id, &edits).unwrap();
-        assert_eq!(created.created,3);
+        let edits = vec!["Fundaciones", "Estructuras", "Cubiertas"]
+            .into_iter()
+            .map(|title| SectionEdit {
+                action: "create".into(),
+                section_id: None,
+                title: Some(title.into()),
+                code: None,
+                expected_title: None,
+                expected_lines: None,
+                expected_children: None,
+            })
+            .collect::<Vec<_>>();
+        let created = store
+            .apply_budget_section_edits(estimate.id, &edits)
+            .unwrap();
+        assert_eq!(created.created, 3);
         let sections = store.list_budget_sections(estimate.id).unwrap();
-        assert_eq!(sections.len(),3);
-        let root = sections.iter().find(|s|s.title=="Fundaciones").unwrap().clone();
-        let child = BudgetSection {id:Uuid::new_v4(),parent_id:Some(root.id),
-            code:"01.01".into(),title:"Zapatas".into(),position:3,..root.clone()};
+        assert_eq!(sections.len(), 3);
+        let root = sections
+            .iter()
+            .find(|s| s.title == "Fundaciones")
+            .unwrap()
+            .clone();
+        let child = BudgetSection {
+            id: Uuid::new_v4(),
+            parent_id: Some(root.id),
+            code: "01.01".into(),
+            title: "Zapatas".into(),
+            position: 3,
+            ..root.clone()
+        };
         store.save_budget_section(&child).unwrap();
-        let line=EstimateItem {id:Uuid::new_v4(),estimate_id:estimate.id,position:0,
-            analysis_id:None,description:"Excavación".into(),unit:"m³".into(),
-            quantity:Decimal::new(10,0),unit_cost_snapshot:Decimal::new(20,0)};
+        let line = EstimateItem {
+            id: Uuid::new_v4(),
+            estimate_id: estimate.id,
+            position: 0,
+            analysis_id: None,
+            description: "Excavación".into(),
+            unit: "m³".into(),
+            quantity: Decimal::new(10, 0),
+            unit_cost_snapshot: Decimal::new(20, 0),
+        };
         store.add_estimate_item(&line).unwrap();
-        store.assign_line_section(estimate.id,line.id,root.id).unwrap();
-        let stale = SectionEdit {action:"delete".into(),section_id:Some(root.id),
-            expected_title:Some("Fundaciones".into()),expected_lines:Some(0),
-            expected_children:Some(1),title:None,code:None};
-        assert!(store.apply_budget_section_edits(estimate.id,&[stale.clone()]).is_err());
-        assert_eq!(store.list_budget_sections(estimate.id).unwrap().len(),4);
-        let rename = SectionEdit {action:"update".into(),section_id:Some(root.id),
-            title:Some("Movimiento de suelos".into()),code:Some("00".into()),
-            expected_title:Some("Fundaciones".into()),expected_lines:None,
-            expected_children:None};
-        assert_eq!(store.apply_budget_section_edits(estimate.id,&[rename]).unwrap().updated,1);
-        let mut valid=stale;valid.expected_title=Some("Movimiento de suelos".into());
-        valid.expected_lines=Some(1);
-        let removed=store.apply_budget_section_edits(estimate.id,&[valid]).unwrap();
-        assert_eq!(removed.deleted,1);
-        assert_eq!(removed.preserved_lines,1);
-        assert_eq!(removed.reparented_subsections,1);
-        assert_eq!(store.estimate_items(estimate.id).unwrap().len(),1);
+        store
+            .assign_line_section(estimate.id, line.id, root.id)
+            .unwrap();
+        let stale = SectionEdit {
+            action: "delete".into(),
+            section_id: Some(root.id),
+            expected_title: Some("Fundaciones".into()),
+            expected_lines: Some(0),
+            expected_children: Some(1),
+            title: None,
+            code: None,
+        };
+        assert!(store
+            .apply_budget_section_edits(estimate.id, &[stale.clone()])
+            .is_err());
+        assert_eq!(store.list_budget_sections(estimate.id).unwrap().len(), 4);
+        let rename = SectionEdit {
+            action: "update".into(),
+            section_id: Some(root.id),
+            title: Some("Movimiento de suelos".into()),
+            code: Some("00".into()),
+            expected_title: Some("Fundaciones".into()),
+            expected_lines: None,
+            expected_children: None,
+        };
+        assert_eq!(
+            store
+                .apply_budget_section_edits(estimate.id, &[rename])
+                .unwrap()
+                .updated,
+            1
+        );
+        let mut valid = stale;
+        valid.expected_title = Some("Movimiento de suelos".into());
+        valid.expected_lines = Some(1);
+        let removed = store
+            .apply_budget_section_edits(estimate.id, &[valid])
+            .unwrap();
+        assert_eq!(removed.deleted, 1);
+        assert_eq!(removed.preserved_lines, 1);
+        assert_eq!(removed.reparented_subsections, 1);
+        assert_eq!(store.estimate_items(estimate.id).unwrap().len(), 1);
         assert!(store.list_line_sections(estimate.id).unwrap().is_empty());
-        let children=store.list_budget_sections(estimate.id).unwrap();
-        assert!(children.iter().any(|s|s.id==child.id&&s.parent_id==None));
+        let children = store.list_budget_sections(estimate.id).unwrap();
+        assert!(children
+            .iter()
+            .any(|s| s.id == child.id && s.parent_id == None));
         store.issue_estimate(estimate.id).unwrap();
-        assert!(store.apply_budget_section_edits(estimate.id,&edits[..1]).is_err());
+        assert!(store
+            .apply_budget_section_edits(estimate.id, &edits[..1])
+            .is_err());
     }
-
 }

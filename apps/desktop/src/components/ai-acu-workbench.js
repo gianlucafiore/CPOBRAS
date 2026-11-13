@@ -1,4 +1,5 @@
 import {e,dateToday,kindName} from './helpers.js';
+import {invokeReviewedAiAction} from '../services/ai-view-api-contracts.js';
 import {money,numeric,multiplyDecimals} from '../decimal.js';
 import {parsePlan,normalize,importDecimal} from '../services/ai-budget-import.js';
 import {createAiRequest} from '../services/ai-assistant.js';
@@ -173,7 +174,7 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
      try{
       authorization.used=true;authorization.writing=true;
       approvedProgress(authorization,'saving','Guardando únicamente los ACU y movimientos de rubros de la vista previa aprobada.');
-      const result=await invoke('apply_reviewed_budget_batch',{batch});committed=true;
+      const result=await invokeReviewedAiAction(invoke,'workspace','apply_reviewed_budget_batch',{batch},{approved:true});committed=true;
       saved=result.composed;created=result.created;organized=reviewBudget?sectionMoves.length:0;lineIds=batch.acus.map(acu=>acu.line_id);
       model.applied=true;drafts.delete(model.draftKey);
       const savedIds=new Set(lineIds),remainingRows=model.rows.filter(row=>!savedIds.has(row.id));
@@ -200,7 +201,7 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
    approvedProgress(authorization,'saving',`Guardando ${batch.acus.length} ACU completos. Las propuestas con faltantes quedan pendientes.`,{pending:authorization.targetIds.size-batch.acus.length});
    if(!approvalCurrent(authorization)){cancelled=true;return finish();}
    authorization.used=true;authorization.writing=true;
-   const result=await invoke('apply_reviewed_budget_batch',{batch});committed=true;authorization.writing=false;saved=result.composed;created=result.created;organized=reviewBudget?sectionMoves.length:0;lineIds=batch.acus.map(acu=>acu.line_id);
+   const result=await invokeReviewedAiAction(invoke,'workspace','apply_reviewed_budget_batch',{batch},{approved:true});committed=true;authorization.writing=false;saved=result.composed;created=result.created;organized=reviewBudget?sectionMoves.length:0;lineIds=batch.acus.map(acu=>acu.line_id);
    model.applied=true;drafts.delete(model.draftKey);
    const ids=new Set(lineIds),rows=model.rows.filter(row=>!ids.has(row.id)),remainingSeeds=model.seeds.filter(seed=>!ids.has(seed.id)),targetIds=[...model.targetIds].filter(id=>!ids.has(id));
    model.remaining={rows,seeds:remainingSeeds,targetIds,count:new Set([...rows.map(row=>row.id),...remainingSeeds.map(seed=>seed.id),...targetIds]).size};
@@ -399,7 +400,7 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
    const batch=acuBatch({rows:model.rows,context:model.context,estimate:model.estimate,newEstimate:model.newEstimate,batchId:model.batchId,asOf:model.asOf});
    const replaced=model.rows.filter(r=>r.selected&&!r.seed.is_new&&r.seed.components.length).length,measured=batch.acus.filter(a=>a.measurements).length;
    if(!window.confirm(`¿Aplicar ${batch.acus.length} ACU, crear ${batch.creates.length} partidas${model.newEstimate?' y un presupuesto nuevo':''}, reemplazar ${replaced} ACU existentes y aplicar ${measured} mediciones? Los costos se calcularán con precios de ${model.context.currency}; los rubros se crearán o asignarán según la revisión.`))return;
-   model.busy=true;paint();try{const result=await invoke('apply_reviewed_budget_batch',{batch});model.applied=true;drafts.delete(model.draftKey);
+   model.busy=true;paint();try{const result=await invokeReviewedAiAction(invoke,'workspace','apply_reviewed_budget_batch',{batch},{approved:true});model.applied=true;drafts.delete(model.draftKey);
     const ids=new Set(batch.acus.map(a=>a.line_id)),rows=model.rows.filter(r=>!ids.has(r.id)),seeds=model.seeds.filter(s=>!ids.has(s.id)),targetIds=[...model.targetIds].filter(id=>!ids.has(id));
     model.remaining={rows,seeds,targetIds,count:new Set([...rows.map(r=>r.id),...seeds.map(s=>s.id),...targetIds]).size};
     model.lastApplied={estimateId:model.estimate.id,lineIds:[...ids]};

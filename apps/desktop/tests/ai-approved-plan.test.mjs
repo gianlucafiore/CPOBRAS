@@ -122,7 +122,7 @@ test('navigation during commit preserves the result without reopening the previo
  const f=fixture(),entered=deferred(),write=deferred();f.hooks.write=async()=>{entered.resolve();return write.promise;};
  const pending=f.runner.run([proposed()],{onProgress:f.progress});await entered.promise;
  f.state.projectId='30000000-0000-4000-8000-000000000099';f.state.estimateId=null;f.state.view='management';
- write.resolve({created:1});const result=await pending;
+ write.resolve({updated:0,created:1,deleted:0,composed:0,moved_sections:0});const result=await pending;
  assert.equal(result.committed,true);assert.equal(result.created,1);assert.deepEqual(f.loads,[]);
  assert.equal(f.state.projectId,'30000000-0000-4000-8000-000000000099');assert.match(f.events.at(-1).message,/presupuesto de origen/);
 });

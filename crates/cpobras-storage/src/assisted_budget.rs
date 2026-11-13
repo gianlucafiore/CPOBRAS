@@ -82,8 +82,17 @@ fn invalid(text: &str) -> StorageError {
 }
 impl LocalStore {
     pub fn apply_reviewed_budget_batch(&mut self, batch: &ReviewedBatch) -> Result<BatchResult> {
-        if batch.updates.len() + batch.creates.len() + batch.deletes.len() + batch.acus.len() + batch.section_moves.len() == 0
-            || batch.updates.len() + batch.creates.len() + batch.deletes.len() + batch.acus.len() + batch.section_moves.len()
+        if batch.updates.len()
+            + batch.creates.len()
+            + batch.deletes.len()
+            + batch.acus.len()
+            + batch.section_moves.len()
+            == 0
+            || batch.updates.len()
+                + batch.creates.len()
+                + batch.deletes.len()
+                + batch.acus.len()
+                + batch.section_moves.len()
                 > 1000
         {
             return Err(invalid("Seleccioná entre 1 y 1000 partidas"));
@@ -108,7 +117,9 @@ impl LocalStore {
         if let Some(new) = &batch.new_estimate {
             if new.title.trim().is_empty()
                 || new.title.len() > 500
-                || (!batch.updates.is_empty() || !batch.deletes.is_empty() || !batch.section_moves.is_empty())
+                || (!batch.updates.is_empty()
+                    || !batch.deletes.is_empty()
+                    || !batch.section_moves.is_empty())
             {
                 return Err(invalid("Datos del presupuesto nuevo inválidos"));
             }
@@ -141,7 +152,9 @@ impl LocalStore {
                 || batch.updates.iter().any(|u| u.line_id == moved.line_id)
                 || batch.acus.iter().any(|a| a.line_id == moved.line_id)
             {
-                return Err(invalid("Una partida está repetida entre la clasificación, ACU o eliminaciones"));
+                return Err(invalid(
+                    "Una partida está repetida entre la clasificación, ACU o eliminaciones",
+                ));
             }
             let previous: Option<(String, String, String, String, Option<String>, Option<String>)> = tx.query_row(
                 "SELECT l.description,l.unit,l.quantity,l.unit_cost_snapshot,l.analysis_id,s.section_id
@@ -150,8 +163,10 @@ impl LocalStore {
                 params![moved.line_id.to_string(),batch.estimate_id.to_string()],
                 |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?))
             ).optional()?;
-            let Some((description,unit,quantity,price,analysis,section)) = previous else {
-                return Err(invalid("La partida a reorganizar no existe en este presupuesto"));
+            let Some((description, unit, quantity, price, analysis, section)) = previous else {
+                return Err(invalid(
+                    "La partida a reorganizar no existe en este presupuesto",
+                ));
             };
             if description != moved.expected.description
                 || unit != moved.expected.unit
@@ -164,9 +179,14 @@ impl LocalStore {
             }
             let available: bool = tx.query_row(
                 "SELECT EXISTS(SELECT 1 FROM budget_sections WHERE id=?1 AND estimate_id=?2)",
-                params![moved.section_id.to_string(),batch.estimate_id.to_string()], |r|r.get(0)
+                params![moved.section_id.to_string(), batch.estimate_id.to_string()],
+                |r| r.get(0),
             )?;
-            if !available { return Err(invalid("El rubro de destino no pertenece a este presupuesto")); }
+            if !available {
+                return Err(invalid(
+                    "El rubro de destino no pertenece a este presupuesto",
+                ));
+            }
         }
         crate::assisted_acu::validate_changes(&tx, batch)?;
         let mut ids = HashSet::new();
@@ -290,7 +310,7 @@ impl LocalStore {
             tx.execute(
                 "INSERT INTO estimate_line_sections(line_id,section_id) VALUES(?1,?2)
                  ON CONFLICT(line_id) DO UPDATE SET section_id=excluded.section_id",
-                params![moved.line_id.to_string(),moved.section_id.to_string()],
+                params![moved.line_id.to_string(), moved.section_id.to_string()],
             )?;
         }
         crate::estimates::checked_budget_total(&tx, batch.estimate_id)?;

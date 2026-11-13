@@ -1,4 +1,5 @@
 import {e,dateToday} from './helpers.js';
+import {invokeReviewedAiAction} from '../services/ai-view-api-contracts.js';
 import {createAiRequest} from '../services/ai-assistant.js';
 import {parseAiResourceProposals,reviewAiResourceRows} from '../services/ai-resource-import.js';
 
@@ -108,7 +109,7 @@ export function createAiResourceImport({invoke,state,document,window,reloadCatal
    if(!model.date)throw new Error('Indicá la fecha para los precios manuales');
    const keys=new Set(selected.map(row=>row.key));
    const rows=selected.map(({description,kind,unit,price})=>({code:'',description,kind,unit,price}));
-   const result=await invoke('import_resources',{rows,effectiveDate:model.date,source:'Carga de insumos asistida por IA, revisada por el usuario'});
+   const result=await invokeReviewedAiAction(invoke,'resources','import_resources',{rows,effectiveDate:model.date,source:'Carga de insumos asistida por IA, revisada por el usuario'},{approved:true});
    committed=true;
    model.rows=model.rows.filter(row=>!keys.has(row.key));model.rows.forEach(row=>row.selected=false);
    model.notice=`Se agregaron ${result.created} insumos a la biblioteca. Para usarlos en un ACU, retomá su preparación y actualizá el catálogo.`;

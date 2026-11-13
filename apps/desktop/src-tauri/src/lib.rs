@@ -16,8 +16,8 @@ pub fn run() {
         .setup(|app| {
             let directory = app.path().app_data_dir()?;
             std::fs::create_dir_all(&directory)?;
-            let (session, store) = database::DatabaseSession::load(&directory)
-                .map_err(std::io::Error::other)?;
+            let (session, store) =
+                database::DatabaseSession::load(&directory).map_err(std::io::Error::other)?;
             let directory = session.services_directory(&directory);
             app.manage(session);
             let backups = directory.join("backups");

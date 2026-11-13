@@ -18,9 +18,11 @@ on:
       - "apps/desktop/tests/browser/ai-catalog-chat.spec.mjs"
       - "apps/desktop/tests/browser/ai-approved-load.spec.mjs"
       - "apps/desktop/tests/browser/ai-acu-chat.spec.mjs"
+      - "apps/desktop/tests/browser/ai-library-acu.spec.mjs"
       - "crates/cpobras-storage/src/budget_sections.rs"
       - "crates/cpobras-storage/src/section_batches.rs"
       - "apps/desktop/src-tauri/src/commands/sections.rs"
+      - "apps/desktop/src-tauri/src/commands/ai.rs"
       - "apps/desktop/src-tauri/src/lib.rs"
       - "apps/desktop/src-tauri/permissions/workspace.toml"
       - ".github/workflows/ai-chat-regression.yml"
@@ -37,10 +39,12 @@ on:
       - "apps/desktop/tests/browser/ai-conversation-context.spec.mjs"
       - "apps/desktop/tests/browser/ai-app-capabilities.spec.mjs"
       - "apps/desktop/tests/browser/ai-budget-preparation.spec.mjs"
+      - "apps/desktop/tests/browser/ai-library-acu.spec.mjs"
       - "apps/desktop/tests/browser/ai-budget-sections.spec.mjs"
       - "crates/cpobras-storage/src/budget_sections.rs"
       - "crates/cpobras-storage/src/section_batches.rs"
       - "apps/desktop/src-tauri/src/commands/sections.rs"
+      - "apps/desktop/src-tauri/src/commands/ai.rs"
       - "apps/desktop/src-tauri/src/lib.rs"
       - "apps/desktop/src-tauri/permissions/workspace.toml"
       - ".github/workflows/ai-chat-regression.yml"
@@ -69,7 +73,7 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: End-to-end chat ACU addition
         working-directory: apps/desktop
-        run: npm run test:browser -- ai-conversation-context.spec.mjs ai-budget-sections.spec.mjs ai-budget-preparation.spec.mjs ai-budget-copilot.spec.mjs ai-bathroom-preserve.spec.mjs ai-sanitario-append.spec.mjs ai-equipment-productivity.spec.mjs ai-selected-bathroom-preview.spec.mjs ai-acu-chat.spec.mjs ai-approved-load.spec.mjs ai-catalog-chat.spec.mjs ai-chat-create-approval.spec.mjs ai-full-budget-review.spec.mjs ai-app-capabilities.spec.mjs
+        run: npm run test:browser -- ai-conversation-context.spec.mjs ai-budget-sections.spec.mjs ai-budget-preparation.spec.mjs ai-budget-copilot.spec.mjs ai-bathroom-preserve.spec.mjs ai-sanitario-append.spec.mjs ai-equipment-productivity.spec.mjs ai-selected-bathroom-preview.spec.mjs ai-acu-chat.spec.mjs ai-approved-load.spec.mjs ai-catalog-chat.spec.mjs ai-chat-create-approval.spec.mjs ai-full-budget-review.spec.mjs ai-app-capabilities.spec.mjs ai-library-acu.spec.mjs
 
   section-native:
     runs-on: ubuntu-24.04
@@ -96,3 +100,5 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev librsvg2-dev libayatana-appindicator3-dev
       - name: Compile desktop Rust commands independently of formatting
         run: cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml --locked
+      - name: Validate OpenAI JSON request input and provider error status handling
+        run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --locked fixed_provider_payloads_and_parsers -- --nocapture
