@@ -14,7 +14,7 @@ pub(crate) fn active_database(session: tauri::State<'_, DatabaseSession>) -> Dat
 pub(crate) async fn switch_database<R: tauri::Runtime>(
     window: WebviewWindow<R>,
     create: bool,
-) -> Result<(), String> {
+) -> Result<&'static str, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let app = window.app_handle();
         let session = app.state::<DatabaseSession>();
@@ -39,12 +39,18 @@ pub(crate) async fn switch_database<R: tauri::Runtime>(
                 .blocking_pick_file()
         };
         if let Some(selected) = selected {
-            let path = selected.into_path().map_err(|e| e.to_string())?;
-            if session.select(&app.state::<Db>(), path, create)? {
+            let path = selected
+                .into_path()
+                .map_err(|e| format!("No se pudo interpretar la ruta seleccionada: {e}"))?;
+            if session
+                .select(&app.state::<Db>(), path.clone(), create)
+                .map_err(|error| format!("Archivo seleccionado: {}. {error}", path.display()))?
+            {
                 app.restart();
             }
+            return Ok("unchanged");
         }
-        Ok(())
+        Ok("cancelled")
     })
     .await
     .map_err(|e| e.to_string())?
