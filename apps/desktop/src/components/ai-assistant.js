@@ -660,17 +660,34 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     paint();
     let intent;
     try {
-      // Only the current user utterance can authorize an action. No catalog rows
-      // or provider-generated text are included in the intent request.
+      // Read the actual selected ACU before classifying this utterance.
+      // Preserve conversational referents but NEVER treat prior messages or
+      // catalog strings as approval for a new database write.
+      let selected=null;
+      if(state.selectedAnalysisId){
+        const detail=await invoke("get_analysis_details",{analysisId:state.selectedAnalysisId});
+        selected={id:state.selectedAnalysisId,code:detail?.code,
+          description:detail?.description,unit:detail?.unit,
+          components:detail?.components||[]};
+      }
+      if (token !== queryToken || generation !== model.generation || !canDraftLibraryAcu()) return true;
+      const conversation=libraryAcuConversationState({
+        messages:model.messages,selectedAnalysis:selected,pendingEdit:editProposal,
+        currentQuestion:question,
+      });
       activeRequest = createAiRequest(invoke, {
         messages:[{role:"user", content:question}],
         context:JSON.stringify({
           pending_proposal:Boolean(proposal||editProposal),
           pending_edit:Boolean(editProposal),
-          selected_analysis:Boolean(state.selectedAnalysisId),
+          selected_analysis:Boolean(selected),
+          selected_analysis_context:conversation.selected_analysis,
+          recent_user_turns:conversation.recent_user_turns,
+          current_question:conversation.current_question,
           pending_request:Boolean(followup),
           known_work:Boolean(followup?.libraryAcuBrief),
           last_saved:Boolean(last?.libraryAcuSaved),
+          grounding:conversation.grounding,
         }),
         mode:"library_acu_intent",
       });
@@ -690,6 +707,16 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     switch (intent.action) {
       case "general":
         return false;
+      case "question":
+        if(state.selectedAnalysisId){
+          await prepareSelectedAcuEdit(question,editProposal?
+            model.messages.findLast(message=>message.libraryEdit===editProposal):null,"question");
+        }else if(followup){
+          await prepareLibraryAcu(question,followup,question,"question");
+        }else{
+          return false;
+        }
+        break;
       case "show":
         if(editProposal){
           model.question="";
@@ -770,11 +797,11 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
         }
         break;
       default:
-        if(editProposal&&["add","revise","clarify","question"].includes(intent.action)){
+        if(editProposal&&["add","revise","clarify"].includes(intent.action)){
           await prepareSelectedAcuEdit(question,model.messages.findLast(message=>message.libraryEdit===editProposal));
         }else if(state.selectedAnalysisId&&["add","revise"].includes(intent.action)){
           await prepareSelectedAcuEdit(question);
-        }else if(state.selectedAnalysisId&&last?.libraryAcuClarification&&intent.action==="clarify"){
+        }else if(state.selectedAnalysisId&&intent.action==="clarify"){
           await prepareSelectedAcuEdit(question,last);
         }else if (followup) await prepareLibraryAcu(question, followup, question, intent.action);
         else {
