@@ -145,6 +145,7 @@ test("library follow-ups prefer a new unsaved draft over a highlighted older ACU
  assert.equal(libraryAcuTurnFocus({action:"new"},withDraft),"new");
  assert.equal(libraryAcuTurnFocus({action:"finish"},withDraft),"finish");
  assert.equal(libraryAcuTurnFocus({action:"edit",target:"selected"},withDraft),"selected");
+ assert.equal(libraryAcuTurnFocus({action:"show",target:"selected"},withDraft),"selected");
  const withoutDraft={pendingDraft:false,pendingEdit:false,selectedId:"old-masonry"};
  assert.equal(libraryAcuTurnFocus({action:"show"},withoutDraft),"selected");
  assert.equal(libraryAcuTurnFocus({action:"add"},withoutDraft),"selected");
