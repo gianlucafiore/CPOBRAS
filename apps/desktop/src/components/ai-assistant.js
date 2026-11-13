@@ -1,5 +1,6 @@
 import {canSaveLibraryAcu,libraryAcuContext,readLibraryAcuIntent,readLibraryAcus,saveLibraryAcu} from "../services/ai-library-acu.js";
 import {selectedAcuSnapshot,selectedAcuSnapshotMatches,readSelectedAcuEdit,canApplySelectedAcuEdit,applySelectedAcuEdit} from "../services/ai-selected-acu-edit.js";
+import {libraryAcuConversationState,requestedAddedMaterials} from "../services/ai-library-conversation.js";
 import {invokeReviewedAiAction} from '../services/ai-view-api-contracts.js';
 import {conversationStore,conversationAcuRequest,structuredConversationContext} from '../services/ai-conversation-context.js';
 import {createAcuWorkbench} from "./ai-acu-workbench.js";
@@ -382,7 +383,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       paint();
     }
   }
-  async function prepareSelectedAcuEdit(question,prior=null) {
+  async function prepareSelectedAcuEdit(question,prior=null,interaction="edit") {
     const selectedId=state.selectedAnalysisId;
     if(!selectedId||!canDraftLibraryAcu()){
       addReply(question,{answer:"Seleccioná un ACU de la biblioteca para poder modificar su composición."});
@@ -397,9 +398,10 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     const current=()=>token===queryToken && generation===model.generation &&
       canDraftLibraryAcu()&&state.selectedAnalysisId===selectedId&&
       (state.database?.scope??null)===databaseScope;
-    const brief=prior?.libraryEdit?.baseline?.id===selectedId
-      ? question : prior?.libraryAcuBrief && !prior?.libraryEdit
-        ? prior.libraryAcuBrief+"\nAclaración: "+question : question;
+    const recentUserTurns=model.messages.filter(message=>message.role==="user")
+      .slice(-6).map(message=>String(message.content||"").slice(0,450));
+    const requestedMaterialPhrases=requestedAddedMaterials([...recentUserTurns,question]);
+    const brief=question;
     const send=async(messages,context)=>{
       activeRequest=createAiRequest(invoke,{mode:"library_acu_edit",messages,context});
       model.catalogLoading=false;paint();
@@ -416,14 +418,19 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       const pending=prior?.libraryEdit?.baseline?.id===selectedId ? prior.libraryEdit : null;
       if(pending && !selectedAcuSnapshotMatches(pending.baseline,fresh))
         throw new Error("El ACU fue editado desde otra vista. Tenés que preparar una propuesta actualizada.");
-      const evidence=libraryAcuContext(brief+" "+fresh.description,catalog);
+      const evidence=libraryAcuContext(brief+" "+requestedMaterialPhrases.flat().join(" ")+" "+fresh.description,catalog);
       let resources=evidence.resources;
       const selectedResourceIds=new Set(fresh.components.map(row=>row.resource_id));
       resources=[...new Map([...resources,
         ...catalog.resources.filter(row=>selectedResourceIds.has(row.id))].map(row=>[row.id,row])).values()];
       const baseline=pending?.baseline||fresh;
       const contextFor=items=>JSON.stringify({
-        task:"library_acu_edit",requested_change:brief,
+        task:"library_acu_edit",interaction,requested_change:brief,
+        conversation:libraryAcuConversationState({
+          messages:model.messages,selectedAnalysis:baseline,pendingEdit:pending,
+          currentQuestion:question,
+        }),
+        requested_material_names:requestedMaterialPhrases,
         currency:catalog.currency,as_of:catalog.as_of,resources:items.slice(0,80),
         selected_analysis:baseline,
         pending_edit:pending?{description:pending.draft.description,unit:pending.draft.unit,
@@ -431,7 +438,8 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
           changes:pending.changes}:null,
         policy:"Proponer SOLO operaciones para los componentes nombrados. Ninguna modificación se guarda sin aprobación."
       });
-      const messages=[{role:"user",content:brief.slice(0,3000)}];
+      const messages=[...recentUserTurns.map(content=>({role:"user",content})),
+        {role:"user",content:brief.slice(0,3000)}].slice(-7);
       let response=await send(messages,contextFor(resources));
       if(!current())return;
       const query=parseCatalogQuery(response.text);
@@ -446,7 +454,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       }
       let parsed;
       try{
-        parsed=readSelectedAcuEdit(response.text,{baseline,resources:catalog.resources,previous:pending});
+        parsed=readSelectedAcuEdit(response.text,{baseline,resources:catalog.resources,previous:pending,requestedMaterialPhrases});
       }catch(firstError){
         const repaired=await send([...messages,
           {role:"assistant",content:"No se pudo verificar la edición: "+String(firstError).slice(0,240)},
@@ -454,7 +462,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
         ],contextFor(resources));
         if(!current())return;
         response=repaired;
-        parsed=readSelectedAcuEdit(response.text,{baseline,resources:catalog.resources,previous:pending});
+        parsed=readSelectedAcuEdit(response.text,{baseline,resources:catalog.resources,previous:pending,requestedMaterialPhrases});
       }
       if(!parsed.proposal){
         addReply(question,{answer:parsed.answer,libraryAcuClarification:true,
