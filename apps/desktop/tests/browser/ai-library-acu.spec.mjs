@@ -226,6 +226,11 @@ test("converses about the proposal, revises it, and saves only on explicit appro
   expect(await page.evaluate(() => window.libraryWrites)).toEqual([]);
   await send("Mandale con esa composición");
   await expect(page.getByText(/Guardé.*ACU-0001/)).toBeVisible();
+  await expect(page.getByText(/¿Necesitás hacer algo más/)).toBeVisible();
+  // The prior turns are removed from the request history, not merely hidden.
+  await expect(page.locator(".ai-transcript .ai-message")).toHaveCount(1);
+  expect(await page.evaluate(()=>Object.keys(localStorage)
+    .filter(key=>key.startsWith("cpobras:conversation:")))).toEqual([]);
   expect(await page.evaluate(() => window.libraryWrites[0].components)).toEqual([
     {resourceId:"r17",quantity:"0.32",unitPrice:"50"},
     {resourceId:"r18",quantity:"1.05",unitPrice:"50"},
@@ -335,6 +340,9 @@ test("conversational AI updates ONLY the selected existing ACU after approval",a
   expect(await page.evaluate(()=>window.selectedWrites)).toEqual([]);
   await send("Aprobá la modificación");
   await expect(page.getByText(/Actualicé el ACU existente/)).toBeVisible();
+  await expect(page.locator(".ai-transcript .ai-message")).toHaveCount(1);
+  expect(await page.evaluate(()=>Object.keys(localStorage)
+    .filter(key=>key.startsWith("cpobras:conversation:")))).toEqual([]);
   const writes=await page.evaluate(()=>window.selectedWrites);
   expect(writes).toHaveLength(1);
   expect(writes[0].analysisId).toBe("analysis-fixture");
