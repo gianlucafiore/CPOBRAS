@@ -17,6 +17,30 @@ export function readLibraryAcuIntent(text) {
     ...(target?{target}:{})};
 }
 
+/** Resolve the *active task* before looking at the table selection.
+ * A new unsaved ACU remains the referent for follow-ups even if an unrelated
+ * existing library ACU stays highlighted in the background. No keywords,
+ * material-specific recipes or hardcoded names are used.
+ */
+export function libraryAcuTurnFocus(intent,{pendingDraft=false,pendingEdit=false,selectedId=null}={}){
+  const action=intent?.action;
+  if(action==="new"||action==="finish"||action==="general")return action;
+  if(action==="show"){
+    if(pendingDraft)return "draft";
+    if(pendingEdit)return "edit";
+    return selectedId?"selected":"none";
+  }
+  if(action==="discard"||action==="approve"||action==="review"){
+    if(pendingDraft)return "draft";
+    if(pendingEdit)return "edit";
+    return action==="review"&&selectedId?"selected":"none";
+  }
+  if(pendingDraft && intent?.target!=="selected")return "draft";
+  if(pendingEdit && intent?.target!=="draft")return "edit";
+  if(selectedId && ["edit","add","revise","clarify","question"].includes(action))return "selected";
+  return "none";
+}
+
 export function canSaveLibraryAcu(draft) {
   return draft.components.length > 0 && !draft.aiWarnings.length &&
     draft.components.every(component => component.unit_price !== "");
