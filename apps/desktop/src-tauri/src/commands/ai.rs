@@ -461,8 +461,11 @@ fn lmstudio_empty_reply_hint(body: &Value) -> String {
     let choice = &body["choices"][0];
     let finish = choice["finish_reason"].as_str().unwrap_or("");
     let has_reasoning = choice["message"]["reasoning_content"]
-        .as_str().is_some_and(|value| !value.trim().is_empty())
-        || choice["message"]["reasoning"].as_str().is_some_and(|value| !value.trim().is_empty());
+        .as_str()
+        .is_some_and(|value| !value.trim().is_empty())
+        || choice["message"]["reasoning"]
+            .as_str()
+            .is_some_and(|value| !value.trim().is_empty());
     if finish == "length" {
         return "LM Studio agotó los tokens de salida antes de dar una respuesta. El modelo pudo haberlos consumido razonando. Desactivá «Enable Thinking» en LM Studio o aumentá el límite de tokens del modelo.".into();
     }
@@ -530,13 +533,18 @@ fn payload(
         let recent = messages.iter().rev().take(3).collect::<Vec<_>>();
         chat.extend(recent.iter().rev().map(|message| json!(message)));
         let local_limit = if is_bonsai_model(model) {
-            if mode.is_none() { 4096 } else { limit.max(4096).min(8192) }
+            if mode.is_none() {
+                4096
+            } else {
+                limit.max(4096).min(8192)
+            }
         } else if mode.is_none() {
             768
         } else {
             limit.min(1800)
         };
-        let mut request = json!({"model":model,"messages":chat,"max_tokens":local_limit,"stream":false});
+        let mut request =
+            json!({"model":model,"messages":chat,"max_tokens":local_limit,"stream":false});
         if is_bonsai_model(model) && mode.is_none() {
             // Bonsai defaults to thinking mode. Small output budgets were exhausted
             // without a final answer. Request the non-thinking Jinja variant for
@@ -565,9 +573,12 @@ fn decode(provider: &str, body: Value) -> Result<AiReply, String> {
         if let Some(text) = content.as_str() {
             text.to_owned()
         } else if let Some(parts) = content.as_array() {
-            parts.iter().filter(|part| part["type"] == "text")
+            parts
+                .iter()
+                .filter(|part| part["type"] == "text")
                 .filter_map(|part| part["text"].as_str())
-                .collect::<Vec<_>>().join("\n")
+                .collect::<Vec<_>>()
+                .join("\n")
         } else {
             String::new()
         }
@@ -933,8 +944,17 @@ mod tests {
     }
     #[test]
     fn bonsai_thinking_can_finish_without_text_and_is_not_leaked() {
-        let user = vec![Message { role: "user".into(), content: "¿Qué podés hacer?".into() }];
-        let basic = payload("lmstudio", "deepseek/deepseek-r1-0528-qwen3-8b", &user, "{}", None);
+        let user = vec![Message {
+            role: "user".into(),
+            content: "¿Qué podés hacer?".into(),
+        }];
+        let basic = payload(
+            "lmstudio",
+            "deepseek/deepseek-r1-0528-qwen3-8b",
+            &user,
+            "{}",
+            None,
+        );
         assert_eq!(basic["max_tokens"], 768);
         assert!(basic.get("chat_template_kwargs").is_none());
 
@@ -950,13 +970,22 @@ mod tests {
         let error = decode("lmstudio", only_thoughts).err().unwrap();
         assert!(error.contains("tokens"));
         assert!(!error.contains("private step-by-step"));
-        assert!(decode("lmstudio", json!({"choices":[{"finish_reason":"stop","message":{
-            "content":null,"reasoning_content":"private reasoning"}}]})).err().unwrap().contains("razonamiento"));
+        assert!(decode(
+            "lmstudio",
+            json!({"choices":[{"finish_reason":"stop","message":{
+            "content":null,"reasoning_content":"private reasoning"}}]})
+        )
+        .err()
+        .unwrap()
+        .contains("razonamiento"));
 
         let parts = json!({"choices":[{"finish_reason":"stop","message":{"content":[
             {"type":"text","text":"{\"answer\":\"Puedo ayudar\"}"}
         ]}}]});
-        assert!(decode("lmstudio", parts).unwrap().text.contains("Puedo ayudar"));
+        assert!(decode("lmstudio", parts)
+            .unwrap()
+            .text
+            .contains("Puedo ayudar"));
     }
 
     #[test]
