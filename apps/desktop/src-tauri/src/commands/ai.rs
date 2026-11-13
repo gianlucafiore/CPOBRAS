@@ -420,23 +420,34 @@ fn compact_local_context(context: &str, limit: usize) -> String {
 }
 
 fn lmstudio_failure_hint(status: u16, body: &Value) -> String {
-    let message = body.pointer("/error/message")
+    let message = body
+        .pointer("/error/message")
         .or_else(|| body.get("message"))
-        .and_then(Value::as_str).unwrap_or("").to_lowercase();
-    if message.contains("context") || message.contains("n_ctx")
-        || message.contains("token") || message.contains("prompt is too long")
-        || message.contains("too many tokens") {
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_lowercase();
+    if message.contains("context")
+        || message.contains("n_ctx")
+        || message.contains("token")
+        || message.contains("prompt is too long")
+        || message.contains("too many tokens")
+    {
         return "LM Studio rechazó la consulta por límite de contexto/tokens. En LM Studio recargá el modelo con una ventana de 8192 o 16384 tokens, o reducÍ el contexto del chat de CPOBRAS.".into();
     }
-    if message.contains("not found") || message.contains("no model")
-        || message.contains("unknown model") {
+    if message.contains("not found")
+        || message.contains("no model")
+        || message.contains("unknown model")
+    {
         return "LM Studio no encuentra el modelo seleccionado. Detectá los modelos nuevamente y cargá el que quieras usar.".into();
     }
     if message.contains("memory") || message.contains("vram") || message.contains("gpu") {
         return "LM Studio no pudo utilizar el modelo por falta de memoria. Reducí el contexto o la carga de GPU.".into();
     }
-    if message.contains("unsupported") || message.contains("parameter") || message.contains("invalid")
-        || message.contains("format") {
+    if message.contains("unsupported")
+        || message.contains("parameter")
+        || message.contains("invalid")
+        || message.contains("format")
+    {
         return "LM Studio rechazó un parámetro de la solicitud. Revisá la compatibilidad del modelo y los registros de Developer.".into();
     }
     format!("LM Studio rechazó la solicitud (HTTP {status}). Revisá Developer → Server Logs para conocer el motivo; CPOBRAS no muestra el cuerpo de error porque podría contener datos privados.")
@@ -848,17 +859,36 @@ mod tests {
     }
     #[test]
     fn local_prompt_is_compact_and_errors_are_actionable() {
-        let msgs = vec![Message { role: "user".into(), content: "que podes hacer".into() }];
+        let msgs = vec![Message {
+            role: "user".into(),
+            content: "que podes hacer".into(),
+        }];
         let cloud = payload("openai", "gpt-4.1-mini", &msgs, "x", None);
-        let local = payload("lmstudio", "deepseek/r1-8b", &msgs, &"x".repeat(30000), None);
+        let local = payload(
+            "lmstudio",
+            "deepseek/r1-8b",
+            &msgs,
+            &"x".repeat(30000),
+            None,
+        );
         assert!(local["messages"][0]["content"].as_str().unwrap().len() < 10000);
         assert!(cloud["instructions"].as_str().unwrap().len() > 25000);
-        assert!(local["messages"][0]["content"].as_str().unwrap().contains("CONTEXTO PARCIAL"));
+        assert!(local["messages"][0]["content"]
+            .as_str()
+            .unwrap()
+            .contains("CONTEXTO PARCIAL"));
         assert!(local.get("temperature").is_none());
         assert_eq!(local["max_tokens"], 768);
         assert!(lmstudio_failure_hint(400, &json!({"error":{"message":"The number of tokens to keep from the initial prompt is greater than the context length"}})).contains("8192"));
-        assert!(lmstudio_failure_hint(400, &json!({"error":{"message":"unexpected"}})).contains("HTTP 400"));
-        assert!(!lmstudio_failure_hint(400, &json!({"error":{"message":"private irrelevant prompt"}})).contains("private irrelevant"));
+        assert!(
+            lmstudio_failure_hint(400, &json!({"error":{"message":"unexpected"}}))
+                .contains("HTTP 400")
+        );
+        assert!(!lmstudio_failure_hint(
+            400,
+            &json!({"error":{"message":"private irrelevant prompt"}})
+        )
+        .contains("private irrelevant"));
     }
     #[test]
     fn lmstudio_lists_and_responds() {
