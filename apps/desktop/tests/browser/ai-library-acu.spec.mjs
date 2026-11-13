@@ -9,6 +9,10 @@ async function openLibrary(page, proseFirst = false, asksWork = 0, selectedFixtu
         id: "r" + i, code: "INS-" + i, description: i === 17 ? "Yeso húmedo bolsa 25 kg" : i === 18 ? "Malla de refuerzo" : i ? "Árido " + i : "Cemento Portland",
         unit: i === 17 ? "bolsa" : i === 18 ? "m²" : "kg", kind: "material", active: true, price: "50", currency: "ARS",
       }));
+      if(${selectedFixture})resources.push(
+        {id:"r20",code:"INS-20",description:"Jabonera chica para pegar",unit:"un",kind:"material",active:true,price:"120",currency:"ARS"},
+        {id:"r21",code:"INS-21",description:"Arena fina",unit:"m3",kind:"material",active:true,price:"9000",currency:"ARS"}
+      );
       const analyses = ${selectedFixture ? JSON.stringify([{
         id:"analysis-fixture",code:"ACU-77",description:"Mampostería de prueba",unit:"m²",
         unit_cost:"200",is_line_owned:false,components:[
@@ -43,7 +47,8 @@ async function openLibrary(page, proseFirst = false, asksWork = 0, selectedFixtu
             else if (text.includes("formulario") || text.includes("editor")) action = "review";
             else if (text.includes("aprob") || text.includes("guardá los cambios")) action = "approve";
             else if (text.includes("modific") || text.includes("cambiale") || text.includes("ajust")) action = "edit";
-            else if (text.includes("cómo")) action = "question";
+            else if (text.includes("cómo") || text.includes("cuánta arena")) action = "question";
+            else if (text.includes("para la mampostería") && context.selected_analysis) action = "clarify";
             else if (text.startsWith("agregá")) action = "add";
             else if (text.includes("genérico") || text.includes("generico") || text.startsWith("aplicación")) {
               if (context.pending_request) action = "clarify";
@@ -53,6 +58,15 @@ async function openLibrary(page, proseFirst = false, asksWork = 0, selectedFixtu
           }
           if(args.mode==="library_acu_edit"){
             if(context.task!=="library_acu_edit" || !context.selected_analysis)throw Error("No se cargó el ACU seleccionado");
+            if(context.interaction==="question"){
+              if(!context.conversation?.selected_analysis?.description)throw Error("No se preservó el trabajo seleccionado");
+              return {text:JSON.stringify({answer:"Para este ACU de mampostería hace falta mortero de asiento; el consumo exacto depende de la junta.",keep_draft:true})};
+            }
+            if(context.requested_change.includes("para la mampostería")){
+              if(!context.conversation.recent_user_turns.some(x=>x.includes("agregar arena")))throw Error("Se perdió el material solicitado");
+              return {text:JSON.stringify({answer:"Coincidencia semántica no válida.",
+                analysis_edit:{changes:[{operation:"add",resource_id:"r20",quantity:"0.5",quantity_unit:"un"}]}})};
+            }
             return {text:JSON.stringify({answer:"Actualizar solamente el rendimiento del cemento.",
               analysis_edit:{changes:[{operation:"set",resource_id:"r0",quantity:"2",quantity_unit:"kg"}]}})};
           }
@@ -324,4 +338,25 @@ test("conversational AI updates ONLY the selected existing ACU after approval",a
   expect(writes[0].components.map(row=>row.quantity)).toEqual(["2","3"]);
   expect(writes[0].components.map(row=>row.unitPrice)).toEqual(["50","50"]);
   expect(await page.evaluate(()=>window.libraryWrites)).toEqual([]); // No duplicate ACU created
+});
+
+
+test("an ACU question retains the wall and later clarification rejects an unrelated catalog substitute",async ({page})=>{
+  await openLibrary(page,false,0,true);
+  await page.getByRole("row",{name:/ACU-77.*Mampostería de prueba/}).click();
+  await page.getByTitle("Asistente IA").click();
+  await page.locator("[name=ai-consent]").check();
+  const send=async question=>{
+    await page.getByRole("textbox",{name:"Consulta al asistente"}).fill(question);
+    await page.locator("#ai-question").getByRole("button",{name:/Enviar/}).click();
+  };
+  await send("agregar arena al acu seleccionado");
+  await expect(page.locator("[data-selected-acu-edit]")).toBeVisible();
+  await send("¿cuánta arena hace falta para 1m2 de pared?");
+  await expect(page.getByText(/Para este ACU de mampostería hace falta mortero de asiento/)).toBeVisible();
+  await send("para la mampostería de ladrillo hueco del 18 pegar ladrillos");
+  const review=page.locator("[data-selected-acu-edit]").last();
+  await expect(review).toContainText("no coincide con el material solicitado");
+  await expect(review.getByRole("button",{name:"Aprobar y actualizar ACU"})).toBeDisabled();
+  expect(await page.evaluate(()=>window.selectedWrites)).toEqual([]);
 });
