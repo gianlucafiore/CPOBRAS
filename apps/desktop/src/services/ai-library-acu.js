@@ -26,6 +26,7 @@ export function libraryAcuTurnFocus(intent,{pendingDraft=false,pendingEdit=false
   const action=intent?.action;
   if(action==="new"||action==="finish"||action==="general")return action;
   if(action==="show"){
+    if(intent?.target==="selected"&&selectedId)return "selected";
     if(pendingDraft)return "draft";
     if(pendingEdit)return "edit";
     return selectedId?"selected":"none";
