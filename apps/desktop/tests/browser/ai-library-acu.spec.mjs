@@ -46,7 +46,7 @@ async function openLibrary(page, proseFirst = false, asksWork = 0, selectedFixtu
             else if (text.startsWith("a donde") || text.startsWith("mostra") || text.includes("qué pasó con mi acu")) action = "show";
             else if (text.includes("formulario") || text.includes("editor")) action = "review";
             else if (text.includes("aprob") || text.includes("guardá los cambios")) action = "approve";
-            else if (text.includes("modific") || text.includes("cambiale") || text.includes("ajust")) action = "edit";
+            else if (text.includes("modific") || text.includes("cambiale") || text.includes("ajust") || (text.includes("cargarle un insumo") && context.selected_analysis)) action = "edit";
             else if (text.includes("cómo") || text.includes("cuánta arena")) action = "question";
             else if (text.includes("para la mampostería") && context.selected_analysis) action = "clarify";
             else if (text.startsWith("agregá") || text.startsWith("agregar")) action = "add";
