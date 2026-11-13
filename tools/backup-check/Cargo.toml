@@ -1,0 +1,15 @@
+[package]
+name = "cpobras-backup-check"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+cpobras-core = { path = "../../crates/cpobras-core" }
+cpobras-storage = { path = "../../crates/cpobras-storage" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "=0.4.42", default-features = false, features = ["std"] }
+tempfile = "3"

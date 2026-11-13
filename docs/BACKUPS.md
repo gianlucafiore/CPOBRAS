@@ -60,7 +60,7 @@ sincronizadas en otra máquina se pueden colocar en la carpeta seleccionada
 conservando su nombre original. Los archivos temporales y los enlaces simbólicos
 no aparecen como copias restaurables.
 
-Restaurar pide confirmación y crea primero un respaldo preventivo. Si no se
+Restaurar muestra una confirmación dentro de la aplicación, con el nombre de la copia. «Cancelar restauración» conserva la base activa; «Sí, restaurar esta copia» crea primero un respaldo preventivo. Si no se
 puede guardar esa copia preventiva, no se cambia la base activa. Las copias de
 versiones antiguas admitidas se migran antes de restaurar; las estructuras no
 admitidas se rechazan. Una copia abarca toda la base, no solo la obra abierta.
@@ -69,3 +69,7 @@ La subida a la nube no sustituye los archivos locales mientras se está creando
 una copia. La carpeta compartida contiene información completa de tu negocio;
 elegí el acceso adecuado en tu proveedor. No hay login de Google, servidor de
 CPOBRAS ni sincronización de una base activa entre usuarios en esta función.
+
+## Trasladar una base entre Linux y Windows
+
+El formato SQLite es compatible entre ambos sistemas. Conservá el archivo original como respaldo. Para trabajar directamente con una copia en otro equipo, duplicá el `.sqlite` en una carpeta local con permiso de escritura y elegí **Abrir base de datos** desde el menú de bases. No copies sólo el archivo principal de una base que sigue abierta: generá una copia desde la aplicación o cerrala primero para completar el WAL.
