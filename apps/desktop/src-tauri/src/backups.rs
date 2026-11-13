@@ -274,7 +274,10 @@ impl BackupManager {
             let target = self.settings.directory.join(&name);
             let write = (|| {
                 store.backup_to(&temp).map_err(|e| e.to_string())?;
-                fs::File::open(&temp)
+                // Windows FlushFileBuffers requires a writable file handle.
+                fs::OpenOptions::new()
+                    .write(true)
+                    .open(&temp)
                     .map_err(|e| e.to_string())?
                     .sync_all()
                     .map_err(|e| e.to_string())?;
@@ -347,6 +350,47 @@ mod tests {
             })
             .unwrap();
     }
+    #[test]
+    fn moved_backup_restores_after_writable_preventive_snapshot() {
+        let (source_dir, mut source_manager, source) = fixture();
+        let client = Client {
+            id: Uuid::new_v4(),
+            name: "Desde otra máquina".into(),
+            cuit: None,
+        };
+        source.lock().unwrap().save_client(&client).unwrap();
+        let id = source_manager.create(&source, "manual", 1000).unwrap();
+        let (target_dir, mut target_manager, target) = fixture();
+        let original = source_manager
+            .source(Uuid::parse_str(&id).unwrap())
+            .unwrap();
+        let imported = target_manager.folder().join(original.file_name().unwrap());
+        fs::copy(&original, &imported).unwrap();
+        let bytes = fs::read(&imported).unwrap();
+        let mut store = target.lock().unwrap();
+        let safety = target_manager
+            .create_from_store(&store, "antes-de-restaurar", 2000)
+            .unwrap();
+        store
+            .restore_from(
+                target_manager
+                    .source(Uuid::parse_str(&id).unwrap())
+                    .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(store.list_clients().unwrap(), vec![client]);
+        let safety = target_manager
+            .source(Uuid::parse_str(&safety).unwrap())
+            .unwrap();
+        assert!(LocalStore::open_existing(safety)
+            .unwrap()
+            .list_clients()
+            .unwrap()
+            .is_empty());
+        assert_eq!(fs::read(&imported).unwrap(), bytes);
+        drop((source_dir, target_dir));
+    }
+
     #[test]
     fn scheduler_persists_restarts_and_produces_restorable_snapshots() {
         let (temp, mut m, db) = fixture();

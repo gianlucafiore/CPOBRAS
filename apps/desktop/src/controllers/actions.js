@@ -115,7 +115,7 @@ async function refreshBackups(){
 
 async function act(button) {
   const action = button.dataset.action;
-  if (["backups","create-backup","refresh-backups","open-backup-folder","choose-backup-folder","verify-database","restore-backup"].includes(action)) {
+  if (["backups","create-backup","refresh-backups","open-backup-folder","choose-backup-folder","verify-database","restore-backup","confirm-restore-backup","cancel-restore-backup"].includes(action)) {
     if(state.busy)return;
     if(action!=="backups"&&action!=="open-backup-folder"&&action!=="choose-backup-folder"&&state.modalDirty){
       const feedback=document.querySelector("#dialog-form .modal-error");if(feedback)feedback.textContent="Guardá la configuración antes de continuar. Tus cambios se conservan.";return;
@@ -123,7 +123,7 @@ async function act(button) {
     state.busy=true;
     const form=document.querySelector("#dialog-form");if(form)form.inert=true;
     try {
-      if(action==="backups"){await refreshBackups();openModal("backups");return;}
+      if(action==="backups"){state.backupRestoreId=null;await refreshBackups();openModal("backups");return;}
       if(action==="choose-backup-folder"){
         const input=form.querySelector('[name="backupDirectory"]');
         const path=await invoke("choose_backup_folder",{currentDirectory:input.value||null});
@@ -134,14 +134,21 @@ async function act(button) {
       if(action==="create-backup"){await invoke("create_backup");state.message="Copia creada en la carpeta configurada";}
       if(action==="verify-database"){await invoke("verify_database");state.message="Integridad y referencias verificadas";}
       if(action==="restore-backup"){
-        if(!window.confirm("¿Restaurar esta copia? Se guardará antes una copia del estado actual. Los cambios posteriores a la copia elegida dejarán de estar activos."))return;
-        await invoke("restore_backup",{id:button.dataset.id});window.location.reload();return;
+        state.backupRestoreId=button.dataset.id;render();return;
+      }
+      if(action==="cancel-restore-backup"){
+        state.backupRestoreId=null;render();return;
+      }
+      if(action==="confirm-restore-backup"){
+        if(!state.backupRestoreId||state.backupRestoreId!==button.dataset.id||!state.backups.some(copy=>copy.id===state.backupRestoreId))throw new Error("La copia seleccionada ya no está disponible. Actualizá la lista.");
+        button.textContent="Restaurando…";
+        await invoke("restore_backup",{id:state.backupRestoreId});window.location.reload();return;
       }
       await refreshBackups();render();
     }catch(error){
       const feedback=document.querySelector("#dialog-form .modal-error");
       if(feedback)feedback.textContent=String(error);else throw error;
-    }finally{state.busy=false;if(form?.isConnected)form.inert=false;}
+    }finally{state.busy=false;if(form?.isConnected)form.inert=false;if(action==="confirm-restore-backup"&&button.isConnected)button.textContent="Sí, restaurar esta copia";}
     return;
   }
   if (action === "retry-startup") { window.location.reload(); return; }
