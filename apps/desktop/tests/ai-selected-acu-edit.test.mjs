@@ -100,3 +100,39 @@ test("write is conditional on selected record, database, original snapshot and v
  };
  await assert.rejects(applySelectedAcuEdit(changed,edit,{selectedAnalysisId:original.id,selectedDatabaseScope:"sqlite-A"}),/cambió después/);
 });
+
+
+test("context retains the selected wall and material named in a previous turn",async()=>{
+ const {libraryAcuConversationState,requestedAddedMaterials,candidateMatchesExplicitMaterial}=
+  await import("../src/services/ai-library-conversation.js");
+ const messages=[
+  {role:"user",content:"agregar arena al acu seleccionado"},
+  {role:"assistant",content:"JSON Parse error"},
+  {role:"user",content:"¿cuánta arena hace falta para 1m² de pared?"},
+  {role:"user",content:"para la mampostería de ladrillo hueco del 18, pegar ladrillos"}
+ ];
+ const c=libraryAcuConversationState({messages,selectedAnalysis:original,
+  currentQuestion:"para la mampostería de ladrillo hueco del 18, pegar ladrillos"});
+ assert.equal(c.selected_analysis.id,original.id);
+ assert.equal(c.selected_analysis.description,"Mampostería");
+ assert.equal(c.recent_user_turns[0],"agregar arena al acu seleccionado");
+ const phrases=requestedAddedMaterials(messages.filter(m=>m.role==="user").map(m=>m.content));
+ assert.deepEqual(phrases,[["arena"]]);
+ assert.equal(candidateMatchesExplicitMaterial({description:"Arena fina puesta en obra"},phrases),true);
+ assert.equal(candidateMatchesExplicitMaterial({description:"Jabonera chica para pegar"},phrases),false);
+});
+
+test("an implausible semantic match is never an approvable selected ACU edit",async()=>{
+ const {requestedAddedMaterials}=await import("../src/services/ai-library-conversation.js");
+ const phrases=requestedAddedMaterials([
+  "agregar arena al acu seleccionado",
+  "para la mampostería de ladrillo hueco del 18 pegar ladrillos"
+ ]);
+ const fake={id:"wrong",description:"Jabonera chica para pegar",unit:"un",kind:"material",price:"250"};
+ const result=readSelectedAcuEdit(JSON.stringify({answer:"Propongo una coincidencia que no sirve para este trabajo.",
+  analysis_edit:{changes:[{operation:"add",resource_id:"wrong",quantity:"0.5",quantity_unit:"un"}]}}),
+  {baseline:original,resources:[...resources,fake],requestedMaterialPhrases:phrases});
+ assert.equal(result.proposal.draft.components.find(c=>c.resource_id==="wrong"),undefined);
+ assert.match(result.proposal.warnings.join(" "),/no coincide con el material solicitado/);
+ assert.equal(canApplySelectedAcuEdit(result.proposal),false);
+});
