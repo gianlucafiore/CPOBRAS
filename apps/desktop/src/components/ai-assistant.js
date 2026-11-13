@@ -191,6 +191,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       model.lastAction=message;
       message.content=JSON.stringify({answer:message.answer});
       try{await loadEstimate();}catch(error){message.answer+=' Guardado confirmado; no se pudo refrescar la vista: '+String(error);message.approval.message=message.answer;}
+      finishTaskSession(message.answer,{approval:message.approval});
     }catch(error){
       if(!persisted){
         message.answer='No se modificaron los rubros: '+String(error);
@@ -238,6 +239,12 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       const notice=[summary,...(result.warnings||[]),...(result.sectionPending||[]).map(item=>'Pendiente: '+item),result.error,result.refreshError].filter(Boolean).join(' ');
       message.answer=notice;message.approval={...message.approval,state:'done',message:notice,result};
       message.content=JSON.stringify({answer:message.answer+'\nResultado registrado por CPOBRAS: '+notice});model.notice=notice;
+      if(result.committed)finishTaskSession(notice,{
+        approval:{...message.approval,result:{
+          committed:true,estimateId:result.estimateId||null,lineIds:result.lineIds||[],
+          pending:result.pending||0,pendingReasons:(result.pendingReasons||[]).slice(0,20)
+        }}
+      });
     }catch(error){if(run.scope===scope()){message.answer='La carga se detuvo: '+String(error);message.approval={...message.approval,state:'stopped',message:message.answer};message.content=JSON.stringify({answer:message.answer});}}
     finally{run.running=false;if(model.approvedRun===run){model.approvedRun=null;model.busy=false;paint();}}
   }
@@ -370,8 +377,12 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       addReply(question,{answer:"Actualicé el ACU existente «"+saved.description+"» ("+saved.code+"). "+
         proposal.changes.length+(proposal.changes.length===1?" cambio guardado.":" cambios guardados.")+" Los ACU de presupuestos ya emitidos no se modificaron.",
         libraryAcuSaved:saved.code});
+      let summary="Actualicé el ACU existente «"+saved.description+"» ("+saved.code+"). "+
+        proposal.changes.length+(proposal.changes.length===1?" cambio guardado.":" cambios guardados.")+
+        " Los ACU de presupuestos ya emitidos no se modificaron.";
       try{await reloadCatalog();if(canDraftLibraryAcu())await refreshAnalysis();render();}
-      catch(error){model.notice="El ACU se actualizó, pero no pude refrescar la lista: "+String(error);}
+      catch(error){summary+=" No se pudo actualizar la lista: "+String(error);}
+      finishTaskSession(summary,{savedCode:saved.code});
     }catch(error){
       model.error="No pude confirmar la actualización del ACU: "+String(error)+
         ". No se volverá a enviar automáticamente esta modificación.";
@@ -410,6 +421,8 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       } catch (error) {
         model.notice = "El ACU se guardó. No se pudo actualizar la lista: " + String(error);
       }
+      finishTaskSession("Guardé «"+saved.description+"» ("+saved.code+") en la biblioteca de ACU."+
+        (model.notice.startsWith("El ACU se guardó.")?" "+model.notice:""),{savedCode:saved.code});
     } catch (error) {
       model.error = "No se pudo guardar el ACU: " + String(error);
     } finally {
@@ -1109,9 +1122,9 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
         if(model.open&&!model.configured){model.notice="Leyendo configuración guardada…";paint();const status=await invoke("ai_status");Object.assign(model,status);model.notice=status.configured?"Configuración de IA restaurada desde el llavero del sistema.":"";if(status.storage_error)model.error=status.storage_error;}
       }
       if(action==="settings")model.settings=!model.settings;
-      if(action==="clear"&&!model.busy){pendingIntent=null;store().clear();acuWorkbench.cancelPrepared();model.generation++;model.messages=[];model.lastAction=null;model.pendingAction=null;model.focusLineId=null;model.lastCatalogAdvice=null;model.recentCreatedLineIds=[];model.recentCreatedEstimateId=null;model.usage=null;model.question="";model.context="";model.includeContext=true;model.contextMode="screen";model.contextOpen=false;}
+      if(action==="clear"&&!model.busy){pendingIntent=null;store().clear();acuWorkingNotes.clear();acuWorkbench.cancelPrepared();model.generation++;model.messages=[];model.lastAction=null;model.pendingAction=null;model.focusLineId=null;model.lastCatalogAdvice=null;model.recentCreatedLineIds=[];model.recentCreatedEstimateId=null;model.usage=null;model.question="";model.context="";model.includeContext=true;model.contextMode="screen";model.contextOpen=false;}
       if(action==="capture"&&!model.busy){model.context=captureContext();model.includeContext=true;model.contextMode="screen";model.contextOpen=true;}
-      if(action==="forget"&&!model.busy){pendingIntent=null;store().clear();await invoke("ai_forget");Object.assign(model,{configured:false,settings:true,messages:[],lastAction:null,pendingAction:null,question:"",context:"",includeContext:true,contextMode:"screen",contextOpen:false,consent:false,usage:null,notice:""});model.generation++;}
+      if(action==="forget"&&!model.busy){pendingIntent=null;store().clear();acuWorkingNotes.clear();await invoke("ai_forget");Object.assign(model,{configured:false,settings:true,messages:[],lastAction:null,pendingAction:null,question:"",context:"",includeContext:true,contextMode:"screen",contextOpen:false,consent:false,usage:null,notice:""});model.generation++;}
       if(action==="quick"&&!model.busy){
         model.question=button.dataset.question;
         if(button.dataset.question.startsWith("Explicame")){
