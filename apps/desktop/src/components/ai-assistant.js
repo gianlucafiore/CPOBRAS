@@ -442,7 +442,11 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
         {role:"user",content:brief.slice(0,3000)}].slice(-7);
       let response=await send(messages,contextFor(resources));
       if(!current())return;
-      const query=parseCatalogQuery(response.text);
+      // Incomplete provider JSON is repaired by the typed-edit retry below.
+      // Catalog-query parsing must not abort that recovery early.
+      let query=null;
+      try{query=parseCatalogQuery(response.text);}
+      catch{query=null;}
       if(query){
         const addition=libraryAcuContext(query,catalog);
         resources=[...new Map([...resources,...addition.resources].map(row=>[row.id,row])).values()];
