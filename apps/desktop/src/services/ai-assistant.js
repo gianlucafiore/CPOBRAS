@@ -228,18 +228,55 @@ export function materialAdditionConfirmation(question,messages=[],context={}){
  return materialAdditionFollowup(request.content,messages,context);
 }
 
+// Some local models return Python-style quoted objects instead of JSON.
+// Accept only a complete, small tool-call object. Convert strings; NEVER eval.
+function parseSingleQuotedToolObject(source) {
+  if (source.length>6000 || !source.startsWith("{") || !/'tool_call'\s*:/.test(source)) return null;
+  let json="",quote="",escaped=false;
+  for(const char of source){
+    if(quote==="single"){
+      if(escaped){
+        if(char==="'")json+="'";
+        else if(char==='"')json+='\\"';
+        else if(char==="\\")json+="\\\\";
+        else if("nrtbf".includes(char))json+="\\"+char;
+        else return null;
+        escaped=false;
+      }else if(char==="\\")escaped=true;
+      else if(char==="'"){json+='"';quote="";}
+      else if(char==='"')json+='\\"';
+      else if(char.charCodeAt(0)<32)return null;
+      else json+=char;
+    }else if(quote==="double"){
+      if(escaped){json+="\\"+char;escaped=false;}
+      else if(char==="\\")escaped=true;
+      else {json+=char;if(char==='"')quote="";}
+    }else{
+      if(char==="'"){json+='"';quote="single";}
+      else if(char==='"'){json+='"';quote="double";}
+      else json+=char;
+    }
+  }
+  if(quote||escaped)return null;
+  try{
+    const parsed=JSON.parse(json);
+    return parsed&&typeof parsed==="object"&&!Array.isArray(parsed)&&Object.hasOwn(parsed,"tool_call")?parsed:null;
+  }catch{return null;}
+}
+
 // Only this allowlist can become a draft. Never execute model output as code/HTML.
 export function parseAiReply(text) {
+  const clean=text.trim().replace(/^```(?:json|python)?\s*/i,"").replace(/\s*```$/,"");
   let value;
-  try { value=JSON.parse(text.trim().replace(/^```(?:json)?\s*/i,"").replace(/\s*```$/,"")); } catch { return {answer:text,proposal:null}; }
-  if (!value || typeof value!=="object" || typeof value.answer!=="string") return {answer:text,proposal:null};
+  try{value=JSON.parse(clean);}catch{value=parseSingleQuotedToolObject(clean);}
+  if(!value||typeof value!=="object"||Array.isArray(value))return {answer:text,proposal:null};
   if(Object.hasOwn(value,'tool_call')){
-    // Tool calls are read-only and explicitly whitelisted; malformed or
-    // unsupported instructions never become an action.
+    // A model-suggested tool is never executed as code: only the typed allowlist is accepted.
     const toolCall=parseBudgetToolCall(value.tool_call);
     if(!toolCall)return {answer:'No se pudo interpretar la consulta. Reformulá el cálculo o análisis solicitado.',proposal:null,actionError:'Herramienta no permitida o parámetros incompletos.'};
-    return {answer:value.answer,proposal:null,toolCall};
+    return {answer:typeof value.answer==="string"?value.answer:"Solicitud de consulta interpretada.",proposal:null,toolCall};
   }
+  if(typeof value.answer!=="string")return {answer:text,proposal:null};
   if(Object.hasOwn(value,'acu_request')){
     try{return {answer:value.answer,proposal:null,acuRequest:readAcuRequest(value.acu_request)};}
     catch(error){return {answer:"No se preparó ninguna acción de ACU. "+error.message,proposal:null,actionError:error.message};}
