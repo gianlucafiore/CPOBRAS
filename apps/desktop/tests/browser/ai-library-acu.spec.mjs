@@ -252,6 +252,7 @@ test("converses about the proposal, revises it, and saves only on explicit appro
   await send("¿cómo convertiste el yeso?");
   await expect(page.getByText(/Dividí 8 kg por los 25 kg/)).toBeVisible();
   await send("Agregá malla de refuerzo");
+  console.log("DEBUG_ACU_FOLLOWUP",JSON.stringify({chat:(await page.locator(".ai-transcript").innerText()).slice(-2500),error:await page.locator(".ai-error").innerText()}));
   await expect(page.getByText(/Malla de refuerzo: 1.05 m²/)).toBeVisible();
   await expect(page.locator(".ai-proposal li").filter({hasText:"0.32 bolsa"})).toBeVisible();
   expect(await page.evaluate(() => window.libraryWrites)).toEqual([]);
