@@ -65,6 +65,33 @@ automáticamente en el backend. Los insumos tienen que existir; no inventar IDs.
 update_analysis y reprice_analysis existen en la interfaz, sin escritura
 libre de IA. El backend no devuelve un campo committed para estas operaciones.
 
+## Sesiones cortas por tarea y control de costos
+
+CPObras IA **no necesita archivar conversaciones** para operar correctamente.
+El estado de trabajo se obtiene del ACU/presupuesto seleccionado, la base
+SQLite activa y la propuesta revisable actual.
+
+- Mientras la propuesta está abierta, el chat retiene solo los turnos
+  imprescindibles y su validación. Preguntar o aclarar NO equivale a aprobar.
+- Después de un guardado nativo confirmado y completo, `finishTaskSession`
+  elimina los turnos, borradores, referencias y notas temporales anteriores;
+  deja únicamente el comprobante y pregunta **«¿Necesitás hacer algo más?»**
+  en la interfaz, sin hacer una llamada adicional a la API.
+- Si hay elementos pendientes, falla la operación, o se desconoce el resultado
+  del guardado, **no** se limpia la propuesta: primero hay que verificarla.
+- En la siguiente consulta, CPObras vuelve a consultar la vista seleccionada.
+  No reutiliza descripciones o acuerdos de tareas anteriores.
+- Las conversaciones no se guardan en `localStorage`. Al iniciar la app se
+  purgan las claves heredadas `cpobras:conversation:*`.
+- La limpieza se refiere a la memoria de trabajo del cliente. No altera los
+  registros de presupuestos/ACU en SQLite ni sus auditorías. Tampoco implica
+  borrar registros de facturación o retención del proveedor externo.
+
+Los costos de API dependen de los tokens realmente enviados y generados,
+no de cuántos mensajes se muestran. Por eso el flujo evita reenviar el
+historial de tareas terminadas y no genera una respuesta adicional de IA
+solo para despedirse.
+
 ## Contexto conversacional del ACU seleccionado
 
 Para cada mensaje de la biblioteca ACU el clasificador debe recibir
