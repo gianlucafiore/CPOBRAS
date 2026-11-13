@@ -332,7 +332,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       });
       proposal.applied=true;
       addReply(question,{answer:"Actualicé el ACU existente «"+saved.description+"» ("+saved.code+"). "+
-        proposal.changes.length+" cambios guardados. Los ACU de presupuestos ya emitidos no se modificaron.",
+        proposal.changes.length+(proposal.changes.length===1?" cambio guardado.":" cambios guardados.")+" Los ACU de presupuestos ya emitidos no se modificaron.",
         libraryAcuSaved:saved.code});
       try{await reloadCatalog();if(canDraftLibraryAcu())await refreshAnalysis();render();}
       catch(error){model.notice="El ACU se actualizó, pero no pude refrescar la lista: "+String(error);}
