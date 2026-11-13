@@ -122,6 +122,7 @@ export function createViews({
     ${state.remoteProject ? `<div class="remote-context" role="status"><strong>Obra externa de solo lectura</strong> · ${e(currentProject()?.organization_name)} · Copia recibida ${e(new Date(state.remoteProject.received_at * 1000).toLocaleString("es-AR"))}${state.remoteProject.revoked ? " · Acceso revocado" : state.remoteProject.error ? " · Sin actualizar" : ""}. Las modificaciones corresponden al propietario.</div>` : ""}
     <datalist id="unit-library">${state.units.map((unit) => `<option value="${e(unit.attributes.symbol || unit.code || unit.name)}">${e(unit.name)}</option>`).join("")}</datalist>
     ${helpBox(state.modal?.kind === "backups" ? "backups" : state.view === "management" && state.projectId ? "project-data" : state.view)}
+    ${state.databaseError?`<div class="startup-error database-error" role="alert"><strong>No se pudo abrir la base de datos</strong><p>${e(state.databaseError)}</p></div>`:""}
     ${content}
     ${state.message ? `<div class="toast" role="status">${state.message.path
       ? `${e(state.message.text)} <a href="#" class="toast-export-link" data-action="open-recent-export" data-path="${e(state.message.path)}">${e(state.message.path)}</a>`

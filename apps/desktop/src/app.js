@@ -267,7 +267,8 @@ export function createWorkspaceApp({
     if (!databaseSwitching || switchingDatabase) return;
     if (pendingCommands || aiAssistant.isBusy() || resourceImport.model.busy ||
         aiResourceImport.isBusy() || operations.isSaving()) {
-      window.alert("Esperá a que termine la operación en curso antes de cambiar de base.");
+      state.databaseError="Esperá a que termine la operación en curso antes de cambiar de base.";
+      render();
       return;
     }
     const unsaved = state.modalDirty || state.pageDirty || planning.model.dirty ||
@@ -296,12 +297,14 @@ export function createWorkspaceApp({
     switchingDatabase = true;
     document.body.inert = true;
     try {
+      state.databaseError="";
       await originalInvoke("switch_database", { create });
     } catch (error) {
-      window.alert("No se pudo cambiar la base de datos. " + String(error));
+      state.databaseError="No se pudo cambiar la base de datos. " + String(error);
     } finally {
       document.body.inert = false;
       switchingDatabase = false;
+      render();
     }
   }
   async function openResourceLibrary({brief=""}={}) {
