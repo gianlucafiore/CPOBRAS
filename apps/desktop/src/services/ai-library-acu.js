@@ -2,7 +2,7 @@ import { divideDecimals, multiplyDecimals, compareDecimals } from "../decimal.js
 import {invokeReviewedAiAction} from './ai-view-api-contracts.js';
 import { buildCatalogContext,foldCatalogText } from "./ai-catalog-context.js";
 
-const intents = new Set(["new", "clarify", "revise", "add", "question", "show", "review", "edit", "approve", "discard", "general"]);
+const intents = new Set(["new", "clarify", "revise", "add", "question", "show", "review", "edit", "approve", "discard", "finish", "general"]);
 
 export function readLibraryAcuIntent(text) {
   const result = JSON.parse(text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, ""));
@@ -10,7 +10,11 @@ export function readLibraryAcuIntent(text) {
       (typeof result.work !== "string" || result.work.length > 1500 || !result.work.trim()))) {
     throw new Error("La respuesta no identifica una acción válida de la biblioteca de ACU.");
   }
-  return {action:result.action, work:result.action === "new" ? result.work?.trim() : undefined};
+  // Target is an advisory semantic reference. The UI always verifies which
+  // proposal is actually open before selecting any native write workflow.
+  const target=["draft","selected"].includes(result.target)?result.target:undefined;
+  return {action:result.action, work:result.action === "new" ? result.work?.trim() : undefined,
+    ...(target?{target}:{})};
 }
 
 export function canSaveLibraryAcu(draft) {
