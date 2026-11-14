@@ -75,14 +75,15 @@ const sameType=(value,type)=>type==='number'?Number.isSafeInteger(value)&&value>
  type==='array'?Array.isArray(value):type==='string'?typeof value==='string':object(value);
 
 /** A bounded, descriptive contract for the CURRENT screen, never execution rights. */
-export function aiViewApiContext(state={}){
+export function aiViewApiContext(state={},agentTools={}){
  const view=state.view||'projects',screen=screens[view]||{purpose:'Vista no identificada',actions:[]};
  // These are documented native interfaces, NOT arbitrary model-executable
  // commands. The model can call only tools in AI_TOOL_CONTRACTS, and native
  // reviewed writes additionally require approval and response validation.
  const methods=Object.entries(actions).filter(([name])=>permitted.has(name)).map(([name,spec])=>({
   method:name,access:spec.access,args:spec.args,optional:spec.optional||[],response:spec.response,
-  connected_to_chat:spec.access==='read'||spec.access==='reviewed_write',
+  model_callable:false,
+  execution:spec.access==='reviewed_write'?'solo_por_adaptador_tras_aprobacion':spec.access==='read'?'consulta_por_adaptador':'solo_interfaz',
  }));
  const selection={
   project_id:state.projectId||null,estimate_id:state.estimateId||null,
@@ -94,8 +95,11 @@ export function aiViewApiContext(state={}){
   current_screen:{id:view,title:screen.purpose,description:screenDescriptions[view]||screen.purpose,
     purpose:'Esta es la pantalla visible; indica contexto, NO restringe los métodos de la IA.'},
   selection,remote_read_only:!!state.remoteProject,
-  methods,
-  safety:'El inventario documenta parámetros y respuestas; no autoriza invocar IPC arbitrario. Solo herramientas de IA validadas y escrituras revisadas con aprobación.'
+  agent_methods:Object.entries(agentTools).map(([name,spec])=>({
+    method:name,args:spec.args,access:spec.kind,effect:spec.effect,response:spec.response||'Respuesta tipada validada por CPOBRAS'
+  })),
+  native_methods:methods,
+  safety:'El inventario nativo documenta métodos y respuestas: NO permite llamadas IPC arbitrarias. El agente sólo puede solicitar agent_methods y aprobar escrituras en una ficha revisada.'
  };
  return 'PANTALLA ACTUAL Y API DEL PROGRAMA (contexto común a todos los pedidos):\\n'+JSON.stringify(payload);
 }
