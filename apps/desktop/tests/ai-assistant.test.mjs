@@ -487,3 +487,36 @@ test('models can return resource proposals as typed JSON even without a tool_cal
  assert.equal(malformed.proposal,null);
  assert.equal(parseAiReply(JSON.stringify({answer:'Hola'})).answer,'Hola');
 });
+
+
+test('resource tool JSON is parsed as an action even if a provider serializes it twice',()=>{
+ const output={
+  answer:'Preparando ficha para incorporar tejido romboidal con unidad m² y precio 1500 ARS por m².',
+  tool_call:{name:'propose_resources',args:{rows:[{
+    description:'tejido romboidal',kind:'material',unit:'m2',
+    price:'1500',price_evidence:'tejido romboidal xm2 el precio es de 1500xm2'
+  }]}}
+ };
+ for(const result of [
+  JSON.stringify(output),
+  JSON.stringify(JSON.stringify(output)),
+  JSON.stringify({answer:JSON.stringify(output)}),
+  '\x60\x60\x60json\n'+JSON.stringify(output)+'\n\x60\x60\x60',
+ ]){
+  const parsed=parseAiReply(result);
+  assert.equal(parsed.answer,output.answer);
+  assert.equal(parsed.toolCall?.name,'propose_resources');
+  assert.deepEqual(parsed.toolCall?.args.rows,output.tool_call.args.rows);
+  assert.equal(parsed.actionError,undefined);
+ }
+});
+test('structured tool output never executes unknown or unsafe operations',()=>{
+ const invalid={answer:'Intento',tool_call:{name:'import_resources',args:{rows:[{description:'X',price:'500'}]}}};
+ for(const source of [JSON.stringify(invalid),JSON.stringify(JSON.stringify(invalid)),JSON.stringify({answer:JSON.stringify(invalid)})]){
+  const parsed=parseAiReply(source);
+  assert.equal(parsed.toolCall,undefined);
+  assert.match(parsed.actionError,/Herramienta no permitida/);
+ }
+ const prose='El ejemplo es '+JSON.stringify({answer:'No ejecutar',tool_call:{name:'propose_resources',args:{rows:[{description:'X'}]}}});
+ assert.equal(parseAiReply(prose).toolCall,undefined);
+});
