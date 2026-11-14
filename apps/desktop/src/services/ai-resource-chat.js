@@ -63,7 +63,10 @@ function namedResource(text){
     .replace(/[,;]\s*(?:la\s+)?unidad\s*(?:de\s+medida)?\s*(?:es|:|=)\s*.+$/i,'')
     .trim().replace(/[;,.\s]+$/,'');
   if(clean.length<4||clean.length>250||/[{}[\]\n]/.test(clean))return null;
-  if(!resourceNoun.test(fold(clean))&&raw===text.trim())return null;
+  // A generic "agregá mano de obra" may refer to an ACU, not the resource library.
+  // Unrecognized names require an explicit "insumo/recurso" target.
+  const explicitlyResource=/\b(?:insumo|recurso)\b/i.test(text)&&/^\s*(?:crea|crear|creame|agrega|agregar|carga|cargar|registra|registrar)\b/i.test(text);
+  if(!resourceNoun.test(fold(clean))&&!explicitlyResource)return null;
   if(/^(?:precio|material|unidad|es material|es equipo)\b/i.test(clean))return null;
   return clean;
 }
