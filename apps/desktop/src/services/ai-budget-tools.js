@@ -33,6 +33,7 @@ export function parseBudgetToolCall(raw){
   return {name:'propose_resources',args:{rows:a.rows}};
  }
  if(raw.name==='discard_resource_draft')return {name:'discard_resource_draft',args:{}};
+ if(raw.name==='approve_resource_draft')return Object.keys(a).length===0?{name:'approve_resource_draft',args:{}}:null;
  if(raw.name==='prepare_budget'||raw.name==='prepare_acu'||raw.name==='review_budget'){
   if(typeof a.brief!=='string'||!a.brief.trim()||a.brief.length>3000)return null;
   if(raw.name==='prepare_budget'||raw.name==='review_budget')return {name:raw.name,args:{brief:a.brief.trim()}};
