@@ -286,6 +286,41 @@ export function answerForDisplay(raw){
   return raw;
 }
 
+// Floating console geometry is bounded by the visible viewport. Pure functions
+// keep pointer behavior testable without the browser or a model connection.
+export function aiConsoleRectLimits(viewport){
+  const width=Math.max(160,Number(viewport?.width)||1280),height=Math.max(160,Number(viewport?.height)||800);
+  return {margin:8,width,height,minWidth:Math.min(400,width-16),minHeight:Math.min(280,height-16)};
+}
+export function fitAiConsoleRect(rect,viewport){
+  const {margin,width:screenW,height:screenH,minWidth,minHeight}=aiConsoleRectLimits(viewport);
+  const finite=(x,fallback)=>Number.isFinite(x)?x:fallback;
+  const w=Math.max(minWidth,Math.min(screenW-2*margin,finite(rect?.width,minWidth)));
+  const h=Math.max(minHeight,Math.min(screenH-2*margin,finite(rect?.height,minHeight)));
+  return {
+    left:Math.round(Math.max(margin,Math.min(screenW-margin-w,finite(rect?.left,margin)))),
+    top:Math.round(Math.max(margin,Math.min(screenH-margin-h,finite(rect?.top,margin)))),
+    width:Math.round(w),height:Math.round(h)
+  };
+}
+export function moveResizeAiConsoleRect(rect,edge,deltaX,deltaY,viewport){
+  const initial=fitAiConsoleRect(rect,viewport),l=aiConsoleRectLimits(viewport);
+  const dx=Number.isFinite(deltaX)?deltaX:0,dy=Number.isFinite(deltaY)?deltaY:0;
+  if(edge==="move")return fitAiConsoleRect({...initial,left:initial.left+dx,top:initial.top+dy},viewport);
+  if(!/^(?:n|s|e|w|ne|nw|se|sw)$/.test(edge))return initial;
+  let x1=initial.left,x2=initial.left+initial.width;
+  let y1=initial.top,y2=initial.top+initial.height;
+  if(edge.includes("w"))x1=Math.min(x2-l.minWidth,Math.max(l.margin,x1+dx));
+  if(edge.includes("e"))x2=Math.min(l.width-l.margin,Math.max(x1+l.minWidth,x2+dx));
+  if(edge.includes("n"))y1=Math.min(y2-l.minHeight,Math.max(l.margin,y1+dy));
+  if(edge.includes("s"))y2=Math.min(l.height-l.margin,Math.max(y1+l.minHeight,y2+dy));
+  return fitAiConsoleRect({left:x1,top:y1,width:x2-x1,height:y2-y1},viewport);
+}
+export function aiConsoleTransparency(value){
+  const number=Number(value);
+  return Number.isFinite(number)?Math.max(0,Math.min(80,Math.round(number))):0;
+}
+
 // Powers of ten relative to each dimension's base unit (m, m², m³, g).
 // These calculations use decimal strings; no LLM or floating-point conversion.
 const UNIT_CONVERSION_DEFINITIONS=[
