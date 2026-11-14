@@ -107,13 +107,22 @@ const commonCommodity={
   cemento:/\bcementos?\b/i,alambre:/\balambres?\b/i,equipo:/\b(?:equipos?|maquinarias?)\b/i,
   labor:/\b(?:mano de obra|oficial|ayudante)\b/i
 };
-function resourceKey(value){
+function resourceKey(value,leadingOnly=false){
   const title=fold(value);
-  return Object.entries(commonCommodity).find(([,pattern])=>pattern.test(title))?.[0]||null;
+  // The FIRST noun defines the resource identity. Otherwise a labor row such
+  // as «Mano de obra para cerco de tejido» gets mistaken for the fabric, and
+  // «Cemento para fijación de postes» gets mistaken for a post.
+  const leading=title.replace(/^(?:el|la|los|las|un|una)\s+/,'');
+  const first=Object.entries(commonCommodity).find(([,pattern])=>{
+    const anchored=new RegExp('^'+pattern.source.replace(/^\\b/,'').replace(/\\b$/,'')+'\\b','i');
+    return anchored.test(leading);
+  });
+  if(first)return first[0];
+  return leadingOnly?null:Object.entries(commonCommodity).find(([,pattern])=>pattern.test(title))?.[0]||null;
 }
 function resourceMatches(row,key){
-  if(key==='equipo')return row.kind==='equipment'||/equipo|maquinaria/i.test(row.description);
-  return resourceKey(row.description)===key;
+  if(key==='equipo')return row.kind==='equipment'||/^\s*(?:equipo|maquinaria)/i.test(row.description);
+  return resourceKey(row.description,true)===key;
 }
 function priceInSegment(segment){
   // Price requires an explicit linguistic price marker, a purchase separator,
