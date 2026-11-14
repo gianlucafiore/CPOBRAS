@@ -77,8 +77,8 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     // Do not trigger an additional AI request merely to ask if work remains.
     store().clear();
   }
-  // Keep conversational referents across tabs of the same budget. The ACU
-  // executor maintains its own stricter view/editability scope for writes.
+  // Keep the full conversation while the user stays on this view. Changes
+  // of view, project or database start a different task and revoke drafts.
   const scope=()=>[state.projectId,state.estimateId].join(":");
   function syncContext(){
     budgetImport.syncScope();
@@ -1265,13 +1265,19 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     const focusedLine=state.lines.find(line=>line.id===model.focusLineId);
     const pinnedContext=model.includeContext&&focusedLine?'\nPARTIDA ACTIVA DE ESTA CONVERSACIÓN (tiene prioridad sobre la selección visual hasta que el usuario elija expresamente otra): '+JSON.stringify({line_id:focusedLine.id,description:focusedLine.description,unit:focusedLine.unit,quantity:focusedLine.quantity,existing_component_ids:(focusedLine.components||[]).map(c=>c.resource_id)})+'\n':'';
     const resourceReview=activeResources();
+    // Task state is not inferred from user grammar: it is the conversation
+    // opened in the current view, until CPOBRAS confirms commit/discard.
+    const startingRequest=model.messages.find(message=>message.role==='user')?.content||'';
+    const taskContext=startingRequest?'\\nTAREA ACTIVA DE LA VISTA (aún no se confirmó su cierre): '+
+      JSON.stringify({view:model.sessionView,first_user_request:startingRequest.slice(0,1800),
+        pending_resource_review:!!resourceReview}):'';
     const draftContext=resourceReview?'\\nFICHA DE INSUMOS PENDIENTE (la IA puede revisarla, NO guardarla sin aprobar): '+JSON.stringify({
       rows:resourceReview.rows.map((row,index)=>({index:String(index),description:row.description,
         kind:row.kind,unit:row.unit,price:row.price})),
       instruction:'Si el usuario corrige esta ficha, usá propose_resources con todas las filas finales. Los precios anteriores pueden conservarse con draft_ref.'
     }):'';
     const baseContext=(model.includeContext?JSON.stringify(structuredConversationContext(state,pendingIntent))+'\\n':'')+
-      aiDomainContext(state,question)+'\\n'+actionContext()+pinnedContext+draftContext+'\\n'+
+      aiDomainContext(state,question)+'\\n'+actionContext()+taskContext+pinnedContext+draftContext+'\\n'+
       (model.includeContext?model.context:'No se compartieron datos adicionales de pantalla ni catálogo.');
     model.busy=true;model.error='';model.notice='';const token=++queryToken;
     let request,catalogSnapshot=null;
