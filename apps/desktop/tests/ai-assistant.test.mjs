@@ -73,7 +73,10 @@ test('Bonsai single-quoted tool calls are parsed and validated instead of printe
     assert.equal(parseAiReply(unsafe).toolCall,undefined,unsafe);
   }
   assert.deepEqual(parseAiReply('Hola, puedo ayudarte.'),{answer:'Hola, puedo ayudarte.',proposal:null});
-  assert.deepEqual(parseAiReply("{'proposal': {'kind':'line','description':'Falso'}}"),{answer:"{'proposal': {'kind':'line','description':'Falso'}}",proposal:null});
+  const incomplete=parseAiReply("{'proposal': {'kind':'line','description':'Falso'}}");
+  assert.equal(incomplete.toolCall,undefined);
+  assert.match(incomplete.actionError,/JSON de respuesta inválido/);
+  assert.ok(!incomplete.answer.includes('proposal'));
   assert.deepEqual(parseAiReply('{"tool_call":{"name":"describe_capabilities","args":{"module":"all"}}}').toolCall,parsed.toolCall);
 });
 
