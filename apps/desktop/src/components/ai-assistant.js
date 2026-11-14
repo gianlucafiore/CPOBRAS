@@ -148,6 +148,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
         ' · '+e(row.unit||'Unidad pendiente')+
         ' · '+(row.price==null?'Precio pendiente (opcional)':e(row.price)+' ARS')+
         (row.errors.length?'<small class="ai-warning">'+row.errors.map(e).join(' · ')+'</small>':'')+
+        (row.warnings?.length?'<small class="ai-warning">'+row.warnings.map(e).join(' · ')+'</small>':'')+
         '</li>').join('')+'</ul>'+
       (reviewed.pending.length?'<p class="ai-warning">Faltan datos o hay duplicados en '+reviewed.pending.length+' insumo(s). Completalos con una sola respuesta o agregá otros insumos al listado.</p>':'')+
       (draft.uncertain?'<p class="ai-warning">Hubo un problema al confirmar el guardado. Verificá primero la biblioteca: la operación podría haberse aplicado. No se reintentará automáticamente.</p>':'')+
@@ -161,7 +162,8 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     const draft={scope,excluded:[...new Set(excluded)],rows:rows.map(row=>({
       description:String(row.description||'').trim(),
       kind:String(row.kind||'').trim(),unit:String(row.unit||'').trim(),
-      price:row.price==null?null:String(row.price)
+      price:row.price==null?null:String(row.price),
+      ...(Array.isArray(row.warnings)?{warnings:row.warnings}:{}),
     })),uncertain:false};
     model.resourceDraft=draft;
     model.lastAction=null;model.pendingAction=null;
@@ -1315,6 +1317,9 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
         if(parsed.toolCall.name==='approve_resource_draft'){
           if(!activeResources()){
             addReply(question,{answer:'No hay una ficha de insumos pendiente para aprobar; no se guardó nada.'});
+          }else if(!isApprovalReply(question)){
+            // Model tool selection is never itself user authorization to write.
+            addReply(question,{answer:'La ficha sigue pendiente. Usá «Aprobar y cargar» para autorizar el guardado exacto de los insumos revisados.'});
           }else await approveResourceDraft(question);
           return;
         }
