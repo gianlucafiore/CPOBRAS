@@ -408,6 +408,34 @@ fn compact_local_context(context: &str, limit: usize) -> String {
     if context.len() <= limit {
         return context.to_owned();
     }
+    // Library ACU contexts are JSON with relevant catalog candidates ordered
+    // first. Remove complete trailing records rather than cutting JSON in the
+    // middle of an ID, unit, or resource description.
+    if let Ok(mut parsed) = serde_json::from_str::<Value>(context) {
+        for _ in 0..100 {
+            if let Ok(serialized) = serde_json::to_string(&parsed) {
+                if serialized.len() <= limit {
+                    return serialized;
+                }
+            }
+            let can_shrink = parsed
+                .get_mut("resources")
+                .and_then(Value::as_array_mut)
+                .is_some_and(|resources| {
+                    if resources.len() > 3 {
+                        resources.pop();
+                        true
+                    } else {
+                        false
+                    }
+                });
+            if !can_shrink {
+                break;
+            }
+            parsed["catalog_truncated"] = json!(true);
+            parsed["local_context_truncated"] = json!(true);
+        }
+    }
     let head = limit / 3;
     let tail = limit - head;
     let head_end = context.floor_char_boundary(head);
@@ -491,7 +519,16 @@ fn payload(
     };
     let local_context;
     let context = if provider == "lmstudio" {
-        local_context = compact_local_context(context, if mode.is_some() { 8000 } else { 4500 });
+        local_context = compact_local_context(
+            context,
+            if matches!(mode, Some("library_acu" | "library_acu_edit")) {
+                6000
+            } else if mode.is_some() {
+                8000
+            } else {
+                4500
+            },
+        );
         local_context.as_str()
     } else {
         context
@@ -533,16 +570,15 @@ fn payload(
         let recent = messages.iter().rev().take(3).collect::<Vec<_>>();
         chat.extend(recent.iter().rev().map(|message| json!(message)));
         let intent_classification = mode == Some("library_acu_intent");
-        let local_limit = if intent_classification && is_bonsai_model(model) {
-            // A short JSON action is enough. Do not spend thousands of
-            // reasoning tokens classifying a simple user utterance.
+        let composition = matches!(mode, Some("library_acu" | "library_acu_edit"));
+        let local_limit = if intent_classification {
             512
+        } else if composition {
+            // The previous 1800-token cap frequently expired in reasoning,
+            // before a complete JSON composition could be generated.
+            3400
         } else if is_bonsai_model(model) {
-            if mode.is_none() {
-                4096
-            } else {
-                limit.max(4096).min(8192)
-            }
+            if mode.is_none() { 4096 } else { limit.max(4096).min(8192) }
         } else if mode.is_none() {
             768
         } else {
@@ -550,12 +586,11 @@ fn payload(
         };
         let mut request =
             json!({"model":model,"messages":chat,"max_tokens":local_limit,"stream":false});
-        if is_bonsai_model(model) && (mode.is_none() || intent_classification) {
-            // Bonsai defaults to thinking mode. For simple chat and intent
-            // classification we need the answer, not a long reasoning trace.
-            // Actual ACU preparation/editing continues to support reasoning.
-            request["chat_template_kwargs"] = json!({"enable_thinking":false});
-        }
+        // Gemma 4 and Bonsai may spend the entire output budget in reasoning,
+        // leaving content empty. For CPObras tool execution we need structured
+        // output instead. A model that ignores this template setting still
+        // triggers the existing explicit error rather than an unsafe write.
+        request["chat_template_kwargs"] = json!({"enable_thinking":false});
         request
     } else {
         json!({"model":model,"system":system,"messages":messages,"max_tokens":limit})
@@ -978,6 +1013,21 @@ mod tests {
         );
         assert_eq!(intent["max_tokens"], 512);
         assert_eq!(intent["chat_template_kwargs"]["enable_thinking"], false);
+        let gemma_acu = payload("lmstudio", "google/gemma-4-e4b", &user, "{}", Some("library_acu"));
+        assert_eq!(gemma_acu["max_tokens"], 3400);
+        assert_eq!(gemma_acu["chat_template_kwargs"]["enable_thinking"], false);
+        let gemma_intent = payload("lmstudio", "google/gemma-4-e4b", &user, "{}", Some("library_acu_intent"));
+        assert_eq!(gemma_intent["max_tokens"], 512);
+        assert_eq!(gemma_intent["chat_template_kwargs"]["enable_thinking"], false);
+        let json_context = json!({"resources": (0..80).map(|i|
+          json!({"id":format!("resource-{i}"),"description":"Detalle extenso del producto y su presentación comercial para presupuesto",
+          "unit":"unidad","price":"1234"})).collect::<Vec<_>>(),
+          "requested_work":"instalación de sanitarios","action":"new"}).to_string();
+        let compressed = compact_local_context(&json_context, 1600);
+        let data: Value = serde_json::from_str(&compressed).unwrap();
+        assert_eq!(data["requested_work"], "instalación de sanitarios");
+        assert!(data["resources"].as_array().unwrap().len() < 80);
+        assert_eq!(data["local_context_truncated"], true);
         let deepseek = payload(
             "lmstudio",
             "deepseek-r1-8b",
