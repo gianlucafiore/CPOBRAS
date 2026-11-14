@@ -148,7 +148,10 @@ function explicitBulkSegments(question){
 }
 function resourceSegments(question){
   const source=explicitBulkSegments(question);
-  const matches=[...source.matchAll(resourceHead)];
+  // Ignore nouns inside a description, e.g. «Poste de madera» or
+  // «Mano de obra para cerco de tejido», which are not additional insumos.
+  const matches=[...source.matchAll(resourceHead)].filter(match=>
+    !/\b(?:de|para)\s+$/i.test(source.slice(Math.max(0,match.index-10),match.index)));
   return {source,entries:matches.map((match,i)=>({
     key:resourceKey(match[0]),name:match[0],
     text:source.slice(match.index,i+1<matches.length?matches[i+1].index:source.length).trim(),
