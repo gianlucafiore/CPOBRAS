@@ -51,6 +51,12 @@ test('offers a single sanitary installation line without inventing price or quan
   assert.deepEqual(parsed,{kind:'line',description:'Instalación de sanitarios: inodoro y bidet',unit:'conjunto'});
   assert.equal('quantity' in parsed,false);
   assert.equal('unit_price' in parsed,false);
+  assert.deepEqual(lineProposalFromDirectRequest('creá una partida de mampostería de ladrillo hueco en m²'),{
+    kind:'line',description:'mampostería de ladrillo hueco',unit:'m²'
+  });
+  assert.deepEqual(lineProposalFromDirectRequest('crear partida de revoque fino en m2'),{
+    kind:'line',description:'revoque fino',unit:'m²'
+  });
   for(const text of ['borrar partida con instalación de sanitarios inodoro y bidet',
     'crear partida con instalación de sanitarios inodoro',
     'instalación de sanitarios inodoro y bidet',
