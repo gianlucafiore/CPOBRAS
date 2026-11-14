@@ -27,7 +27,8 @@ test('every screen contract refers to real, permitted Tauri actions with respons
  // Show method signatures globally, but label UI-only commands explicitly.
  assert.match(resources,/switch_database/);
  assert.match(resources,/ui_dialog_only/);
- assert.match(resources,/connected_to_chat/);
+ assert.match(resources,/model_callable/);
+ assert.match(resources,/native_methods/);
 });
 
 test('bridge rejects mismatched view, missing approval and invalid IPC argument names BEFORE writing',async()=>{
