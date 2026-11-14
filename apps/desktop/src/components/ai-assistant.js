@@ -1351,7 +1351,18 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       if(local)void refreshLocalModels();
     }
   });
-  host.addEventListener("keydown",event=>{event.stopPropagation();if(event.key==="Escape"){cancelApprovedRun();model.open=false;paint();}if(event.key==="Enter"&&(event.ctrlKey||event.metaKey)&&event.target.name==="question"){event.preventDefault();void send();}});
+  host.addEventListener("keydown",event=>{
+    event.stopPropagation();
+    if(event.key==="Escape"){cancelApprovedRun();model.open=false;paint();return;}
+    // Enter sends while typing in the chat. Shift+Enter keeps multiline
+    // messages available. Do not interrupt IME composition (e.g. input methods).
+    if(event.key!=="Enter"||event.target?.id!=="ai-prompt"
+      ||event.isComposing||event.keyCode===229)return;
+    if(event.shiftKey&&!event.ctrlKey&&!event.metaKey)return;
+    event.preventDefault();
+    // Holding Enter must never repeat-send an earlier user message.
+    if(!event.repeat)void send();
+  });
   host.addEventListener("submit",async event=>{
     event.preventDefault();event.stopPropagation();
     if(event.target.id==="ai-question"){await send();return;}
