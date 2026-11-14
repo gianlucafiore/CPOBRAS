@@ -472,6 +472,14 @@ export function parseAiReply(text) {
     return {answer:typeof value.answer==="string"?value.answer:"Solicitud de consulta interpretada.",proposal:null,toolCall};
   }
   if(typeof value.answer!=="string")return {answer:text,proposal:null};
+  // Some providers return the same structured resource proposal without a
+  // tool_call wrapper. It is still just a model-authored review, never a write.
+  if(Object.hasOwn(value,'resource_proposals')){
+    if(!Array.isArray(value.resource_proposals))
+      return {answer:'La IA no devolvió una lista válida de insumos.',proposal:null,
+        actionError:'resource_proposals debe ser una lista.'};
+    return {answer:value.answer,proposal:null,resourceProposals:value.resource_proposals};
+  }
   if(Object.hasOwn(value,'acu_request')){
     try{return {answer:value.answer,proposal:null,acuRequest:readAcuRequest(value.acu_request)};}
     catch(error){return {answer:"No se preparó ninguna acción de ACU. "+error.message,proposal:null,actionError:error.message};}
