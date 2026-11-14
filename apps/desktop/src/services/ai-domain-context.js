@@ -7,20 +7,20 @@ import {aiViewApiContext} from './ai-view-api-contracts.js';
 export const AI_DOMAIN_VERSION = '2026-11-10.1';
 
 export const AI_TOOL_CONTRACTS = Object.freeze({
-  calculate_takeoff:{kind:'read',args:'shape, dimension_unit, count, length, width, height?, waste_percent?',effect:'Calcula geometría, sin guardar metrados'},
-  audit_budget:{kind:'read',args:'',effect:'Examina partidas, ACU, precios faltantes y advertencias'},
-  compare_estimates:{kind:'read',args:'baseline_id?',effect:'Compara versiones existentes de una obra'},
-  search_catalog:{kind:'read',args:'query',effect:'Busca precios e insumos reales sin modificarlos'},
-  manage_sections:{kind:'reviewed_write',args:'action=create|rename|delete|convert y nombres o referencias permitidas',effect:'Crea, renombra, borra o convierte rubros tras revisión; borrar rubro no borra partidas'},
-  prepare_budget:{kind:'reviewed_write',args:'brief',effect:'Prepara partidas nuevas y ACU, con aprobación previa'},
-  prepare_acu:{kind:'reviewed_write',args:'brief, scope=selected|all_missing',effect:'Prepara ACU de partidas existentes; no modifica cantidades sin autorización'},
-  propose_resources:{kind:'reviewed_write',args:'rows:[{description,kind,unit,price?,price_evidence?,draft_ref?}]',effect:'Prepara o modifica una ficha de insumos con aprobación previa'},
-  discard_resource_draft:{kind:'read',args:'',effect:'Descarta la ficha de insumos sin escribir datos'},
-  approve_resource_draft:{kind:'reviewed_write',args:'',effect:'Ejecuta import_resources SOLO sobre la ficha validada y aprobada explícitamente; no agrega nada sin ella'},
-  review_budget:{kind:'reviewed_write',args:'brief',effect:'Audita el presupuesto, clasifica partidas en rubros existentes y propone ACU con precios de biblioteca; una aprobación transaccional para cambios válidos'},
-  describe_capabilities:{kind:'read',args:'module opcional',effect:'Explica los módulos y relaciones de CPObras sin modificar datos'},
-  plan_workflow:{kind:'read',args:'goal',effect:'Construye un plan de operaciones entre módulos con dependencias, permisos y faltantes, sin ejecutarlo'},
-  inspect_module:{kind:'read',args:'module',effect:'Consulta resúmenes reales de módulos con adaptadores explícitamente verificados'}
+  calculate_takeoff:{kind:'read',args:'shape, dimension_unit, count, length, width, height?, waste_percent?',effect:'Calcula geometría, sin guardar metrados',response:'{answer:string,quantity:string,unit:string}; sin guardado'},
+  audit_budget:{kind:'read',args:'',effect:'Examina partidas, ACU, precios faltantes y advertencias',response:'{answer:string,warnings:string[]}'},
+  compare_estimates:{kind:'read',args:'baseline_id?',effect:'Compara versiones existentes de una obra',response:'{answer:string,comparison:object}'},
+  search_catalog:{kind:'read',args:'query',effect:'Busca precios e insumos reales sin modificarlos',response:'{answer:string,matches:object[]}'},
+  manage_sections:{kind:'reviewed_write',args:'action=create|rename|delete|convert y nombres o referencias permitidas',effect:'Crea, renombra, borra o convierte rubros tras revisión; borrar rubro no borra partidas',response:'{sectionPreview:object,approval_required:true}'},
+  prepare_budget:{kind:'reviewed_write',args:'brief',effect:'Prepara partidas nuevas y ACU, con aprobación previa',response:'{acuRequest:object,approval_required:true}'},
+  prepare_acu:{kind:'reviewed_write',args:'brief, scope=selected|all_missing',effect:'Prepara ACU de partidas existentes; no modifica cantidades sin autorización',response:'{acuRequest:object,approval_required:true}'},
+  propose_resources:{kind:'reviewed_write',args:'rows:[{description,kind,unit,price?,price_evidence?,draft_ref?}]',effect:'Prepara o modifica una ficha de insumos con aprobación previa',response:'{resourceDraft:{rows:object[]},approval_required:true}'},
+  discard_resource_draft:{kind:'read',args:'',effect:'Descarta la ficha de insumos sin escribir datos',response:'{discarded:boolean,committed:false}'},
+  approve_resource_draft:{kind:'reviewed_write',args:'',effect:'Ejecuta import_resources SOLO sobre la ficha validada y aprobada explícitamente; no agrega nada sin ella',response:'{created:number,resource_ids:string[]}; sólo tras aprobación'},
+  review_budget:{kind:'reviewed_write',args:'brief',effect:'Audita el presupuesto, clasifica partidas en rubros existentes y propone ACU con precios de biblioteca; una aprobación transaccional para cambios válidos',response:'{acuRequest:object,approval_required:true}'},
+  describe_capabilities:{kind:'read',args:'module opcional',effect:'Explica los módulos y relaciones de CPObras sin modificar datos',response:'{answer:string}'},
+  plan_workflow:{kind:'read',args:'goal',effect:'Construye un plan de operaciones entre módulos con dependencias, permisos y faltantes, sin ejecutarlo',response:'{answer:string,steps:object[]}'},
+  inspect_module:{kind:'read',args:'module',effect:'Consulta resúmenes reales de módulos con adaptadores explícitamente verificados',response:'{answer:string,data:object,read_only:true}'}
 });
 
 const DOMAIN=Object.freeze({
