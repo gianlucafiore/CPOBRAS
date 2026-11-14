@@ -62,12 +62,18 @@ async function handleSubmit(form) {
     for(const row of all)if(row.resourceId===components[0].resourceId)row.unitPrice=components[0].unitPrice;
     await invoke("save_line_resources",{estimateId,lineId:item.id,components:all});state.panel="acu";
   } else if (kind === "analysis") {
-    const components = [...form.querySelectorAll(".component-row")].map(row => ({
-      resourceId: row.querySelector('select[name="resource"]')?.value,
+    const rows = [...form.querySelectorAll(".component-row")];
+    const components = rows.map(row => ({
+      resourceId: row.querySelector('select[name="resource"]')?.value || "",
       quantity: row.querySelector('input[name="quantity"]')?.value,
       unitPrice: row.querySelector('input[name="unitPrice"]')?.value
     }));
     if (!components.length) throw new Error("Agregá al menos un insumo al ACU.");
+    const missing = components.findIndex(component => !component.resourceId);
+    if (missing >= 0) {
+      rows[missing].querySelector('.resource-search')?.focus();
+      throw new Error(`Seleccioná un insumo del catálogo en la fila ${missing + 1}. Escribir en el buscador no confirma la selección. Se conservaron los cambios del ACU.`);
+    }
     const args = { code: v("code"), description: v("description"), unit: v("unit"), components };
     const saved = await invoke(item.id ? "update_analysis" : "create_analysis",
       item.id ? { ...args, analysisId: item.id } : args);

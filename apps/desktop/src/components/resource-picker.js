@@ -255,6 +255,8 @@ export function createResourcePicker({
     input: (evt) => {
       if (evt.target.matches(".resource-search")) {
         evt.target.parentElement.querySelector('[name="resource"]').value = "";
+        const unit = evt.target.parentElement.querySelector('[data-resource-unit]');
+        if (unit) {unit.textContent = '';unit.hidden = true;}
         results(evt.target);
       }
     },
