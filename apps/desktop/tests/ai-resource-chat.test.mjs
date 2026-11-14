@@ -38,6 +38,9 @@ test('resource batch supports several items and never assigns invented prices',(
   assert.equal(resourceChatTurn('perfecto cargalo',{rows:second.rows}).action,'approve');
   assert.equal(resourceChatTurn('4+5',null),null);
   assert.equal(resourceChatTurn('cargar partida de mampostería',null),null);
+  assert.equal(resourceChatTurn('agrega mano de obra de un oficial y ayudante',null),null); // ACU addition
+  assert.equal(resourceChatTurn('agrega alambre al ACU seleccionado',null),null);
+
 });
 
 test('wrong currency, duplicates and ambiguous input never get silently written',()=>{
