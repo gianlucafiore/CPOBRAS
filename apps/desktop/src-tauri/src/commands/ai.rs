@@ -532,7 +532,12 @@ fn payload(
         // The latest turns matter most to local models with limited context.
         let recent = messages.iter().rev().take(3).collect::<Vec<_>>();
         chat.extend(recent.iter().rev().map(|message| json!(message)));
-        let local_limit = if is_bonsai_model(model) {
+        let intent_classification = mode == Some("library_acu_intent");
+        let local_limit = if intent_classification && is_bonsai_model(model) {
+            // A short JSON action is enough. Do not spend thousands of
+            // reasoning tokens classifying a simple user utterance.
+            512
+        } else if is_bonsai_model(model) {
             if mode.is_none() {
                 4096
             } else {
@@ -545,10 +550,10 @@ fn payload(
         };
         let mut request =
             json!({"model":model,"messages":chat,"max_tokens":local_limit,"stream":false});
-        if is_bonsai_model(model) && mode.is_none() {
-            // Bonsai defaults to thinking mode. Small output budgets were exhausted
-            // without a final answer. Request the non-thinking Jinja variant for
-            // general conversations; advanced ACU preparation retains reasoning.
+        if is_bonsai_model(model) && (mode.is_none() || intent_classification) {
+            // Bonsai defaults to thinking mode. For simple chat and intent
+            // classification we need the answer, not a long reasoning trace.
+            // Actual ACU preparation/editing continues to support reasoning.
             request["chat_template_kwargs"] = json!({"enable_thinking":false});
         }
         request
@@ -964,6 +969,12 @@ mod tests {
         let advanced = payload("lmstudio", "prism-ml/bonsai-27b", &user, "{}", Some("acu"));
         assert_eq!(advanced["max_tokens"], 5500);
         assert!(advanced.get("chat_template_kwargs").is_none());
+        let intent = payload("lmstudio", "prism-ml/bonsai-27b", &user, "{}", Some("library_acu_intent"));
+        assert_eq!(intent["max_tokens"], 512);
+        assert_eq!(intent["chat_template_kwargs"]["enable_thinking"], false);
+        let deepseek = payload("lmstudio", "deepseek-r1-8b", &user, "{}", Some("library_acu_intent"));
+        assert_eq!(deepseek["max_tokens"], 1000);
+        assert!(deepseek.get("chat_template_kwargs").is_none());
 
         let only_thoughts = json!({"choices":[{"finish_reason":"length","message":{
             "content":null,"reasoning_content":"private step-by-step reasoning"}}]});
