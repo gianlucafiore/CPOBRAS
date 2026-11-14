@@ -240,7 +240,7 @@ test('Enter sends chat immediately and Shift+Enter only inserts a newline',async
 
 
 
-const RESOURCE_CHAT_FIXTURE="\nimport './style.css';\nimport {createAiAssistant} from './components/ai-assistant.js';\nconst resources=[],calls=[],imports=[],responses=[];\nconst state={view:'resources',projectId:null,estimateId:null,projects:[],estimates:[],\n  resources,lines:[],sections:[],database:{scope:'test-resources'},remoteProject:false};\nconst invoke=async(name,args={})=>{\n calls.push({name,args:structuredClone(args)});\n if(name==='ai_status')return {provider:'openai',model:'test-model',configured:true};\n if(name==='ai_catalog_context')return {currency:'ARS',as_of:args.asOf,resources:structuredClone(resources)};\n if(name==='import_resources'){\n  imports.push(structuredClone(args));\n  for(const row of args.rows)resources.push({...row,id:crypto.randomUUID()});\n  return {created:args.rows.length,resource_ids:args.rows.map(()=>crypto.randomUUID())};\n }\n if(name==='ai_chat'){\n  if(!responses.length)throw Error('No scripted AI reply left for this browser test');\n  return {text:JSON.stringify(responses.shift()),input_tokens:350,output_tokens:100};\n }\n if(name==='ai_cancel')return null;\n throw Error('Unexpected command '+name);\n};\ncreateAiAssistant({invoke,state,document,window,editable:()=>false,\n loadEstimate:async()=>{},loadEstimates:async()=>{},openEstimate:async()=>{},\n reloadCatalog:async()=>{},openModal:()=>{}});\nwindow.__resourceChatHarness={state,resources,calls,imports,responses,ready:true};\n";
+const RESOURCE_CHAT_FIXTURE="\nimport './style.css';\nimport {createAiAssistant} from './components/ai-assistant.js';\nconst resources=[],calls=[],imports=[],responses=[];\nconst state={view:'resources',projectId:null,estimateId:null,projects:[],estimates:[],\n  resources,lines:[],sections:[],database:{scope:'test-resources'},remoteProject:false};\nconst invoke=async(name,args={})=>{\n calls.push({name,args:structuredClone(args)});\n if(name==='ai_status')return {provider:'openai',model:'test-model',configured:true};\n if(name==='ai_catalog_context')return {currency:'ARS',as_of:args.asOf,resources:structuredClone(resources)};\n if(name==='import_resources'){\n  imports.push(structuredClone(args));\n  for(const row of args.rows)resources.push({...row,id:crypto.randomUUID()});\n  return {created:args.rows.length,resource_ids:args.rows.map(()=>crypto.randomUUID())};\n }\n if(name==='ai_chat'){\n  if(!responses.length)throw Error('No scripted AI reply left for this browser test');\n  return {text:JSON.stringify(responses.shift()),input_tokens:350,output_tokens:100};\n }\n if(name==='ai_cancel')return null;\n throw Error('Unexpected command '+name);\n};\nlet reloads=0,renders=0;\nconst assistant=createAiAssistant({invoke,state,document,window,editable:()=>false,\n loadEstimate:async()=>{},loadEstimates:async()=>{},openEstimate:async()=>{},\n reloadCatalog:async()=>{reloads++;},render:()=>{renders++;},openModal:()=>{}});\nwindow.__resourceChatHarness={state,resources,calls,imports,responses,assistant,\n get reloads(){return reloads;},get renders(){return renders;},ready:true};\n";
 const resourceTool=rows=>({answer:'Preparé una ficha para revisar.',tool_call:{name:'propose_resources',args:{rows}}});
 async function resourceHarness(page,responses){
  await page.route('**/src/main.js*',route=>route.fulfill({contentType:'application/javascript',body:RESOURCE_CHAT_FIXTURE}));
@@ -282,6 +282,26 @@ test('model proposes normalized fence resources with grounded prices and native 
  expect(prompts[0].args.context).toContain('Biblioteca general de insumos');
  expect(prompts[0].args.context).toContain('propose_resources');
 });
+test('task retains early material requirements beyond five exchanges and ends on screen change',async({page})=>{
+ const anchor='Necesito insumos para cercado de terreno con tejido romboidal; considerar postes, grampas y tensores.';
+ const replies=Array.from({length:8},(_,i)=>({answer:'Continuamos el relevamiento; consulta '+(i+1)}));
+ await resourceHarness(page,replies);
+ await sayResource(page,anchor);
+ for(let i=0;i<6;i++)await sayResource(page,'Quiero avanzar sobre esta propuesta; detalle '+(i+1));
+ const calls=await page.evaluate(()=>window.__resourceChatHarness.calls.filter(c=>c.name==='ai_chat'));
+ expect(calls).toHaveLength(7);
+ const latest=calls.at(-1).args.messages;
+ expect(latest[0].content).toBe(anchor);
+ expect(latest.length).toBeGreaterThan(10); // No previous five-turn truncation.
+ await page.evaluate(()=>{
+   const harness=window.__resourceChatHarness;
+   harness.state.view='analyses';
+   harness.assistant.syncContext();
+ });
+ await expect(page.locator('.ai-transcript')).not.toContainText(anchor);
+ await expect(page.locator('.ai-transcript .ai-user')).toHaveCount(0);
+ expect(await page.evaluate(()=>window.__resourceChatHarness.imports.length)).toBe(0);
+});
 test('double-encoded resource tool JSON becomes an in-chat card and "bien cargalo" commits it once',async({page})=>{
  const question='Agregame tejido romboidal xm2 el precio es de 1500xm2';
  const row={description:'tejido romboidal',kind:'material',unit:'m2',price:'1500',
@@ -300,6 +320,14 @@ test('double-encoded resource tool JSON becomes an in-chat card and "bien cargal
  await expect(page.locator('.ai-transcript')).toContainText('Guardado confirmado');
  const saved=await page.evaluate(()=>window.__resourceChatHarness.imports);
  expect(saved).toHaveLength(1);
+ const refreshed=await page.evaluate(()=>({
+   reloads:window.__resourceChatHarness.reloads,
+   renders:window.__resourceChatHarness.renders,
+   resources:window.__resourceChatHarness.state.resources
+ }));
+ expect(refreshed.reloads).toBe(1);
+ expect(refreshed.renders).toBe(1);
+ expect(refreshed.resources.some(row=>row.description==='tejido romboidal')).toBe(true);
  expect(saved[0].rows).toEqual([{
   code:'',description:'tejido romboidal',kind:'material',unit:'m2',price:'1500'
  }]);
