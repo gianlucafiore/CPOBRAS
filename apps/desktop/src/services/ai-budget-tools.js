@@ -16,13 +16,23 @@ function positive(v){
  return v;
 }
 export function parseBudgetToolCall(raw){
- if(!isObject(raw)||!NAMES.has(raw.name)||!isObject(raw.args)||JSON.stringify(raw).length>3000)return null;
+ if(!isObject(raw)||!NAMES.has(raw.name)||!isObject(raw.args)||JSON.stringify(raw).length>(raw.name==='propose_resources'?35000:3000))return null;
  const a=raw.args;
- if(Object.values(a).some(v=>v!==null&&typeof v!=='string'))return null;
- if(raw.name==='prepare_resources'){
-  return typeof a.brief==='string'&&a.brief.trim()&&a.brief.length<=3000
-    ?{name:'prepare_resources',args:{brief:a.brief.trim()}}:null;
+ if(raw.name!=='propose_resources'&&Object.values(a).some(v=>v!==null&&typeof v!=='string'))return null;
+ if(raw.name==='propose_resources'){
+  if(!Array.isArray(a.rows)||!a.rows.length||a.rows.length>60||JSON.stringify(a.rows).length>30000)return null;
+  const keys=new Set(['description','kind','unit','price','price_evidence','draft_ref','note']);
+  if(!a.rows.every(row=>isObject(row)&&Object.keys(row).every(k=>keys.has(k))
+    && typeof row.description==='string'&&row.description.length<=500
+    && (row.kind==null||typeof row.kind==='string')
+    && (row.unit==null||typeof row.unit==='string')
+    && (row.price==null||typeof row.price==='string')
+    && (row.price_evidence==null||typeof row.price_evidence==='string')
+    && (row.draft_ref==null||typeof row.draft_ref==='string')
+    && (row.note==null||typeof row.note==='string')))return null;
+  return {name:'propose_resources',args:{rows:a.rows}};
  }
+ if(raw.name==='discard_resource_draft')return {name:'discard_resource_draft',args:{}};
  if(raw.name==='prepare_budget'||raw.name==='prepare_acu'||raw.name==='review_budget'){
   if(typeof a.brief!=='string'||!a.brief.trim()||a.brief.length>3000)return null;
   if(raw.name==='prepare_budget'||raw.name==='review_budget')return {name:raw.name,args:{brief:a.brief.trim()}};
