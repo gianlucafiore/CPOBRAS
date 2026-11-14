@@ -156,9 +156,9 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       '<button type="button" data-ai="discard-resources" data-index="'+index+'" '+(model.busy?'disabled':'')+'>Descartar propuesta</button>'+
       '<small>Podés corregir o agregar insumos respondiendo en este chat. Los precios indicados por vos se conservarán.</small></div>';
   }
-  function showResourceDraft(question,rows,explanation=''){
+  function showResourceDraft(question,rows,explanation='',excluded=[]){
     const scope=resourceScope();
-    const draft={scope,rows:rows.map(row=>({
+    const draft={scope,excluded:[...new Set(excluded)],rows:rows.map(row=>({
       description:String(row.description||'').trim(),
       kind:String(row.kind||'').trim(),unit:String(row.unit||'').trim(),
       price:row.price==null?null:String(row.price)
@@ -190,7 +190,17 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       const result=await current.promise;
       if(token!==queryToken)return;
       const rows=parseAiResourceProposals(result.text,catalog.resources||[]);
-      showResourceDraft(question,rows);
+      // AI-generated suggestions may contain items the user expressly excluded
+      // or miss measurements/prices the USER provided. Reconcile those facts
+      // locally before displaying any approvable review card.
+      const local=resourceChatTurn(question,{rows,excluded:[]});
+      if(local?.action==='error')throw new Error(local.message);
+      if(local?.action==='draft-empty'){
+        addReply(question,{answer:'Las exclusiones solicitadas dejaron el listado vacío. No se guardó nada.'});
+      }else{
+        showResourceDraft(question,local?.action==='draft'?local.rows:rows,'',
+          local?.action==='draft'?local.excluded:[]);
+      }
       model.usage={input:result.input_tokens,output:result.output_tokens};
     }catch(error){
       if(token===queryToken){
@@ -214,8 +224,8 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
         throw Error('La base de datos o la propuesta cambió. Revisá el listado antes de guardar.');
       const review=validatedResourceDraft(draft.rows,catalog.resources||[]);
       if(review.pending.length||!review.ready.length){
-        model.notice='Hay '+review.pending.length+' insumo(s) incompletos o duplicados. Resolvé los pendientes antes de aprobar.';
-        addReply(question,{answer:resourceDraftSummary(review),resourceDraft:draft});
+        model.notice='No se guardó nada: '+review.ready.length+' listos y '+review.pending.length+' con datos incompletos o duplicados.';
+        addReply(question,{answer:'No cargué ningún insumo porque la ficha contiene '+review.pending.length+' pendiente(s). '+resourceDraftSummary(review),resourceDraft:draft});
         return;
       }
       const rows=review.ready.map(row=>({
@@ -1152,7 +1162,12 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     if(resourceTurn){
       if(resourceTurn.action==='approve'){model.question='';await approveResourceDraft(question);return;}
       if(resourceTurn.action==='generate'){await generateResourceDraft(question);return;}
-      if(resourceTurn.action==='draft'){showResourceDraft(question,resourceTurn.rows);return;}
+      if(resourceTurn.action==='draft'){showResourceDraft(question,resourceTurn.rows,'',resourceTurn.excluded);return;}
+      if(resourceTurn.action==='draft-empty'){
+        model.resourceDraft=null;
+        addReply(question,{answer:'Quité los insumos indicados. No quedan insumos pendientes para aprobar y no se guardó nada.'});
+        model.error='';paint();return;
+      }
       if(resourceTurn.action==='discard'){model.resourceDraft=null;addReply(question,{answer:'Descarté el listado pendiente; no se cargó ningún insumo.'});model.error='';paint();return;}
       if(resourceTurn.action==='error'||resourceTurn.action==='clarify'){addReply(question,{answer:resourceTurn.message});model.error='';paint();return;}
     }
