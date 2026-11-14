@@ -181,7 +181,6 @@ function parseExplicitResourceDetails(question,pending){
     const segment=entry.text;
     const prior=entry.before;
     const excludeMe=exclusionWords.test(segment)
-      ||/\b(?:no lo agregues|no los agregues|ya existe|tampoco)\b/i.test(prior)
       ||/\b(?:no pongas|sin equipos?)\b/i.test(segment);
     if(excludeMe){
       exclude.add(key);
