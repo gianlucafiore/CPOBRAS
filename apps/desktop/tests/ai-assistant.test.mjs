@@ -1,6 +1,48 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {parseAiReply,draftFromProposal,lineProposalFromClarification,lineProposalFromDirectRequest,simpleArithmeticAnswer,answerForDisplay,createAiRequest,budgetScreenContext,acuChatRequest,resolvedPendingApproval,isApprovalReply,materialAdditionFollowup,materialAdditionConfirmation,selectedAcuRequest,affirmativeMissingMaterialRequest,contextualAcuLine,availableCatalogFollowup} from '../src/services/ai-assistant.js';
+import {parseAiReply,draftFromProposal,lineProposalFromClarification,lineProposalFromDirectRequest,simpleArithmeticAnswer,fitAiConsoleRect,moveResizeAiConsoleRect,aiConsoleTransparency,answerForDisplay,createAiRequest,budgetScreenContext,acuChatRequest,resolvedPendingApproval,isApprovalReply,materialAdditionFollowup,materialAdditionConfirmation,selectedAcuRequest,affirmativeMissingMaterialRequest,contextualAcuLine,availableCatalogFollowup} from '../src/services/ai-assistant.js';
+test('floating AI console can move, resize by every border and stay inside viewport',()=>{
+  const viewport={width:1200,height:800};
+  const start={left:100,top:100,width:600,height:400};
+  assert.deepEqual(fitAiConsoleRect(start,viewport),start);
+  assert.deepEqual(moveResizeAiConsoleRect(start,'move',200,140,viewport),
+    {left:300,top:240,width:600,height:400});
+  assert.deepEqual(moveResizeAiConsoleRect(start,'w',150,0,viewport),
+    {left:250,top:100,width:450,height:400});
+  assert.deepEqual(moveResizeAiConsoleRect(start,'e',150,0,viewport),
+    {left:100,top:100,width:750,height:400});
+  assert.deepEqual(moveResizeAiConsoleRect(start,'n',0,100,viewport),
+    {left:100,top:200,width:600,height:300});
+  assert.deepEqual(moveResizeAiConsoleRect(start,'s',0,100,viewport),
+    {left:100,top:100,width:600,height:500});
+  assert.deepEqual(moveResizeAiConsoleRect(start,'nw',70,70,viewport),
+    {left:170,top:170,width:530,height:330});
+  assert.deepEqual(moveResizeAiConsoleRect(start,'ne',70,70,viewport),
+    {left:100,top:170,width:670,height:330});
+  assert.deepEqual(moveResizeAiConsoleRect(start,'sw',70,70,viewport),
+    {left:170,top:100,width:530,height:470});
+  assert.deepEqual(moveResizeAiConsoleRect(start,'se',70,70,viewport),
+    {left:100,top:100,width:670,height:470});
+  // Invalid stored positions and large moves never strand the console.
+  assert.deepEqual(fitAiConsoleRect({left:-10000,top:9000,width:6000,height:9000},viewport),
+    {left:8,top:8,width:1184,height:784});
+  const edge=moveResizeAiConsoleRect(start,'move',50000,50000,viewport);
+  assert.deepEqual(edge,{left:592,top:392,width:600,height:400});
+  const small=fitAiConsoleRect(start,{width:330,height:270});
+  assert.deepEqual(small,{left:8,top:8,width:314,height:254});
+  const west=moveResizeAiConsoleRect(start,'w',1000,0,viewport);
+  assert.equal(west.width,400);
+  assert.equal(west.left,300);
+  const north=moveResizeAiConsoleRect(start,'n',0,1000,viewport);
+  assert.equal(north.height,280);
+  assert.equal(north.top,220);
+  assert.deepEqual(moveResizeAiConsoleRect(start,'invalid',12,20,viewport),start);
+});
+test('floating console transparency is limited to 0–80 percent',()=>{
+  for(const [input,expected] of [[0,0],[35,35],[80,80],[120,80],[-10,0],[null,0],['55',55],['bad',0]]){
+    assert.equal(aiConsoleTransparency(input),expected);
+  }
+});
 test('unstructured responses remain text; only whitelisted proposals become drafts',()=>{
   assert.deepEqual(parseAiReply('<script>bad()</script>'),{answer:'<script>bad()</script>',proposal:null});
   const reply=parseAiReply(JSON.stringify({answer:'Revisá este borrador',proposal:{kind:'line',description:'Excavación',unit:'m³',quantity:'15.25',unit_price:'30000',id:'existing-id',execute:'delete',sectionId:'secret'}}));
