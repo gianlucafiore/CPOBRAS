@@ -14,6 +14,7 @@ export const AI_TOOL_CONTRACTS = Object.freeze({
   manage_sections:{kind:'reviewed_write',args:'action=create|rename|delete|convert y nombres o referencias permitidas',effect:'Crea, renombra, borra o convierte rubros tras revisión; borrar rubro no borra partidas'},
   prepare_budget:{kind:'reviewed_write',args:'brief',effect:'Prepara partidas nuevas y ACU, con aprobación previa'},
   prepare_acu:{kind:'reviewed_write',args:'brief, scope=selected|all_missing',effect:'Prepara ACU de partidas existentes; no modifica cantidades sin autorización'},
+  prepare_resources:{kind:'reviewed_write',args:'brief',effect:'Prepara insumos de biblioteca con IA y muestra revisión; no los guarda hasta aprobación'},
   review_budget:{kind:'reviewed_write',args:'brief',effect:'Audita el presupuesto, clasifica partidas en rubros existentes y propone ACU con precios de biblioteca; una aprobación transaccional para cambios válidos'},
   describe_capabilities:{kind:'read',args:'module opcional',effect:'Explica los módulos y relaciones de CPObras sin modificar datos'},
   plan_workflow:{kind:'read',args:'goal',effect:'Construye un plan de operaciones entre módulos con dependencias, permisos y faltantes, sin ejecutarlo'},
@@ -51,7 +52,7 @@ export function aiDomainContext(state,question=''){
  const withoutAcu=lines.filter(l=>!l.analysis_id&&!(l.components||[]).length);
  const ungrouped=lines.filter(l=>!assignments[l.id]&&!l.section_id);
  const concepts=parts?DOMAIN:{integridad:DOMAIN.integridad};
- const tools=Object.fromEntries(Object.entries(AI_TOOL_CONTRACTS).filter(([name])=>review||/\b(?:acu|composicion|insumos)\b/.test(q)?['review_budget','prepare_acu','manage_sections','audit_budget','search_catalog'].includes(name):true));
+ const tools=Object.fromEntries(Object.entries(AI_TOOL_CONTRACTS).filter(([name])=>review||/\b(?:acu|composicion|insumos)\b/.test(q)?['review_budget','prepare_acu','prepare_resources','manage_sections','audit_budget','search_catalog'].includes(name):true));
  const appContext=appKnowledgeContext(question,state);
  return 'MAPA OPERATIVO CPOBRAS (contratos descriptivos, no comandos ejecutables):\n'+JSON.stringify({
   version:AI_DOMAIN_VERSION,conceptos:concepts,herramientas:tools,
