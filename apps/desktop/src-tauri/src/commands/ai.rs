@@ -537,7 +537,7 @@ fn payload(
     } else {
         context
     };
-    let general = if mode.is_none() {
+    let general = if matches!(mode, None | Some("plan" | "manage")) {
         GENERAL_RESOURCE_TOOL_GUIDANCE
     } else {
         ""
