@@ -1339,6 +1339,20 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
         try{if(parseCatalogQuery(result.text))result.text=JSON.stringify({answer:catalogAnswer(catalogSnapshot,additional)});}catch{result.text=JSON.stringify({answer:catalogAnswer(catalogSnapshot,additional)});}
       }
       let parsed=parseAiReply(result.text);
+      if(parsed.actionError==='JSON de respuesta inválido o incompleto.'){
+        // Repair the response contract once, preserving the actual task and
+        // user turns. This prepares a review only; it grants no write approval.
+        model.notice='La respuesta llegó con formato inválido; recuperando la propuesta con el contexto de la tarea…';
+        const repairContext=context+'\nLa respuesta anterior no fue JSON válido. Respondé de nuevo al último pedido con un objeto JSON completo según el contrato. Usá propose_resources si corresponde preparar insumos. No afirmes guardado ni pidas repetir los datos ya presentes en el historial. Una confirmación sin ficha solo permite preparar una propuesta para revisar.';
+        request=providerAwareAiRequest({messages,context:repairContext,...(mode?{mode}:{})});
+        activeRequest=request;paint();
+        const repaired=await request.promise;
+        if(generation!==model.generation||token!==queryToken)return;
+        result={...repaired,
+          input_tokens:result.input_tokens!=null&&repaired.input_tokens!=null?result.input_tokens+repaired.input_tokens:undefined,
+          output_tokens:result.output_tokens!=null&&repaired.output_tokens!=null?result.output_tokens+repaired.output_tokens:undefined};
+        parsed=parseAiReply(result.text);
+      }
       // A model that misclassifies "rubros" as proposal_lines must never
       // create budget lines just because the user approved the response.
       const rubroIntent=/\b(?:crea(?:r|lo|los)?|converti(?:r|los)?|renombra(?:r|lo|los)?|borra(?:r|lo|los)?|elimina(?:r|lo|los)?|edita(?:r|lo|los)?)\b.{0,75}\b(?:rubros?|subrubros?)\b|\b(?:rubros?|subrubros?)\b.{0,75}\b(?:crear|convertir|renombrar|borrar|eliminar|editar)\b/.test(fold(question));

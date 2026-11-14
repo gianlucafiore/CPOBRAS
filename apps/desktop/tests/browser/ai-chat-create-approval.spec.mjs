@@ -390,3 +390,40 @@ test('model receives prior recommendations and can propose the batch after "pod�
  expect(calls[1].args.messages.some(m=>String(m.content).includes(recommended))).toBe(true);
  expect(await page.evaluate(()=>window.__resourceChatHarness.imports.length)).toBe(0);
 });
+
+test('phenolic board confirmation recovers malformed JSON using prior details and requires approval of the recovered card',async({page})=>{
+ const details='Tablero fenólico plastificado 2.44x1.22 es por unidad, o por placa, vale 80.000';
+ const row={description:'Tablero fenólico plastificado 2.44x1.22',kind:'material',unit:'placa',price:'80000',price_evidence:'vale 80.000'};
+ await resourceHarness(page,[
+  {answer:'No se encontraron insumos específicos en el catálogo.'},
+  {answer:'Confirmame si querés crear el insumo por placa a 80000 ARS.'},
+  '{"answer":"Preparando","tool_call":',
+  resourceTool([row])
+ ]);
+ await sayResource(page,'hay fenólicos plastificados para hormigón visto?');
+ await expect(page.locator('.ai-transcript')).toContainText('No se encontraron');
+ await sayResource(page,details);
+ await expect(page.locator('.ai-transcript')).toContainText('Confirmame');
+ await sayResource(page,'si');
+ await expect(page.locator('.ai-resource-chat-card')).toContainText('80000 ARS');
+ expect(await page.evaluate(()=>window.__resourceChatHarness.imports)).toHaveLength(0);
+ const calls=await page.evaluate(()=>window.__resourceChatHarness.calls.filter(c=>c.name==='ai_chat'));
+ expect(calls).toHaveLength(4);
+ expect(calls[3].args.messages).toEqual(calls[2].args.messages);
+ expect(calls[3].args.messages.some(m=>m.content===details)).toBe(true);
+ await sayResource(page,'si');
+ await expect(page.locator('.ai-transcript')).toContainText('Guardado confirmado');
+ const result=await page.evaluate(()=>({imports:window.__resourceChatHarness.imports,calls:window.__resourceChatHarness.calls.filter(c=>c.name==='ai_chat').length}));
+ expect(result.calls).toBe(4);
+ expect(result.imports).toHaveLength(1);
+ expect(result.imports[0].rows[0]).toMatchObject({description:row.description,unit:'placa',price:'80000'});
+});
+
+test('malformed replies retry once and never import resources when recovery also fails',async({page})=>{
+ await resourceHarness(page,['{"answer":','{"answer":']);
+ await sayResource(page,'Prepará un insumo para revisar');
+ await expect(page.locator('.ai-transcript')).toContainText('respuesta estructurada inválida');
+ expect(await page.evaluate(()=>window.__resourceChatHarness.calls.filter(c=>c.name==='ai_chat').length)).toBe(2);
+ expect(await page.evaluate(()=>window.__resourceChatHarness.imports)).toHaveLength(0);
+ await expect(page.locator('.ai-resource-chat-card')).toHaveCount(0);
+});
