@@ -578,7 +578,11 @@ fn payload(
             // before a complete JSON composition could be generated.
             3400
         } else if is_bonsai_model(model) {
-            if mode.is_none() { 4096 } else { limit.max(4096).min(8192) }
+            if mode.is_none() {
+                4096
+            } else {
+                limit.max(4096).min(8192)
+            }
         } else if mode.is_none() {
             768
         } else {
@@ -1013,12 +1017,27 @@ mod tests {
         );
         assert_eq!(intent["max_tokens"], 512);
         assert_eq!(intent["chat_template_kwargs"]["enable_thinking"], false);
-        let gemma_acu = payload("lmstudio", "google/gemma-4-e4b", &user, "{}", Some("library_acu"));
+        let gemma_acu = payload(
+            "lmstudio",
+            "google/gemma-4-e4b",
+            &user,
+            "{}",
+            Some("library_acu"),
+        );
         assert_eq!(gemma_acu["max_tokens"], 3400);
         assert_eq!(gemma_acu["chat_template_kwargs"]["enable_thinking"], false);
-        let gemma_intent = payload("lmstudio", "google/gemma-4-e4b", &user, "{}", Some("library_acu_intent"));
+        let gemma_intent = payload(
+            "lmstudio",
+            "google/gemma-4-e4b",
+            &user,
+            "{}",
+            Some("library_acu_intent"),
+        );
         assert_eq!(gemma_intent["max_tokens"], 512);
-        assert_eq!(gemma_intent["chat_template_kwargs"]["enable_thinking"], false);
+        assert_eq!(
+            gemma_intent["chat_template_kwargs"]["enable_thinking"],
+            false
+        );
         let json_context = json!({"resources": (0..80).map(|i|
           json!({"id":format!("resource-{i}"),"description":"Detalle extenso del producto y su presentación comercial para presupuesto",
           "unit":"unidad","price":"1234"})).collect::<Vec<_>>(),
