@@ -494,7 +494,15 @@ function parseAiEnvelope(raw){
 
 export function parseAiReply(text) {
   const value=parseAiEnvelope(text);
-  if(!value)return {answer:text,proposal:null};
+  if(!value){
+    // An attempted structured reply must never leak its raw tool JSON into
+    // the conversation or be mistaken for a prepared, approvable operation.
+    const source=typeof text==="string"?text.trim():"";
+    if(source.startsWith("{")||source.startsWith('"{')||source.startsWith("```json"))
+      return {answer:"La IA devolvió una respuesta estructurada inválida. No se preparó ninguna ficha ni se guardó nada. Reformulá el pedido para generar la propuesta.",
+        proposal:null,actionError:"JSON de respuesta inválido o incompleto."};
+    return {answer:text,proposal:null};
+  }
   if(Object.hasOwn(value,'tool_call')){
     // A model-suggested tool is never executed as code: only the typed allowlist is accepted.
     const toolCall=parseBudgetToolCall(value.tool_call);
