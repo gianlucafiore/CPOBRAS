@@ -238,124 +238,92 @@ test('Enter sends chat immediately and Shift+Enter only inserts a newline',async
 });
 
 
-const RESOURCE_CHAT_FIXTURE="\n  import './style.css';\n  import {createAiAssistant} from './components/ai-assistant.js';\n  const resources=[],calls=[],imports=[];\n  const state={view:'resources',projectId:null,estimateId:null,projects:[],estimates:[],\n    resources,lines:[],sections:[],database:{scope:'test-resources'},remoteProject:false};\n  const invoke=async(name,args={})=>{\n    calls.push({name,args:structuredClone(args)});\n    if(name==='ai_status')return {provider:'openai',model:'test-model',configured:true};\n    if(name==='ai_catalog_context')return {currency:'ARS',as_of:args.asOf,resources:structuredClone(resources)};\n    if(name==='import_resources'){\n      imports.push(structuredClone(args));\n      for(const row of args.rows)resources.push({...row,id:crypto.randomUUID()});\n      return {created:args.rows.length,resource_ids:args.rows.map(()=>crypto.randomUUID())};\n    }\n    if(name==='ai_chat')return {text:JSON.stringify(args.mode==='resources'?\n      {answer:'Revisión de insumos para cercado',resource_proposals:[\n        {description:'Poste de madera 3\" x 2,2m',kind:'material',unit:'unidad'},\n        {description:'Alambre galvanizado',kind:'material',unit:'kg'}\n      ]}:{answer:'Para cercado recomiendo postes de madera y alambre galvanizado. ¿Querés agregar esos insumos?' }),\n      input_tokens:70,output_tokens:40};\n    if(name==='ai_cancel')return null;\n    throw Error('Unexpected command '+name);\n  };\n  const assistant=createAiAssistant({invoke,state,document,window,editable:()=>false,\n    loadEstimate:async()=>{},loadEstimates:async()=>{},openEstimate:async()=>{},\n    reloadCatalog:async()=>{},openModal:()=>{}});\n  window.__resourceChatHarness={state,resources,calls,imports,assistant,ready:true};\n";
 
-test('resource chat remembers price and unit, reviews in-chat and saves only after approval',async({page})=>{
-  await page.route('**/src/main.js*',route=>route.fulfill({contentType:'application/javascript',body:RESOURCE_CHAT_FIXTURE}));
-  await page.goto('/');
-  await page.waitForFunction(()=>window.__resourceChatHarness?.ready);
-  await page.locator('.ai-launch').click();
-  await page.locator('[name=ai-consent]').check();
-  const say=async phrase=>{await page.locator('#ai-prompt').fill(phrase);await page.locator('#ai-question button').click();};
-  await say('Poste de madera 3" x 2,2m , precio: 17500');
-  await expect(page.locator('.ai-resource-chat-card')).toContainText('17500 ARS');
-  await expect(page.locator('.ai-resource-chat-card')).toContainText('Poste de madera');
-  await expect(page.locator('[data-ai=approve-resources]')).toBeDisabled();
-  await say('es material, la unidad es: unidad');
-  await expect(page.locator('.ai-resource-chat-card')).toContainText('17500 ARS');
-  await expect(page.locator('[data-ai=approve-resources]')).toBeEnabled();
-  await say('el precio es 17500');
-  await expect(page.locator('.ai-resource-chat-card')).toContainText('17500 ARS');
-  expect(await page.evaluate(()=>window.__resourceChatHarness.imports.length)).toBe(0);
-  await say('perfecto cargalo');
-  await expect(page.locator('.ai-transcript')).toContainText('Guardado confirmado');
-  const stored=await page.evaluate(()=>window.__resourceChatHarness.imports);
-  expect(stored).toHaveLength(1);
-  expect(stored[0].rows).toEqual([{
-    code:'',description:'Poste de madera 3" x 2,2m',kind:'material',unit:'unidad',price:'17500'
-  }]);
-  expect(await page.evaluate(()=>window.__resourceChatHarness.calls.filter(c=>c.name==='ai_chat').length)).toBe(0);
 
-  await say('¿Hay insumos para cercado con alambrado?');
-  await expect(page.locator('.ai-transcript')).toContainText('¿Querés agregar esos insumos?');
-  await say('si dale');
-  await expect(page.locator('.ai-resource-chat-card li')).toHaveCount(2);
-  await expect(page.locator('[data-ai=approve-resources]')).toBeDisabled(); // poste ya existe
-  const modes=await page.evaluate(()=>window.__resourceChatHarness.calls.filter(c=>c.name==='ai_chat').map(c=>c.args.mode||'chat'));
-  // The previously enumerated suggestions are now converted locally,
-  // rather than burning a second AI call to re-generate the same items.
-  expect(modes).toEqual(['chat']);
-  expect(await page.evaluate(()=>window.__resourceChatHarness.imports.length)).toBe(1);
+const RESOURCE_CHAT_FIXTURE="\nimport './style.css';\nimport {createAiAssistant} from './components/ai-assistant.js';\nconst resources=[],calls=[],imports=[],responses=[];\nconst state={view:'resources',projectId:null,estimateId:null,projects:[],estimates:[],\n  resources,lines:[],sections:[],database:{scope:'test-resources'},remoteProject:false};\nconst invoke=async(name,args={})=>{\n calls.push({name,args:structuredClone(args)});\n if(name==='ai_status')return {provider:'openai',model:'test-model',configured:true};\n if(name==='ai_catalog_context')return {currency:'ARS',as_of:args.asOf,resources:structuredClone(resources)};\n if(name==='import_resources'){\n  imports.push(structuredClone(args));\n  for(const row of args.rows)resources.push({...row,id:crypto.randomUUID()});\n  return {created:args.rows.length,resource_ids:args.rows.map(()=>crypto.randomUUID())};\n }\n if(name==='ai_chat'){\n  if(!responses.length)throw Error('No scripted AI reply left for this browser test');\n  return {text:JSON.stringify(responses.shift()),input_tokens:350,output_tokens:100};\n }\n if(name==='ai_cancel')return null;\n throw Error('Unexpected command '+name);\n};\ncreateAiAssistant({invoke,state,document,window,editable:()=>false,\n loadEstimate:async()=>{},loadEstimates:async()=>{},openEstimate:async()=>{},\n reloadCatalog:async()=>{},openModal:()=>{}});\nwindow.__resourceChatHarness={state,resources,calls,imports,responses,ready:true};\n";
+const resourceTool=rows=>({answer:'Preparé una ficha para revisar.',tool_call:{name:'propose_resources',args:{rows}}});
+async function resourceHarness(page,responses){
+ await page.route('**/src/main.js*',route=>route.fulfill({contentType:'application/javascript',body:RESOURCE_CHAT_FIXTURE}));
+ await page.goto('/');
+ await page.waitForFunction(()=>window.__resourceChatHarness?.ready);
+ await page.evaluate(responses=>window.__resourceChatHarness.responses.push(...responses),responses);
+ await page.locator('.ai-launch').click();
+ await page.locator('[name=ai-consent]').check();
+}
+async function sayResource(page,question){
+ await page.locator('#ai-prompt').fill(question);
+ await page.locator('#ai-prompt').press('Enter');
+}
+test('model proposes normalized fence resources with grounded prices and native approval',async({page})=>{
+ const phrase='necesitamos cargar: Postes de madera de 3"x2.2m. Precio 17500 cada uno tejido romboidal 1500xm2 Mano de obra de Cercado Tipo subcontraro, 50.000 el m2';
+ const rows=[
+   {description:'Poste de madera 3" x 2,2 m',kind:'material',unit:'unidad',price:'17500',price_evidence:'Precio 17500 cada uno'},
+   {description:'Tejido romboidal',kind:'material',unit:'m²',price:'1500',price_evidence:'1500xm2'},
+   {description:'Servicio de cercado con tejido romboidal',kind:'subcontract',unit:'m²',price:'50000',price_evidence:'50.000 el m2'},
+ ];
+ await resourceHarness(page,[resourceTool(rows)]);
+ await sayResource(page,phrase);
+ await expect(page.locator('.ai-resource-chat-card li')).toHaveCount(3);
+ await expect(page.locator('.ai-resource-chat-card')).toContainText('17500 ARS');
+ await expect(page.locator('.ai-resource-chat-card')).toContainText('1500 ARS');
+ await expect(page.locator('.ai-resource-chat-card')).toContainText('50000 ARS');
+ await expect(page.locator('.ai-resource-chat-card')).toContainText('Subcontrato');
+ await expect(page.locator('[data-ai=approve-resources]')).toBeEnabled();
+ expect(await page.evaluate(()=>window.__resourceChatHarness.imports.length)).toBe(0);
+ await page.locator('[data-ai=approve-resources]').click();
+ await expect(page.locator('.ai-transcript')).toContainText('Guardado confirmado');
+ const imported=await page.evaluate(()=>window.__resourceChatHarness.imports);
+ expect(imported).toHaveLength(1);
+ expect(imported[0].rows.map(row=>[row.kind,row.unit,row.price])).toEqual([
+   ['material','unidad','17500'],['material','m²','1500'],['subcontract','m²','50000']
+ ]);
+ const prompts=await page.evaluate(()=>window.__resourceChatHarness.calls.filter(c=>c.name==='ai_chat'));
+ expect(prompts).toHaveLength(1);
+ expect(prompts[0].args.context).toContain('Biblioteca general de insumos');
+ expect(prompts[0].args.context).toContain('propose_resources');
 });
-
-
-test('complete fence list from one chat message saves exactly three correctly priced resources',async({page})=>{
-  await page.route('**/src/main.js*',route=>route.fulfill({
-    contentType:'application/javascript',body:RESOURCE_CHAT_FIXTURE
-  }));
-  await page.goto('/');
-  await page.waitForFunction(()=>window.__resourceChatHarness?.ready);
-  await page.locator('.ai-launch').click();
-  await page.locator('[name=ai-consent]').check();
-  const say=async phrase=>{await page.locator('#ai-prompt').fill(phrase);await page.locator('#ai-question button').click();};
-  await say('necesitamos los insumos para cerco de tejido romboidal: Mano de obra: 50.000 x m2 Poste de 3" x 2.2m a 17.500 cada uno tejido romboidal a 1500 xm2');
-  await expect(page.locator('.ai-resource-chat-card li')).toHaveCount(3);
-  await expect(page.locator('.ai-resource-chat-card')).toContainText('50000 ARS');
-  await expect(page.locator('.ai-resource-chat-card')).toContainText('17500 ARS');
-  await expect(page.locator('.ai-resource-chat-card')).toContainText('1500 ARS');
-  await expect(page.locator('[data-ai=approve-resources]')).toBeEnabled();
-  expect(await page.evaluate(()=>window.__resourceChatHarness.calls.filter(c=>c.name==='ai_chat').length)).toBe(0);
-  // A review is mutable: removal must not destroy the other confirmed prices.
-  await say('agrega cemento por bolsa');
-  await expect(page.locator('.ai-resource-chat-card li')).toHaveCount(4);
-  await say('quita el insumo de cemento');
-  await expect(page.locator('.ai-resource-chat-card li')).toHaveCount(3);
-  await expect(page.locator('[data-ai=approve-resources]')).toBeEnabled();
-  await say('bien cargalo');
-  await expect(page.locator('.ai-transcript')).toContainText('Guardado confirmado');
-  const result=await page.evaluate(()=>window.__resourceChatHarness.imports);
-  expect(result).toHaveLength(1);
-  expect(result[0].rows).toEqual([
-    {code:'',description:'Mano de obra para cerco de tejido romboidal',kind:'labor',unit:'m²',price:'50000'},
-    {code:'',description:'Poste de 3" x 2.2m',kind:'material',unit:'unidad',price:'17500'},
-    {code:'',description:'tejido romboidal',kind:'material',unit:'m²',price:'1500'}
-  ]);
+test('model revises a proposed batch without reintroducing excluded cement',async({page})=>{
+ const phrase='Poste de madera a 17500 cada uno y tejido romboidal a 1500 por m2';
+ const initial=[
+   {description:'Poste de madera',kind:'material',unit:'unidad',price:'17500',price_evidence:'17500 cada uno'},
+   {description:'Tejido romboidal',kind:'material',unit:'m²',price:'1500',price_evidence:'1500 por m2'},
+   {description:'Cemento para postes',kind:'material',unit:'bolsa',price:null},
+ ];
+ const revised=[
+   {description:'Poste de madera',kind:'material',unit:'unidad',price:'17500',draft_ref:'0'},
+   {description:'Tejido romboidal',kind:'material',unit:'m²',price:'1500',draft_ref:'1'}
+ ];
+ await resourceHarness(page,[resourceTool(initial),resourceTool(revised)]);
+ await sayResource(page,phrase);
+ await expect(page.locator('.ai-resource-chat-card li')).toHaveCount(3);
+ await sayResource(page,'quitá el cemento, ya lo tenemos');
+ await expect(page.locator('.ai-resource-chat-card li')).toHaveCount(2);
+ await expect(page.locator('.ai-resource-chat-card')).not.toContainText('Cemento para postes');
+ await expect(page.locator('.ai-resource-chat-card')).toContainText('17500 ARS');
+ await expect(page.locator('.ai-resource-chat-card')).toContainText('1500 ARS');
+ await expect(page.locator('[data-ai=approve-resources]')).toBeEnabled();
+ expect(await page.evaluate(()=>window.__resourceChatHarness.imports.length)).toBe(0);
+ await page.locator('[data-ai=approve-resources]').click();
+ await expect(page.locator('.ai-transcript')).toContainText('Guardado confirmado');
+ const imported=await page.evaluate(()=>window.__resourceChatHarness.imports);
+ expect(imported).toHaveLength(1);
+ expect(imported[0].rows).toHaveLength(2);
 });
-
-
-test('resource pronoun "necesito crearlos" prepares a card after an empty catalog reply',async({page})=>{
-  const fixture=RESOURCE_CHAT_FIXTURE.replace(
-    'Para cercado recomiendo postes de madera y alambre galvanizado. ¿Querés agregar esos insumos?',
-    'No se encontraron insumos específicos para cercado con tejido romboidal en el catálogo local. Por favor precisá más detalles.'
-  );
-  await page.route('**/src/main.js*',route=>route.fulfill({contentType:'application/javascript',body:fixture}));
-  await page.goto('/');
-  await page.waitForFunction(()=>window.__resourceChatHarness?.ready);
-  await page.locator('.ai-launch').click();
-  await page.locator('[name=ai-consent]').check();
-  const say=async value=>{await page.locator('#ai-prompt').fill(value);await page.locator('#ai-question button').click();};
-  await say('necesito los insumos para cercado de terreno con tejido romboildal');
-  await expect(page.locator('.ai-transcript')).toContainText('No se encontraron insumos');
-  await say('necesito crearlos');
-  await expect(page.locator('.ai-resource-chat-card li')).toHaveCount(2);
-  await expect(page.locator('.ai-resource-chat-card')).toContainText('Poste de madera');
-  await expect(page.locator('.ai-resource-chat-card')).toContainText('Alambre galvanizado');
-  const modes=await page.evaluate(()=>window.__resourceChatHarness.calls.filter(c=>c.name==='ai_chat').map(c=>c.args.mode||'chat'));
-  expect(modes).toEqual(['chat','resources']);
-  expect(await page.evaluate(()=>window.__resourceChatHarness.imports.length)).toBe(0);
-});
-
-test('resource pronoun "podes crearlos" immediately turns last enumerated advice into in-chat review',async({page})=>{
-  const recommendation='Para un cercado con tejido romboidal se necesitan postes (metal o madera), tensores, alambre para amarre, tensores, bridas o precintos, y el rollo de tejido romboidal. También podría ser necesario concreto para fijar postes y herramientas.';
-  const fixture=RESOURCE_CHAT_FIXTURE.replace(
-    'Para cercado recomiendo postes de madera y alambre galvanizado. ¿Querés agregar esos insumos?',
-    recommendation
-  );
-  await page.route('**/src/main.js*',route=>route.fulfill({contentType:'application/javascript',body:fixture}));
-  await page.goto('/');
-  await page.waitForFunction(()=>window.__resourceChatHarness?.ready);
-  await page.locator('.ai-launch').click();
-  await page.locator('[name=ai-consent]').check();
-  const say=async value=>{await page.locator('#ai-prompt').fill(value);await page.locator('#ai-question button').click();};
-  await say('me decís que insumos necesitamos para cercado con tejido romboidal');
-  await expect(page.locator('.ai-transcript')).toContainText('se necesitan postes');
-  await say('podes crearlos');
-  await expect(page.locator('.ai-resource-chat-card li')).toHaveCount(5);
-  await expect(page.locator('.ai-resource-chat-card')).toContainText('postes (metal o madera)');
-  await expect(page.locator('.ai-resource-chat-card')).toContainText('rollo de tejido romboidal');
-  await expect(page.locator('[data-ai=approve-resources]')).toBeDisabled();
-  // No model reinference and absolutely no SQLite write. Ambiguities need review.
-  const modes=await page.evaluate(()=>window.__resourceChatHarness.calls.filter(c=>c.name==='ai_chat').map(c=>c.args.mode||'chat'));
-  expect(modes).toEqual(['chat']);
-  expect(await page.evaluate(()=>window.__resourceChatHarness.imports.length)).toBe(0);
+test('model receives prior recommendations and can propose the batch after "podés crearlos"',async({page})=>{
+ const recommended='Para cercado recomiendo postes, tejido romboidal, grampas y alambre de amarre.';
+ const items=[
+   {description:'Poste para cercado',kind:'material',unit:'unidad',price:null},
+   {description:'Tejido romboidal',kind:'material',unit:'m²',price:null},
+   {description:'Grampas galvanizadas',kind:'material',unit:'unidad',price:null},
+   {description:'Alambre de amarre',kind:'material',unit:'kg',price:null}
+ ];
+ await resourceHarness(page,[{answer:recommended},resourceTool(items)]);
+ await sayResource(page,'¿Qué insumos necesito para cercar un terreno con tejido romboidal?');
+ await expect(page.locator('.ai-transcript')).toContainText(recommended);
+ await sayResource(page,'podés crearlos');
+ await expect(page.locator('.ai-resource-chat-card li')).toHaveCount(4);
+ const calls=await page.evaluate(()=>window.__resourceChatHarness.calls.filter(c=>c.name==='ai_chat'));
+ expect(calls).toHaveLength(2);
+ expect(calls[1].args.messages.some(m=>String(m.content).includes(recommended))).toBe(true);
+ expect(await page.evaluate(()=>window.__resourceChatHarness.imports.length)).toBe(0);
 });
