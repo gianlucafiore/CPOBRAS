@@ -2,6 +2,8 @@ import {canSaveLibraryAcu,libraryAcuContext,readLibraryAcuIntent,readLibraryAcus
 import {selectedAcuSnapshot,selectedAcuSnapshotMatches,readSelectedAcuEdit,canApplySelectedAcuEdit,applySelectedAcuEdit} from "../services/ai-selected-acu-edit.js";
 import {libraryAcuConversationState,requestedAddedMaterials,libraryAcuViewHelp} from "../services/ai-library-conversation.js";
 import {invokeReviewedAiAction} from '../services/ai-view-api-contracts.js';
+import {resourceChatTurn,validatedResourceDraft,resourceDraftSummary} from '../services/ai-resource-chat.js';
+import {parseAiResourceProposals} from '../services/ai-resource-import.js';
 import {conversationStore,conversationAcuRequest,structuredConversationContext} from '../services/ai-conversation-context.js';
 import {createAcuWorkbench} from "./ai-acu-workbench.js";
 import {executeBudgetTool,budgetPreparationRequest} from '../services/ai-budget-tools.js';
@@ -19,7 +21,7 @@ import {parseAiReply,draftFromProposal,lineProposalFromClarification,lineProposa
 const defaults={openai:"gpt-4.1-mini",anthropic:"claude-haiku-4-5",lmstudio:""};
 export function createAiAssistant({invoke,state,document,window,openModal,editable,loadEstimate,loadEstimates,openEstimate,openResourceLibrary,reloadCatalog,refreshAnalysis,render}) {
   const host=document.createElement("div");host.id="ai-assistant";document.body.append(host);
-  const model={open:false,settings:false,configured:false,provider:"openai",model:defaults.openai,localModels:[],localModelError:"",messages:[],question:"",busy:false,error:"",context:"",includeContext:true,contextMode:"screen",contextOpen:false,consent:false,scope:"",generation:0,usage:null,notice:"",approvedRun:null,lastApprovedId:null,lastAction:null,pendingAction:null,catalogLoading:false,focusLineId:null,lastCatalogAdvice:null,recentCreatedLineIds:[],recentCreatedEstimateId:null};
+  const model={open:false,settings:false,configured:false,provider:"openai",model:defaults.openai,localModels:[],localModelError:"",messages:[],question:"",busy:false,error:"",context:"",includeContext:true,contextMode:"screen",contextOpen:false,consent:false,scope:"",generation:0,usage:null,notice:"",approvedRun:null,lastApprovedId:null,lastAction:null,pendingAction:null,catalogLoading:false,focusLineId:null,lastCatalogAdvice:null,recentCreatedLineIds:[],recentCreatedEstimateId:null,resourceDraft:null};
   const budgetImport=createAiBudgetImport({invoke,state,document,window,editable,loadEstimate,loadEstimates,openEstimate,canUseAi:()=>model.configured&&model.consent&&!model.busy});
   const acuWorkbench=createAcuWorkbench({invoke,state,document,window,loadEstimate,loadEstimates,openEstimate,openResourceLibrary,canUseAi:()=>model.configured&&model.consent&&(!model.busy||model.approvedRun?.running)});
   const approvedPlans=createApprovedPlanRunner({invoke,state,loadEstimate,loadEstimates,openEstimate});
@@ -69,6 +71,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     model.lastCatalogAdvice=null;
     model.recentCreatedLineIds=[];
     model.recentCreatedEstimateId=null;
+    model.resourceDraft=null;
     model.question="";
     model.error="";
     // Do not trigger an additional AI request merely to ask if work remains.
@@ -86,7 +89,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     if(model.scope!==next&&model.approvedRun?.running&&model.approvedRun.phase==='saving'&&state.projectId===model.approvedRun.projectId&&state.estimateId===model.approvedRun.estimateId&&state.view==='workspace'){model.scope=next;model.approvedRun.scope=next;}
     if(model.scope!==next){
       if(model.scope) { const [projectId,estimateId]=model.scope.split(":"); conversationStore(window.localStorage,projectId,estimateId,state.database?.scope).clear(); }
-      cancelApprovedRun();activeRequest?.cancel();activeRequest=null;queryToken++;if(!model.approvedRun)model.busy=false;model.catalogLoading=false;model.scope=next;model.generation++;model.messages=[];model.lastAction=null;model.pendingAction=null;model.focusLineId=null;model.lastCatalogAdvice=null;model.recentCreatedLineIds=[];model.recentCreatedEstimateId=null;model.context="";model.includeContext=true;model.contextMode="screen";model.question="";model.error="";model.usage=null;model.notice="";
+      cancelApprovedRun();activeRequest?.cancel();activeRequest=null;queryToken++;if(!model.approvedRun)model.busy=false;model.catalogLoading=false;model.scope=next;model.generation++;model.messages=[];model.lastAction=null;model.pendingAction=null;model.focusLineId=null;model.lastCatalogAdvice=null;model.recentCreatedLineIds=[];model.recentCreatedEstimateId=null;model.resourceDraft=null;model.context="";model.includeContext=true;model.contextMode="screen";model.question="";model.error="";model.usage=null;model.notice="";
       // Purge any legacy conversation saved by earlier CPObras versions.
       // A new screen starts a fresh task using the current selected data.
       store().clear();pendingIntent=null;
@@ -127,6 +130,112 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       model.question='';
     }
     paint();return true;
+  }
+
+  const resourceScope=()=>String(state.database?.scope||'default');
+  const canSaveResources=()=>!state.remoteProject&&!state.modal&&!state.pageDirty&&!state.navigating;
+  const activeResources=()=>model.resourceDraft&&model.resourceDraft.scope===resourceScope()
+    ?model.resourceDraft:null;
+  function resourceDraftCard(message,index){
+    const draft=activeResources();
+    if(!draft||message.resourceDraft!==draft)return '';
+    const reviewed=validatedResourceDraft(draft.rows,state.resources||[]);
+    const valid=reviewed.ready.length>0&&reviewed.pending.length===0&&!draft.uncertain;
+    return '<div class="ai-resource-chat-card"><strong>Insumos para agregar a la biblioteca</strong>'+
+      '<p>Revisá las descripciones, unidades y precios de ARS. Todavía no se guardó nada.</p>'+
+      '<ul>'+reviewed.rows.map(row=>'<li><b>'+e(row.description||'Descripción pendiente')+'</b> · '+
+        e(({material:'Material',labor:'Mano de obra',equipment:'Equipo',subcontract:'Subcontrato'})[row.kind]||'Tipo pendiente')+
+        ' · '+e(row.unit||'Unidad pendiente')+
+        ' · '+(row.price==null?'Precio pendiente (opcional)':e(row.price)+' ARS')+
+        (row.errors.length?'<small class="ai-warning">'+row.errors.map(e).join(' · ')+'</small>':'')+
+        '</li>').join('')+'</ul>'+
+      (reviewed.pending.length?'<p class="ai-warning">Faltan datos o hay duplicados en '+reviewed.pending.length+' insumo(s). Completalos con una sola respuesta o agregá otros insumos al listado.</p>':'')+
+      (draft.uncertain?'<p class="ai-warning">Hubo un problema al confirmar el guardado. Verificá primero la biblioteca: la operación podría haberse aplicado. No se reintentará automáticamente.</p>':'')+
+      '<button type="button" class="ai-approve" data-ai="approve-resources" data-index="'+index+'" '+
+        (valid&&canSaveResources()&&!model.busy?'':'disabled')+'>Aprobar y cargar '+reviewed.ready.length+' insumo(s)</button>'+
+      '<button type="button" data-ai="discard-resources" data-index="'+index+'" '+(model.busy?'disabled':'')+'>Descartar propuesta</button>'+
+      '<small>Podés corregir o agregar insumos respondiendo en este chat. Los precios indicados por vos se conservarán.</small></div>';
+  }
+  function showResourceDraft(question,rows,explanation=''){
+    const scope=resourceScope();
+    const draft={scope,rows:rows.map(row=>({
+      description:String(row.description||'').trim(),
+      kind:String(row.kind||'').trim(),unit:String(row.unit||'').trim(),
+      price:row.price==null?null:String(row.price)
+    })),uncertain:false};
+    model.resourceDraft=draft;
+    model.lastAction=null;model.pendingAction=null;
+    const review=validatedResourceDraft(draft.rows,state.resources||[]);
+    addReply(question,{answer:explanation||resourceDraftSummary(review),resourceDraft:draft});
+    model.error='';model.notice='Propuesta de biblioteca en el chat. No se guardó nada.';
+    paint();
+  }
+  async function generateResourceDraft(question){
+    // Reuse previous concrete recommendations without making the user repeat
+    // materials one by one. This is preparation only, not authorization to save.
+    const previous=model.messages.findLast(message=>message.role==='assistant')?.answer||'';
+    const prompt='Prepará un listado de insumos de construcción a partir de este pedido y de las recomendaciones anteriores si existen. '+ 
+      'Devolvé SOLO JSON con answer y resource_proposals:[{description,kind,unit}]. '+ 
+      'Kind debe ser material, labor, equipment o subcontract. Dejá unidad vacía cuando no se pueda determinar. '+ 
+      'Incluí todos los insumos concretos nombrados por el usuario o sugeridos anteriormente, hasta 60; no inventes marcas, medidas ni precios. '+ 
+      'Pedido actual: '+question+'\\nRecomendaciones anteriores del asistente (solo propuestas, no datos confirmados): '+previous.slice(0,3200);
+    model.busy=true;model.error='';model.notice='Preparando insumos sugeridos para revisar, sin guardar nada.';paint();
+    const token=++queryToken;
+    let current=null;
+    try{
+      const catalog=await invoke('ai_catalog_context',{projectId:null,estimateId:null,currency:'ARS',asOf:dateToday()});
+      if(token!==queryToken)return;
+      current=providerAwareAiRequest({messages:[{role:'user',content:prompt}],context:JSON.stringify({task:'resource_catalog',currency:'ARS',knownResources:(catalog.resources||[]).slice(0,80).map(row=>({description:row.description,unit:row.unit,kind:row.kind}))}),mode:'resources'});
+      activeRequest=current;
+      const result=await current.promise;
+      if(token!==queryToken)return;
+      const rows=parseAiResourceProposals(result.text,catalog.resources||[]);
+      showResourceDraft(question,rows);
+      model.usage={input:result.input_tokens,output:result.output_tokens};
+    }catch(error){
+      if(token===queryToken){
+        addReply(question,{answer:'No pude convertir las recomendaciones en un listado válido de insumos: '+String(error)+'. No se guardó nada. Podés enumerarlos juntos en el chat indicando descripción, tipo, unidad y precio conocido.'});
+      }
+    }finally{
+      if(token===queryToken){model.busy=false;model.catalogLoading=false;activeRequest=null;paint();}
+    }
+  }
+  async function approveResourceDraft(question){
+    const draft=activeResources();
+    if(!draft){addReply(question,{answer:'No hay una ficha activa de insumos para aprobar. Prepará los insumos en el chat.'});paint();return;}
+    if(draft.uncertain){addReply(question,{answer:'El guardado anterior no quedó confirmado. Revisá la biblioteca antes de volver a intentar para no duplicar insumos.'});paint();return;}
+    if(!canSaveResources()){model.error='Cerrá formularios pendientes y trabajá en una base de datos local para guardar insumos.';paint();return;}
+    const snapshot=JSON.stringify(draft.rows),scope=draft.scope;
+    model.busy=true;model.error='';model.notice='Validando insumos y precios actuales antes de cargar.';paint();
+    let writeAttempted=false;
+    try{
+      const catalog=await invoke('ai_catalog_context',{projectId:null,estimateId:null,currency:'ARS',asOf:dateToday()});
+      if(activeResources()!==draft||JSON.stringify(draft.rows)!==snapshot||!canSaveResources()||scope!==resourceScope())
+        throw Error('La base de datos o la propuesta cambió. Revisá el listado antes de guardar.');
+      const review=validatedResourceDraft(draft.rows,catalog.resources||[]);
+      if(review.pending.length||!review.ready.length){
+        model.notice='Hay '+review.pending.length+' insumo(s) incompletos o duplicados. Resolvé los pendientes antes de aprobar.';
+        addReply(question,{answer:resourceDraftSummary(review),resourceDraft:draft});
+        return;
+      }
+      const rows=review.ready.map(row=>({
+        code:'',description:row.description,kind:row.kind,unit:row.unit,price:row.price??null
+      }));
+      writeAttempted=true;
+      const saved=await invokeReviewedAiAction(invoke,'resources','import_resources',{
+        rows,effectiveDate:dateToday(),source:'Carga desde CPOBRAS IA, revisada y aprobada en chat'
+      },{approved:true});
+      draft.uncertain=true; // no second write, even if UI refresh fails
+      model.resourceDraft=null;
+      model.lastAction=null;model.pendingAction=null;
+      addReply(question,{answer:'Se cargaron '+saved.created+' insumo(s) en la biblioteca, con los precios en ARS que confirmaste. Los precios ausentes quedaron pendientes. Guardado confirmado por CPOBRAS.',resourceApproval:{committed:true,created:saved.created}});
+      model.notice='Alta de insumos confirmada en SQLite.';
+      try{await reloadCatalog?.();}catch{model.notice='Los insumos se guardaron. Actualizá la biblioteca para verlos.';}
+    }catch(error){
+      if(writeAttempted)draft.uncertain=true;
+      model.error=String(error);
+      model.notice=writeAttempted?'La carga pudo efectuarse: verificá la biblioteca antes de reintentar.':'No se guardaron insumos. Conservé la ficha para corregirla.';
+    }finally{model.busy=false;paint();}
   }
   const canPlan=()=>!!state.projectId&&!state.modal&&!state.pageDirty&&!state.remoteProject&&!state.projects.find(p=>p.id===state.projectId)?.read_only&&!state.estimates.find(e=>e.id===state.estimateId)?.issued;
   async function openAcuRequest(request){
@@ -388,7 +497,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     const localOptions='<option value="">Elegí un modelo</option>'+availableLocalModels.map(item=>'<option value="'+e(item.id)+'" '+(item.id===model.model?'selected':'')+'>'+e(item.name)+(item.loaded?' · cargado':' · instalado')+'</option>').join("");
     host.innerHTML=`<button class="ai-launch btn" ${model.open?"hidden":""} data-ai="toggle" aria-expanded="${model.open}" aria-controls="ai-console" title="Asistente IA" aria-label="Asistente IA"><span class="ai-launch-dot" aria-hidden="true"></span><span>IA</span><span class="ai-launch-caret" aria-hidden="true">|</span></button>${model.open?`<section id="ai-console" class="ai-console ${model.settings||!model.configured||model.contextOpen?"ai-expanded":""}" aria-label="Consola de asistente IA"><header class="ai-bar" title="Arrastrá este encabezado para mover la consola"><strong>✦ CPOBRAS IA</strong><span>${e(providerName)} · ${e(model.model)}</span><button data-ai="settings" title="Configurar proveedor" ${model.busy?"disabled":""}>⚙ Configurar</button><button data-ai="clear" title="Limpiar conversación" ${model.busy?"disabled":""}>Limpiar</button><button data-ai="toggle" aria-label="Cerrar consola">×</button></header>
     ${model.settings||!model.configured?`<form id="ai-settings" class="ai-settings"><div class="ai-settings-fields"><label>Proveedor<select name="provider" ${model.busy?"disabled":""}><option value="openai" ${model.provider==="openai"?"selected":""}>OpenAI</option><option value="anthropic" ${model.provider==="anthropic"?"selected":""}>Claude · Anthropic</option><option value="lmstudio" ${model.provider==="lmstudio"?"selected":""}>LM Studio · local</option></select></label><label>Modelo<input name="model" value="${e(model.model)}" required maxlength="120" ${model.provider==="lmstudio"?"hidden":""} ${model.busy?"disabled":""}><select name="local_model" ${model.provider==="lmstudio"?"required":"hidden"}>${localOptions}</select></label><div class="ai-local-models" ${model.provider==="lmstudio"?"":"hidden"}><button type="button" class="btn" data-ai="detect-local">Detectar modelos</button><small data-local-status>${e(model.localModelError||"Iniciá el servidor de LM Studio en el puerto 1234.")}</small></div><label data-cloud-key ${model.provider==="lmstudio"?"hidden":""}>Clave de API<input name="key" type="password" autocomplete="off" placeholder="${model.configured?"Dejá vacío para conservar la clave guardada":"Pegá tu clave de API"}" ${model.configured||model.provider==="lmstudio"?"":"required"} maxlength="512" ${model.busy?"disabled":""}></label></div><div class="ai-window-settings"><label for="ai-window-transparency">Transparencia de la consola: <output data-ai-transparency-value>${consolePreferences.transparency}%</output></label><input id="ai-window-transparency" type="range" name="ai-transparency" min="0" max="80" step="5" value="${consolePreferences.transparency}" aria-label="Transparencia de la consola de 0 a 80 por ciento"><button type="button" data-ai="reset-window" title="Volver a la posición y tamaño predeterminados">Restablecer tamaño y posición</button><small>Arrastrá el encabezado para moverla; los bordes y esquinas permiten cambiar su tamaño.</small></div><p>LM Studio procesa las consultas localmente sin clave ni cargos de API. Activá Developer → Start Server para detectar modelos. Las credenciales de proveedores externos se guardan en el llavero del sistema.</p><button class="btn" ${model.busy?"disabled":""}>Guardar configuración</button>${model.configured?'<button type="button" data-ai="forget" class="btn">Borrar clave guardada y chat</button>':""}</form>`:""}
-    <div class="ai-transcript" role="log" aria-label="Conversación IA" aria-live="polite">${!model.messages.length?'<div class="ai-welcome">Puedo ayudarte con:<br> • Explicar los datos de esta pantalla<br> • Preparar partidas e insumos para revisar<br> • Identificar datos que faltan en una carga<br><br>Las respuestas pueden contener errores. Los precios se consultan en el catálogo local. Podés aprobar una carga desde el chat y ajustar después los rendimientos estimados.</div>':model.messages.map((m,index)=>`<article class="ai-message ai-${m.role}"><b>${m.role==="user"?"Vos":"Asistente"}</b><div>${e(answerForDisplay(m.answer||m.content))}</div>${libraryDraftMarkup(m,index)}${libraryEditMarkup(m,index)}${m.actionStatus?approvalMarkup(m,index):''}${m.sectionPreview||m.approval?.kind==='sections'||(m.taskCompleted&&m.approval)?`<div class="ai-proposal">${approvalMarkup(m,index)}</div>`:''}${m.acuRequest?`<div class="ai-proposal"><strong>${m.acuRequest.mode==='fill'?'Completar ACU de partidas existentes':'Preparar partidas nuevas con ACU'}</strong>${approvalMarkup(m,index)}${!m.approval?`<button type="button" data-ai="review-acu-request" data-index="${index}" ${canPlan()&&!model.busy?'':'disabled'}>Revisar antes de cargar</button>`:''}</div>`:''}${m.planRows||m.changeProposals?`<div class="ai-proposal"><strong>${(m.planRows?.length||0)+(m.changeProposals?.length||0)} partidas / cambios propuestos</strong>${m.planRows&&!m.changeProposals?`<details class="ai-plan-preview"><summary>Ver partidas propuestas</summary><ul>${m.planRows.map(r=>`<li>${e(r.description)} · ${e(r.unit)} · Cantidad: ${e(r.quantity??'sin informar')} · Precio: ${e(r.unit_price??'sin informar')}${r.section?' · '+e(r.section):''}</li>`).join('')}</ul></details>${approvalMarkup(m,index)}`:'<p>Revisá los cambios antes de aplicarlos.</p>'}${!m.approval?`<button type="button" data-ai="review-plan" data-index="${index}" ${canPlan()&&!model.busy?"":"disabled"}>Revisar propuesta</button>`:''}${m.planRows&&!m.approval?`<button type="button" data-ai="review-acu-plan" data-index="${index}" ${canPlan()&&!model.busy?"":"disabled"}>Preparar ACU con insumos</button>`:""}</div>`:""}${m.proposal?`<div class="ai-proposal"><strong>Borrador de ${m.proposal.kind==="line"?"partida":"insumo"}</strong><p>${e(m.proposal.description)} · ${e(m.proposal.unit)}${m.proposal.quantity!=null?` · Cantidad ${e(m.proposal.quantity)}`:""}${m.proposal.unit_price!=null?` · Precio ${e(m.proposal.unit_price)}`:""}</p>${m.proposal.kind==='line'?approvalMarkup(m,index):''}${!m.approval?`<button class="btn" data-ai="draft" data-index="${index}" ${allowed(m.proposal)&&!m.approval?"":"disabled"}>Abrir formulario para revisar</button><small>Completá los campos faltantes y guardá desde el formulario habitual.${!allowed(m.proposal)?" Cerrá otros formularios; las partidas requieren un presupuesto editable.":""}</small>`:''}</div>`:""}</article>`).join("")}${model.busy&&!model.approvedRun?`<article class="ai-message ai-user"><b>Vos</b><div>${e(model.question)}</div></article><p role="status">${model.catalogLoading?'Consultando el catálogo local…':'Consultando al proveedor… Espera máxima: ${model.provider==="lmstudio"?180:60} segundos.'} <button type="button" data-ai="cancel">Cancelar consulta</button></p>`:""}${model.approvedRun?`<p role="status">Carga en curso. <button type="button" data-ai="stop-approved" ${model.approvedRun.phase==='saving'?'disabled':''}>${model.approvedRun.phase==='saving'?'Guardando…':'Detener carga'}</button></p>`:''}</div>
+    <div class="ai-transcript" role="log" aria-label="Conversación IA" aria-live="polite">${!model.messages.length?'<div class="ai-welcome">Puedo ayudarte con:<br> • Explicar los datos de esta pantalla<br> • Preparar partidas e insumos para revisar<br> • Identificar datos que faltan en una carga<br><br>Las respuestas pueden contener errores. Los precios se consultan en el catálogo local. Podés aprobar una carga desde el chat y ajustar después los rendimientos estimados.</div>':model.messages.map((m,index)=>`<article class="ai-message ai-${m.role}"><b>${m.role==="user"?"Vos":"Asistente"}</b><div>${e(answerForDisplay(m.answer||m.content))}</div>${libraryDraftMarkup(m,index)}${libraryEditMarkup(m,index)}${resourceDraftCard(m,index)}${m.actionStatus?approvalMarkup(m,index):''}${m.sectionPreview||m.approval?.kind==='sections'||(m.taskCompleted&&m.approval)?`<div class="ai-proposal">${approvalMarkup(m,index)}</div>`:''}${m.acuRequest?`<div class="ai-proposal"><strong>${m.acuRequest.mode==='fill'?'Completar ACU de partidas existentes':'Preparar partidas nuevas con ACU'}</strong>${approvalMarkup(m,index)}${!m.approval?`<button type="button" data-ai="review-acu-request" data-index="${index}" ${canPlan()&&!model.busy?'':'disabled'}>Revisar antes de cargar</button>`:''}</div>`:''}${m.planRows||m.changeProposals?`<div class="ai-proposal"><strong>${(m.planRows?.length||0)+(m.changeProposals?.length||0)} partidas / cambios propuestos</strong>${m.planRows&&!m.changeProposals?`<details class="ai-plan-preview"><summary>Ver partidas propuestas</summary><ul>${m.planRows.map(r=>`<li>${e(r.description)} · ${e(r.unit)} · Cantidad: ${e(r.quantity??'sin informar')} · Precio: ${e(r.unit_price??'sin informar')}${r.section?' · '+e(r.section):''}</li>`).join('')}</ul></details>${approvalMarkup(m,index)}`:'<p>Revisá los cambios antes de aplicarlos.</p>'}${!m.approval?`<button type="button" data-ai="review-plan" data-index="${index}" ${canPlan()&&!model.busy?"":"disabled"}>Revisar propuesta</button>`:''}${m.planRows&&!m.approval?`<button type="button" data-ai="review-acu-plan" data-index="${index}" ${canPlan()&&!model.busy?"":"disabled"}>Preparar ACU con insumos</button>`:""}</div>`:""}${m.proposal?`<div class="ai-proposal"><strong>Borrador de ${m.proposal.kind==="line"?"partida":"insumo"}</strong><p>${e(m.proposal.description)} · ${e(m.proposal.unit)}${m.proposal.quantity!=null?` · Cantidad ${e(m.proposal.quantity)}`:""}${m.proposal.unit_price!=null?` · Precio ${e(m.proposal.unit_price)}`:""}</p>${m.proposal.kind==='line'?approvalMarkup(m,index):''}${!m.approval?`<button class="btn" data-ai="draft" data-index="${index}" ${allowed(m.proposal)&&!m.approval?"":"disabled"}>Abrir formulario para revisar</button><small>Completá los campos faltantes y guardá desde el formulario habitual.${!allowed(m.proposal)?" Cerrá otros formularios; las partidas requieren un presupuesto editable.":""}</small>`:''}</div>`:""}</article>`).join("")}${model.busy&&!model.approvedRun?`<article class="ai-message ai-user"><b>Vos</b><div>${e(model.question)}</div></article><p role="status">${model.catalogLoading?'Consultando el catálogo local…':'Consultando al proveedor… Espera máxima: ${model.provider==="lmstudio"?180:60} segundos.'} <button type="button" data-ai="cancel">Cancelar consulta</button></p>`:""}${model.approvedRun?`<p role="status">Carga en curso. <button type="button" data-ai="stop-approved" ${model.approvedRun.phase==='saving'?'disabled':''}>${model.approvedRun.phase==='saving'?'Guardando…':'Detener carga'}</button></p>`:''}</div>
     <details class="ai-context" ${model.contextOpen?"open":""}><summary>Contexto de la pantalla ${model.includeContext?(model.contextMode==="screen"?"· automático":"· editado"):"· sin incluir"}</summary><p>Se enviarán la consulta, los mensajes necesarios de la tarea actual y los datos de la pantalla seleccionados. Tras confirmar un guardado, el contexto conversacional se reinicia y queda solo el resultado. Las conversaciones no se almacenan como historial local; la próxima solicitud vuelve a consultar el ACU o presupuesto seleccionado. Podés desactivar o editar el contexto antes de enviar.</p><button class="btn" data-ai="capture" ${model.busy?"disabled":""}>Capturar / actualizar vista</button><label><input type="checkbox" name="ai-include-context" ${model.includeContext?"checked":""} ${model.busy?"disabled":""}> Incluir vista y catálogo local</label><textarea name="ai-context-text" aria-label="Datos de pantalla para enviar" maxlength="7000" ${model.busy?"disabled":""}>${e(model.context)}</textarea></details>
     <div class="ai-quick"><button data-ai="acu-workbench" ${model.busy||!canPlan()?"disabled":""}>▦ ACU · rendimientos y metrado</button><button data-ai="manage-import" ${model.busy||!editable()||state.remoteProject?"disabled":""}>✎ Editar / eliminar partidas</button><button data-ai="budget-import" ${model.busy||!editable()||state.remoteProject?"disabled":""}>▤ Cargar precios · texto / Excel</button><button data-ai="plan-import" ${model.busy||!canPlan()?"disabled":""}>＋ Crear partidas con ACU</button><button data-ai="quick" data-question="Explicame los datos de esta pantalla y señalá qué información falta.">▤ Explicar pantalla</button><button data-ai="quick" data-question="Ayudame a preparar una partida. Preguntame primero qué trabajo, unidad, cantidad y precio quiero cargar.">▱ Partida</button><button data-ai="quick" data-question="Ayudame a cargar un insumo. Preguntame su descripción, tipo, unidad y precio si no los conocés.">▣ Insumo</button></div>
     <form id="ai-question"><label class="ai-consent"><input type="checkbox" name="ai-consent" ${model.consent?"checked":""} ${model.busy?"disabled":""}> ${model.provider==="lmstudio"?"Autorizo procesar esta consulta y los datos seleccionados localmente en LM Studio.":"Autorizo enviar la consulta, el contexto temporal de la tarea y los datos de pantalla incluidos a "+e(providerName)+". El uso puede generar cargos."}</label><div class="ai-input-row"><label class="ai-sr-only" for="ai-prompt">Consulta al asistente</label><textarea id="ai-prompt" name="question" rows="1" placeholder="Preguntá sobre esta pantalla o pedí ayuda para cargar datos…" maxlength="2000" required ${model.busy?"disabled":""}>${e(model.question)}</textarea><button class="btn primary" ${model.busy||!model.configured||!model.consent?"disabled":""}>↵ Enviar</button></div></form>
@@ -1037,6 +1146,16 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       addReply(question,{answer:arithmetic??unitConversion});
       model.error="";model.notice="Cálculo exacto realizado localmente, sin consultar la IA.";paint();return;
     }
+    // Resource library proposals are separate from budget lines and ACU.
+    const priorAnswer=model.messages.findLast(message=>message.role==='assistant')?.answer||'';
+    const resourceTurn=resourceChatTurn(question,activeResources(),priorAnswer);
+    if(resourceTurn){
+      if(resourceTurn.action==='approve'){model.question='';await approveResourceDraft(question);return;}
+      if(resourceTurn.action==='generate'){await generateResourceDraft(question);return;}
+      if(resourceTurn.action==='draft'){showResourceDraft(question,resourceTurn.rows);return;}
+      if(resourceTurn.action==='discard'){model.resourceDraft=null;addReply(question,{answer:'Descarté el listado pendiente; no se cargó ningún insumo.'});model.error='';paint();return;}
+      if(resourceTurn.action==='error'||resourceTurn.action==='clarify'){addReply(question,{answer:resourceTurn.message});model.error='';paint();return;}
+    }
     // Keep the review card inside this conversation. Only explicit details
     // supplied by the user are put into the new line; no price or quantity
     // is fabricated or saved.
@@ -1286,6 +1405,18 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
           openModal("analysis", draft, () => { drafts[index] = null; });
         }
       }
+      if(action==="approve-resources"&&!model.busy){
+        const message=model.messages[Number(button.dataset.index)];
+        if(message?.resourceDraft&&message.resourceDraft===activeResources())
+          await approveResourceDraft('Aprobar y cargar insumos desde la ficha visible');
+      }
+      if(action==="discard-resources"&&!model.busy){
+        const message=model.messages[Number(button.dataset.index)];
+        if(message?.resourceDraft&&message.resourceDraft===activeResources()){
+          model.resourceDraft=null;
+          addReply('Descartar ficha de insumos',{answer:'Descarté los insumos pendientes. No se guardó nada.'});
+        }
+      }
       if(action==="acu-workbench"&&!model.busy){const request=acuChatRequest(model.question,model.messages);if(request)await openAcuRequest(request);else await acuWorkbench.open(model.question);}
       if((action==="review-acu-plan"||action==="review-acu-request")&&!model.busy)await reviewAcuMessage(Number(button.dataset.index));
       if(action==="manage-import"&&!model.busy)budgetImport.open("manage",model.question);
@@ -1315,9 +1446,9 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       if(action==="settings")model.settings=!model.settings;
       if(action==="reset-window"){consolePreferences.rect=null;saveConsolePreferences();}
       if(action==="detect-local"){await refreshLocalModels();return;}
-      if(action==="clear"&&!model.busy){pendingIntent=null;store().clear();acuWorkingNotes.clear();acuWorkbench.cancelPrepared();model.generation++;model.messages=[];model.lastAction=null;model.pendingAction=null;model.focusLineId=null;model.lastCatalogAdvice=null;model.recentCreatedLineIds=[];model.recentCreatedEstimateId=null;model.usage=null;model.question="";model.context="";model.includeContext=true;model.contextMode="screen";model.contextOpen=false;}
+      if(action==="clear"&&!model.busy){pendingIntent=null;store().clear();acuWorkingNotes.clear();acuWorkbench.cancelPrepared();model.generation++;model.messages=[];model.lastAction=null;model.pendingAction=null;model.focusLineId=null;model.lastCatalogAdvice=null;model.recentCreatedLineIds=[];model.recentCreatedEstimateId=null;model.resourceDraft=null;model.usage=null;model.question="";model.context="";model.includeContext=true;model.contextMode="screen";model.contextOpen=false;}
       if(action==="capture"&&!model.busy){model.context=captureContext();model.includeContext=true;model.contextMode="screen";model.contextOpen=true;}
-      if(action==="forget"&&!model.busy){pendingIntent=null;store().clear();acuWorkingNotes.clear();await invoke("ai_forget");Object.assign(model,{configured:false,settings:true,messages:[],lastAction:null,pendingAction:null,question:"",context:"",includeContext:true,contextMode:"screen",contextOpen:false,consent:false,usage:null,notice:""});model.generation++;}
+      if(action==="forget"&&!model.busy){pendingIntent=null;store().clear();acuWorkingNotes.clear();await invoke("ai_forget");Object.assign(model,{configured:false,settings:true,messages:[],lastAction:null,pendingAction:null,resourceDraft:null,question:"",context:"",includeContext:true,contextMode:"screen",contextOpen:false,consent:false,usage:null,notice:""});model.generation++;}
       if(action==="quick"&&!model.busy){
         model.question=button.dataset.question;
         if(button.dataset.question.startsWith("Explicame")){
