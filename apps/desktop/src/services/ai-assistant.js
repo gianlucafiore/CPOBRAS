@@ -1,4 +1,5 @@
 import {parsePlan,changeProposals} from "./ai-budget-import.js";
+import {sumDecimals,multiplyDecimals,divideDecimals} from "../decimal.js";
 import {parseBudgetToolCall} from './ai-budget-tools.js';
 const acuUuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function readAcuRequest(raw){
@@ -283,6 +284,51 @@ export function answerForDisplay(raw){
     return raw;
   }
   return raw;
+}
+
+/**
+ * Exact calculations never need model inference. Uses decimal-string math to
+ * avoid floating point surprises in estimation workflows.
+ */
+export function simpleArithmeticAnswer(question){
+  if(typeof question!=="string"||question.length>65)return null;
+  const found=/^\s*([+-]?\d{1,12}(?:[.,]\d{1,6})?)\s*([+\-*/×÷])\s*([+-]?\d{1,12}(?:[.,]\d{1,6})?)\s*[?¿]?\s*$/.exec(question);
+  if(!found)return null;
+  const left=found[1].replace(",","."),right=found[3].replace(",",".");
+  try{
+    let result;
+    switch(found[2]){
+      case "+":result=sumDecimals([left,right]);break;
+      case "-":result=sumDecimals([left,right.startsWith("-")?right.slice(1):"-"+right.replace(/^\+/,"")]);break;
+      case "*":case "×":result=multiplyDecimals(left,right);break;
+      case "/":case "÷":result=divideDecimals(left,right,8);break;
+      default:return null;
+    }
+    return result.replace(/(\.\d*?)0+$/,"$1").replace(/\.$/,"");
+  }catch(error){
+    if(found[2]==="/"||found[2]==="÷")return "No se puede dividir por cero.";
+    return null;
+  }
+}
+
+/**
+ * Recognize one explicit, well-scoped sanitary installation line. This yields
+ * a review card only, NOT an ACU recipe or a saved record. No quantities or
+ * prices are fabricated. More general construction asks go through the model.
+ */
+export function lineProposalFromDirectRequest(question){
+  if(typeof question!=="string"||question.length>500)return null;
+  const folded=chatFold(question);
+  if(!/\b(?:crea|crear|creame|generar|genera|agrega|agregar|carga|cargar|prepara|preparar)\b/.test(folded)
+    || !/\bpartida\b/.test(folded)
+    || !/\b(?:instalacion|colocacion|montaje)\b/.test(folded)
+    || !/\bsanitarios?\b/.test(folded)
+    || !/\b(?:inodoro|indoro)\b/.test(folded)
+    || !/\bbidet\b/.test(folded)
+    || /\b(?:elimina|borra|actualiza|edita|modifica|reemplaza)\b/.test(folded))return null;
+  return parseAiReply(JSON.stringify({answer:"",proposal:{
+    kind:"line",description:"Instalación de sanitarios: inodoro y bidet",unit:"conjunto",
+  }})).proposal;
 }
 
 /**
