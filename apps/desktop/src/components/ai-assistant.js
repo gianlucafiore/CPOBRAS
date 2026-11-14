@@ -15,7 +15,7 @@ import {e,dateToday} from "./helpers.js";
 import {buildCatalogContext,parseCatalogQuery,constructionCatalogAdvice,constructionAdviceText} from "../services/ai-catalog-context.js";
 import {appendRequest} from "../services/ai-acu-addition.js";
 import {productivityEditRequest} from "../services/ai-acu-productivity.js";
-import {parseAiReply,draftFromProposal,lineProposalFromClarification,lineProposalFromDirectRequest,simpleArithmeticAnswer,simpleUnitConversionAnswer,answerForDisplay,screenContext,createAiRequest,budgetScreenContext,acuChatRequest,resolvedPendingApproval,isApprovalReply,materialAdditionFollowup,materialAdditionConfirmation,selectedAcuRequest,affirmativeMissingMaterialRequest,contextualAcuLine,availableCatalogFollowup} from "../services/ai-assistant.js";
+import {parseAiReply,draftFromProposal,lineProposalFromClarification,lineProposalFromDirectRequest,simpleArithmeticAnswer,simpleUnitConversionAnswer,fitAiConsoleRect,moveResizeAiConsoleRect,aiConsoleTransparency,answerForDisplay,screenContext,createAiRequest,budgetScreenContext,acuChatRequest,resolvedPendingApproval,isApprovalReply,materialAdditionFollowup,materialAdditionConfirmation,selectedAcuRequest,affirmativeMissingMaterialRequest,contextualAcuLine,availableCatalogFollowup} from "../services/ai-assistant.js";
 const defaults={openai:"gpt-4.1-mini",anthropic:"claude-haiku-4-5",lmstudio:""};
 export function createAiAssistant({invoke,state,document,window,openModal,editable,loadEstimate,loadEstimates,openEstimate,openResourceLibrary,reloadCatalog,refreshAnalysis,render}) {
   const host=document.createElement("div");host.id="ai-assistant";document.body.append(host);
@@ -265,6 +265,68 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     finally{run.running=false;if(model.approvedRun===run){model.approvedRun=null;model.busy=false;paint();}}
   }
   function allowed(p){return !state.remoteProject&&!state.modal&&(p.kind!=="line"||editable());}
+  // Appearance belongs to the console window, not to task conversation history.
+  const consolePreferenceKey="cpobras:ai-console:window:v1";
+  const viewport=()=>({width:window.innerWidth,height:window.innerHeight});
+  const consolePreferences=(()=>{
+    try {
+      const stored=JSON.parse(window.localStorage?.getItem(consolePreferenceKey)||"null");
+      return {rect:stored?.rect?fitAiConsoleRect(stored.rect,viewport()):null,
+        transparency:aiConsoleTransparency(stored?.transparency)};
+    } catch {return {rect:null,transparency:0};}
+  })();
+  function saveConsolePreferences(){
+    try {window.localStorage?.setItem(consolePreferenceKey,JSON.stringify(consolePreferences));}catch{/* private/disabled storage */}
+  }
+  function applyConsolePreferences(){
+    const frame=host.querySelector(".ai-console");
+    if(!frame)return;
+    frame.style.setProperty("--ai-window-alpha",String((100-consolePreferences.transparency)/100));
+    if(!consolePreferences.rect)return;
+    const rect=fitAiConsoleRect(consolePreferences.rect,viewport());
+    consolePreferences.rect=rect;
+    frame.classList.add("ai-floating");
+    Object.assign(frame.style,{left:rect.left+"px",top:rect.top+"px",
+      width:rect.width+"px",height:rect.height+"px"});
+  }
+  const resizeHandles=["n","e","s","w","ne","nw","se","sw"]
+    .map(edge=>'<span class="ai-resize-edge ai-resize-'+edge+'" data-ai-resize="'+edge+'" title="Redimensionar consola" aria-hidden="true"></span>').join("");
+  let consoleInteraction=null;
+  function endConsoleInteraction(event){
+    if(!consoleInteraction||consoleInteraction.id!==event.pointerId)return;
+    consoleInteraction=null;
+    saveConsolePreferences();
+    try{if(host.hasPointerCapture?.(event.pointerId))host.releasePointerCapture(event.pointerId);}catch{/* already released */}
+  }
+  host.addEventListener("pointerdown",event=>{
+    if(event.button!==0||!event.isPrimary)return;
+    const frame=event.target.closest?.(".ai-console");
+    if(!frame)return;
+    const handle=event.target.closest?.("[data-ai-resize]");
+    const bar=event.target.closest?.(".ai-bar");
+    if(!handle&&(!bar||event.target.closest?.("button,input,textarea,select,a,label,summary")))return;
+    const r=frame.getBoundingClientRect(),start={left:r.left,top:r.top,width:r.width,height:r.height};
+    consoleInteraction={id:event.pointerId,mode:handle?.dataset.aiResize||"move",
+      x:event.clientX,y:event.clientY,rect:start};
+    event.preventDefault();
+    try{host.setPointerCapture(event.pointerId);}catch{consoleInteraction=null;}
+  });
+  host.addEventListener("pointermove",event=>{
+    const interaction=consoleInteraction;
+    if(!interaction||interaction.id!==event.pointerId)return;
+    consolePreferences.rect=moveResizeAiConsoleRect(interaction.rect,interaction.mode,
+      event.clientX-interaction.x,event.clientY-interaction.y,viewport());
+    applyConsolePreferences();
+  });
+  for(const type of ["pointerup","pointercancel","lostpointercapture"]){
+    host.addEventListener(type,endConsoleInteraction);
+  }
+  window.addEventListener?.("resize",()=>{
+    if(!consolePreferences.rect)return;
+    consolePreferences.rect=fitAiConsoleRect(consolePreferences.rect,viewport());
+    applyConsolePreferences();
+    saveConsolePreferences();
+  });
   let launcherPosition = null, launcherDrag = null, suppressLauncherClick = false;
   function positionLauncher(button, x, y) {
     const left = Math.max(0, Math.min(x, window.innerWidth - button.offsetWidth));
@@ -324,14 +386,15 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     const availableLocalModels=[...model.localModels];
     if(model.provider==="lmstudio"&&model.model&&!availableLocalModels.some(item=>item.id===model.model))availableLocalModels.unshift({id:model.model,name:model.model,loaded:false});
     const localOptions='<option value="">Elegí un modelo</option>'+availableLocalModels.map(item=>'<option value="'+e(item.id)+'" '+(item.id===model.model?'selected':'')+'>'+e(item.name)+(item.loaded?' · cargado':' · instalado')+'</option>').join("");
-    host.innerHTML=`<button class="ai-launch btn" ${model.open?"hidden":""} data-ai="toggle" aria-expanded="${model.open}" aria-controls="ai-console" title="Asistente IA" aria-label="Asistente IA"><span class="ai-launch-dot" aria-hidden="true"></span><span>IA</span><span class="ai-launch-caret" aria-hidden="true">|</span></button>${model.open?`<section id="ai-console" class="ai-console ${model.settings||!model.configured||model.contextOpen?"ai-expanded":""}" aria-label="Consola de asistente IA"><header class="ai-bar"><strong>✦ CPOBRAS IA</strong><span>${e(providerName)} · ${e(model.model)}</span><button data-ai="settings" title="Configurar proveedor" ${model.busy?"disabled":""}>⚙ Configurar</button><button data-ai="clear" title="Limpiar conversación" ${model.busy?"disabled":""}>Limpiar</button><button data-ai="toggle" aria-label="Cerrar consola">×</button></header>
-    ${model.settings||!model.configured?`<form id="ai-settings" class="ai-settings"><div class="ai-settings-fields"><label>Proveedor<select name="provider" ${model.busy?"disabled":""}><option value="openai" ${model.provider==="openai"?"selected":""}>OpenAI</option><option value="anthropic" ${model.provider==="anthropic"?"selected":""}>Claude · Anthropic</option><option value="lmstudio" ${model.provider==="lmstudio"?"selected":""}>LM Studio · local</option></select></label><label>Modelo<input name="model" value="${e(model.model)}" required maxlength="120" ${model.provider==="lmstudio"?"hidden":""} ${model.busy?"disabled":""}><select name="local_model" ${model.provider==="lmstudio"?"required":"hidden"}>${localOptions}</select></label><div class="ai-local-models" ${model.provider==="lmstudio"?"":"hidden"}><button type="button" class="btn" data-ai="detect-local">Detectar modelos</button><small data-local-status>${e(model.localModelError||"Iniciá el servidor de LM Studio en el puerto 1234.")}</small></div><label data-cloud-key ${model.provider==="lmstudio"?"hidden":""}>Clave de API<input name="key" type="password" autocomplete="off" placeholder="${model.configured?"Dejá vacío para conservar la clave guardada":"Pegá tu clave de API"}" ${model.configured||model.provider==="lmstudio"?"":"required"} maxlength="512" ${model.busy?"disabled":""}></label></div><p>LM Studio procesa las consultas localmente sin clave ni cargos de API. Activá Developer → Start Server para detectar modelos. Las credenciales de proveedores externos se guardan en el llavero del sistema.</p><button class="btn" ${model.busy?"disabled":""}>Guardar configuración</button>${model.configured?'<button type="button" data-ai="forget" class="btn">Borrar clave guardada y chat</button>':""}</form>`:""}
+    host.innerHTML=`<button class="ai-launch btn" ${model.open?"hidden":""} data-ai="toggle" aria-expanded="${model.open}" aria-controls="ai-console" title="Asistente IA" aria-label="Asistente IA"><span class="ai-launch-dot" aria-hidden="true"></span><span>IA</span><span class="ai-launch-caret" aria-hidden="true">|</span></button>${model.open?`<section id="ai-console" class="ai-console ${model.settings||!model.configured||model.contextOpen?"ai-expanded":""}" aria-label="Consola de asistente IA"><header class="ai-bar" title="Arrastrá este encabezado para mover la consola"><strong>✦ CPOBRAS IA</strong><span>${e(providerName)} · ${e(model.model)}</span><button data-ai="settings" title="Configurar proveedor" ${model.busy?"disabled":""}>⚙ Configurar</button><button data-ai="clear" title="Limpiar conversación" ${model.busy?"disabled":""}>Limpiar</button><button data-ai="toggle" aria-label="Cerrar consola">×</button></header>
+    ${model.settings||!model.configured?`<form id="ai-settings" class="ai-settings"><div class="ai-settings-fields"><label>Proveedor<select name="provider" ${model.busy?"disabled":""}><option value="openai" ${model.provider==="openai"?"selected":""}>OpenAI</option><option value="anthropic" ${model.provider==="anthropic"?"selected":""}>Claude · Anthropic</option><option value="lmstudio" ${model.provider==="lmstudio"?"selected":""}>LM Studio · local</option></select></label><label>Modelo<input name="model" value="${e(model.model)}" required maxlength="120" ${model.provider==="lmstudio"?"hidden":""} ${model.busy?"disabled":""}><select name="local_model" ${model.provider==="lmstudio"?"required":"hidden"}>${localOptions}</select></label><div class="ai-local-models" ${model.provider==="lmstudio"?"":"hidden"}><button type="button" class="btn" data-ai="detect-local">Detectar modelos</button><small data-local-status>${e(model.localModelError||"Iniciá el servidor de LM Studio en el puerto 1234.")}</small></div><label data-cloud-key ${model.provider==="lmstudio"?"hidden":""}>Clave de API<input name="key" type="password" autocomplete="off" placeholder="${model.configured?"Dejá vacío para conservar la clave guardada":"Pegá tu clave de API"}" ${model.configured||model.provider==="lmstudio"?"":"required"} maxlength="512" ${model.busy?"disabled":""}></label></div><div class="ai-window-settings"><label for="ai-window-transparency">Transparencia de la consola: <output data-ai-transparency-value>${consolePreferences.transparency}%</output></label><input id="ai-window-transparency" type="range" name="ai-transparency" min="0" max="80" step="5" value="${consolePreferences.transparency}" aria-label="Transparencia de la consola de 0 a 80 por ciento"><button type="button" data-ai="reset-window" title="Volver a la posición y tamaño predeterminados">Restablecer tamaño y posición</button><small>Arrastrá el encabezado para moverla; los bordes y esquinas permiten cambiar su tamaño.</small></div><p>LM Studio procesa las consultas localmente sin clave ni cargos de API. Activá Developer → Start Server para detectar modelos. Las credenciales de proveedores externos se guardan en el llavero del sistema.</p><button class="btn" ${model.busy?"disabled":""}>Guardar configuración</button>${model.configured?'<button type="button" data-ai="forget" class="btn">Borrar clave guardada y chat</button>':""}</form>`:""}
     <div class="ai-transcript" role="log" aria-label="Conversación IA" aria-live="polite">${!model.messages.length?'<div class="ai-welcome">Puedo ayudarte con:<br> • Explicar los datos de esta pantalla<br> • Preparar partidas e insumos para revisar<br> • Identificar datos que faltan en una carga<br><br>Las respuestas pueden contener errores. Los precios se consultan en el catálogo local. Podés aprobar una carga desde el chat y ajustar después los rendimientos estimados.</div>':model.messages.map((m,index)=>`<article class="ai-message ai-${m.role}"><b>${m.role==="user"?"Vos":"Asistente"}</b><div>${e(answerForDisplay(m.answer||m.content))}</div>${libraryDraftMarkup(m,index)}${libraryEditMarkup(m,index)}${m.actionStatus?approvalMarkup(m,index):''}${m.sectionPreview||m.approval?.kind==='sections'||(m.taskCompleted&&m.approval)?`<div class="ai-proposal">${approvalMarkup(m,index)}</div>`:''}${m.acuRequest?`<div class="ai-proposal"><strong>${m.acuRequest.mode==='fill'?'Completar ACU de partidas existentes':'Preparar partidas nuevas con ACU'}</strong>${approvalMarkup(m,index)}${!m.approval?`<button type="button" data-ai="review-acu-request" data-index="${index}" ${canPlan()&&!model.busy?'':'disabled'}>Revisar antes de cargar</button>`:''}</div>`:''}${m.planRows||m.changeProposals?`<div class="ai-proposal"><strong>${(m.planRows?.length||0)+(m.changeProposals?.length||0)} partidas / cambios propuestos</strong>${m.planRows&&!m.changeProposals?`<details class="ai-plan-preview"><summary>Ver partidas propuestas</summary><ul>${m.planRows.map(r=>`<li>${e(r.description)} · ${e(r.unit)} · Cantidad: ${e(r.quantity??'sin informar')} · Precio: ${e(r.unit_price??'sin informar')}${r.section?' · '+e(r.section):''}</li>`).join('')}</ul></details>${approvalMarkup(m,index)}`:'<p>Revisá los cambios antes de aplicarlos.</p>'}${!m.approval?`<button type="button" data-ai="review-plan" data-index="${index}" ${canPlan()&&!model.busy?"":"disabled"}>Revisar propuesta</button>`:''}${m.planRows&&!m.approval?`<button type="button" data-ai="review-acu-plan" data-index="${index}" ${canPlan()&&!model.busy?"":"disabled"}>Preparar ACU con insumos</button>`:""}</div>`:""}${m.proposal?`<div class="ai-proposal"><strong>Borrador de ${m.proposal.kind==="line"?"partida":"insumo"}</strong><p>${e(m.proposal.description)} · ${e(m.proposal.unit)}${m.proposal.quantity!=null?` · Cantidad ${e(m.proposal.quantity)}`:""}${m.proposal.unit_price!=null?` · Precio ${e(m.proposal.unit_price)}`:""}</p>${m.proposal.kind==='line'?approvalMarkup(m,index):''}${!m.approval?`<button class="btn" data-ai="draft" data-index="${index}" ${allowed(m.proposal)&&!m.approval?"":"disabled"}>Abrir formulario para revisar</button><small>Completá los campos faltantes y guardá desde el formulario habitual.${!allowed(m.proposal)?" Cerrá otros formularios; las partidas requieren un presupuesto editable.":""}</small>`:''}</div>`:""}</article>`).join("")}${model.busy&&!model.approvedRun?`<article class="ai-message ai-user"><b>Vos</b><div>${e(model.question)}</div></article><p role="status">${model.catalogLoading?'Consultando el catálogo local…':'Consultando al proveedor… Espera máxima: ${model.provider==="lmstudio"?180:60} segundos.'} <button type="button" data-ai="cancel">Cancelar consulta</button></p>`:""}${model.approvedRun?`<p role="status">Carga en curso. <button type="button" data-ai="stop-approved" ${model.approvedRun.phase==='saving'?'disabled':''}>${model.approvedRun.phase==='saving'?'Guardando…':'Detener carga'}</button></p>`:''}</div>
     <details class="ai-context" ${model.contextOpen?"open":""}><summary>Contexto de la pantalla ${model.includeContext?(model.contextMode==="screen"?"· automático":"· editado"):"· sin incluir"}</summary><p>Se enviarán la consulta, los mensajes necesarios de la tarea actual y los datos de la pantalla seleccionados. Tras confirmar un guardado, el contexto conversacional se reinicia y queda solo el resultado. Las conversaciones no se almacenan como historial local; la próxima solicitud vuelve a consultar el ACU o presupuesto seleccionado. Podés desactivar o editar el contexto antes de enviar.</p><button class="btn" data-ai="capture" ${model.busy?"disabled":""}>Capturar / actualizar vista</button><label><input type="checkbox" name="ai-include-context" ${model.includeContext?"checked":""} ${model.busy?"disabled":""}> Incluir vista y catálogo local</label><textarea name="ai-context-text" aria-label="Datos de pantalla para enviar" maxlength="7000" ${model.busy?"disabled":""}>${e(model.context)}</textarea></details>
     <div class="ai-quick"><button data-ai="acu-workbench" ${model.busy||!canPlan()?"disabled":""}>▦ ACU · rendimientos y metrado</button><button data-ai="manage-import" ${model.busy||!editable()||state.remoteProject?"disabled":""}>✎ Editar / eliminar partidas</button><button data-ai="budget-import" ${model.busy||!editable()||state.remoteProject?"disabled":""}>▤ Cargar precios · texto / Excel</button><button data-ai="plan-import" ${model.busy||!canPlan()?"disabled":""}>＋ Crear partidas con ACU</button><button data-ai="quick" data-question="Explicame los datos de esta pantalla y señalá qué información falta.">▤ Explicar pantalla</button><button data-ai="quick" data-question="Ayudame a preparar una partida. Preguntame primero qué trabajo, unidad, cantidad y precio quiero cargar.">▱ Partida</button><button data-ai="quick" data-question="Ayudame a cargar un insumo. Preguntame su descripción, tipo, unidad y precio si no los conocés.">▣ Insumo</button></div>
     <form id="ai-question"><label class="ai-consent"><input type="checkbox" name="ai-consent" ${model.consent?"checked":""} ${model.busy?"disabled":""}> ${model.provider==="lmstudio"?"Autorizo procesar esta consulta y los datos seleccionados localmente en LM Studio.":"Autorizo enviar la consulta, el contexto temporal de la tarea y los datos de pantalla incluidos a "+e(providerName)+". El uso puede generar cargos."}</label><div class="ai-input-row"><label class="ai-sr-only" for="ai-prompt">Consulta al asistente</label><textarea id="ai-prompt" name="question" rows="1" placeholder="Preguntá sobre esta pantalla o pedí ayuda para cargar datos…" maxlength="2000" required ${model.busy?"disabled":""}>${e(model.question)}</textarea><button class="btn primary" ${model.busy||!model.configured||!model.consent?"disabled":""}>↵ Enviar</button></div></form>
-    ${model.notice?`<small class="ai-usage" role="status">${e(model.notice)}</small>`:""}<p class="ai-error" role="alert">${e(model.error)}</p>${model.usage?`<small class="ai-usage">Última respuesta: ${model.usage.input??"—"} tokens de entrada · ${model.usage.output??"—"} de salida. Consultá los cargos en tu proveedor.</small>`:""}</section>`:""}`;
+    ${model.notice?`<small class="ai-usage" role="status">${e(model.notice)}</small>`:""}<p class="ai-error" role="alert">${e(model.error)}</p>${model.usage?`<small class="ai-usage">Última respuesta: ${model.usage.input??"—"} tokens de entrada · ${model.usage.output??"—"} de salida. Consultá los cargos en tu proveedor.</small>`:""}${resizeHandles}</section>`:""}`;
     restoreLauncherPosition();
+    applyConsolePreferences();
     const log=host.querySelector(".ai-transcript");if(log)log.scrollTop=log.scrollHeight;
   }
   function catalogAnswer(catalog,query,messages=[]){
@@ -1250,6 +1313,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
         if(model.open&&!model.configured){model.notice="Leyendo configuración guardada…";paint();const status=await invoke("ai_status");Object.assign(model,status);model.notice=status.configured?"Configuración de IA restaurada desde el llavero del sistema.":"";if(status.storage_error)model.error=status.storage_error;}
       }
       if(action==="settings")model.settings=!model.settings;
+      if(action==="reset-window"){consolePreferences.rect=null;saveConsolePreferences();}
       if(action==="detect-local"){await refreshLocalModels();return;}
       if(action==="clear"&&!model.busy){pendingIntent=null;store().clear();acuWorkingNotes.clear();acuWorkbench.cancelPrepared();model.generation++;model.messages=[];model.lastAction=null;model.pendingAction=null;model.focusLineId=null;model.lastCatalogAdvice=null;model.recentCreatedLineIds=[];model.recentCreatedEstimateId=null;model.usage=null;model.question="";model.context="";model.includeContext=true;model.contextMode="screen";model.contextOpen=false;}
       if(action==="capture"&&!model.busy){model.context=captureContext();model.includeContext=true;model.contextMode="screen";model.contextOpen=true;}
@@ -1272,7 +1336,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     if(model.open && model.settings && model.provider==="lmstudio" && (action==="toggle"||action==="settings"))void refreshLocalModels();
   });
   host.addEventListener("toggle",event=>{if(event.target.isConnected&&event.target.matches?.(".ai-context"))model.contextOpen=event.target.open;},true);
-  host.addEventListener("input",event=>{event.stopPropagation();const t=event.target;if(t.name==="question")model.question=t.value;if(t.name==="ai-context-text"){model.context=t.value;model.contextMode="edited";host.querySelector(".ai-context summary").textContent=`Contexto de la pantalla · ${model.includeContext?"editado":"sin incluir"}`;}});
+  host.addEventListener("input",event=>{event.stopPropagation();const t=event.target;if(t.name==="ai-transparency"){consolePreferences.transparency=aiConsoleTransparency(t.value);applyConsolePreferences();const output=host.querySelector("[data-ai-transparency-value]");if(output)output.textContent=consolePreferences.transparency+"%";saveConsolePreferences();return;}if(t.name==="question")model.question=t.value;if(t.name==="ai-context-text"){model.context=t.value;model.contextMode="edited";host.querySelector(".ai-context summary").textContent=`Contexto de la pantalla · ${model.includeContext?"editado":"sin incluir"}`;}});
   host.addEventListener("change",event=>{
     event.stopPropagation();const t=event.target;
     if(t.name==="ai-consent"){model.consent=t.checked;const button=host.querySelector('#ai-question button');if(button)button.disabled=model.busy||!model.configured||!model.consent;}
