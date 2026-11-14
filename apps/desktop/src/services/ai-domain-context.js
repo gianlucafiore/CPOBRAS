@@ -16,6 +16,7 @@ export const AI_TOOL_CONTRACTS = Object.freeze({
   prepare_acu:{kind:'reviewed_write',args:'brief, scope=selected|all_missing',effect:'Prepara ACU de partidas existentes; no modifica cantidades sin autorización'},
   propose_resources:{kind:'reviewed_write',args:'rows:[{description,kind,unit,price?,price_evidence?,draft_ref?}]',effect:'Prepara o modifica una ficha de insumos con aprobación previa'},
   discard_resource_draft:{kind:'read',args:'',effect:'Descarta la ficha de insumos sin escribir datos'},
+  approve_resource_draft:{kind:'reviewed_write',args:'',effect:'Ejecuta import_resources SOLO sobre la ficha validada y aprobada explícitamente; no agrega nada sin ella'},
   review_budget:{kind:'reviewed_write',args:'brief',effect:'Audita el presupuesto, clasifica partidas en rubros existentes y propone ACU con precios de biblioteca; una aprobación transaccional para cambios válidos'},
   describe_capabilities:{kind:'read',args:'module opcional',effect:'Explica los módulos y relaciones de CPObras sin modificar datos'},
   plan_workflow:{kind:'read',args:'goal',effect:'Construye un plan de operaciones entre módulos con dependencias, permisos y faltantes, sin ejecutarlo'},
