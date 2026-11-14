@@ -13,13 +13,21 @@ test('every screen contract refers to real, permitted Tauri actions with respons
   }
  }
  for(const view of ['projects','clients','resources','analyses','workspace','management','operations','planning','backups']){
-  assert.match(aiViewApiContext({view}),/CONTRATO API NATIVA DE LA VISTA ACTIVA/);
+  const context=aiViewApiContext({view});
+  assert.match(context,/PANTALLA ACTUAL Y API DEL PROGRAMA/);
+  assert.match(context,/current_screen/);
+  assert.match(context,/description/);
  }
- const resources=aiViewApiContext({view:'resources'});
- assert.ok(resources.length<2650);
+ const resources=aiViewApiContext({view:'resources',selectedResourceId:'id-r',selectedLineId:'id-l'});
+ assert.match(resources,/Biblioteca general de insumos/);
+ assert.match(resources,/id-r/);
+ assert.match(resources,/id-l/);
  assert.match(resources,/import_resources/);
- assert.match(resources,/camelCase/);
- assert.doesNotMatch(resources,/switch_database/);
+ assert.match(resources,/resource_ids/);
+ // Show method signatures globally, but label UI-only commands explicitly.
+ assert.match(resources,/switch_database/);
+ assert.match(resources,/ui_dialog_only/);
+ assert.match(resources,/connected_to_chat/);
 });
 
 test('bridge rejects mismatched view, missing approval and invalid IPC argument names BEFORE writing',async()=>{
