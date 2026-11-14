@@ -240,6 +240,11 @@ export function resourceChatTurn(question,pending=null,previousAnswer=''){
   if(removed)return removed;
   const detailed=parseExplicitResourceDetails(question,pending);
   if(detailed)return detailed;
+  // A resource explicitly excluded from this review must not slip back in
+  // through the more permissive single-resource follow-up parser.
+  const mentioned=resourceKey(question);
+  if(hasDraft&&mentioned&&pending.excluded?.includes(mentioned))
+    return {action:'clarify',message:'Este insumo fue excluido de la ficha por tu indicación anterior. Si querés reincorporarlo, descartá la exclusión y prepará una nueva propuesta; no lo agregaré automáticamente.'};
   if(!hasDraft&&(isResourceBulkIntent(question)||isSuggestedAcceptance(question,previousAnswer)))return {action:'generate'};
   const parts=question.split(/\n|;\s*(?=(?:poste|alambre|malla|grampa|clavo|tornillo|cemento|madera|chapa|carga|agrega)\b)/i).map(x=>x.trim()).filter(Boolean);
   const next=hasDraft?pending.rows.map(row=>({...row})):[];
