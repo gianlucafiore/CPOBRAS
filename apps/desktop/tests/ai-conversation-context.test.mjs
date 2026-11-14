@@ -55,3 +55,17 @@ test('database conversations stay separate even when project and budget IDs matc
  assert.equal(original.read().messages[0].content, 'Conversación original');
  assert.equal(copy.read().messages[0].content, 'Conversación de la copia');
 });
+
+import {libraryAcuViewHelp} from '../src/services/ai-library-conversation.js';
+
+test('ACU library screen questions are read-only help without local intent classification',()=>{
+  for(const question of ['para que sirve esta vista?','¿Para qué sirve esta pantalla?','¿Qué puedo hacer en esta vista?','explicame esta sección','que es la biblioteca de acu']){
+    const answer=libraryAcuViewHelp(question);
+    assert.equal(typeof answer,'string',question);
+    assert.match(answer,/ACU/);
+    assert.match(answer,/reutilizable/);
+  }
+  for(const question of ['agregá yeso húmedo a este ACU','aprobá y cargá','¿qué contiene el ACU seleccionado?','para que sirve este yeso','cuanto cuesta el cemento']){
+    assert.equal(libraryAcuViewHelp(question),null,question);
+  }
+});
