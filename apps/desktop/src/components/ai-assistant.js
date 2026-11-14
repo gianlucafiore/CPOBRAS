@@ -1118,6 +1118,16 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       addReply(question,{answer:arithmetic??unitConversion});
       model.error="";model.notice="Cálculo exacto realizado localmente, sin consultar la IA.";paint();return;
     }
+    // Approval is a permission check on the *latest displayed* review,
+    // not a new construction-language interpretation. It must not be routed
+    // to budget/ACU logic or depend on another model response.
+    const visibleResourceReview=activeResources();
+    if(visibleResourceReview&&isApprovalReply(question)&&
+       model.messages.at(-1)?.resourceDraft===visibleResourceReview){
+      model.question="";
+      await approveResourceDraft(question);
+      return;
+    }
     // A current resource review is an operation state, not a new persona.
     // Its edits and approvals are interpreted by the same model as any other
     // request, with the existing draft included in its global context.
