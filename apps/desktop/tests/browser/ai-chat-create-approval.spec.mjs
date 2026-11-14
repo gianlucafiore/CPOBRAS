@@ -214,3 +214,25 @@ test('floating AI console can be moved, resized, made transparent and restored a
   await expect(page.locator('#ai-console')).not.toHaveClass(/ai-floating/);
   await expect(page.locator('#ai-console')).toHaveCSS('background-color','rgba(17, 24, 31, 0.4)');
 });
+
+
+test('Enter sends chat immediately and Shift+Enter only inserts a newline',async({page})=>{
+  await approvalFixture(page);
+  const input=page.locator('#ai-prompt');
+  await input.fill('4+5');
+  await input.press('Shift+Enter');
+  await expect(input).toHaveValue('4+5\n');
+  expect(await counts(page)).toEqual({aiCalls:0,writes:0});
+
+  await input.fill('4+5');
+  await input.press('Enter');
+  await expect(input).toHaveValue('');
+  await expect(page.locator('.ai-transcript .ai-assistant').last()).toContainText('9');
+  expect(await counts(page)).toEqual({aiCalls:0,writes:0});
+
+  await input.fill('10+2');
+  await input.press('Control+Enter');
+  await expect(input).toHaveValue('');
+  await expect(page.locator('.ai-transcript .ai-assistant').last()).toContainText('12');
+  expect(await counts(page)).toEqual({aiCalls:0,writes:0});
+});
