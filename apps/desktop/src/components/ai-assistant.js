@@ -1299,21 +1299,22 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       if(rubroIntent&&parsed.planRows?.length){
        throw new Error('La IA interpretó rubros como partidas. Se descartó esa propuesta; no se creó ninguna partida. Repetí el pedido de rubros.');
       }
+      const modelResourceRows=parsed.toolCall?.name==='propose_resources'
+        ?parsed.toolCall.args.rows:parsed.resourceProposals;
+      if(modelResourceRows){
+        const previous=activeResources();
+        const proposed=readResourceModelDecision(JSON.stringify({
+          action:'propose',answer:parsed.answer,resource_proposals:modelResourceRows
+        }),{
+          userMessages:[...model.messages.filter(m=>m.role==='user').map(m=>m.content),question],
+          priorDraft:previous?.rows||[],existing:catalogSnapshot?.resources||state.resources||[]
+        });
+        showResourceDraft(question,proposed.rows,
+          proposed.answer||resourceDraftSummary(validatedResourceDraft(proposed.rows,catalogSnapshot?.resources||state.resources||[])));
+        model.usage={input:result.input_tokens,output:result.output_tokens};
+        return;
+      }
       if(parsed.toolCall){
-        if(parsed.toolCall.name==='propose_resources'){
-          const previous=activeResources();
-          const proposed=readResourceModelDecision(JSON.stringify({
-            action:'propose',answer:parsed.answer,
-            resource_proposals:parsed.toolCall.args.rows
-          }),{
-            userMessages:[...model.messages.filter(m=>m.role==='user').map(m=>m.content),question],
-            priorDraft:previous?.rows||[],existing:catalogSnapshot?.resources||state.resources||[]
-          });
-          showResourceDraft(question,proposed.rows,
-            proposed.answer||resourceDraftSummary(validatedResourceDraft(proposed.rows,catalogSnapshot?.resources||state.resources||[])));
-          model.usage={input:result.input_tokens,output:result.output_tokens};
-          return;
-        }
         if(parsed.toolCall.name==='approve_resource_draft'){
           if(!activeResources()){
             addReply(question,{answer:'No hay una ficha de insumos pendiente para aprobar; no se guardó nada.'});
