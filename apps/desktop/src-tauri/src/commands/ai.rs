@@ -966,7 +966,14 @@ mod tests {
             &"x".repeat(30000),
             None,
         );
-        assert!(local["messages"][0]["content"].as_str().unwrap().len() < 10000);
+        let local_system = local["messages"][0]["content"].as_str().unwrap();
+        // The shared resource contract is also part of the local prompt.
+        // Only the data context is compacted to 4500 bytes.
+        assert!(
+            local_system.len()
+                <= LM_STUDIO_INSTRUCTIONS.len() + GENERAL_RESOURCE_TOOL_GUIDANCE.len() + 4700
+        );
+        assert!(local_system.contains(GENERAL_RESOURCE_TOOL_GUIDANCE));
         assert!(cloud["instructions"].as_str().unwrap().len() > 25000);
         assert!(local["messages"][0]["content"]
             .as_str()
@@ -999,14 +1006,14 @@ mod tests {
             None,
         );
         assert_eq!(basic["max_tokens"], 768);
-        assert!(basic.get("chat_template_kwargs").is_none());
+        assert_eq!(basic["chat_template_kwargs"]["enable_thinking"], false);
 
         let bonsai = payload("lmstudio", "prism-ml/bonsai-27b", &user, "{}", None);
         assert_eq!(bonsai["max_tokens"], 4096);
         assert_eq!(bonsai["chat_template_kwargs"]["enable_thinking"], false);
         let advanced = payload("lmstudio", "prism-ml/bonsai-27b", &user, "{}", Some("acu"));
         assert_eq!(advanced["max_tokens"], 5500);
-        assert!(advanced.get("chat_template_kwargs").is_none());
+        assert_eq!(advanced["chat_template_kwargs"]["enable_thinking"], false);
         let intent = payload(
             "lmstudio",
             "prism-ml/bonsai-27b",
