@@ -48,7 +48,7 @@ function guessKind(description){
   return '';
 }
 function detectUnit(value){
-  const m=new RegExp('(?:\\b(?:la\\s+)?unidad\\s+(?:de\\s+medida\\s*)?(?:es|:|=)\\s*|\\b(?:se\\s+mide|medido)\\s+en\\s+|\\b(?:por|en)\\s+)('+unitMatcher+')\\b','i').exec(value);
+  const m=new RegExp('(?:\\b(?:la\\s+)?unidad\\s+(?:de\\s+medida\\s*)?(?:es\\s*[:=]?|[:=])\\s*|\\b(?:se\\s+mide|medido)\\s+en\\s+|\\b(?:por|en)\\s+)('+unitMatcher+')\\b','i').exec(value);
   return m?unitAliases.get(norm(m[1]))||null:null;
 }
 function stripCommand(value){
@@ -94,6 +94,8 @@ function isSuggestedAcceptance(value,previousAnswer){
 export function resourceChatTurn(question,pending=null,previousAnswer=''){
   if(typeof question!=='string'||!question.trim()||question.length>1800)return null;
   const q=fold(question),hasDraft=Array.isArray(pending?.rows)&&pending.rows.length>0;
+  // A partida, ACU or budget request can never become a resource-library write.
+  if(/\b(?:partidas?|acus?|presupuestos?)\b/.test(q)&&!hasDraft)return null;
   if(hasDraft&&discard.test(q))return {action:'discard'};
   if(hasDraft&&approval.test(q))return {action:'approve'};
   if(!hasDraft&&(isResourceBulkIntent(question)||isSuggestedAcceptance(question,previousAnswer)))return {action:'generate'};
