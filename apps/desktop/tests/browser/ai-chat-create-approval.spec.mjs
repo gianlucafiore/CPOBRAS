@@ -309,3 +309,51 @@ test('complete fence list from one chat message saves exactly three correctly pr
     {code:'',description:'tejido romboidal',kind:'material',unit:'m²',price:'1500'}
   ]);
 });
+
+
+test('resource pronoun "necesito crearlos" prepares a card after an empty catalog reply',async({page})=>{
+  const fixture=RESOURCE_CHAT_FIXTURE.replace(
+    'Para cercado recomiendo postes de madera y alambre galvanizado. ¿Querés agregar esos insumos?',
+    'No se encontraron insumos específicos para cercado con tejido romboidal en el catálogo local. Por favor precisá más detalles.'
+  );
+  await page.route('**/src/main.js*',route=>route.fulfill({contentType:'application/javascript',body:fixture}));
+  await page.goto('/');
+  await page.waitForFunction(()=>window.__resourceChatHarness?.ready);
+  await page.locator('.ai-launch').click();
+  await page.locator('[name=ai-consent]').check();
+  const say=async value=>{await page.locator('#ai-prompt').fill(value);await page.locator('#ai-question button').click();};
+  await say('necesito los insumos para cercado de terreno con tejido romboildal');
+  await expect(page.locator('.ai-transcript')).toContainText('No se encontraron insumos');
+  await say('necesito crearlos');
+  await expect(page.locator('.ai-resource-chat-card li')).toHaveCount(2);
+  await expect(page.locator('.ai-resource-chat-card')).toContainText('Poste de madera');
+  await expect(page.locator('.ai-resource-chat-card')).toContainText('Alambre galvanizado');
+  const modes=await page.evaluate(()=>window.__resourceChatHarness.calls.filter(c=>c.name==='ai_chat').map(c=>c.args.mode||'chat'));
+  expect(modes).toEqual(['chat','resources']);
+  expect(await page.evaluate(()=>window.__resourceChatHarness.imports.length)).toBe(0);
+});
+
+test('resource pronoun "podes crearlos" immediately turns last enumerated advice into in-chat review',async({page})=>{
+  const recommendation='Para un cercado con tejido romboidal se necesitan postes (metal o madera), tensores, alambre para amarre, tensores, bridas o precintos, y el rollo de tejido romboidal. También podría ser necesario concreto para fijar postes y herramientas.';
+  const fixture=RESOURCE_CHAT_FIXTURE.replace(
+    'Para cercado recomiendo postes de madera y alambre galvanizado. ¿Querés agregar esos insumos?',
+    recommendation
+  );
+  await page.route('**/src/main.js*',route=>route.fulfill({contentType:'application/javascript',body:fixture}));
+  await page.goto('/');
+  await page.waitForFunction(()=>window.__resourceChatHarness?.ready);
+  await page.locator('.ai-launch').click();
+  await page.locator('[name=ai-consent]').check();
+  const say=async value=>{await page.locator('#ai-prompt').fill(value);await page.locator('#ai-question button').click();};
+  await say('me decís que insumos necesitamos para cercado con tejido romboidal');
+  await expect(page.locator('.ai-transcript')).toContainText('se necesitan postes');
+  await say('podes crearlos');
+  await expect(page.locator('.ai-resource-chat-card li')).toHaveCount(5);
+  await expect(page.locator('.ai-resource-chat-card')).toContainText('postes (metal o madera)');
+  await expect(page.locator('.ai-resource-chat-card')).toContainText('rollo de tejido romboidal');
+  await expect(page.locator('[data-ai=approve-resources]')).toBeDisabled();
+  // No model reinference and absolutely no SQLite write. Ambiguities need review.
+  const modes=await page.evaluate(()=>window.__resourceChatHarness.calls.filter(c=>c.name==='ai_chat').map(c=>c.args.mode||'chat'));
+  expect(modes).toEqual(['chat']);
+  expect(await page.evaluate(()=>window.__resourceChatHarness.imports.length)).toBe(0);
+});
