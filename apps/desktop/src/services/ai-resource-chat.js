@@ -89,10 +89,47 @@ function isResourceBulkIntent(value){
     &&!/\b(?:partidas?|acus?|analisis de costos)\b/.test(q);
 }
 function isSuggestedAcceptance(value,previousAnswer){
-  const q=fold(value);
-  if(!/^(?:si|si dale|dale|perfecto|bueno|ok|crealos|cargalos|agregalos|carga esos insumos|agrega esos insumos|carga los que sugeriste|agrega los que sugeriste)(?: por favor)?$/.test(q))return false;
-  return /\b(?:insumos?|materiales?|poste|alambrado|cercado|alambre|cercos?|grampas?|tensores?)\b/.test(fold(previousAnswer))
-    &&/\b(?:agrega|agregar|carga|cargar|crea|crear|sugier|recomiend|necesit|faltan|faltantes|podemos)\b/.test(fold(previousAnswer));
+  const q=fold(value).replace(/[.!?¿]+$/,'').trim();
+  const referenced=/^(?:(?:si|si dale|dale|perfecto|bueno|ok|claro|de acuerdo)(?: por favor)?|(?:crealos|cargalos|agregalos|preparalos|registralos)(?: por favor)?|(?:carga|crea|agrega|prepara|registra) (?:esos|todos los|los) (?:insumos|materiales|recursos)|(?:agrega|carga|crea|prepara) los que sugeriste|(?:necesito|quiero|quisiera|podes|puedes|podrias|podes por favor|puedes por favor|me podes|me puedes)\s+(?:que\s+)?(?:crear|crea|cargar|carga|preparar|prepara|agregar|agrega|registrar|registra)(?:los|las| esos insumos| los insumos| los materiales)?|(?:necesito|quiero|podes|puedes)\s+crearlos)(?: por favor)?$/.test(q);
+  if(!referenced)return false;
+  const prior=fold(previousAnswer);
+  // Pronouns resolve only against an actual resource-related preceding turn.
+  // A prior partida/ACU proposal must NEVER be interpreted as a resource import.
+  return /\b(?:insumos?|materiales?|recursos?|postes?|alambrado|cercado|tejido|alambres?|grampas?|tensores?)\b/.test(prior)
+    && !/\b(?:partidas?|acus?)\b/.test(prior);
+}
+/** An existing assistant recommendation can become a draft without another model call.
+ * This extracts only explicitly enumerated material names, never prices or IDs.
+ * Entries with ambiguous units remain pending for review.
+ */
+export function resourceSuggestionsFromText(answer){
+  if(typeof answer!=='string'||answer.length>12000)return [];
+  const source=answer.replace(/\s+/g,' ');
+  const anchor=/\b(?:se necesitan|necesitas|necesitar[íi]as|se requieren|se utilizan|se recomiendan|recomiendo|materiales necesarios:|insumos necesarios:)\s*:?\s*/i.exec(source);
+  if(!anchor)return [];
+  // The first recommendation sentence is the list; conditional subsequent
+  // advice (e.g. "también podría ser necesario...") is not automatically added.
+  const paragraph=source.slice(anchor.index+anchor[0].length).split(/[.!?\n]/,1)[0].slice(0,2000);
+  const rows=[],seen=new Set();
+  for(const fragment of paragraph.split(/\s*,\s*|\s*;\s*|\s+y\s+(?=(?:el |la |los |las )?(?:poste|alambre|tejido|malla|tensor|grampa|brida|precinto|rollo|tornillo|cemento|arena|concreto))/i)){
+    const description=fragment.trim()
+      .replace(/^(?:(?:y|e)\s+)?(?:el|la|los|las|unos|unas)\s+/i,'')
+      .replace(/[,:;\s]+$/,'');
+    if(description.length<4||description.length>160||/[{}[\]]/.test(description))continue;
+    const token=fold(description);
+    const matches=/^(?:postes?|tensores?|alambres?|tejidos?|mallas?|grampas?|bridas?|precintos?|rollos?|tornillos?|clavos?|cementos?|concretos?|arenas?|adhesivos?|pastinas?|chapas?|perfiles?|ca[nñ]os?|tubos?)\b/.test(token);
+    if(!matches)continue;
+    // Duplicated suggestions ("tensores" twice) produce only one proposal.
+    const key=token.split(/\s+/)[0];
+    if(seen.has(key))continue;
+    seen.add(key);
+    let unit='';
+    if(/^(?:postes?|tensores?|grampas?|bridas?|precintos?|tornillos?|clavos?)\b/.test(token))unit='unidad';
+    else if(/^rollos?\b/.test(token))unit='rollo';
+    rows.push({description,kind:'material',unit,price:null});
+    if(rows.length>=MAX_ITEMS)break;
+  }
+  return rows;
 }
 /**
  * Parse multiple explicitly named construction resources in ONE user turn.
