@@ -121,6 +121,8 @@ test('resource followup pronouns resolve to a batch after catalog search or assi
   assert.equal(resourceChatTurn('me decís que insumos necesitamos',null,noCatalog),null);
   assert.equal(resourceChatTurn('necesito crearlos',null,'Puedo crear partidas y ACU para este presupuesto.'),null);
   assert.equal(resourceChatTurn('podes crearlos',null,'Preparé una partida de mampostería para revisar.'),null);
+  assert.equal(resourceChatTurn('sí',null,'Se preparó una receta con insumos reales para revisar.'),null);
+  assert.equal(resourceChatTurn('sí dale',null,'Los insumos están preparados en el ACU; aprobá la composición.'),null);
   assert.equal(resourceChatTurn('4+5',null,recommendation),null);
 });
 test('an explicit assistant recommendation yields a complete local reviewable resource batch without another model call',()=>{
