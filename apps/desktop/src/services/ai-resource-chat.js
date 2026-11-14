@@ -94,6 +94,128 @@ function isSuggestedAcceptance(value,previousAnswer){
   return /\b(?:insumos?|materiales?|poste|alambrado|cercado|alambre|cercos?|grampas?|tensores?)\b/.test(fold(previousAnswer))
     &&/\b(?:agrega|agregar|carga|cargar|crea|crear|sugier|recomiend|necesit|faltan|faltantes|podemos)\b/.test(fold(previousAnswer));
 }
+/**
+ * Parse multiple explicitly named construction resources in ONE user turn.
+ * A noun with measurements (e.g. 3" x 2.2 m) is kept in the description;
+ * a price and its purchase unit are never part of that description.
+ * This parser only produces a local draft and never performs writes.
+ */
+const resourceHead=/\b(?:mano\s+de\s+obra|postes?|tejidos?|mallas?|grampas?|cementos?|alambres?|equipos?|maquinarias?|tornillos?|clavos?|pinturas?|perfiles?|chapas?|maderas?|arenas?|ladrillos?|adhesivos?|pastinas?|caños?|tubos?|oficial(?:es)?|ayudantes?)\b/gi;
+const exclusionWords=/\b(?:quita(?:r|lo|los)?|saca(?:r|lo|los)?|elimina(?:r|lo|los)?|borra(?:r|lo|los)?|no\s+(?:lo\s+|los\s+)?(?:agregues?|pongas?|incluyas?|cargues?)|ya\s+(?:lo\s+)?(?:tengo|tenemos|existe)|tampoco|sin\s+este)\b/i;
+const commonCommodity={
+  poste:/\bpostes?\b/i,tejido:/\btejidos?\b/i,malla:/\bmallas?\b/i,grampa:/\bgrampas?\b/i,
+  cemento:/\bcementos?\b/i,alambre:/\balambres?\b/i,equipo:/\b(?:equipos?|maquinarias?)\b/i,
+  labor:/\b(?:mano de obra|oficial|ayudante)\b/i
+};
+function resourceKey(value){
+  const title=fold(value);
+  return Object.entries(commonCommodity).find(([,pattern])=>pattern.test(title))?.[0]||null;
+}
+function resourceMatches(row,key){
+  if(key==='equipo')return row.kind==='equipment'||/equipo|maquinaria/i.test(row.description);
+  return resourceKey(row.description)===key;
+}
+function priceInSegment(segment){
+  const m=/(?:\b(?:precio(?:\s+unitario)?|vale|valen|cuesta|cuestan|es|son|a)\s*(?::|=|es)?\s*|[:,]\s*(?:es\s+)?|\s)(?:(?:ARS|USD|U\$S)\s*|\$\s*)?(\d{1,12}(?:[.,]\d{1,3})*(?:[.,]\d{1,2})?)(?=\s*(?:\b|$))/i.exec(segment);
+  if(!m)return null;
+  // A dimension "x 2.2m" is never a purchase price.
+  const prefix=segment.slice(0,m.index);
+  const suffix=segment.slice(m.index+m[0].length);
+  if(/(?:^|\s)x\s*$/i.test(prefix)&&/^\s*(?:m|cm|mm)\b/i.test(suffix))return null;
+  const number=decimalPrice(m[1]);
+  return {number,start:m.index,end:m.index+m[0].length,currency:/\b(?:USD|dolares|dólares)\b|U\$S/i.test(segment)?'USD':'ARS'};
+}
+function purchaseUnit(segment){
+  const text=fold(segment);
+  if(/\b(?:cada\s+un[ao]|por\s+(?:unidad|pieza)|la\s+unidad|en\s+unidad)\b/.test(text))return 'unidad';
+  const m=/\b(?:x\s*|por\s+|el\s+|la\s+)(m2|m²|m3|m³|kg|h|hora|unidad|un|u|litro|litros)\b/.exec(text)
+    ||/\bx(m2|m²|m3|m³)\b/.exec(text);
+  return m?unitAliases.get(m[1])||null:null;
+}
+function explicitBulkSegments(question){
+  const preamble=/^\s*(?:necesitamos|quiero|queremos|crear|crea|preparar|prepara|cargar|carga|agregar|agrega)\b.{0,110}?\binsumos?\b[^:]{0,180}:\s*/i;
+  return question.replace(preamble,'');
+}
+function resourceSegments(question){
+  const source=explicitBulkSegments(question);
+  const matches=[...source.matchAll(resourceHead)];
+  return {source,entries:matches.map((match,i)=>({
+    key:resourceKey(match[0]),name:match[0],
+    text:source.slice(match.index,i+1<matches.length?matches[i+1].index:source.length).trim(),
+    before:source.slice(i===0?0:matches[i-1].index,match.index).trim()
+  }))};
+}
+function resourceTitle(segment,key,context){
+  const amount=priceInSegment(segment);
+  let name=(amount?segment.slice(0,amount.start):segment)
+    .replace(/\b(?:el|del|de la)\s+precio\s*$/i,'')
+    .replace(/\s*,?\s*(?:es|son|vale|valen|cuesta|cuestan|precio(?:\s+unitario)?)\s*[:=]?\s*$/i,'')
+    .replace(/[,\s;:]+$/,'').trim();
+  if(key==='labor'&&/^mano\s+de\s+obra$/i.test(name)){
+    const contextMatch=/\bcerco\s+de\s+tejido\s+romboidal\b/i.exec(context);
+    return contextMatch?'Mano de obra para cerco de tejido romboidal':'Mano de obra';
+  }
+  return name;
+}
+function parseExplicitResourceDetails(question,pending){
+  const current=Array.isArray(pending?.rows)?pending.rows.map(row=>({...row})):[];
+  const exclude=new Set(Array.isArray(pending?.excluded)?pending.excluded:[]);
+  const {source,entries}=resourceSegments(question);
+  if(!entries.length)return null;
+  // Do not turn generic ACU composition edits into new resource-library rows.
+  if(/\b(?:acus?|partidas?|presupuestos?)\b/i.test(question))return null;
+  const isBulk=/^\s*(?:necesitamos|quiero|queremos|crear|crea|preparar|prepara|cargar|carga|agregar|agrega)\b.{0,110}\binsumos?\b/i.test(question);
+  let updated=false,recognized=0;
+  for(const entry of entries){
+    const key=entry.key;if(!key)continue;
+    const segment=entry.text;
+    const prior=entry.before;
+    const excludeMe=exclusionWords.test(segment)
+      ||/\b(?:no lo agregues|no los agregues|ya existe|tampoco)\b/i.test(prior)
+      ||/\b(?:no pongas|sin equipos?)\b/i.test(segment);
+    if(excludeMe){
+      exclude.add(key);
+      const count=current.length;
+      for(let i=current.length-1;i>=0;i--)if(resourceMatches(current[i],key))current.splice(i,1);
+      updated=true;recognized++;continue;
+    }
+    const price=priceInSegment(segment);
+    const unit=purchaseUnit(segment);
+    if(!price&&!unit&&!isBulk)continue;
+    if(exclude.has(key))continue;
+    if(price?.currency==='USD')return {action:'error',message:'Los precios de la biblioteca son ARS; no convertiré importes en USD sin una indicación expresa.'};
+    if(price&&!price.number)return {action:'error',message:'No pude interpretar el precio. Escribilo, por ejemplo, como 17500 o 17500,50 ARS.'};
+    let index=current.findIndex(row=>resourceMatches(row,key));
+    const title=resourceTitle(segment,key,question);
+    if(index<0){
+      if(current.length>=MAX_ITEMS)return {action:'error',message:'La ficha admite hasta 60 insumos.'};
+      if(!title||title.length<4||title.length>250)continue;
+      const kind=key==='labor'?'labor':key==='equipo'?'equipment':'material';
+      current.push(emptyRow(title,kind));
+      index=current.length-1;
+    }else if(isBulk&&title.length>current[index].description.length&&!/\b(?:precio|vale|valen)\b/i.test(prior)){
+      current[index].description=title;
+    }
+    if(unit)current[index].unit=unit;
+    if(price)current[index].price=price.number;
+    updated=true;recognized++;
+  }
+  if(!updated||!recognized)return null;
+  if(!current.length)return {action:'draft-empty',excluded:[...exclude]};
+  return {action:'draft',rows:current,excluded:[...exclude]};
+}
+function removeResourceByName(question,pending){
+  if(!Array.isArray(pending?.rows)||!pending.rows.length)return null;
+  const q=fold(question);
+  const action=/^(?:quita|quitar|saca|sacar|borra|borrar|elimina|eliminar|no agregues|no incluyas|no pongas)\s+(.+)$/i.exec(q);
+  if(!action)return null;
+  const key=resourceKey(action[1]);
+  if(!key)return null;
+  const rows=pending.rows.filter(row=>!resourceMatches(row,key));
+  const excluded=[...new Set([...(pending.excluded||[]),key])];
+  return rows.length?{action:'draft',rows,excluded}:{action:'draft-empty',excluded};
+}
+
 /** Return the next action using only user text and the active in-chat draft. */
 export function resourceChatTurn(question,pending=null,previousAnswer=''){
   if(typeof question!=='string'||!question.trim()||question.length>1800)return null;
@@ -102,6 +224,10 @@ export function resourceChatTurn(question,pending=null,previousAnswer=''){
   if(/\b(?:partidas?|acus?|presupuestos?)\b/.test(q)&&!hasDraft)return null;
   if(hasDraft&&discard.test(q))return {action:'discard'};
   if(hasDraft&&approval.test(q))return {action:'approve'};
+  const removed=removeResourceByName(question,pending);
+  if(removed)return removed;
+  const detailed=parseExplicitResourceDetails(question,pending);
+  if(detailed)return detailed;
   if(!hasDraft&&(isResourceBulkIntent(question)||isSuggestedAcceptance(question,previousAnswer)))return {action:'generate'};
   const parts=question.split(/\n|;\s*(?=(?:poste|alambre|malla|grampa|clavo|tornillo|cemento|madera|chapa|carga|agrega)\b)/i).map(x=>x.trim()).filter(Boolean);
   const next=hasDraft?pending.rows.map(row=>({...row})):[];
@@ -129,7 +255,7 @@ export function resourceChatTurn(question,pending=null,previousAnswer=''){
     if(price!==null){target.price=price;changed=true;}
     if(facts.description||facts.kind||facts.unit)changed=true;
   }
-  if(changed&&next.length)return {action:'draft',rows:next};
+  if(changed&&next.length)return {action:'draft',rows:next,excluded:pending?.excluded||[]};
   if(hasDraft&&/\b(?:insumo|material|unidad|precio|tipo)\b/.test(q))
     return {action:'clarify',message:'Conservo la ficha anterior. Indicá los datos que querés completar o decí «cargalo» para aprobar los insumos completos.'};
   return null;
