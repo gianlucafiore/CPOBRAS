@@ -75,7 +75,8 @@ function extractOne(text){
   const priceMatch=pricePattern.exec(text);
   const unit=detectUnit(text);
   const kind=detectKind(text);
-  const currency=priceMatch?.[1]?.toUpperCase().replace('U$S','USD')||null;
+  const mentionedCurrency=priceMatch?/(?:\bUSD\b|U\$S|\bd[oó]lares\b)/i.test(text)?'USD':priceMatch[1]?.toUpperCase().replace('U$S','USD')||'ARS':null;
+  const currency=mentionedCurrency;
   return {description,kind,unit,price:priceMatch?decimalPrice(priceMatch[2]):null,currency,hasPrice:!!priceMatch};
 }
 function emptyRow(description='',kind='',unit='',price=null){
