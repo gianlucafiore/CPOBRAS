@@ -138,7 +138,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     ?model.resourceDraft:null;
   function resourceDraftCard(message,index){
     const draft=activeResources();
-    if(!draft||message.resourceDraft!==draft)return '';
+    if(!draft||message.resourceDraft!==draft||model.messages.findLastIndex(item=>item.resourceDraft===draft)!==index)return '';
     const reviewed=validatedResourceDraft(draft.rows,state.resources||[]);
     const valid=reviewed.ready.length>0&&reviewed.pending.length===0&&!draft.uncertain;
     return '<div class="ai-resource-chat-card"><strong>Insumos para agregar a la biblioteca</strong>'+
