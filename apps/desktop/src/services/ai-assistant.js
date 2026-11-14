@@ -332,7 +332,7 @@ function parseLineDescriptionUnit(source){
 
 export function lineProposalFromDirectRequest(question){
   if(typeof question!=="string"||question.length>500)return null;
-  const direct=/^\s*(?:crea(?:r|me)?|genera(?:r|me)?|agrega(?:r|me)?|carga(?:r|me)?|prepara(?:r|me)?)\s+(?:un[ao]?\s+)?partida\s+(?:de|con|para)\s+(.{6,300})$/iu.exec(question.trim());
+  const direct=/^\s*(?:cre[aá](?:r|me)?|gener[aá](?:r|me)?|agreg[aá](?:r|me)?|carg[aá](?:r|me)?|prepar[aá](?:r|me)?)\s+(?:un[ao]?\s+)?partida\s+(?:de|con|para)\s+(.{6,300})$/iu.exec(question.trim());
   if(direct){
     const withUnit=parseLineDescriptionUnit(direct[1]);
     if(withUnit)return withUnit;
