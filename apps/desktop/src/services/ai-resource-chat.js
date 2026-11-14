@@ -48,7 +48,7 @@ function guessKind(description){
   return '';
 }
 function detectUnit(value){
-  const m=new RegExp('(?:\\b(?:la\\s+)?unidad\\s+(?:de\\s+medida\\s*)?(?:es\\s*[:=]?|[:=])\\s*|\\b(?:se\\s+mide|medido)\\s+en\\s+|\\b(?:por|en)\\s+)('+unitMatcher+')\\b','i').exec(value);
+  const m=new RegExp('(?:\\b(?:la\\s+)?unidad\\s*(?:de\\s+medida\\s*)?(?:es\\s*[:=]?|[:=])\\s*|\\b(?:se\\s+mide|medido)\\s+en\\s+|\\b(?:por|en)\\s+)('+unitMatcher+')\\b','i').exec(value);
   return m?unitAliases.get(norm(m[1]))||null:null;
 }
 function stripCommand(value){
