@@ -167,3 +167,263 @@ test('an approved addition of sheet material targets one existing line and prese
  expect(result.calls.filter(call=>call.name==='ai_chat').map(call=>call.args.mode)).toEqual(['acu']);
  expect(result.modalCalls).toBe(0);expect(dialogs).toEqual([]);await expect(page.getByRole('dialog')).toHaveCount(0);
 });
+
+
+test('floating AI console can be moved, resized, made transparent and restored after reload',async({page})=>{
+  await page.setViewportSize({width:1440,height:900});
+  await approvalFixture(page);
+  const frame=page.locator('#ai-console');
+  const original=await frame.boundingBox();
+  expect(original).not.toBeNull();
+  await page.locator('[data-ai="settings"]').click();
+  const slider=page.locator('[name="ai-transparency"]');
+  await slider.evaluate(element=>{element.value='60';element.dispatchEvent(new Event('input',{bubbles:true}));});
+  await expect(page.locator('[data-ai-transparency-value]')).toHaveText('60%');
+  await expect(frame).toHaveCSS('background-color','rgba(17, 24, 31, 0.4)');
+  await page.locator('[data-ai="settings"]').click();
+
+  let current=await frame.boundingBox();
+  await page.mouse.move(current.x+55,current.y+18);
+  await page.mouse.down();
+  await page.mouse.move(current.x+125,current.y-82,{steps:8});
+  await page.mouse.up();
+  const moved=await frame.boundingBox();
+  expect(moved.x).toBeGreaterThan(current.x+40);
+  expect(moved.y).toBeLessThan(current.y-70);
+  current=moved;
+
+  await page.mouse.move(current.x+3,current.y+current.height/2);
+  await page.mouse.down();
+  await page.mouse.move(current.x+103,current.y+current.height/2,{steps:8});
+  await page.mouse.up();
+  const resized=await frame.boundingBox();
+  expect(resized.x).toBeGreaterThan(current.x+70);
+  expect(resized.width).toBeLessThan(current.width-70);
+
+  await page.reload();
+  await page.waitForFunction(()=>window.__createApprovalHarness?.ready);
+  await page.locator('.ai-launch').click();
+  const restored=await page.locator('#ai-console').boundingBox();
+  expect(Math.abs(restored.x-resized.x)).toBeLessThan(3);
+  expect(Math.abs(restored.y-resized.y)).toBeLessThan(3);
+  expect(Math.abs(restored.width-resized.width)).toBeLessThan(3);
+  expect(Math.abs(restored.height-resized.height)).toBeLessThan(3);
+  await page.locator('[data-ai="settings"]').click();
+  await expect(page.locator('[name="ai-transparency"]')).toHaveValue('60');
+  await page.locator('[data-ai="reset-window"]').click();
+  await expect(page.locator('#ai-console')).not.toHaveClass(/ai-floating/);
+  await expect(page.locator('#ai-console')).toHaveCSS('background-color','rgba(17, 24, 31, 0.4)');
+});
+
+
+test('Enter sends chat immediately and Shift+Enter only inserts a newline',async({page})=>{
+  await approvalFixture(page);
+  const input=page.locator('#ai-prompt');
+  await input.fill('4+5');
+  await input.press('Shift+Enter');
+  await expect(input).toHaveValue('4+5\n');
+  expect(await counts(page)).toEqual({aiCalls:0,writes:0});
+
+  await input.fill('4+5');
+  await input.press('Enter');
+  await expect(input).toHaveValue('');
+  await expect(page.locator('.ai-transcript .ai-assistant').last()).toContainText('9');
+  expect(await counts(page)).toEqual({aiCalls:0,writes:0});
+
+  await input.fill('10+2');
+  await input.press('Control+Enter');
+  await expect(input).toHaveValue('');
+  await expect(page.locator('.ai-transcript .ai-assistant').last()).toContainText('12');
+  expect(await counts(page)).toEqual({aiCalls:0,writes:0});
+});
+
+
+
+
+const RESOURCE_CHAT_FIXTURE="\nimport './style.css';\nimport {createAiAssistant} from './components/ai-assistant.js';\nconst resources=[],calls=[],imports=[],responses=[];\nconst state={view:'resources',projectId:null,estimateId:null,projects:[],estimates:[],\n  resources,lines:[],sections:[],database:{scope:'test-resources'},remoteProject:false};\nconst invoke=async(name,args={})=>{\n calls.push({name,args:structuredClone(args)});\n if(name==='ai_status')return {provider:'openai',model:'test-model',configured:true};\n if(name==='ai_catalog_context')return {currency:'ARS',as_of:args.asOf,resources:structuredClone(resources)};\n if(name==='import_resources'){\n  imports.push(structuredClone(args));\n  for(const row of args.rows)resources.push({...row,id:crypto.randomUUID()});\n  return {created:args.rows.length,resource_ids:args.rows.map(()=>crypto.randomUUID())};\n }\n if(name==='ai_chat'){\n  if(!responses.length)throw Error('No scripted AI reply left for this browser test');\n  return {text:JSON.stringify(responses.shift()),input_tokens:350,output_tokens:100};\n }\n if(name==='ai_cancel')return null;\n throw Error('Unexpected command '+name);\n};\nlet reloads=0,renders=0;\nconst assistant=createAiAssistant({invoke,state,document,window,editable:()=>false,\n loadEstimate:async()=>{},loadEstimates:async()=>{},openEstimate:async()=>{},\n reloadCatalog:async()=>{reloads++;},render:()=>{renders++;},openModal:()=>{}});\nwindow.__resourceChatHarness={state,resources,calls,imports,responses,assistant,\n get reloads(){return reloads;},get renders(){return renders;},ready:true};\n";
+const resourceTool=rows=>({answer:'Preparé una ficha para revisar.',tool_call:{name:'propose_resources',args:{rows}}});
+async function resourceHarness(page,responses){
+ await page.route('**/src/main.js*',route=>route.fulfill({contentType:'application/javascript',body:RESOURCE_CHAT_FIXTURE}));
+ await page.goto('/');
+ await page.waitForFunction(()=>window.__resourceChatHarness?.ready);
+ await page.evaluate(responses=>window.__resourceChatHarness.responses.push(...responses),responses);
+ await page.locator('.ai-launch').click();
+ await page.locator('[name=ai-consent]').check();
+}
+async function sayResource(page,question){
+ await page.locator('#ai-prompt').fill(question);
+ await page.locator('#ai-prompt').press('Enter');
+}
+test('model proposes normalized fence resources with grounded prices and native approval',async({page})=>{
+ const phrase='necesitamos cargar: Postes de madera de 3"x2.2m. Precio 17500 cada uno tejido romboidal 1500xm2 Mano de obra de Cercado Tipo subcontraro, 50.000 el m2';
+ const rows=[
+   {description:'Poste de madera 3" x 2,2 m',kind:'material',unit:'unidad',price:'17500',price_evidence:'Precio 17500 cada uno'},
+   {description:'Tejido romboidal',kind:'material',unit:'m²',price:'1500',price_evidence:'1500xm2'},
+   {description:'Servicio de cercado con tejido romboidal',kind:'subcontract',unit:'m²',price:'50000',price_evidence:'50.000 el m2'},
+ ];
+ await resourceHarness(page,[resourceTool(rows)]);
+ await sayResource(page,phrase);
+ await expect(page.locator('.ai-resource-chat-card li')).toHaveCount(3);
+ await expect(page.locator('.ai-resource-chat-card')).toContainText('17500 ARS');
+ await expect(page.locator('.ai-resource-chat-card')).toContainText('1500 ARS');
+ await expect(page.locator('.ai-resource-chat-card')).toContainText('50000 ARS');
+ await expect(page.locator('.ai-resource-chat-card')).toContainText('Subcontrato');
+ await expect(page.locator('[data-ai=approve-resources]')).toBeEnabled();
+ expect(await page.evaluate(()=>window.__resourceChatHarness.imports.length)).toBe(0);
+ await page.locator('[data-ai=approve-resources]').click();
+ await expect(page.locator('.ai-transcript')).toContainText('Guardado confirmado');
+ const imported=await page.evaluate(()=>window.__resourceChatHarness.imports);
+ expect(imported).toHaveLength(1);
+ expect(imported[0].rows.map(row=>[row.kind,row.unit,row.price])).toEqual([
+   ['material','unidad','17500'],['material','m²','1500'],['subcontract','m²','50000']
+ ]);
+ const prompts=await page.evaluate(()=>window.__resourceChatHarness.calls.filter(c=>c.name==='ai_chat'));
+ expect(prompts).toHaveLength(1);
+ expect(prompts[0].args.context).toContain('Biblioteca general de insumos');
+ expect(prompts[0].args.context).toContain('propose_resources');
+});
+test('discarding a resource proposal ends the task without any native import',async({page})=>{
+ const row={description:'Tensor de acero',kind:'material',unit:'unidad',price:null};
+ await resourceHarness(page,[resourceTool([row])]);
+ await sayResource(page,'Prepará un tensor de acero por unidad');
+ await expect(page.locator('.ai-resource-chat-card li')).toHaveCount(1);
+ await page.locator('[data-ai=discard-resources]').click();
+ await expect(page.locator('.ai-resource-chat-card')).toHaveCount(0);
+ await expect(page.locator('.ai-transcript')).toContainText('No se guardó nada');
+ await expect(page.locator('.ai-transcript')).not.toContainText('Prepará un tensor');
+ expect(await page.evaluate(()=>window.__resourceChatHarness.imports.length)).toBe(0);
+});
+test('task retains early material requirements beyond five exchanges and ends on screen change',async({page})=>{
+ const anchor='Necesito insumos para cercado de terreno con tejido romboidal; considerar postes, grampas y tensores.';
+ const replies=Array.from({length:8},(_,i)=>({answer:'Continuamos el relevamiento; consulta '+(i+1)}));
+ await resourceHarness(page,replies);
+ await sayResource(page,anchor);
+ for(let i=0;i<6;i++)await sayResource(page,'Quiero avanzar sobre esta propuesta; detalle '+(i+1));
+ const calls=await page.evaluate(()=>window.__resourceChatHarness.calls.filter(c=>c.name==='ai_chat'));
+ expect(calls).toHaveLength(7);
+ const latest=calls.at(-1).args.messages;
+ expect(latest[0].content).toBe(anchor);
+ expect(latest.length).toBeGreaterThan(10); // No previous five-turn truncation.
+ await page.evaluate(()=>{
+   const harness=window.__resourceChatHarness;
+   harness.state.view='analyses';
+   harness.assistant.syncContext();
+ });
+ await expect(page.locator('.ai-transcript')).not.toContainText(anchor);
+ await expect(page.locator('.ai-transcript .ai-user')).toHaveCount(0);
+ expect(await page.evaluate(()=>window.__resourceChatHarness.imports.length)).toBe(0);
+});
+test('double-encoded resource tool JSON becomes an in-chat card and "bien cargalo" commits it once',async({page})=>{
+ const question='Agregame tejido romboidal xm2 el precio es de 1500xm2';
+ const row={description:'tejido romboidal',kind:'material',unit:'m2',price:'1500',
+   price_evidence:'tejido romboidal xm2 el precio es de 1500xm2'};
+ const structured={answer:'Preparando ficha para incorporar tejido romboidal con unidad m² y precio 1500 ARS por m².',
+   tool_call:{name:'propose_resources',args:{rows:[row]}}};
+ // Simulates providers that encode the tool response in a JSON string.
+ await resourceHarness(page,[JSON.stringify(structured)]);
+ await sayResource(page,question);
+ await expect(page.locator('.ai-resource-chat-card li')).toHaveCount(1);
+ await expect(page.locator('.ai-resource-chat-card')).toContainText('1500 ARS');
+ await expect(page.locator('[data-ai=approve-resources]')).toBeEnabled();
+ await expect(page.locator('.ai-transcript')).not.toContainText('"tool_call"');
+ expect(await page.evaluate(()=>window.__resourceChatHarness.imports.length)).toBe(0);
+ await sayResource(page,'bien cargalo');
+ await expect(page.locator('.ai-transcript')).toContainText('Guardado confirmado');
+ const saved=await page.evaluate(()=>window.__resourceChatHarness.imports);
+ expect(saved).toHaveLength(1);
+ const refreshed=await page.evaluate(()=>({
+   reloads:window.__resourceChatHarness.reloads,
+   renders:window.__resourceChatHarness.renders,
+   resources:window.__resourceChatHarness.state.resources
+ }));
+ expect(refreshed.reloads).toBe(1);
+ expect(refreshed.renders).toBe(1);
+ expect(refreshed.resources.some(row=>row.description==='tejido romboidal')).toBe(true);
+ expect(saved[0].rows).toEqual([{
+  code:'',description:'tejido romboidal',kind:'material',unit:'m2',price:'1500'
+ }]);
+ const aiRequests=await page.evaluate(()=>window.__resourceChatHarness.calls.filter(c=>c.name==='ai_chat'));
+ expect(aiRequests).toHaveLength(1);
+});
+test('model revises a proposed batch without reintroducing excluded cement',async({page})=>{
+ const phrase='Poste de madera a 17500 cada uno y tejido romboidal a 1500 por m2';
+ const initial=[
+   {description:'Poste de madera',kind:'material',unit:'unidad',price:'17500',price_evidence:'17500 cada uno'},
+   {description:'Tejido romboidal',kind:'material',unit:'m²',price:'1500',price_evidence:'1500 por m2'},
+   {description:'Cemento para postes',kind:'material',unit:'bolsa',price:null},
+ ];
+ const revised=[
+   {description:'Poste de madera',kind:'material',unit:'unidad',price:'17500',draft_ref:'0'},
+   {description:'Tejido romboidal',kind:'material',unit:'m²',price:'1500',draft_ref:'1'}
+ ];
+ await resourceHarness(page,[resourceTool(initial),resourceTool(revised)]);
+ await sayResource(page,phrase);
+ await expect(page.locator('.ai-resource-chat-card li')).toHaveCount(3);
+ await sayResource(page,'quitá el cemento, ya lo tenemos');
+ await expect(page.locator('.ai-resource-chat-card li')).toHaveCount(2);
+ await expect(page.locator('.ai-resource-chat-card')).not.toContainText('Cemento para postes');
+ await expect(page.locator('.ai-resource-chat-card')).toContainText('17500 ARS');
+ await expect(page.locator('.ai-resource-chat-card')).toContainText('1500 ARS');
+ await expect(page.locator('[data-ai=approve-resources]')).toBeEnabled();
+ expect(await page.evaluate(()=>window.__resourceChatHarness.imports.length)).toBe(0);
+ await page.locator('[data-ai=approve-resources]').click();
+ await expect(page.locator('.ai-transcript')).toContainText('Guardado confirmado');
+ const imported=await page.evaluate(()=>window.__resourceChatHarness.imports);
+ expect(imported).toHaveLength(1);
+ expect(imported[0].rows).toHaveLength(2);
+});
+test('model receives prior recommendations and can propose the batch after "podés crearlos"',async({page})=>{
+ const recommended='Para cercado recomiendo postes, tejido romboidal, grampas y alambre de amarre.';
+ const items=[
+   {description:'Poste para cercado',kind:'material',unit:'unidad',price:null},
+   {description:'Tejido romboidal',kind:'material',unit:'m²',price:null},
+   {description:'Grampas galvanizadas',kind:'material',unit:'unidad',price:null},
+   {description:'Alambre de amarre',kind:'material',unit:'kg',price:null}
+ ];
+ await resourceHarness(page,[{answer:recommended},resourceTool(items)]);
+ await sayResource(page,'¿Qué insumos necesito para cercar un terreno con tejido romboidal?');
+ await expect(page.locator('.ai-transcript')).toContainText(recommended);
+ await sayResource(page,'podés crearlos');
+ await expect(page.locator('.ai-resource-chat-card li')).toHaveCount(4);
+ const calls=await page.evaluate(()=>window.__resourceChatHarness.calls.filter(c=>c.name==='ai_chat'));
+ expect(calls).toHaveLength(2);
+ expect(calls[1].args.messages.some(m=>String(m.content).includes(recommended))).toBe(true);
+ expect(await page.evaluate(()=>window.__resourceChatHarness.imports.length)).toBe(0);
+});
+
+test('phenolic board confirmation recovers malformed JSON using prior details and requires approval of the recovered card',async({page})=>{
+ const details='Tablero fenólico plastificado 2.44x1.22 es por unidad, o por placa, vale 80.000';
+ const row={description:'Tablero fenólico plastificado 2.44x1.22',kind:'material',unit:'placa',price:'80000',price_evidence:'vale 80.000'};
+ await resourceHarness(page,[
+  {answer:'No se encontraron insumos específicos en el catálogo.'},
+  {answer:'Confirmame si querés crear el insumo por placa a 80000 ARS.'},
+  '{"answer":"Preparando","tool_call":',
+  resourceTool([row])
+ ]);
+ await sayResource(page,'hay fenólicos plastificados para hormigón visto?');
+ await expect(page.locator('.ai-transcript')).toContainText('No se encontraron');
+ await sayResource(page,details);
+ await expect(page.locator('.ai-transcript')).toContainText('Confirmame');
+ await sayResource(page,'si');
+ await expect(page.locator('.ai-resource-chat-card')).toContainText('80000 ARS');
+ expect(await page.evaluate(()=>window.__resourceChatHarness.imports)).toHaveLength(0);
+ const calls=await page.evaluate(()=>window.__resourceChatHarness.calls.filter(c=>c.name==='ai_chat'));
+ expect(calls).toHaveLength(4);
+ expect(calls[3].args.messages).toEqual(calls[2].args.messages);
+ expect(calls[3].args.messages.some(m=>m.content===details)).toBe(true);
+ await sayResource(page,'si');
+ await expect(page.locator('.ai-transcript')).toContainText('Guardado confirmado');
+ const result=await page.evaluate(()=>({imports:window.__resourceChatHarness.imports,calls:window.__resourceChatHarness.calls.filter(c=>c.name==='ai_chat').length}));
+ expect(result.calls).toBe(4);
+ expect(result.imports).toHaveLength(1);
+ expect(result.imports[0].rows[0]).toMatchObject({description:row.description,unit:'placa',price:'80000'});
+});
+
+test('malformed replies retry once and never import resources when recovery also fails',async({page})=>{
+ await resourceHarness(page,['{"answer":','{"answer":']);
+ await sayResource(page,'Prepará un insumo para revisar');
+ await expect(page.locator('.ai-transcript')).toContainText('respuesta estructurada inválida');
+ expect(await page.evaluate(()=>window.__resourceChatHarness.calls.filter(c=>c.name==='ai_chat').length)).toBe(2);
+ expect(await page.evaluate(()=>window.__resourceChatHarness.imports)).toHaveLength(0);
+ await expect(page.locator('.ai-resource-chat-card')).toHaveCount(0);
+});

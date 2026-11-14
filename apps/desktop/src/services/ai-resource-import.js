@@ -77,3 +77,61 @@ export function parseAiResourceProposals(response,existing=[]){
  });
  return reviewAiResourceRows(rows,existing);
 }
+
+
+// The model, not regexes over user sentences, interprets resource creation.
+function canonicalQuotedMoney(token){
+ const raw=String(token).trim();
+ if(!/^\d{1,12}(?:[.,]\d{1,3})*$/.test(raw))return null;
+ let normalized=raw;
+ if(/^\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?$/.test(raw))normalized=raw.replace(/\./g,'').replace(',','.');
+ else if(/^\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?$/.test(raw))normalized=raw.replace(/,/g,'');
+ else normalized=raw.replace(',','.');
+ return /^\d{1,12}(?:\.\d{1,2})?$/.test(normalized)?normalized:null;
+}
+function priceHasUserEvidence(price,quote,userMessages){
+ if(typeof quote!=='string'||!quote.trim()||quote.length>180||!Array.isArray(userMessages))return false;
+ const evidence=quote.trim();
+ if(!userMessages.some(message=>typeof message==='string'&&message.includes(evidence)))return false;
+ return (evidence.match(/\d[\d.,]*/g)||[]).some(token=>canonicalQuotedMoney(token)===price);
+}
+const allowedDecisions=new Set(['propose','approve','discard','answer']);
+const resourceKinds=new Set(['material','labor','equipment','subcontract']);
+/** An IA intent plus proposals, not a writing permission. Prices must cite user input. */
+export function readResourceModelDecision(response,{userMessages=[],priorDraft=[],existing=[]}={}){
+ if(typeof response!=='string'||response.length>100000)throw new Error('La respuesta de insumos es demasiado extensa');
+ let value;
+ try{value=JSON.parse(response.trim().replace(/^\x60{3}(?:json)?\s*/i,'').replace(/\s*\x60{3}$/,''));}
+ catch{throw new Error('La IA no entregó una propuesta JSON válida. No se guardó nada.');}
+ if(!object(value))throw new Error('La IA no entregó una decisión estructurada.');
+ const action=value.action||(Array.isArray(value.resource_proposals)?'propose':'answer');
+ if(!allowedDecisions.has(action)||typeof value.answer!=='string')throw new Error('Respuesta de IA incompleta o con acción no permitida.');
+ if(action!=='propose')return {action,answer:value.answer};
+ validateRows(value.resource_proposals);
+ const result=value.resource_proposals.map((source,index)=>{
+   if(!object(source)||Object.keys(source).some(key=>!['description','kind','unit','price','price_evidence','draft_ref','note'].includes(key)))
+     throw new Error('Insumo '+(index+1)+': campos no permitidos.');
+   const description=text(source.description);
+   const kind=text(source.kind);
+   const unit=text(source.unit);
+   if(description.length>500||unit.length>50||kind&&!resourceKinds.has(kind))throw new Error('Insumo '+(index+1)+': descripción, tipo o unidad inválidos.');
+   if(source.price!=null&&typeof source.price!=='string')throw new Error('Insumo '+(index+1)+': precio debe ser texto decimal.');
+   let price=null,warnings=[];
+   if(source.price!=null&&source.price!==''){
+     const normalized=canonicalQuotedMoney(source.price);
+     if(!normalized)throw new Error('Insumo '+(index+1)+': precio no válido.');
+     const ref=source.draft_ref;
+     const previous=typeof ref==='string'&&/^(?:0|[1-9]\d{0,2})$/.test(ref)?priorDraft[Number(ref)]:null;
+     if(priceHasUserEvidence(normalized,source.price_evidence,userMessages)
+       ||previous&&previous.price===normalized){
+       price=normalized;
+     }else{
+       warnings.push('Precio no incorporado: falta una cita literal del valor indicado por vos.');
+     }
+   }
+   if(source.note!=null&&typeof source.note!=='string')throw new Error('Insumo '+(index+1)+': nota no válida.');
+   if(source.note)warnings.push(String(source.note).slice(0,200));
+   return {description,kind,unit,price,selected:false,...(warnings.length?{warnings}:{})};
+ });
+ return {action:'propose',answer:value.answer,rows:result,review:reviewAiResourceRows(result,existing)};
+}

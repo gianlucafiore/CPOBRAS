@@ -1,4 +1,5 @@
 import {parsePlan,changeProposals} from "./ai-budget-import.js";
+import {sumDecimals,multiplyDecimals,divideDecimals} from "../decimal.js";
 import {parseBudgetToolCall} from './ai-budget-tools.js';
 const acuUuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function readAcuRequest(raw){
@@ -228,17 +229,294 @@ export function materialAdditionConfirmation(question,messages=[],context={}){
  return materialAdditionFollowup(request.content,messages,context);
 }
 
+// Some local models return Python-style quoted objects instead of JSON.
+// Accept only a complete, small tool-call object. Convert strings; NEVER eval.
+function parseSingleQuotedToolObject(source) {
+  if (source.length>6000 || !source.startsWith("{") || !/'tool_call'\s*:/.test(source)) return null;
+  let json="",quote="",escaped=false;
+  for(const char of source){
+    if(quote==="single"){
+      if(escaped){
+        if(char==="'")json+="'";
+        else if(char==='"')json+='\\"';
+        else if(char==="\\")json+="\\\\";
+        else if("nrtbf".includes(char))json+="\\"+char;
+        else return null;
+        escaped=false;
+      }else if(char==="\\")escaped=true;
+      else if(char==="'"){json+='"';quote="";}
+      else if(char==='"')json+='\\"';
+      else if(char.charCodeAt(0)<32)return null;
+      else json+=char;
+    }else if(quote==="double"){
+      if(escaped){json+="\\"+char;escaped=false;}
+      else if(char==="\\")escaped=true;
+      else {json+=char;if(char==='"')quote="";}
+    }else{
+      if(char==="'"){json+='"';quote="single";}
+      else if(char==='"'){json+='"';quote="double";}
+      else json+=char;
+    }
+  }
+  if(quote||escaped)return null;
+  try{
+    const parsed=JSON.parse(json);
+    return parsed&&typeof parsed==="object"&&!Array.isArray(parsed)&&Object.hasOwn(parsed,"tool_call")?parsed:null;
+  }catch{return null;}
+}
+
+/**
+ * Display formatting only: turn a response that contains JUST an "answer"
+ * into prose. Never interpret other JSON shapes, commands or proposals here.
+ * This is deliberately separate from the validated tool-call parser.
+ */
+export function answerForDisplay(raw){
+  if(typeof raw!=="string"||raw.length>12000)return raw;
+  let candidate=raw.trim();
+  for(let attempt=0;attempt<2;attempt++){
+    let parsed;
+    try{parsed=JSON.parse(candidate);}catch{return raw;}
+    if(typeof parsed==="string"){candidate=parsed.trim();continue;}
+    if(parsed&&typeof parsed==="object"&&!Array.isArray(parsed)&&
+      Object.keys(parsed).length===1&&typeof parsed.answer==="string"){
+      return parsed.answer;
+    }
+    return raw;
+  }
+  return raw;
+}
+
+// Floating console geometry is bounded by the visible viewport. Pure functions
+// keep pointer behavior testable without the browser or a model connection.
+export function aiConsoleRectLimits(viewport){
+  const width=Math.max(160,Number(viewport?.width)||1280),height=Math.max(160,Number(viewport?.height)||800);
+  return {margin:8,width,height,minWidth:Math.min(400,width-16),minHeight:Math.min(280,height-16)};
+}
+export function fitAiConsoleRect(rect,viewport){
+  const {margin,width:screenW,height:screenH,minWidth,minHeight}=aiConsoleRectLimits(viewport);
+  const finite=(x,fallback)=>Number.isFinite(x)?x:fallback;
+  const w=Math.max(minWidth,Math.min(screenW-2*margin,finite(rect?.width,minWidth)));
+  const h=Math.max(minHeight,Math.min(screenH-2*margin,finite(rect?.height,minHeight)));
+  return {
+    left:Math.round(Math.max(margin,Math.min(screenW-margin-w,finite(rect?.left,margin)))),
+    top:Math.round(Math.max(margin,Math.min(screenH-margin-h,finite(rect?.top,margin)))),
+    width:Math.round(w),height:Math.round(h)
+  };
+}
+export function moveResizeAiConsoleRect(rect,edge,deltaX,deltaY,viewport){
+  const initial=fitAiConsoleRect(rect,viewport),l=aiConsoleRectLimits(viewport);
+  const dx=Number.isFinite(deltaX)?deltaX:0,dy=Number.isFinite(deltaY)?deltaY:0;
+  if(edge==="move")return fitAiConsoleRect({...initial,left:initial.left+dx,top:initial.top+dy},viewport);
+  if(!/^(?:n|s|e|w|ne|nw|se|sw)$/.test(edge))return initial;
+  let x1=initial.left,x2=initial.left+initial.width;
+  let y1=initial.top,y2=initial.top+initial.height;
+  if(edge.includes("w"))x1=Math.min(x2-l.minWidth,Math.max(l.margin,x1+dx));
+  if(edge.includes("e"))x2=Math.min(l.width-l.margin,Math.max(x1+l.minWidth,x2+dx));
+  if(edge.includes("n"))y1=Math.min(y2-l.minHeight,Math.max(l.margin,y1+dy));
+  if(edge.includes("s"))y2=Math.min(l.height-l.margin,Math.max(y1+l.minHeight,y2+dy));
+  return fitAiConsoleRect({left:x1,top:y1,width:x2-x1,height:y2-y1},viewport);
+}
+export function aiConsoleTransparency(value){
+  const number=Number(value);
+  return Number.isFinite(number)?Math.max(0,Math.min(80,Math.round(number))):0;
+}
+
+// Powers of ten relative to each dimension's base unit (m, m², m³, g).
+// These calculations use decimal strings; no LLM or floating-point conversion.
+const UNIT_CONVERSION_DEFINITIONS=[
+  ["mm","mm","length",-3,"milimetro","milimetros"],
+  ["cm","cm","length",-2,"centimetro","centimetros"],
+  ["dm","dm","length",-1,"decimetro","decimetros"],
+  ["m","m","length",0,"metro","metros","metro lineal","metros lineales"],
+  ["km","km","length",3,"kilometro","kilometros"],
+  ["mm2","mm²","area",-6,"milimetro cuadrado","milimetros cuadrados"],
+  ["cm2","cm²","area",-4,"centimetro cuadrado","centimetros cuadrados"],
+  ["dm2","dm²","area",-2,"decimetro cuadrado","decimetros cuadrados"],
+  ["m2","m²","area",0,"metro cuadrado","metros cuadrados"],
+  ["ha","ha","area",4,"hectarea","hectareas"],
+  ["km2","km²","area",6,"kilometro cuadrado","kilometros cuadrados"],
+  ["mm3","mm³","volume",-9,"milimetro cubico","milimetros cubicos"],
+  ["cm3","cm³","volume",-6,"centimetro cubico","centimetros cubicos"],
+  ["dm3","dm³","volume",-3,"decimetro cubico","decimetros cubicos"],
+  ["m3","m³","volume",0,"metro cubico","metros cubicos"],
+  ["km3","km³","volume",9,"kilometro cubico","kilometros cubicos"],
+  ["ml","mL","volume",-6,"mililitro","mililitros"],
+  ["l","L","volume",-3,"litro","litros"],
+  ["mg","mg","mass",-3,"miligramo","miligramos"],
+  ["g","g","mass",0,"gramo","gramos"],
+  ["kg","kg","mass",3,"kilogramo","kilogramos","kilo","kilos"],
+  ["t","t","mass",6,"tonelada","toneladas"]
+];
+const normalizedUnitLabel=text=>String(text).replace(/[²]/g,"2").replace(/[³]/g,"3")
+  .normalize("NFKD").replace(/[\u0300-\u036f]/g,"").trim().toLowerCase().replace(/\s+/g," ");
+const unitDefinitionsByName=new Map(
+  UNIT_CONVERSION_DEFINITIONS.flatMap(([code,symbol,dimension,power,...aliases])=>
+    [code,...aliases].map(label=>[normalizedUnitLabel(label),{code,symbol,dimension,power}]))
+);
+const formatUnitValue=value=>{
+  const [integer,fraction]=String(value).split(".");
+  const negative=integer.startsWith("-");
+  const grouped=(negative?integer.slice(1):integer).replace(/\B(?=(\d{3})+(?!\d))/g,".");
+  return (negative?"-":"")+grouped+(fraction?","+fraction:"");
+};
+/** Direct, reversible unit conversions. Dimensions must match. */
+export function simpleUnitConversionAnswer(question){
+  if(typeof question!=="string"||question.length>130)return null;
+  const match=/^\s*(?:(?:convert[ií](?:r|me)?|pas[aá](?:r|me)?)\s+)?([+-]?\d{1,15}(?:[.,]\d{1,8})?)\s+(.+?)\s+(?:a|en|→)\s+(.+?)\s*[?.]?\s*$/iu.exec(question);
+  if(!match)return null;
+  const source=unitDefinitionsByName.get(normalizedUnitLabel(match[2]));
+  const target=unitDefinitionsByName.get(normalizedUnitLabel(match[3]));
+  if(!source||!target)return null;
+  if(source.dimension!==target.dimension){
+    return "No se pueden convertir "+source.symbol+" a "+target.symbol+" directamente: son magnitudes físicas diferentes.";
+  }
+  const input=match[1].replace(",",".");
+  const exponent=source.power-target.power;
+  const factor="1"+"0".repeat(Math.abs(exponent));
+  try{
+    const output=exponent>=0?multiplyDecimals(input,factor):divideDecimals(input,factor,30);
+    return formatUnitValue(input)+" "+source.symbol+" = "+formatUnitValue(output)+" "+target.symbol+".";
+  }catch{return null;}
+}
+
+/**
+ * Exact calculations never need model inference. Uses decimal-string math to
+ * avoid floating point surprises in estimation workflows.
+ */
+export function simpleArithmeticAnswer(question){
+  if(typeof question!=="string"||question.length>65)return null;
+  const found=/^\s*([+-]?\d{1,12}(?:[.,]\d{1,6})?)\s*([+\-*/×÷])\s*([+-]?\d{1,12}(?:[.,]\d{1,6})?)\s*[?¿]?\s*$/.exec(question);
+  if(!found)return null;
+  const left=found[1].replace(",","."),right=found[3].replace(",",".");
+  try{
+    let result;
+    switch(found[2]){
+      case "+":result=sumDecimals([left,right]);break;
+      case "-":result=sumDecimals([left,right.startsWith("-")?right.slice(1):"-"+right.replace(/^\+/,"")]);break;
+      case "*":case "×":result=multiplyDecimals(left,right);break;
+      case "/":case "÷":result=divideDecimals(left,right,8);break;
+      default:return null;
+    }
+    return result.replace(/(\.\d*?)0+$/,"$1").replace(/\.$/,"");
+  }catch(error){
+    if(found[2]==="/"||found[2]==="÷")return "No se puede dividir por cero.";
+    return null;
+  }
+}
+
+/**
+ * Recognize one explicit, well-scoped sanitary installation line. This yields
+ * a review card only, NOT an ACU recipe or a saved record. No quantities or
+ * prices are fabricated. More general construction asks go through the model.
+ */
+function parseLineDescriptionUnit(source){
+  const text=source.trim().replace(/[.!]+$/,"").trim();
+  const match=/^(.{6,250}?)\s*(?:[,;]\s*|\s+)(?:(?:medid[oa]\s+)?(?:en|por|unidad(?:\s+de\s+medida)?\s*[:=]?))\s*(m2|m²|m3|m³|m|ml|kg|u|un|unidad(?:es)?|h|hora(?:s)?|d[ií]a(?:s)?|metros?\s+cuadrados?|metros?\s+c[uú]bicos?|metros?\s+lineales?)$/iu.exec(text);
+  if(!match)return null;
+  const description=match[1].trim();
+  if(!/[a-záéíóúñ]{3}/iu.test(description)||/[?{}[\]\\]/.test(description))return null;
+  const unitInput=chatFold(match[2]).replace(/\s+/g," ");
+  const unit=({m2:"m²",m3:"m³",m:"m",ml:"m",kg:"kg",u:"unidad",un:"unidad",unidad:"unidad",unidades:"unidad",h:"h",hora:"h",horas:"h",dia:"día",dias:"día",
+    "metro cuadrado":"m²","metros cuadrados":"m²","metro cubico":"m³","metros cubicos":"m³","metro lineal":"m","metros lineales":"m"})[unitInput];
+  if(!unit)return null;
+  const proposal=parseAiReply(JSON.stringify({answer:"",proposal:{kind:"line",description,unit}})).proposal;
+  return proposal?.kind==="line"?proposal:null;
+}
+
+export function lineProposalFromDirectRequest(question){
+  if(typeof question!=="string"||question.length>500)return null;
+  const direct=/^\s*(?:cre[aá](?:r|me)?|gener[aá](?:r|me)?|agreg[aá](?:r|me)?|carg[aá](?:r|me)?|prepar[aá](?:r|me)?)\s+(?:un[ao]?\s+)?partida\s+(?:de|con|para)\s+(.{6,300})$/iu.exec(question.trim());
+  if(direct){
+    const withUnit=parseLineDescriptionUnit(direct[1]);
+    if(withUnit)return withUnit;
+  }
+  const folded=chatFold(question);
+  if(!/\b(?:crea|crear|creame|generar|genera|agrega|agregar|carga|cargar|prepara|preparar)\b/.test(folded)
+    || !/\bpartida\b/.test(folded)
+    || !/\b(?:instalacion|colocacion|montaje)\b/.test(folded)
+    || !/\bsanitarios?\b/.test(folded)
+    || !/\b(?:inodoro|indoro)\b/.test(folded)
+    || !/\bbidet\b/.test(folded)
+    || /\b(?:elimina|borra|actualiza|edita|modifica|reemplaza)\b/.test(folded))return null;
+  return parseAiReply(JSON.stringify({answer:"",proposal:{
+    kind:"line",description:"Instalación de sanitarios: inodoro y bidet",unit:"conjunto",
+  }})).proposal;
+}
+
+/**
+ * Complete an explicit budget-line clarification using only USER-supplied
+ * description and unit. Produces an in-chat review card, never a database
+ * write, an ACU, or invented quantities/prices.
+ */
+export function lineProposalFromClarification(question,messages=[]){
+  if(typeof question!=="string"||question.length>500||!Array.isArray(messages)||!messages.length)return null;
+  const previous=messages.at(-1);
+  if(previous?.role!=="assistant"||previous.proposal||previous.planRows||previous.acuRequest||previous.libraryAcus||previous.approval||previous.actionError)return null;
+  const assistant=chatFold(messageText(previous));
+  const asksForDefinition=/(?:descripcion|trabajo|nombre)/.test(assistant)&&/(?:unidad|medida)/.test(assistant);
+  const lineRequest=/(?:partida|linea|presupuesto)/.test(assistant)&&/(?:propon|prepar|agreg|carg|crea)/.test(assistant);
+  if(!asksForDefinition||!lineRequest)return null;
+  return parseLineDescriptionUnit(question);
+}
+
 // Only this allowlist can become a draft. Never execute model output as code/HTML.
+// Some providers serialize the structured tool response twice, or put it
+// inside a sole "answer" string. Unwrap only complete JSON documents and at
+// most three layers, then validate every operation with the normal allowlist.
+// Never scan prose for JSON fragments or evaluate generated code.
+function parseAiEnvelope(raw){
+  if(typeof raw!=="string"||raw.length>100000)return null;
+  let source=raw.trim();
+  for(let depth=0;depth<3;depth++){
+    const clean=source.replace(/^```(?:json|python)?\s*/i,"").replace(/\s*```$/,"");
+    let value;
+    try{value=JSON.parse(clean);}catch{value=parseSingleQuotedToolObject(clean);}
+    if(typeof value==="string"){source=value.trim();continue;}
+    if(!value||typeof value!=="object"||Array.isArray(value))return null;
+    if(Object.keys(value).length===1&&typeof value.answer==="string"){
+      const embedded=value.answer.trim();
+      // Don't reinterpret a human explanation containing a JSON example:
+      // only a complete structured object in the answer field can be unwrapped.
+      if(embedded.startsWith("{")||embedded.startsWith("```")){
+        let inner;
+        try{inner=JSON.parse(embedded.replace(/^```(?:json)?\s*/i,"").replace(/\s*```$/,""));}
+        catch{inner=null;}
+        if(inner&&typeof inner==="object"&&!Array.isArray(inner)&&
+          (Object.hasOwn(inner,"tool_call")||Object.hasOwn(inner,"resource_proposals"))){
+          source=embedded;continue;
+        }
+      }
+    }
+    return value;
+  }
+  return null;
+}
+
 export function parseAiReply(text) {
-  let value;
-  try { value=JSON.parse(text.trim().replace(/^```(?:json)?\s*/i,"").replace(/\s*```$/,"")); } catch { return {answer:text,proposal:null}; }
-  if (!value || typeof value!=="object" || typeof value.answer!=="string") return {answer:text,proposal:null};
+  const value=parseAiEnvelope(text);
+  if(!value){
+    // An attempted structured reply must never leak its raw tool JSON into
+    // the conversation or be mistaken for a prepared, approvable operation.
+    const source=typeof text==="string"?text.trim():"";
+    if(source.startsWith("{")||source.startsWith('"{')||source.startsWith("```json"))
+      return {answer:"La IA devolvió una respuesta estructurada inválida. No se preparó ninguna ficha ni se guardó nada. Reformulá el pedido para generar la propuesta.",
+        proposal:null,actionError:"JSON de respuesta inválido o incompleto."};
+    return {answer:text,proposal:null};
+  }
   if(Object.hasOwn(value,'tool_call')){
-    // Tool calls are read-only and explicitly whitelisted; malformed or
-    // unsupported instructions never become an action.
+    // A model-suggested tool is never executed as code: only the typed allowlist is accepted.
     const toolCall=parseBudgetToolCall(value.tool_call);
     if(!toolCall)return {answer:'No se pudo interpretar la consulta. Reformulá el cálculo o análisis solicitado.',proposal:null,actionError:'Herramienta no permitida o parámetros incompletos.'};
-    return {answer:value.answer,proposal:null,toolCall};
+    return {answer:typeof value.answer==="string"?value.answer:"Solicitud de consulta interpretada.",proposal:null,toolCall};
+  }
+  if(typeof value.answer!=="string")return {answer:text,proposal:null};
+  // Some providers return the same structured resource proposal without a
+  // tool_call wrapper. It is still just a model-authored review, never a write.
+  if(Object.hasOwn(value,'resource_proposals')){
+    if(!Array.isArray(value.resource_proposals))
+      return {answer:'La IA no devolvió una lista válida de insumos.',proposal:null,
+        actionError:'resource_proposals debe ser una lista.'};
+    return {answer:value.answer,proposal:null,resourceProposals:value.resource_proposals};
   }
   if(Object.hasOwn(value,'acu_request')){
     try{return {answer:value.answer,proposal:null,acuRequest:readAcuRequest(value.acu_request)};}

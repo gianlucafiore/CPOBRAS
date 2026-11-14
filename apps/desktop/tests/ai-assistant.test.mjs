@@ -1,11 +1,124 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {parseAiReply,draftFromProposal,createAiRequest,budgetScreenContext,acuChatRequest,resolvedPendingApproval,isApprovalReply,materialAdditionFollowup,materialAdditionConfirmation,selectedAcuRequest,affirmativeMissingMaterialRequest,contextualAcuLine,availableCatalogFollowup} from '../src/services/ai-assistant.js';
+import {parseAiReply,draftFromProposal,lineProposalFromClarification,lineProposalFromDirectRequest,simpleArithmeticAnswer,fitAiConsoleRect,moveResizeAiConsoleRect,aiConsoleTransparency,answerForDisplay,createAiRequest,budgetScreenContext,acuChatRequest,resolvedPendingApproval,isApprovalReply,materialAdditionFollowup,materialAdditionConfirmation,selectedAcuRequest,affirmativeMissingMaterialRequest,contextualAcuLine,availableCatalogFollowup} from '../src/services/ai-assistant.js';
+test('floating AI console can move, resize by every border and stay inside viewport',()=>{
+  const viewport={width:1200,height:800};
+  const start={left:100,top:100,width:600,height:400};
+  assert.deepEqual(fitAiConsoleRect(start,viewport),start);
+  assert.deepEqual(moveResizeAiConsoleRect(start,'move',200,140,viewport),
+    {left:300,top:240,width:600,height:400});
+  assert.deepEqual(moveResizeAiConsoleRect(start,'w',150,0,viewport),
+    {left:250,top:100,width:450,height:400});
+  assert.deepEqual(moveResizeAiConsoleRect(start,'e',150,0,viewport),
+    {left:100,top:100,width:750,height:400});
+  assert.deepEqual(moveResizeAiConsoleRect(start,'n',0,100,viewport),
+    {left:100,top:200,width:600,height:300});
+  assert.deepEqual(moveResizeAiConsoleRect(start,'s',0,100,viewport),
+    {left:100,top:100,width:600,height:500});
+  assert.deepEqual(moveResizeAiConsoleRect(start,'nw',70,70,viewport),
+    {left:170,top:170,width:530,height:330});
+  assert.deepEqual(moveResizeAiConsoleRect(start,'ne',70,70,viewport),
+    {left:100,top:170,width:670,height:330});
+  assert.deepEqual(moveResizeAiConsoleRect(start,'sw',70,70,viewport),
+    {left:170,top:100,width:530,height:470});
+  assert.deepEqual(moveResizeAiConsoleRect(start,'se',70,70,viewport),
+    {left:100,top:100,width:670,height:470});
+  // Invalid stored positions and large moves never strand the console.
+  assert.deepEqual(fitAiConsoleRect({left:-10000,top:9000,width:6000,height:9000},viewport),
+    {left:8,top:8,width:1184,height:784});
+  const edge=moveResizeAiConsoleRect(start,'move',50000,50000,viewport);
+  assert.deepEqual(edge,{left:592,top:392,width:600,height:400});
+  const small=fitAiConsoleRect(start,{width:330,height:270});
+  assert.deepEqual(small,{left:8,top:8,width:314,height:254});
+  const west=moveResizeAiConsoleRect(start,'w',1000,0,viewport);
+  assert.equal(west.width,400);
+  assert.equal(west.left,300);
+  const north=moveResizeAiConsoleRect(start,'n',0,1000,viewport);
+  assert.equal(north.height,280);
+  assert.equal(north.top,220);
+  assert.deepEqual(moveResizeAiConsoleRect(start,'invalid',12,20,viewport),start);
+});
+test('floating console transparency is limited to 0–80 percent',()=>{
+  for(const [input,expected] of [[0,0],[35,35],[80,80],[120,80],[-10,0],[null,0],['55',55],['bad',0]]){
+    assert.equal(aiConsoleTransparency(input),expected);
+  }
+});
 test('unstructured responses remain text; only whitelisted proposals become drafts',()=>{
   assert.deepEqual(parseAiReply('<script>bad()</script>'),{answer:'<script>bad()</script>',proposal:null});
   const reply=parseAiReply(JSON.stringify({answer:'Revisá este borrador',proposal:{kind:'line',description:'Excavación',unit:'m³',quantity:'15.25',unit_price:'30000',id:'existing-id',execute:'delete',sectionId:'secret'}}));
   assert.deepEqual(draftFromProposal(reply.proposal),{kind:'line',record:{description:'Excavación',unit:'m³',quantity:'15.25',unit_cost:'30000'}});
   assert.equal('id' in reply.proposal,false);
+});
+test('Bonsai single-quoted tool calls are parsed and validated instead of printed',()=>{
+  const raw="{'tool_call': {'name': 'describe_capabilities', 'args': {'module': 'all'}}}";
+  const parsed=parseAiReply(raw);
+  assert.deepEqual(parsed.toolCall,{name:'describe_capabilities',args:{module:'all'}});
+  assert.equal(parsed.proposal,null);
+  assert.equal(parsed.answer,'Solicitud de consulta interpretada.');
+  assert.ok(!parsed.answer.includes('tool_call'));
+
+  const withAnswer=parseAiReply("{'answer': 'Consulto la capacidad del programa', 'tool_call': {'name': 'describe_capabilities', 'args': {'module': 'all'}}}");
+  assert.deepEqual(withAnswer.toolCall,parsed.toolCall);
+  assert.equal(withAnswer.answer,'Consulto la capacidad del programa');
+  const fenced=parseAiReply("```python\n{'tool_call': {'name': 'describe_capabilities', 'args': {'module': 'all'}}}\n```");
+  assert.deepEqual(fenced.toolCall,parsed.toolCall);
+
+  // The conversion never evaluates expressions, and only whitelisted tools survive.
+  for(const unsafe of [
+    "{'tool_call': {'name': 'delete_database', 'args': {}}}",
+    "{'tool_call': {'name': 'describe_capabilities', 'args': {'module': 'unknown'}}}",
+    "{'tool_call': {'name': 'describe_capabilities', 'args': {'module': 'all'}}}; process.exit(1)",
+    "{'tool_call': {'name': 'describe_capabilities', 'args': {'module': 'all'}}, 'answer': (function(){throw 1})()}",
+  ]){
+    assert.equal(parseAiReply(unsafe).toolCall,undefined,unsafe);
+  }
+  assert.deepEqual(parseAiReply('Hola, puedo ayudarte.'),{answer:'Hola, puedo ayudarte.',proposal:null});
+  const incomplete=parseAiReply("{'proposal': {'kind':'line','description':'Falso'}}");
+  assert.equal(incomplete.toolCall,undefined);
+  assert.match(incomplete.actionError,/JSON de respuesta inválido/);
+  assert.ok(!incomplete.answer.includes('proposal'));
+  assert.deepEqual(parseAiReply('{"tool_call":{"name":"describe_capabilities","args":{"module":"all"}}}').toolCall,parsed.toolCall);
+});
+
+test('creates an in-chat review card from the exact masonry clarification',()=>{
+  const history=[{role:'user',content:'podés cargarme una partida de mampostería'},
+    {role:'assistant',answer:'Necesito que me des más detalles para poder cargar la partida de mampostería. Para hacer esto, necesito saber: 1. La descripción específica del trabajo. 2. La unidad de medida. Una vez que me des esta información, puedo proponer la línea para tu presupuesto.'}];
+  const draft=lineProposalFromClarification('mampostería de ladrillo hueco, en m2',history);
+  assert.deepEqual(draft,{kind:'line',description:'mampostería de ladrillo hueco',unit:'m²'});
+  assert.equal('quantity' in draft,false);
+  assert.equal('unit_price' in draft,false);
+  assert.equal(lineProposalFromClarification('mampostería de ladrillo hueco',history),null);
+  assert.equal(lineProposalFromClarification('mampostería de ladrillo hueco, en m2',history.concat({role:'assistant',answer:'ACU creado',approval:{committed:true}})),null);
+  assert.equal(lineProposalFromClarification('mampostería de ladrillo hueco, en m2',[{role:'assistant',answer:'Revisá este rubro',proposal:{kind:'line'}}]),null);
+});
+test('offers a single sanitary installation line without inventing price or quantity',()=>{
+  const parsed=lineProposalFromDirectRequest('crear partida con instalación de sanitarios indoro y bidet');
+  assert.deepEqual(parsed,{kind:'line',description:'Instalación de sanitarios: inodoro y bidet',unit:'conjunto'});
+  assert.equal('quantity' in parsed,false);
+  assert.equal('unit_price' in parsed,false);
+  assert.deepEqual(lineProposalFromDirectRequest('creá una partida de mampostería de ladrillo hueco en m²'),{
+    kind:'line',description:'mampostería de ladrillo hueco',unit:'m²'
+  });
+  assert.deepEqual(lineProposalFromDirectRequest('crear partida de revoque fino en m2'),{
+    kind:'line',description:'revoque fino',unit:'m²'
+  });
+  for(const text of ['borrar partida con instalación de sanitarios inodoro y bidet',
+    'crear partida con instalación de sanitarios inodoro',
+    'instalación de sanitarios inodoro y bidet',
+    'creá partida de mampostería de 18 cm']){
+    assert.equal(lineProposalFromDirectRequest(text),null,text);
+  }
+});
+test('basic arithmetic and answer-only JSON are shown without an LLM call',()=>{
+  assert.equal(simpleArithmeticAnswer('4+85?'),'89');
+  assert.equal(simpleArithmeticAnswer('10-2'),'8');
+  assert.equal(simpleArithmeticAnswer('4*2,5'),'10');
+  assert.equal(simpleArithmeticAnswer('5/2'),'2.5');
+  assert.equal(simpleArithmeticAnswer('3/0'),'No se puede dividir por cero.');
+  assert.equal(simpleArithmeticAnswer('1;drop table'),null);
+  assert.equal(answerForDisplay('{"answer":"Aquí tienes una ficha"}'),'Aquí tienes una ficha');
+  assert.equal(answerForDisplay(JSON.stringify({answer:'La propuesta',tool_call:{name:'manage_sections'}})).includes('tool_call'),true);
+  assert.equal(answerForDisplay('Texto normal'),'Texto normal');
 });
 test('rejects money movements, negative values, locale ambiguity and invalid resource kinds',()=>{
   const valid={kind:'resource',description:'Cemento',unit:'kg'};
@@ -363,4 +476,53 @@ test('short natural replies reuse the current library advice, not every empty bu
  assert.equal(availableCatalogFollowup('agregá porcelanato a esta partida',advice),null);
  assert.equal(availableCatalogFollowup('agregá todo menos el adhesivo',advice),null);
  assert.equal(availableCatalogFollowup('si agregalos',{...advice,available:[]}),null);
+});
+
+test('models can return resource proposals as typed JSON even without a tool_call wrapper',()=>{
+ const rows=[
+  {description:'Tejido romboidal',kind:'material',unit:'m²',price:'1500',price_evidence:'1500xm2'}
+ ];
+ assert.deepEqual(parseAiReply(JSON.stringify({answer:'Preparé el tejido',resource_proposals:rows})),{
+  answer:'Preparé el tejido',proposal:null,resourceProposals:rows
+ });
+ const malformed=parseAiReply(JSON.stringify({answer:'Lista',resource_proposals:'not an array'}));
+ assert.match(malformed.actionError,/lista/);
+ assert.equal(malformed.proposal,null);
+ assert.equal(parseAiReply(JSON.stringify({answer:'Hola'})).answer,'Hola');
+});
+
+
+test('resource tool JSON is parsed as an action even if a provider serializes it twice',()=>{
+ const output={
+  answer:'Preparando ficha para incorporar tejido romboidal con unidad m² y precio 1500 ARS por m².',
+  tool_call:{name:'propose_resources',args:{rows:[{
+    description:'tejido romboidal',kind:'material',unit:'m2',
+    price:'1500',price_evidence:'tejido romboidal xm2 el precio es de 1500xm2'
+  }]}}
+ };
+ for(const result of [
+  JSON.stringify(output),
+  JSON.stringify(JSON.stringify(output)),
+  JSON.stringify({answer:JSON.stringify(output)}),
+  '\x60\x60\x60json\n'+JSON.stringify(output)+'\n\x60\x60\x60',
+ ]){
+  const parsed=parseAiReply(result);
+  assert.equal(parsed.answer,output.answer);
+  assert.equal(parsed.toolCall?.name,'propose_resources');
+  assert.deepEqual(parsed.toolCall?.args.rows,output.tool_call.args.rows);
+  assert.equal(parsed.actionError,undefined);
+ }
+});
+test('structured tool output never executes unknown or unsafe operations',()=>{
+ const invalid={answer:'Intento',tool_call:{name:'import_resources',args:{rows:[{description:'X',price:'500'}]}}};
+ for(const source of [JSON.stringify(invalid),JSON.stringify(JSON.stringify(invalid)),JSON.stringify({answer:JSON.stringify(invalid)})]){
+  const parsed=parseAiReply(source);
+  assert.equal(parsed.toolCall,undefined);
+  assert.match(parsed.actionError,/Herramienta no permitida/);
+ }
+ const prose='El ejemplo es '+JSON.stringify({answer:'No ejecutar',tool_call:{name:'propose_resources',args:{rows:[{description:'X'}]}}});
+ assert.equal(parseAiReply(prose).toolCall,undefined);
+ const malformed=parseAiReply('{"answer":"Preparando ficha","tool_call":not-valid}');
+ assert.match(malformed.actionError,/JSON de respuesta inválido/);
+ assert.doesNotMatch(malformed.answer,/tool_call/);
 });
