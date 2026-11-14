@@ -264,6 +264,27 @@ function parseSingleQuotedToolObject(source) {
   }catch{return null;}
 }
 
+/**
+ * Display formatting only: turn a response that contains JUST an "answer"
+ * into prose. Never interpret other JSON shapes, commands or proposals here.
+ * This is deliberately separate from the validated tool-call parser.
+ */
+export function answerForDisplay(raw){
+  if(typeof raw!=="string"||raw.length>12000)return raw;
+  let candidate=raw.trim();
+  for(let attempt=0;attempt<2;attempt++){
+    let parsed;
+    try{parsed=JSON.parse(candidate);}catch{return raw;}
+    if(typeof parsed==="string"){candidate=parsed.trim();continue;}
+    if(parsed&&typeof parsed==="object"&&!Array.isArray(parsed)&&
+      Object.keys(parsed).length===1&&typeof parsed.answer==="string"){
+      return parsed.answer;
+    }
+    return raw;
+  }
+  return raw;
+}
+
 // Only this allowlist can become a draft. Never execute model output as code/HTML.
 export function parseAiReply(text) {
   const clean=text.trim().replace(/^```(?:json|python)?\s*/i,"").replace(/\s*```$/,"");
