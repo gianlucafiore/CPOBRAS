@@ -285,6 +285,32 @@ export function answerForDisplay(raw){
   return raw;
 }
 
+/**
+ * Complete an explicit budget-line clarification using only USER-supplied
+ * description and unit. Produces an in-chat review card, never a database
+ * write, an ACU, or invented quantities/prices.
+ */
+export function lineProposalFromClarification(question,messages=[]){
+  if(typeof question!=="string"||question.length>500||!Array.isArray(messages)||!messages.length)return null;
+  const previous=messages.at(-1);
+  if(previous?.role!=="assistant"||previous.proposal||previous.planRows||previous.acuRequest||previous.libraryAcus||previous.approval||previous.actionError)return null;
+  const assistant=chatFold(messageText(previous));
+  const asksForDefinition=/(?:descripcion|trabajo|nombre)/.test(assistant)&&/(?:unidad|medida)/.test(assistant);
+  const lineRequest=/(?:partida|linea|presupuesto)/.test(assistant)&&/(?:propon|prepar|agreg|carg|crea)/.test(assistant);
+  if(!asksForDefinition||!lineRequest)return null;
+  const text=question.trim().replace(/[.!]+$/,"").trim();
+  const match=/^(.{6,250}?)\s*[,;]\s*(?:(?:medid[oa]\s+)?(?:en|por|unidad(?:\s+de\s+medida)?\s*[:=]?))\s*(m2|m²|m3|m³|m|ml|kg|u|un|unidad(?:es)?|h|hora(?:s)?|d[ií]a(?:s)?|metros?\s+cuadrados?|metros?\s+c[uú]bicos?|metros?\s+lineales?)$/iu.exec(text);
+  if(!match)return null;
+  const description=match[1].trim();
+  if(!/[a-záéíóúñ]{3}/iu.test(description)||/[?{}[\]\\]/.test(description))return null;
+  const unitInput=chatFold(match[2]).replace(/\s+/g," ");
+  const unit=({m2:"m²",m3:"m³",m:"m",ml:"m",kg:"kg",u:"unidad",un:"unidad",unidad:"unidad",unidades:"unidad",h:"h",hora:"h",horas:"h",dia:"día",dias:"día",
+    "metro cuadrado":"m²","metros cuadrados":"m²","metro cubico":"m³","metros cubicos":"m³","metro lineal":"m","metros lineales":"m"})[unitInput];
+  if(!unit)return null;
+  const proposal=parseAiReply(JSON.stringify({answer:"",proposal:{kind:"line",description,unit}})).proposal;
+  return proposal?.kind==="line"?proposal:null;
+}
+
 // Only this allowlist can become a draft. Never execute model output as code/HTML.
 export function parseAiReply(text) {
   const clean=text.trim().replace(/^```(?:json|python)?\s*/i,"").replace(/\s*```$/,"");
