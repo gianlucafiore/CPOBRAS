@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {parseAiReply,draftFromProposal,createAiRequest,budgetScreenContext,acuChatRequest,resolvedPendingApproval,isApprovalReply,materialAdditionFollowup,materialAdditionConfirmation,selectedAcuRequest,affirmativeMissingMaterialRequest,contextualAcuLine,availableCatalogFollowup} from '../src/services/ai-assistant.js';
+import {parseAiReply,draftFromProposal,lineProposalFromClarification,lineProposalFromDirectRequest,simpleArithmeticAnswer,answerForDisplay,createAiRequest,budgetScreenContext,acuChatRequest,resolvedPendingApproval,isApprovalReply,materialAdditionFollowup,materialAdditionConfirmation,selectedAcuRequest,affirmativeMissingMaterialRequest,contextualAcuLine,availableCatalogFollowup} from '../src/services/ai-assistant.js';
 test('unstructured responses remain text; only whitelisted proposals become drafts',()=>{
   assert.deepEqual(parseAiReply('<script>bad()</script>'),{answer:'<script>bad()</script>',proposal:null});
   const reply=parseAiReply(JSON.stringify({answer:'Revisá este borrador',proposal:{kind:'line',description:'Excavación',unit:'m³',quantity:'15.25',unit_price:'30000',id:'existing-id',execute:'delete',sectionId:'secret'}}));
@@ -35,6 +35,40 @@ test('Bonsai single-quoted tool calls are parsed and validated instead of printe
   assert.deepEqual(parseAiReply('{"tool_call":{"name":"describe_capabilities","args":{"module":"all"}}}').toolCall,parsed.toolCall);
 });
 
+test('creates an in-chat review card from the exact masonry clarification',()=>{
+  const history=[{role:'user',content:'podés cargarme una partida de mampostería'},
+    {role:'assistant',answer:'Necesito que me des más detalles para poder cargar la partida de mampostería. Para hacer esto, necesito saber: 1. La descripción específica del trabajo. 2. La unidad de medida. Una vez que me des esta información, puedo proponer la línea para tu presupuesto.'}];
+  const draft=lineProposalFromClarification('mampostería de ladrillo hueco, en m2',history);
+  assert.deepEqual(draft,{kind:'line',description:'mampostería de ladrillo hueco',unit:'m²'});
+  assert.equal('quantity' in draft,false);
+  assert.equal('unit_price' in draft,false);
+  assert.equal(lineProposalFromClarification('mampostería de ladrillo hueco',history),null);
+  assert.equal(lineProposalFromClarification('mampostería de ladrillo hueco, en m2',history.concat({role:'assistant',answer:'ACU creado',approval:{committed:true}})),null);
+  assert.equal(lineProposalFromClarification('mampostería de ladrillo hueco, en m2',[{role:'assistant',answer:'Revisá este rubro',proposal:{kind:'line'}}]),null);
+});
+test('offers a single sanitary installation line without inventing price or quantity',()=>{
+  const parsed=lineProposalFromDirectRequest('crear partida con instalación de sanitarios indoro y bidet');
+  assert.deepEqual(parsed,{kind:'line',description:'Instalación de sanitarios: inodoro y bidet',unit:'conjunto'});
+  assert.equal('quantity' in parsed,false);
+  assert.equal('unit_price' in parsed,false);
+  for(const text of ['borrar partida con instalación de sanitarios inodoro y bidet',
+    'crear partida con instalación de sanitarios inodoro',
+    'instalación de sanitarios inodoro y bidet',
+    'creá partida de mampostería de 18 cm']){
+    assert.equal(lineProposalFromDirectRequest(text),null,text);
+  }
+});
+test('basic arithmetic and answer-only JSON are shown without an LLM call',()=>{
+  assert.equal(simpleArithmeticAnswer('4+85?'),'89');
+  assert.equal(simpleArithmeticAnswer('10-2'),'8');
+  assert.equal(simpleArithmeticAnswer('4*2,5'),'10');
+  assert.equal(simpleArithmeticAnswer('5/2'),'2.5');
+  assert.equal(simpleArithmeticAnswer('3/0'),'No se puede dividir por cero.');
+  assert.equal(simpleArithmeticAnswer('1;drop table'),null);
+  assert.equal(answerForDisplay('{"answer":"Aquí tienes una ficha"}'),'Aquí tienes una ficha');
+  assert.equal(answerForDisplay(JSON.stringify({answer:'La propuesta',tool_call:{name:'manage_sections'}})).includes('tool_call'),true);
+  assert.equal(answerForDisplay('Texto normal'),'Texto normal');
+});
 test('rejects money movements, negative values, locale ambiguity and invalid resource kinds',()=>{
   const valid={kind:'resource',description:'Cemento',unit:'kg'};
   for(const extra of [{kind:'payment'},{unit_price:'-1'},{quantity:'1,500'},{resource_type:'unknown'},{quantity:'1e50'},{unit:'x'.repeat(31)}]){
