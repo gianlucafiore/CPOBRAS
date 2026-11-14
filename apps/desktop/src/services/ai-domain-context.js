@@ -57,9 +57,9 @@ export function aiDomainContext(state,question=''){
   const tools=AI_TOOL_CONTRACTS;
   // Only context and permissions change with the current selection.
  const appContext=appKnowledgeContext(question,state);
- return 'MAPA OPERATIVO CPOBRAS (contratos descriptivos, no comandos ejecutables):\n'+JSON.stringify({
+ return aiViewApiContext(state)+'\nMAPA OPERATIVO CPOBRAS (herramientas de IA verificadas):\n'+JSON.stringify({
   version:AI_DOMAIN_VERSION,conceptos:concepts,herramientas:tools,
   estado:{presupuesto_id:state.estimateId||null,proyecto_id:state.projectId||null,partidas:lines.length,rubros:sections.length,sin_acu:withoutAcu.length,sin_rubro:ungrouped.length},
   restricciones:['No afirmar guardado sin resultado nativo confirmado','No inventar precio, ID, conversión ni unidad','Los faltantes quedan pendientes sin impedir otras propuestas válidas']
- })+'\n'+appContext+'\n'+aiViewApiContext(state);
+ })+'\n'+appContext;
 }
