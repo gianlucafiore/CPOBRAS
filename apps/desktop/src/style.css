@@ -365,6 +365,17 @@ button.gantt-date { border:0; border-right:1px solid #e1e8ef; border-radius:0; c
 .ai-console.ai-expanded{height:min(580px,85vh)}.ai-console{overflow-y:auto}.ai-console .ai-settings{flex-shrink:1;min-height:90px;max-height:180px}.ai-console .ai-context{flex-shrink:1;min-height:22px;max-height:155px}.ai-console .ai-transcript{min-height:65px}.ai-console #ai-question{flex-shrink:0}.ai-bar{position:sticky;top:0;z-index:1}
 .ai-launch[hidden]{display:none!important}
 
+/* In-chat resource library draft: no form or modal required for review. */
+.ai-console .ai-resource-chat-card{margin-top:10px;border:1px solid #47756e;padding:12px;border-radius:7px;background:rgba(17,36,41,var(--ai-window-alpha,1))}
+.ai-console .ai-resource-chat-card>strong{display:block;margin-bottom:6px;color:#b5e8d9}
+.ai-console .ai-resource-chat-card p{margin:6px 0}
+.ai-console .ai-resource-chat-card ul{max-height:280px;overflow:auto;margin:7px 0 10px;padding-left:20px}
+.ai-console .ai-resource-chat-card li{margin:5px 0;padding:3px 0;border-bottom:1px solid #344b52}
+.ai-console .ai-resource-chat-card li small{display:block;margin-top:3px;white-space:normal}
+.ai-console .ai-resource-chat-card button{margin:4px 7px 4px 0}
+.ai-console .ai-resource-chat-card>small{display:block;margin-top:6px;color:var(--ai-muted)}
+
+
 /* Floating CPOBRAS IA window: eight resize zones and movable title bar. */
 /* Only backgrounds fade; the text and controls stay legible at 80% transparency. */
 .ai-console{background:rgba(17,24,31,var(--ai-window-alpha,1))}
