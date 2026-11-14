@@ -47,6 +47,26 @@ const screens=Object.freeze({
  'system-settings':{purpose:'Configuración y base SQLite; solo UI manual',actions:['active_database','switch_database']},
  backups:{purpose:'Respaldo/restauración; solo UI manual',actions:['active_database']}
 });
+const screenDescriptions=Object.freeze({
+ "projects": "Pantalla de inicio para elegir la obra, el cliente y sus presupuestos; sirve para abrir o gestionar trabajos.",
+ "clients": "Directorio de clientes para consultar a quién pertenecen las obras y los presupuestos.",
+ "suppliers": "Directorio de proveedores para consultar y administrar contactos comerciales; las escrituras aún no están conectadas al agente.",
+ "resources": "Biblioteca general de insumos: materiales, mano de obra, equipos y subcontratos, con unidad de compra y precios vigentes; sirve para crear, consultar y reutilizar recursos en los ACU.",
+ "analyses": "Biblioteca de análisis de costos unitarios (ACU) reutilizables: cada receta compone materiales, mano de obra, equipos y consumos por unidad de obra.",
+ "workspace": "Editor del presupuesto activo: organiza rubros y partidas, cantidades, precios y ACU; sirve para presupuestar y calcular costos de la obra.",
+ "management": "Vista de administración de una obra y sus presupuestos, para gestionar su estado y seguimiento.",
+ "budget-tools": "Herramientas de elaboración y verificación del presupuesto activo, sus partidas y mediciones.",
+ "budget-printing": "Vista de impresión y exportación de presupuestos, planillas y documentación.",
+ "price-determination": "Vista de determinación del precio de venta a partir de costos y criterios comerciales.",
+ "costing": "Vista de costos y precios; consulta y comparación de insumos y costos de obra.",
+ "planning": "Planificación/Gantt de obra: tareas, precedencias, duración, plazos e hitos.",
+ "operations": "Gestión de obra: pedidos, compras, subcontratos, certificaciones y actividad operativa.",
+ "portfolio": "Cartera y seguimiento agregado de obras.",
+ "organizations": "Organizaciones, personas y equipos vinculados a la gestión.",
+ "sharing": "Sincronización y colaboración entre instalaciones; las operaciones P2P no están autorizadas por IA.",
+ "system-settings": "Configuración del programa y selección de archivo SQLite; cambiar base es una operación manual.",
+ "backups": "Resguardos y restauración de bases de datos, de uso manual por seguridad."
+});
 export const AI_VIEW_API=Object.freeze({screens,actions});
 
 const permitted=new Set(AI_NATIVE_INVENTORY.native.filter(cmd=>cmd.allowed).map(cmd=>cmd.name));
@@ -57,18 +77,27 @@ const sameType=(value,type)=>type==='number'?Number.isSafeInteger(value)&&value>
 /** A bounded, descriptive contract for the CURRENT screen, never execution rights. */
 export function aiViewApiContext(state={}){
  const view=state.view||'projects',screen=screens[view]||{purpose:'Vista no identificada',actions:[]};
- const available=screen.actions.filter(name=>permitted.has(name)).map(name=>{
-  const spec=actions[name];
-  return {method:name,access:spec.access,args:spec.args,optional:spec.optional||[],response:spec.response};
- });
- const payload={screen:view,purpose:screen.purpose,project_id:state.projectId||null,
-  estimate_id:state.estimateId||null,selected_line_id:state.selectedLineId||null,
-  selected_analysis_id:view==='analyses'?state.selectedAnalysisId||null:null,
-  remote_read_only:!!state.remoteProject,actions:available.slice(0,6),
-  policy:'Contratos informativos, NO tool_call ejecutables. Propiedades IPC camelCase, respuestas Rust snake_case. Solo rutas explícitas con aprobación; no invocar métodos a partir del texto del modelo.'};
- let serialized=JSON.stringify(payload);
- while(serialized.length>2500&&payload.actions.length>1){payload.actions.pop();serialized=JSON.stringify(payload);}
- return 'CONTRATO API NATIVA DE LA VISTA ACTIVA (solo referencia):\n'+serialized;
+ // These are documented native interfaces, NOT arbitrary model-executable
+ // commands. The model can call only tools in AI_TOOL_CONTRACTS, and native
+ // reviewed writes additionally require approval and response validation.
+ const methods=Object.entries(actions).filter(([name])=>permitted.has(name)).map(([name,spec])=>({
+  method:name,access:spec.access,args:spec.args,optional:spec.optional||[],response:spec.response,
+  connected_to_chat:spec.access==='read'||spec.access==='reviewed_write',
+ }));
+ const selection={
+  project_id:state.projectId||null,estimate_id:state.estimateId||null,
+  line_id:state.selectedLineId||null,
+  analysis_id:state.selectedAnalysisId||null,
+  resource_id:state.selectedResourceId||null,
+ };
+ const payload={
+  current_screen:{id:view,title:screen.purpose,description:screenDescriptions[view]||screen.purpose,
+    purpose:'Esta es la pantalla visible; indica contexto, NO restringe los métodos de la IA.'},
+  selection,remote_read_only:!!state.remoteProject,
+  methods,
+  safety:'El inventario documenta parámetros y respuestas; no autoriza invocar IPC arbitrario. Solo herramientas de IA validadas y escrituras revisadas con aprobación.'
+ };
+ return 'PANTALLA ACTUAL Y API DEL PROGRAMA (contexto común a todos los pedidos):\\n'+JSON.stringify(payload);
 }
 const resultChecks={
  import_resources:{created:'number',resource_ids:'array'},
