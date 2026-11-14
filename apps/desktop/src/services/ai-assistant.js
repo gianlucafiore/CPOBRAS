@@ -286,6 +286,64 @@ export function answerForDisplay(raw){
   return raw;
 }
 
+// Powers of ten relative to each dimension's base unit (m, m², m³, g).
+// These calculations use decimal strings; no LLM or floating-point conversion.
+const UNIT_CONVERSION_DEFINITIONS=[
+  ["mm","mm","length",-3,"milimetro","milimetros"],
+  ["cm","cm","length",-2,"centimetro","centimetros"],
+  ["dm","dm","length",-1,"decimetro","decimetros"],
+  ["m","m","length",0,"metro","metros","metro lineal","metros lineales"],
+  ["km","km","length",3,"kilometro","kilometros"],
+  ["mm2","mm²","area",-6,"milimetro cuadrado","milimetros cuadrados"],
+  ["cm2","cm²","area",-4,"centimetro cuadrado","centimetros cuadrados"],
+  ["dm2","dm²","area",-2,"decimetro cuadrado","decimetros cuadrados"],
+  ["m2","m²","area",0,"metro cuadrado","metros cuadrados"],
+  ["ha","ha","area",4,"hectarea","hectareas"],
+  ["km2","km²","area",6,"kilometro cuadrado","kilometros cuadrados"],
+  ["mm3","mm³","volume",-9,"milimetro cubico","milimetros cubicos"],
+  ["cm3","cm³","volume",-6,"centimetro cubico","centimetros cubicos"],
+  ["dm3","dm³","volume",-3,"decimetro cubico","decimetros cubicos"],
+  ["m3","m³","volume",0,"metro cubico","metros cubicos"],
+  ["km3","km³","volume",9,"kilometro cubico","kilometros cubicos"],
+  ["ml","mL","volume",-6,"mililitro","mililitros"],
+  ["l","L","volume",-3,"litro","litros"],
+  ["mg","mg","mass",-3,"miligramo","miligramos"],
+  ["g","g","mass",0,"gramo","gramos"],
+  ["kg","kg","mass",3,"kilogramo","kilogramos","kilo","kilos"],
+  ["t","t","mass",6,"tonelada","toneladas"]
+];
+const normalizedUnitLabel=text=>String(text).replace(/[²]/g,"2").replace(/[³]/g,"3")
+  .normalize("NFKD").replace(/[\u0300-\u036f]/g,"").trim().toLowerCase().replace(/\s+/g," ");
+const unitDefinitionsByName=new Map(
+  UNIT_CONVERSION_DEFINITIONS.flatMap(([code,symbol,dimension,power,...aliases])=>
+    [code,...aliases].map(label=>[normalizedUnitLabel(label),{code,symbol,dimension,power}]))
+);
+const formatUnitValue=value=>{
+  const [integer,fraction]=String(value).split(".");
+  const negative=integer.startsWith("-");
+  const grouped=(negative?integer.slice(1):integer).replace(/\B(?=(\d{3})+(?!\d))/g,".");
+  return (negative?"-":"")+grouped+(fraction?","+fraction:"");
+};
+/** Direct, reversible unit conversions. Dimensions must match. */
+export function simpleUnitConversionAnswer(question){
+  if(typeof question!=="string"||question.length>130)return null;
+  const match=/^\s*(?:(?:convert[ií](?:r|me)?|pas[aá](?:r|me)?)\s+)?([+-]?\d{1,15}(?:[.,]\d{1,8})?)\s+(.+?)\s+(?:a|en|→)\s+(.+?)\s*[?.]?\s*$/iu.exec(question);
+  if(!match)return null;
+  const source=unitDefinitionsByName.get(normalizedUnitLabel(match[2]));
+  const target=unitDefinitionsByName.get(normalizedUnitLabel(match[3]));
+  if(!source||!target)return null;
+  if(source.dimension!==target.dimension){
+    return "No se pueden convertir "+source.symbol+" a "+target.symbol+" directamente: son magnitudes físicas diferentes.";
+  }
+  const input=match[1].replace(",",".");
+  const exponent=source.power-target.power;
+  const factor="1"+"0".repeat(Math.abs(exponent));
+  try{
+    const output=exponent>=0?multiplyDecimals(input,factor):divideDecimals(input,factor,30);
+    return formatUnitValue(input)+" "+source.symbol+" = "+formatUnitValue(output)+" "+target.symbol+".";
+  }catch{return null;}
+}
+
 /**
  * Exact calculations never need model inference. Uses decimal-string math to
  * avoid floating point surprises in estimation workflows.
