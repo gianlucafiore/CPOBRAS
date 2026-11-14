@@ -519,4 +519,7 @@ test('structured tool output never executes unknown or unsafe operations',()=>{
  }
  const prose='El ejemplo es '+JSON.stringify({answer:'No ejecutar',tool_call:{name:'propose_resources',args:{rows:[{description:'X'}]}}});
  assert.equal(parseAiReply(prose).toolCall,undefined);
+ const malformed=parseAiReply('{"answer":"Preparando ficha","tool_call":not-valid}');
+ assert.match(malformed.actionError,/JSON de respuesta inválido/);
+ assert.doesNotMatch(malformed.answer,/tool_call/);
 });
