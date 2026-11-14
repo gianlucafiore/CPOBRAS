@@ -63,3 +63,16 @@ export function candidateMatchesExplicitMaterial(resource,phrases){
  // previously requested product cannot validate a new unrelated request.
  return phrases.at(-1).some(word=>name.has(word));
 }
+
+/**
+ * Read-only help for the ACU library screen. No model call or database write is
+ * needed to explain the current view; avoid routing this through ACU intent AI.
+ * Match only questions ABOUT THE SCREEN, never questions about an ACU's recipe.
+ */
+export function libraryAcuViewHelp(question){
+  const normalized=foldCatalogText(question).replace(/[^a-z0-9]+/g," ").trim();
+  const screen="(?:esta|la|esa|mi) (?:vista|pantalla|seccion|pestana)|(?:aqui|aca|en esta pantalla|en esta vista)";
+  const purpose=new RegExp("^(?:(?:para que sirve|que hace|como funciona|explicame|explica|mostrame) "+screen+"|(?:que puedo|que se puede) hacer (?:en )?"+screen+"|que es (?:la )?(?:biblioteca de )?acu)(?: de cpobras)?$");
+  if(!purpose.test(normalized))return null;
+  return "Esta es la Biblioteca de ACU (Análisis de Costos Unitarios). Acá creás y guardás recetas reutilizables por unidad de trabajo (m², m³, unidad, etc.), con materiales, mano de obra y equipos, sus consumos y precios. Podés seleccionar un ACU para ver su composición, editarlo o crear uno nuevo. Luego podés reutilizarlo en partidas de distintos presupuestos sin volver a definir sus insumos. Desde este chat también podés pedir que prepare o modifique un ACU para revisar antes de guardarlo.";
+}
