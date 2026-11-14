@@ -21,7 +21,7 @@ import {parseAiReply,draftFromProposal,lineProposalFromClarification,lineProposa
 const defaults={openai:"gpt-4.1-mini",anthropic:"claude-haiku-4-5",lmstudio:""};
 export function createAiAssistant({invoke,state,document,window,openModal,editable,loadEstimate,loadEstimates,openEstimate,openResourceLibrary,reloadCatalog,refreshAnalysis,render}) {
   const host=document.createElement("div");host.id="ai-assistant";document.body.append(host);
-  const model={open:false,settings:false,configured:false,provider:"openai",model:defaults.openai,localModels:[],localModelError:"",messages:[],question:"",busy:false,error:"",context:"",includeContext:true,contextMode:"screen",contextOpen:false,consent:false,scope:"",generation:0,usage:null,notice:"",approvedRun:null,lastApprovedId:null,lastAction:null,pendingAction:null,catalogLoading:false,focusLineId:null,lastCatalogAdvice:null,recentCreatedLineIds:[],recentCreatedEstimateId:null,resourceDraft:null,sessionView:null};
+  const model={open:false,settings:false,configured:false,provider:"openai",model:defaults.openai,localModels:[],localModelError:"",messages:[],question:"",busy:false,error:"",context:"",includeContext:true,contextMode:"screen",contextOpen:false,consent:false,scope:"",generation:0,usage:null,notice:"",approvedRun:null,lastApprovedId:null,lastAction:null,pendingAction:null,catalogLoading:false,focusLineId:null,lastCatalogAdvice:null,recentCreatedLineIds:[],recentCreatedEstimateId:null,resourceDraft:null,sessionView:null,taskInitialRequest:null};
   const budgetImport=createAiBudgetImport({invoke,state,document,window,editable,loadEstimate,loadEstimates,openEstimate,canUseAi:()=>model.configured&&model.consent&&!model.busy});
   const acuWorkbench=createAcuWorkbench({invoke,state,document,window,loadEstimate,loadEstimates,openEstimate,openResourceLibrary,canUseAi:()=>model.configured&&model.consent&&(!model.busy||model.approvedRun?.running)});
   const approvedPlans=createApprovedPlanRunner({invoke,state,loadEstimate,loadEstimates,openEstimate});
@@ -72,6 +72,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     model.recentCreatedLineIds=[];
     model.recentCreatedEstimateId=null;
     model.resourceDraft=null;
+    model.taskInitialRequest=null;
     model.question="";
     model.error="";
     // Do not trigger an additional AI request merely to ask if work remains.
@@ -91,7 +92,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     // fresh task and cannot silently inherit a pending approval from here.
     if(model.scope!==next||model.sessionView!==nextView){
       if(model.scope) { const [projectId,estimateId]=model.scope.split(":"); conversationStore(window.localStorage,projectId,estimateId,state.database?.scope).clear(); }
-      cancelApprovedRun();activeRequest?.cancel();activeRequest=null;queryToken++;if(!model.approvedRun)model.busy=false;model.catalogLoading=false;model.scope=next;model.sessionView=nextView;model.generation++;model.messages=[];model.lastAction=null;model.pendingAction=null;model.focusLineId=null;model.lastCatalogAdvice=null;model.recentCreatedLineIds=[];model.recentCreatedEstimateId=null;model.resourceDraft=null;model.context="";model.includeContext=true;model.contextMode="screen";model.question="";model.error="";model.usage=null;model.notice="";
+      cancelApprovedRun();activeRequest?.cancel();activeRequest=null;queryToken++;if(!model.approvedRun)model.busy=false;model.catalogLoading=false;model.scope=next;model.sessionView=nextView;model.generation++;model.messages=[];model.lastAction=null;model.pendingAction=null;model.focusLineId=null;model.lastCatalogAdvice=null;model.recentCreatedLineIds=[];model.recentCreatedEstimateId=null;model.resourceDraft=null;model.taskInitialRequest=null;model.context="";model.includeContext=true;model.contextMode="screen";model.question="";model.error="";model.usage=null;model.notice="";
       // Purge any legacy conversation saved by earlier CPObras versions.
       // A new screen starts a fresh task using the current selected data.
       store().clear();pendingIntent=null;
@@ -103,6 +104,9 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
   const fold=value=>String(value||'').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
   const isAction=message=>!!(message?.acuRequest||message?.sectionPreview||message?.planRows||message?.changeProposals||message?.proposal?.kind==='line'||message?.actionError);
   function addReply(question,message){
+    // Capture the original objective once for the current view task, even if
+    // the visible chat eventually trims old turns for bounded memory.
+    if(!model.taskInitialRequest)model.taskInitialRequest=String(question).slice(0,1800);
     message.role='assistant';message.originalQuestion=question;
     const content={answer:message.answer};
     if(message.sectionPreview)content.section_plan=message.sectionPreview.display;
@@ -1259,8 +1263,8 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     }
     }
     // Keep the active task dialogue rather than only five exchanges.
-    // The model receives a bounded window (28 KB) while the first request
-    // stays pinned as the task's referent for follow-up instructions.
+    // The model receives a bounded window (28 KB); the original objective
+    // stays pinned separately in taskContext even if old turns are trimmed.
     const history=model.messages.slice(-60).map(m=>({role:m.role,content:m.content}));
     // After a completed task only its assistant receipt remains; do not
     // send it as the first message of an unrelated new provider request.
@@ -1277,7 +1281,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     const resourceReview=activeResources();
     // Task state is not inferred from user grammar: it is the conversation
     // opened in the current view, until CPOBRAS confirms commit/discard.
-    const startingRequest=model.messages.find(message=>message.role==='user')?.content||'';
+    const startingRequest=model.taskInitialRequest||'';
     const taskContext=startingRequest?'\\nTAREA ACTIVA DE LA VISTA (aún no se confirmó su cierre): '+
       JSON.stringify({view:model.sessionView,first_user_request:startingRequest.slice(0,1800),
         pending_resource_review:!!resourceReview}):'';
