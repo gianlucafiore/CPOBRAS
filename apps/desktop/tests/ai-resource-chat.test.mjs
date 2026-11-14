@@ -45,6 +45,7 @@ test('resource batch supports several items and never assigns invented prices',(
 
 test('wrong currency, duplicates and ambiguous input never get silently written',()=>{
   assert.equal(resourceChatTurn('Poste de madera, precio: USD 10').action,'error');
+  assert.equal(resourceChatTurn('Poste de madera, precio: 10 USD').action,'error');
   const result=resourceChatTurn('Poste de madera, precio: 17.500');
   assert.equal(result.rows[0].price,'17500');
   const withUnit=resourceChatTurn('unidad: unidad',{rows:result.rows});
