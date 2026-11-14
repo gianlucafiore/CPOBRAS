@@ -282,6 +282,30 @@ test('model proposes normalized fence resources with grounded prices and native 
  expect(prompts[0].args.context).toContain('Biblioteca general de insumos');
  expect(prompts[0].args.context).toContain('propose_resources');
 });
+test('double-encoded resource tool JSON becomes an in-chat card and "bien cargalo" commits it once',async({page})=>{
+ const question='Agregame tejido romboidal xm2 el precio es de 1500xm2';
+ const row={description:'tejido romboidal',kind:'material',unit:'m2',price:'1500',
+   price_evidence:'tejido romboidal xm2 el precio es de 1500xm2'};
+ const structured={answer:'Preparando ficha para incorporar tejido romboidal con unidad m² y precio 1500 ARS por m².',
+   tool_call:{name:'propose_resources',args:{rows:[row]}}};
+ // Simulates providers that encode the tool response in a JSON string.
+ await resourceHarness(page,[JSON.stringify(structured)]);
+ await sayResource(page,question);
+ await expect(page.locator('.ai-resource-chat-card li')).toHaveCount(1);
+ await expect(page.locator('.ai-resource-chat-card')).toContainText('1500 ARS');
+ await expect(page.locator('[data-ai=approve-resources]')).toBeEnabled();
+ await expect(page.locator('.ai-transcript')).not.toContainText('"tool_call"');
+ expect(await page.evaluate(()=>window.__resourceChatHarness.imports.length)).toBe(0);
+ await sayResource(page,'bien cargalo');
+ await expect(page.locator('.ai-transcript')).toContainText('Guardado confirmado');
+ const saved=await page.evaluate(()=>window.__resourceChatHarness.imports);
+ expect(saved).toHaveLength(1);
+ expect(saved[0].rows).toEqual([{
+  code:'',description:'tejido romboidal',kind:'material',unit:'m2',price:'1500'
+ }]);
+ const aiRequests=await page.evaluate(()=>window.__resourceChatHarness.calls.filter(c=>c.name==='ai_chat'));
+ expect(aiRequests).toHaveLength(1);
+});
 test('model revises a proposed batch without reintroducing excluded cement',async({page})=>{
  const phrase='Poste de madera a 17500 cada uno y tejido romboidal a 1500 por m2';
  const initial=[
