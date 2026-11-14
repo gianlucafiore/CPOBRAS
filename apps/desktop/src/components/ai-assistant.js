@@ -1,6 +1,6 @@
 import {canSaveLibraryAcu,libraryAcuContext,readLibraryAcuIntent,readLibraryAcus,saveLibraryAcu,libraryAcuTurnFocus} from "../services/ai-library-acu.js";
 import {selectedAcuSnapshot,selectedAcuSnapshotMatches,readSelectedAcuEdit,canApplySelectedAcuEdit,applySelectedAcuEdit} from "../services/ai-selected-acu-edit.js";
-import {libraryAcuConversationState,requestedAddedMaterials} from "../services/ai-library-conversation.js";
+import {libraryAcuConversationState,requestedAddedMaterials,libraryAcuViewHelp} from "../services/ai-library-conversation.js";
 import {invokeReviewedAiAction} from '../services/ai-view-api-contracts.js';
 import {conversationStore,conversationAcuRequest,structuredConversationContext} from '../services/ai-conversation-context.js';
 import {createAcuWorkbench} from "./ai-acu-workbench.js";
@@ -23,6 +23,11 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
   const budgetImport=createAiBudgetImport({invoke,state,document,window,editable,loadEstimate,loadEstimates,openEstimate,canUseAi:()=>model.configured&&model.consent&&!model.busy});
   const acuWorkbench=createAcuWorkbench({invoke,state,document,window,loadEstimate,loadEstimates,openEstimate,openResourceLibrary,canUseAi:()=>model.configured&&model.consent&&(!model.busy||model.approvedRun?.running)});
   const approvedPlans=createApprovedPlanRunner({invoke,state,loadEstimate,loadEstimates,openEstimate});
+  // Match the 180-second native timeout for local inference. The previous
+  // 65-second UI watchdog cancelled valid (but slower) LM Studio requests.
+  const providerAwareAiRequest=(args)=>createAiRequest(invoke,args,
+    model.provider==="lmstudio"?{timeoutMs:190000}:{});
+
   let activeRequest=null,queryToken=0;
   // User-only working notes, scoped by active SQLite database + ACU ID.
   // Keeps technical decisions through the small UI history window; it never
@@ -486,7 +491,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     const requestedMaterialPhrases=requestedAddedMaterials([...recentUserTurns,question]);
     const brief=question;
     const send=async(messages,context)=>{
-      activeRequest=createAiRequest(invoke,{mode:"library_acu_edit",messages,context});
+      activeRequest=providerAwareAiRequest({mode:"library_acu_edit",messages,context});
       model.catalogLoading=false;paint();
       return activeRequest.promise;
     };
@@ -590,7 +595,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     const generation = model.generation;
     const current = () => token === queryToken && generation === model.generation && canDraftLibraryAcu();
     const sendRequest = async (messages, context) => {
-      activeRequest = createAiRequest(invoke, {messages, context, mode:"library_acu"});
+      activeRequest = providerAwareAiRequest( {messages, context, mode:"library_acu"});
       model.catalogLoading = false;
       paint();
       return activeRequest.promise;
@@ -800,7 +805,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
         messages:model.messages,history:acuWorkingNotes.get(acuWorkingKey())||[],
         selectedAnalysis:selected,pendingEdit:editProposal,currentQuestion:question,
       });
-      activeRequest = createAiRequest(invoke, {
+      activeRequest = providerAwareAiRequest( {
         messages:[{role:"user", content:question}],
         context:JSON.stringify({
           pending_proposal:Boolean(proposal||editProposal),
@@ -961,6 +966,10 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
   async function send(){
     if(model.busy||!model.configured||!model.consent||!model.question.trim())return;
     const question=model.question.trim(),generation=model.generation;
+    // Screen-help questions are deterministic, read-only and don't require
+    // a potentially slow model classification before answering.
+    const viewHelp=canDraftLibraryAcu()?libraryAcuViewHelp(question):null;
+    if(viewHelp){addReply(question,{answer:viewHelp});model.error="";paint();return;}
     if (canDraftLibraryAcu() && await handleLibraryTurn(question)) return;
     const statusQuestion=/^(?:no (?:la|lo|las|los) (?:veo|encuentro)|no (?:veo|encuentro) (?:la partida|el acu|el pedido)|no (?:me )?aparece(?: la partida| el acu| el pedido)?|(?:y )?(?:se guardo|se cargo|se creo|la creaste|lo cargaste|donde quedo|donde esta)(?: la partida| el acu| el pedido)?)(?: en (?:la lista|la tabla|el presupuesto))?$/.test(fold(question));
     if(statusQuestion){if(!showActionState(question)){addReply(question,{answer:'No hay un guardado registrado en este chat. Indicame qué partida buscás para identificarla; no se realizará otra carga al consultar su estado.'});paint();}return;}
@@ -1091,7 +1100,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       }
       if(token!==queryToken||generation!==model.generation)return;
       const mode=/(?:edit[aá]|modific[aá]|cambi[aá]|elimin[aá]|borr[aá]|quit[aá]).{0,60}partidas|partidas.{0,60}(?:eliminar|editar|borrar)/i.test(question)?"manage":/(?:presupuest[aá]m[eé]|cotiz[aá]m[eé]|arm[aá]m[eé] un presupuesto|cre[aá]r?|gener[aá]r?|arm[aá]r?|prepar[aá]r?|propon[eé]r?).{0,80}(?:vivienda|casa|galp[oó]n|edificio|partidas|presupuesto)|partidas.{0,60}(?:necesarias|obra nueva)/i.test(question)?"plan":undefined;
-      request=createAiRequest(invoke,{messages,context,...(mode?{mode}:{})});activeRequest=request;paint();
+      request=providerAwareAiRequest({messages,context,...(mode?{mode}:{})});activeRequest=request;paint();
       let result=await request.promise;
       if(generation!==model.generation||token!==queryToken)return;
       const additional=catalogSnapshot?parseCatalogQuery(result.text):null;
@@ -1101,7 +1110,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
         while(followup.length>3&&byteSize(followup)>28000)followup.splice(0,2);
         model.notice='Buscando coincidencias adicionales en el catálogo local…';
         context=groundedContext(baseContext,catalogSnapshot,additional,[]);
-        request=createAiRequest(invoke,{messages:followup,context,...(mode?{mode}:{})});activeRequest=request;paint();
+        request=providerAwareAiRequest({messages:followup,context,...(mode?{mode}:{})});activeRequest=request;paint();
         const next=await request.promise;if(generation!==model.generation||token!==queryToken)return;
         result={...next,input_tokens:result.input_tokens!=null&&next.input_tokens!=null?result.input_tokens+next.input_tokens:undefined,output_tokens:result.output_tokens!=null&&next.output_tokens!=null?result.output_tokens+next.output_tokens:undefined};
         try{if(parseCatalogQuery(result.text))result.text=JSON.stringify({answer:catalogAnswer(catalogSnapshot,additional)});}catch{result.text=JSON.stringify({answer:catalogAnswer(catalogSnapshot,additional)});}
