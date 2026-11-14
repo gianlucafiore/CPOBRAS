@@ -81,7 +81,7 @@ test('user fence prices and exclusions correct a previously suggested seven-reso
   assert.equal(discard.action,'draft');
   assert.equal(discard.rows.some(row=>row.description.includes('Cemento')),false);
   assert.ok(discard.excluded.includes('cemento'));
-  assert.equal(resourceChatTurn('agrega cemento por bolsa',{rows:discard.rows,excluded:discard.excluded}),null);
+  assert.equal(resourceChatTurn('agrega cemento por bolsa',{rows:discard.rows,excluded:discard.excluded}).action,'clarify');
 });
 
 test('single natural-language fence list yields three exact resources without measurements becoming prices',()=>{
