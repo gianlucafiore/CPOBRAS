@@ -21,7 +21,7 @@ import {parseAiReply,draftFromProposal,lineProposalFromClarification,lineProposa
 const defaults={openai:"gpt-4.1-mini",anthropic:"claude-haiku-4-5",lmstudio:""};
 export function createAiAssistant({invoke,state,document,window,openModal,editable,loadEstimate,loadEstimates,openEstimate,openResourceLibrary,reloadCatalog,refreshAnalysis,render}) {
   const host=document.createElement("div");host.id="ai-assistant";document.body.append(host);
-  const model={open:false,settings:false,configured:false,provider:"openai",model:defaults.openai,localModels:[],localModelError:"",messages:[],question:"",busy:false,error:"",context:"",includeContext:true,contextMode:"screen",contextOpen:false,consent:false,scope:"",generation:0,usage:null,notice:"",approvedRun:null,lastApprovedId:null,lastAction:null,pendingAction:null,catalogLoading:false,focusLineId:null,lastCatalogAdvice:null,recentCreatedLineIds:[],recentCreatedEstimateId:null,resourceDraft:null,sessionView:null,taskInitialRequest:null};
+  const model={open:false,settings:false,configured:false,provider:"openai",model:defaults.openai,localModels:[],localModelError:"",messages:[],question:"",busy:false,error:"",context:"",includeContext:true,contextMode:"screen",contextOpen:false,consent:false,scope:"",generation:0,usage:null,notice:"",approvedRun:null,lastApprovedId:null,lastAction:null,pendingAction:null,catalogLoading:false,focusLineId:null,lastCatalogAdvice:null,recentCreatedLineIds:[],recentCreatedEstimateId:null,resourceDraft:null,sessionView:null,taskInitialRequest:null,completedTaskReceipt:null};
   const budgetImport=createAiBudgetImport({invoke,state,document,window,editable,loadEstimate,loadEstimates,openEstimate,canUseAi:()=>model.configured&&model.consent&&!model.busy});
   const acuWorkbench=createAcuWorkbench({invoke,state,document,window,loadEstimate,loadEstimates,openEstimate,openResourceLibrary,canUseAi:()=>model.configured&&model.consent&&(!model.busy||model.approvedRun?.running)});
   const approvedPlans=createApprovedPlanRunner({invoke,state,loadEstimate,loadEstimates,openEstimate});
@@ -65,6 +65,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     pendingIntent=null;
     acuWorkingNotes.clear();
     model.messages=[message];
+    model.completedTaskReceipt=message;
     model.lastAction=null;
     model.pendingAction=null;
     model.focusLineId=null;
@@ -92,7 +93,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     // fresh task and cannot silently inherit a pending approval from here.
     if(model.scope!==next||model.sessionView!==nextView){
       if(model.scope) { const [projectId,estimateId]=model.scope.split(":"); conversationStore(window.localStorage,projectId,estimateId,state.database?.scope).clear(); }
-      cancelApprovedRun();activeRequest?.cancel();activeRequest=null;queryToken++;if(!model.approvedRun)model.busy=false;model.catalogLoading=false;model.scope=next;model.sessionView=nextView;model.generation++;model.messages=[];model.lastAction=null;model.pendingAction=null;model.focusLineId=null;model.lastCatalogAdvice=null;model.recentCreatedLineIds=[];model.recentCreatedEstimateId=null;model.resourceDraft=null;model.taskInitialRequest=null;model.context="";model.includeContext=true;model.contextMode="screen";model.question="";model.error="";model.usage=null;model.notice="";
+      cancelApprovedRun();activeRequest?.cancel();activeRequest=null;queryToken++;if(!model.approvedRun)model.busy=false;model.catalogLoading=false;model.scope=next;model.sessionView=nextView;model.generation++;model.messages=[];model.lastAction=null;model.pendingAction=null;model.focusLineId=null;model.lastCatalogAdvice=null;model.recentCreatedLineIds=[];model.recentCreatedEstimateId=null;model.resourceDraft=null;model.taskInitialRequest=null;model.completedTaskReceipt=null;model.context="";model.includeContext=true;model.contextMode="screen";model.question="";model.error="";model.usage=null;model.notice="";
       // Purge any legacy conversation saved by earlier CPObras versions.
       // A new screen starts a fresh task using the current selected data.
       store().clear();pendingIntent=null;
@@ -117,16 +118,16 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     message.content=JSON.stringify(content);
     if(new TextEncoder().encode(message.content).length>11000)message.content=JSON.stringify({answer:message.answer.slice(0,2000),proposed_lines:message.planRows?.length||0});
     model.messages.push({role:'user',content:question},message);model.messages=model.messages.slice(-60);
-    if(isAction(message)){model.lastAction=message;model.pendingAction=!message.actionError&&!message.approval&&!message.changeProposals?message:null;}else if(!message.actionStatus)model.pendingAction=null;
+    if(isAction(message)){model.completedTaskReceipt=null;model.lastAction=message;model.pendingAction=!message.actionError&&!message.approval&&!message.changeProposals?message:null;}else if(!message.actionStatus)model.pendingAction=null;
     model.question='';return message;
   }
   function actionContext(){
-    const message=model.lastAction;if(!message)return '\nESTADO DE CARGAS DE CPOBRAS: no hay una ejecución registrada en este chat.';
+    const message=model.lastAction||model.completedTaskReceipt;if(!message)return '\nESTADO DE CARGAS DE CPOBRAS: no hay una ejecución registrada en este chat.';
     const approval=message.approval,result=approval?.result;
     return '\nESTADO DE CARGAS REGISTRADO POR CPOBRAS (no es una afirmación del modelo):\n'+JSON.stringify({state:approval?.state||(message.actionError?'rejected':'pending'),committed:result?.committed===true,created:result?.created||0,saved:result?.saved||0,organized:result?.organized||0,pending:result?.pending||0,estimate_id:result?.estimateId||null,line_ids:result?.lineIds||[],warnings:result?.warnings||[],message:approval?.message||message.actionError||'La propuesta no se ejecutó. Espera aprobación.'});
   }
   function showActionState(question){
-    const message=model.lastAction;
+    const message=model.lastAction||model.completedTaskReceipt;
     if(!message)return false;
     const approval=message.approval;
     if(approval){
@@ -1251,8 +1252,8 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     // If no reviewed action exists, the model should interpret the
     // acknowledgement using the current task history instead of failing.
     if(isApprovalReply(question)){
-      const receipt=model.messages.at(-1);
-      if(receipt?.taskCompleted&&receipt.approval){
+      const receipt=model.completedTaskReceipt||model.messages.at(-1);
+      if(!model.pendingAction&&receipt?.taskCompleted&&receipt.approval){
         // The database already confirmed this action. Do not dispatch a
         // second model call or attempt a second write for the same approval.
         addReply(question,{answer:receipt.approval.message||receipt.answer,
