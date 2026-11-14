@@ -93,6 +93,13 @@ function isSuggestedAcceptance(value,previousAnswer){
   const referenced=/^(?:(?:si|si dale|dale|perfecto|bueno|ok|claro|de acuerdo)(?: por favor)?|(?:crealos|cargalos|agregalos|preparalos|registralos)(?: por favor)?|(?:carga|crea|agrega|prepara|registra) (?:esos|todos los|los) (?:insumos|materiales|recursos)|(?:agrega|carga|crea|prepara) los que sugeriste|(?:necesito|quiero|quisiera|podes|puedes|podrias|podes por favor|puedes por favor|me podes|me puedes)\s+(?:que\s+)?(?:crear|crea|cargar|carga|preparar|prepara|agregar|agrega|registrar|registra)(?:los|las| esos insumos| los insumos| los materiales)?|(?:necesito|quiero|podes|puedes)\s+crearlos)(?: por favor)?$/.test(q);
   if(!referenced)return false;
   const prior=fold(previousAnswer);
+  // A bare yes/dale is an APPROVAL in ACU/budget workflows. Only treat it as
+  // resource creation when the preceding assistant explicitly offered to
+  // prepare or add resources, not when it merely mentioned materials.
+  if(/^(?:si|si dale|dale|perfecto|bueno|ok|claro|de acuerdo)(?: por favor)?$/.test(q)){
+    const offer=/\b(?:queres|quieres|podemos|puedo|te propongo|si queres)\b.{0,140}\b(?:crear|cargar|agregar|preparar|registrar|sumar)\b.{0,140}\b(?:insumos?|materiales?|recursos?|postes?|alambres?|grampas?)\b/.test(prior);
+    if(!offer)return false;
+  }
   // Pronouns resolve only against an actual resource-related preceding turn.
   // A prior partida/ACU proposal must NEVER be interpreted as a resource import.
   return /\b(?:insumos?|materiales?|recursos?|postes?|alambrado|cercado|tejido|alambres?|grampas?|tensores?)\b/.test(prior)
