@@ -1182,7 +1182,13 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     }
     // Resource library proposals are separate from budget lines and ACU.
     const priorAnswer=model.messages.findLast(message=>message.role==='assistant')?.answer||'';
-    const resourceTurn=resourceChatTurn(question,activeResources(),priorAnswer);
+    // A bare "sí" must approve an existing ACU/budget review, not be
+    // reinterpreted as "create resources" because its text mentions insumos.
+    const anotherReviewPending=!activeResources()&&isApprovalReply(question)&&(
+      !!model.pendingAction||model.messages.some(message=>
+        (message?.preview||message?.sectionPreview)&&!message?.approval)
+    );
+    const resourceTurn=anotherReviewPending?null:resourceChatTurn(question,activeResources(),priorAnswer);
     if(resourceTurn){
       if(resourceTurn.action==='approve'){model.question='';await approveResourceDraft(question);return;}
       if(resourceTurn.action==='generate'){await generateResourceDraft(question);return;}
