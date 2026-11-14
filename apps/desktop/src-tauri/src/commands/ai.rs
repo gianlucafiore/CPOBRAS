@@ -969,10 +969,22 @@ mod tests {
         let advanced = payload("lmstudio", "prism-ml/bonsai-27b", &user, "{}", Some("acu"));
         assert_eq!(advanced["max_tokens"], 5500);
         assert!(advanced.get("chat_template_kwargs").is_none());
-        let intent = payload("lmstudio", "prism-ml/bonsai-27b", &user, "{}", Some("library_acu_intent"));
+        let intent = payload(
+            "lmstudio",
+            "prism-ml/bonsai-27b",
+            &user,
+            "{}",
+            Some("library_acu_intent"),
+        );
         assert_eq!(intent["max_tokens"], 512);
         assert_eq!(intent["chat_template_kwargs"]["enable_thinking"], false);
-        let deepseek = payload("lmstudio", "deepseek-r1-8b", &user, "{}", Some("library_acu_intent"));
+        let deepseek = payload(
+            "lmstudio",
+            "deepseek-r1-8b",
+            &user,
+            "{}",
+            Some("library_acu_intent"),
+        );
         assert_eq!(deepseek["max_tokens"], 1000);
         assert!(deepseek.get("chat_template_kwargs").is_none());
 
