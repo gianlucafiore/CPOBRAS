@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {resourceChatTurn,validatedResourceDraft,resourceDraftSummary} from '../src/services/ai-resource-chat.js';
+import {resourceChatTurn,resourceSuggestionsFromText,validatedResourceDraft,resourceDraftSummary} from '../src/services/ai-resource-chat.js';
 
 test('postes: remembered description and manual price survive type and unit followups',()=>{
   const start=resourceChatTurn('Poste de madera 3" x 2,2m , precio: 17500');
@@ -107,4 +107,38 @@ test('exclusions do not accidentally suppress adjacent items, and quantities are
   assert.equal(items.rows[1].description,'Poste de madera 3" x 2,2m');
   assert.equal(items.rows.some(x=>/cemento/i.test(x.description)),false);
   assert.equal(resourceChatTurn('agregá mano de obra a ese ACU'),null);
+});
+
+
+test('resource followup pronouns resolve to a batch after catalog search or assistant recommendations',()=>{
+  const noCatalog='No se encontraron insumos específicos para cercado con tejido romboidal en el catálogo local. Precisá más detalles.';
+  assert.equal(resourceChatTurn('necesito crearlos',null,noCatalog).action,'generate');
+  assert.equal(resourceChatTurn('podés crearlos',null,noCatalog).action,'generate');
+  const recommendation='Para un cercado con tejido romboidal se necesitan postes (metal o madera), tensores, alambre para amarre, tensores, bridas o precintos, y el rollo de tejido romboidal. También podría ser necesario concreto para fijar postes y herramientas.';
+  assert.equal(resourceChatTurn('podes crearlos',null,recommendation).action,'generate');
+  assert.equal(resourceChatTurn('puedes crearlos',null,recommendation).action,'generate');
+  assert.equal(resourceChatTurn('crealos',null,recommendation).action,'generate');
+  assert.equal(resourceChatTurn('me decís que insumos necesitamos',null,noCatalog),null);
+  assert.equal(resourceChatTurn('necesito crearlos',null,'Puedo crear partidas y ACU para este presupuesto.'),null);
+  assert.equal(resourceChatTurn('podes crearlos',null,'Preparé una partida de mampostería para revisar.'),null);
+  assert.equal(resourceChatTurn('4+5',null,recommendation),null);
+});
+test('an explicit assistant recommendation yields a complete local reviewable resource batch without another model call',()=>{
+  const advice='Para un cercado con tejido romboidal se necesitan postes (metal o madera), tensores, alambre para amarre, tensores, bridas o precintos, y el rollo de tejido romboidal. También podría ser necesario concreto para fijar postes y herramientas.';
+  const suggestions=resourceSuggestionsFromText(advice);
+  assert.deepEqual(suggestions.map(row=>row.description),[
+    'postes (metal o madera)','tensores','alambre para amarre','bridas o precintos','rollo de tejido romboidal'
+  ]);
+  assert.ok(suggestions.every(row=>row.kind==='material'&&row.price===null));
+  assert.equal(suggestions[0].unit,'unidad');
+  assert.equal(suggestions[1].unit,'unidad');
+  assert.equal(suggestions[2].unit,'');
+  assert.equal(suggestions[3].unit,'unidad');
+  assert.equal(suggestions[4].unit,'rollo');
+  // Optional concrete and vague tools are NOT added without confirmation.
+  assert.ok(suggestions.every(row=>!/concreto|herramientas/.test(row.description)));
+  assert.equal(validatedResourceDraft(suggestions).ready.length,4);
+  assert.equal(validatedResourceDraft(suggestions).pending.length,1);
+  assert.equal(resourceSuggestionsFromText('No se encontraron insumos específicos, precisá más detalles.').length,0);
+  assert.equal(resourceSuggestionsFromText('Listo para crear insumos, confirmá y detallá las unidades.').length,0);
 });
