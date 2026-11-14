@@ -19,6 +19,10 @@ export function parseBudgetToolCall(raw){
  if(!isObject(raw)||!NAMES.has(raw.name)||!isObject(raw.args)||JSON.stringify(raw).length>3000)return null;
  const a=raw.args;
  if(Object.values(a).some(v=>v!==null&&typeof v!=='string'))return null;
+ if(raw.name==='prepare_resources'){
+  return typeof a.brief==='string'&&a.brief.trim()&&a.brief.length<=3000
+    ?{name:'prepare_resources',args:{brief:a.brief.trim()}}:null;
+ }
  if(raw.name==='prepare_budget'||raw.name==='prepare_acu'||raw.name==='review_budget'){
   if(typeof a.brief!=='string'||!a.brief.trim()||a.brief.length>3000)return null;
   if(raw.name==='prepare_budget'||raw.name==='review_budget')return {name:raw.name,args:{brief:a.brief.trim()}};
