@@ -474,3 +474,16 @@ test('short natural replies reuse the current library advice, not every empty bu
  assert.equal(availableCatalogFollowup('agregá todo menos el adhesivo',advice),null);
  assert.equal(availableCatalogFollowup('si agregalos',{...advice,available:[]}),null);
 });
+
+test('models can return resource proposals as typed JSON even without a tool_call wrapper',()=>{
+ const rows=[
+  {description:'Tejido romboidal',kind:'material',unit:'m²',price:'1500',price_evidence:'1500xm2'}
+ ];
+ assert.deepEqual(parseAiReply(JSON.stringify({answer:'Preparé el tejido',resource_proposals:rows})),{
+  answer:'Preparé el tejido',proposal:null,resourceProposals:rows
+ });
+ const malformed=parseAiReply(JSON.stringify({answer:'Lista',resource_proposals:'not an array'}));
+ assert.match(malformed.actionError,/lista/);
+ assert.equal(malformed.proposal,null);
+ assert.equal(parseAiReply(JSON.stringify({answer:'Hola'})).answer,'Hola');
+});
