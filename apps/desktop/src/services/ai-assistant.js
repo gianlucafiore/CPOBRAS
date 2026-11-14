@@ -460,11 +460,41 @@ export function lineProposalFromClarification(question,messages=[]){
 }
 
 // Only this allowlist can become a draft. Never execute model output as code/HTML.
+// Some providers serialize the structured tool response twice, or put it
+// inside a sole "answer" string. Unwrap only complete JSON documents and at
+// most three layers, then validate every operation with the normal allowlist.
+// Never scan prose for JSON fragments or evaluate generated code.
+function parseAiEnvelope(raw){
+  if(typeof raw!=="string"||raw.length>100000)return null;
+  let source=raw.trim();
+  for(let depth=0;depth<3;depth++){
+    const clean=source.replace(/^```(?:json|python)?\s*/i,"").replace(/\s*```$/,"");
+    let value;
+    try{value=JSON.parse(clean);}catch{value=parseSingleQuotedToolObject(clean);}
+    if(typeof value==="string"){source=value.trim();continue;}
+    if(!value||typeof value!=="object"||Array.isArray(value))return null;
+    if(Object.keys(value).length===1&&typeof value.answer==="string"){
+      const embedded=value.answer.trim();
+      // Don't reinterpret a human explanation containing a JSON example:
+      // only a complete structured object in the answer field can be unwrapped.
+      if(embedded.startsWith("{")||embedded.startsWith("```")){
+        let inner;
+        try{inner=JSON.parse(embedded.replace(/^```(?:json)?\s*/i,"").replace(/\s*```$/,""));}
+        catch{inner=null;}
+        if(inner&&typeof inner==="object"&&!Array.isArray(inner)&&
+          (Object.hasOwn(inner,"tool_call")||Object.hasOwn(inner,"resource_proposals"))){
+          source=embedded;continue;
+        }
+      }
+    }
+    return value;
+  }
+  return null;
+}
+
 export function parseAiReply(text) {
-  const clean=text.trim().replace(/^```(?:json|python)?\s*/i,"").replace(/\s*```$/,"");
-  let value;
-  try{value=JSON.parse(clean);}catch{value=parseSingleQuotedToolObject(clean);}
-  if(!value||typeof value!=="object"||Array.isArray(value))return {answer:text,proposal:null};
+  const value=parseAiEnvelope(text);
+  if(!value)return {answer:text,proposal:null};
   if(Object.hasOwn(value,'tool_call')){
     // A model-suggested tool is never executed as code: only the typed allowlist is accepted.
     const toolCall=parseBudgetToolCall(value.tool_call);
