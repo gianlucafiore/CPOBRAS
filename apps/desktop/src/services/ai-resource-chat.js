@@ -116,14 +116,24 @@ function resourceMatches(row,key){
   return resourceKey(row.description)===key;
 }
 function priceInSegment(segment){
-  const m=/(?:\b(?:precio(?:\s+unitario)?|vale|valen|cuesta|cuestan|es|son|a)\s*(?::|=|es)?\s*|[:,]\s*(?:es\s+)?|\s)(?:(?:ARS|USD|U\$S)\s*|\$\s*)?(\d{1,12}(?:[.,]\d{1,3})*(?:[.,]\d{1,2})?)(?=\s*(?:\b|$))/i.exec(segment);
-  if(!m)return null;
-  // A dimension "x 2.2m" is never a purchase price.
-  const prefix=segment.slice(0,m.index);
-  const suffix=segment.slice(m.index+m[0].length);
-  if(/(?:^|\s)x\s*$/i.test(prefix)&&/^\s*(?:m|cm|mm)\b/i.test(suffix))return null;
-  const number=decimalPrice(m[1]);
-  return {number,start:m.index,end:m.index+m[0].length,currency:/\b(?:USD|dolares|dólares)\b|U\$S/i.test(segment)?'USD':'ARS'};
+  // Price requires an explicit linguistic price marker, a purchase separator,
+  // or a number followed by a purchase unit. Never mistake dimensions for prices.
+  const number='(\\d{1,12}(?:[.,]\\d{1,3})*(?:[.,]\\d{1,2})?)';
+  const patterns=[
+    new RegExp('(?:\\b(?:precio(?:\\s+unitario)?|vale|valen|cuesta|cuestan|es|son)\\s*(?::|=|es)?\\s*)(?:(?:ARS|USD|U\\$S)\\s*|\\$\\s*)?'+number,'i'),
+    new RegExp('(?:^|[,;\\s])a\\s+(?:(?:ARS|USD|U\\$S)\\s*|\\$\\s*)?'+number+'(?=\\s*(?:cada\\s+un[ao]|por\\s+|x\\s*m[23²³]?\\b|$))','i'),
+    new RegExp(':\\s*(?:(?:ARS|USD|U\\$S)\\s*|\\$\\s*)?'+number+'(?=\\s*(?:cada\\s+un[ao]|por\\s+|x\\s*m[23²³]?\\b|$))','i'),
+    new RegExp('\\b'+number+'(?=\\s*(?:cada\\s+un[ao]|por\\s+(?:unidad|m2|m²|m3|m³|kg|hora)|x\\s*m[23²³]?\\b))','i')
+  ];
+  for(const pattern of patterns){
+    const match=pattern.exec(segment);
+    if(!match)continue;
+    const value=decimalPrice(match[1]);
+    if(!value)return {number:null,start:match.index,end:match.index+match[0].length,currency:'ARS'};
+    return {number:value,start:match.index,end:match.index+match[0].length,
+      currency:/\b(?:USD|dolares|dólares)\b|U\$S/i.test(segment)?'USD':'ARS'};
+  }
+  return null;
 }
 function purchaseUnit(segment){
   const text=fold(segment);
