@@ -21,7 +21,7 @@ import {parseAiReply,draftFromProposal,lineProposalFromClarification,lineProposa
 const defaults={openai:"gpt-4.1-mini",anthropic:"claude-haiku-4-5",lmstudio:""};
 export function createAiAssistant({invoke,state,document,window,openModal,editable,loadEstimate,loadEstimates,openEstimate,openResourceLibrary,reloadCatalog,refreshAnalysis,render}) {
   const host=document.createElement("div");host.id="ai-assistant";document.body.append(host);
-  const model={open:false,settings:false,configured:false,provider:"openai",model:defaults.openai,localModels:[],localModelError:"",messages:[],question:"",busy:false,error:"",context:"",includeContext:true,contextMode:"screen",contextOpen:false,consent:false,scope:"",generation:0,usage:null,notice:"",approvedRun:null,lastApprovedId:null,lastAction:null,pendingAction:null,catalogLoading:false,focusLineId:null,lastCatalogAdvice:null,recentCreatedLineIds:[],recentCreatedEstimateId:null,resourceDraft:null};
+  const model={open:false,settings:false,configured:false,provider:"openai",model:defaults.openai,localModels:[],localModelError:"",messages:[],question:"",busy:false,error:"",context:"",includeContext:true,contextMode:"screen",contextOpen:false,consent:false,scope:"",generation:0,usage:null,notice:"",approvedRun:null,lastApprovedId:null,lastAction:null,pendingAction:null,catalogLoading:false,focusLineId:null,lastCatalogAdvice:null,recentCreatedLineIds:[],recentCreatedEstimateId:null,resourceDraft:null,sessionView:null};
   const budgetImport=createAiBudgetImport({invoke,state,document,window,editable,loadEstimate,loadEstimates,openEstimate,canUseAi:()=>model.configured&&model.consent&&!model.busy});
   const acuWorkbench=createAcuWorkbench({invoke,state,document,window,loadEstimate,loadEstimates,openEstimate,openResourceLibrary,canUseAi:()=>model.configured&&model.consent&&(!model.busy||model.approvedRun?.running)});
   const approvedPlans=createApprovedPlanRunner({invoke,state,loadEstimate,loadEstimates,openEstimate});
@@ -85,11 +85,13 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     acuWorkbench.syncScope();
     if(state.navigating)cancelApprovedRun();
     if(state.modal){cancelApprovedRun();model.open=false;}
-    const next=scope();
+    const next=scope(),nextView=String(state.view||'');
     if(model.scope!==next&&model.approvedRun?.running&&model.approvedRun.phase==='saving'&&state.projectId===model.approvedRun.projectId&&state.estimateId===model.approvedRun.estimateId&&state.view==='workspace'){model.scope=next;model.approvedRun.scope=next;}
-    if(model.scope!==next){
+    // A task belongs to the visible workspace. A different screen begins a
+    // fresh task and cannot silently inherit a pending approval from here.
+    if(model.scope!==next||model.sessionView!==nextView){
       if(model.scope) { const [projectId,estimateId]=model.scope.split(":"); conversationStore(window.localStorage,projectId,estimateId,state.database?.scope).clear(); }
-      cancelApprovedRun();activeRequest?.cancel();activeRequest=null;queryToken++;if(!model.approvedRun)model.busy=false;model.catalogLoading=false;model.scope=next;model.generation++;model.messages=[];model.lastAction=null;model.pendingAction=null;model.focusLineId=null;model.lastCatalogAdvice=null;model.recentCreatedLineIds=[];model.recentCreatedEstimateId=null;model.resourceDraft=null;model.context="";model.includeContext=true;model.contextMode="screen";model.question="";model.error="";model.usage=null;model.notice="";
+      cancelApprovedRun();activeRequest?.cancel();activeRequest=null;queryToken++;if(!model.approvedRun)model.busy=false;model.catalogLoading=false;model.scope=next;model.sessionView=nextView;model.generation++;model.messages=[];model.lastAction=null;model.pendingAction=null;model.focusLineId=null;model.lastCatalogAdvice=null;model.recentCreatedLineIds=[];model.recentCreatedEstimateId=null;model.resourceDraft=null;model.context="";model.includeContext=true;model.contextMode="screen";model.question="";model.error="";model.usage=null;model.notice="";
       // Purge any legacy conversation saved by earlier CPObras versions.
       // A new screen starts a fresh task using the current selected data.
       store().clear();pendingIntent=null;
@@ -110,7 +112,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     if(message.proposal)content.proposal=message.proposal;
     message.content=JSON.stringify(content);
     if(new TextEncoder().encode(message.content).length>11000)message.content=JSON.stringify({answer:message.answer.slice(0,2000),proposed_lines:message.planRows?.length||0});
-    model.messages.push({role:'user',content:question},message);model.messages=model.messages.slice(-10);
+    model.messages.push({role:'user',content:question},message);model.messages=model.messages.slice(-60);
     if(isAction(message)){model.lastAction=message;model.pendingAction=!message.actionError&&!message.approval&&!message.changeProposals?message:null;}else if(!message.actionStatus)model.pendingAction=null;
     model.question='';return message;
   }
@@ -202,7 +204,14 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       model.lastAction=null;model.pendingAction=null;
       addReply(question,{answer:'Se cargaron '+saved.created+' insumo(s) en la biblioteca, con los precios en ARS que confirmaste. Los precios ausentes quedaron pendientes. Guardado confirmado por CPOBRAS.',resourceApproval:{committed:true,created:saved.created}});
       model.notice='Alta de insumos confirmada en SQLite.';
-      try{await reloadCatalog?.();}catch{model.notice='Los insumos se guardaron. Actualizá la biblioteca para verlos.';}
+      let summary='Se cargaron '+saved.created+' insumo(s) en la biblioteca. Guardado confirmado por CPOBRAS.';
+      try{
+        await reloadCatalog?.();
+        render?.();
+      }catch(error){
+        summary+=' No se pudo actualizar el buscador: '+String(error);
+      }
+      finishTaskSession(summary,{askMore:true});
     }catch(error){
       if(writeAttempted)draft.uncertain=true;
       model.error=String(error);
@@ -1188,7 +1197,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     if(model.pendingAction&&isApprovalReply(question)&&resolvedPendingApproval(question,[{role:'user',content:model.pendingAction.originalQuestion||''},model.pendingAction])!==null){
       if(!canPlan()){model.question='';model.error='Abrí un presupuesto propio en elaboración para cargar el pedido pendiente.';paint();return;}
       let index=model.messages.indexOf(model.pendingAction);
-      if(index<0){model.messages.push({role:'user',content:model.pendingAction.originalQuestion},model.pendingAction);model.messages=model.messages.slice(-10);index=model.messages.length-1;}
+      if(index<0){model.messages.push({role:'user',content:model.pendingAction.originalQuestion},model.pendingAction);model.messages=model.messages.slice(-60);index=model.messages.length-1;}
       model.question='';await approveMessage(index);return;
     }
     if(canPlan()&&budgetReviewIntent(question)){
@@ -1235,16 +1244,22 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       // a separate approval of the exact proposed items can write to the DB.
       await approveMessage(model.messages.length-1);return;
     }
-    if(isApprovalReply(question)){
-      if(!showActionState(question)){addReply(question,{answer:'No hay un pedido listo para cargar ni un guardado confirmado. Indicame qué partida querés crear o completar.'});paint();}return;
+    // If no reviewed action exists, the model should interpret the
+    // acknowledgement using the current task history instead of failing.
+    if(isApprovalReply(question)&&model.lastAction){showActionState(question);return;}
     }
-    }
-    const history=model.messages.slice(-10).map(m=>({role:m.role,content:m.content}));
+    // Keep the active task dialogue rather than only five exchanges.
+    // The model receives a bounded window (28 KB) while the first request
+    // stays pinned as the task's referent for follow-up instructions.
+    const history=model.messages.slice(-60).map(m=>({role:m.role,content:m.content}));
     // After a completed task only its assistant receipt remains; do not
     // send it as the first message of an unrelated new provider request.
     while(history.length&&history[0].role!=="user")history.shift();
     const byteSize=items=>new TextEncoder().encode(items.map(m=>m.content).join("")).length;
-    while(history.length&&byteSize([...history,{content:question}])>28000)history.splice(0,2);
+    while(history.length>3&&byteSize([...history,{content:question}])>28000)
+      history.splice(2,2);
+    while(history.length&&byteSize([...history,{content:question}])>28000)
+      history.splice(0,2);
     const messages=[...history,{role:"user",content:question}];
     if(model.includeContext&&model.contextMode==='screen')model.context=captureContext();
     const focusedLine=state.lines.find(line=>line.id===model.focusLineId);
@@ -1335,8 +1350,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
           return;
         }
         if(parsed.toolCall.name==='discard_resource_draft'){
-          model.resourceDraft=null;
-          addReply(question,{answer:'Descarté la ficha pendiente. No se guardó ningún insumo.'});
+          finishTaskSession('Descarté la ficha pendiente. No se guardó ningún insumo.',{askMore:true});
           return;
         }
         if(parsed.toolCall.name==='manage_sections'){
@@ -1427,8 +1441,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       if(action==="discard-resources"&&!model.busy){
         const message=model.messages[Number(button.dataset.index)];
         if(message?.resourceDraft&&message.resourceDraft===activeResources()){
-          model.resourceDraft=null;
-          addReply('Descartar ficha de insumos',{answer:'Descarté los insumos pendientes. No se guardó nada.'});
+          finishTaskSession('Descarté los insumos pendientes. No se guardó nada.',{askMore:true});
         }
       }
       if(action==="acu-workbench"&&!model.busy){const request=acuChatRequest(model.question,model.messages);if(request)await openAcuRequest(request);else await acuWorkbench.open(model.question);}
