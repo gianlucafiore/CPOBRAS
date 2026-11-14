@@ -282,6 +282,17 @@ test('model proposes normalized fence resources with grounded prices and native 
  expect(prompts[0].args.context).toContain('Biblioteca general de insumos');
  expect(prompts[0].args.context).toContain('propose_resources');
 });
+test('discarding a resource proposal ends the task without any native import',async({page})=>{
+ const row={description:'Tensor de acero',kind:'material',unit:'unidad',price:null};
+ await resourceHarness(page,[resourceTool([row])]);
+ await sayResource(page,'Prepará un tensor de acero por unidad');
+ await expect(page.locator('.ai-resource-chat-card li')).toHaveCount(1);
+ await page.locator('[data-ai=discard-resources]').click();
+ await expect(page.locator('.ai-resource-chat-card')).toHaveCount(0);
+ await expect(page.locator('.ai-transcript')).toContainText('No se guardó nada');
+ await expect(page.locator('.ai-transcript')).not.toContainText('Prepará un tensor');
+ expect(await page.evaluate(()=>window.__resourceChatHarness.imports.length)).toBe(0);
+});
 test('task retains early material requirements beyond five exchanges and ends on screen change',async({page})=>{
  const anchor='Necesito insumos para cercado de terreno con tejido romboidal; considerar postes, grampas y tensores.';
  const replies=Array.from({length:8},(_,i)=>({answer:'Continuamos el relevamiento; consulta '+(i+1)}));
