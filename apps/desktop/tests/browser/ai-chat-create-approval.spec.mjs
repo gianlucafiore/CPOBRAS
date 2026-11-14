@@ -167,3 +167,50 @@ test('an approved addition of sheet material targets one existing line and prese
  expect(result.calls.filter(call=>call.name==='ai_chat').map(call=>call.args.mode)).toEqual(['acu']);
  expect(result.modalCalls).toBe(0);expect(dialogs).toEqual([]);await expect(page.getByRole('dialog')).toHaveCount(0);
 });
+
+
+test('floating AI console can be moved, resized, made transparent and restored after reload',async({page})=>{
+  await page.setViewportSize({width:1440,height:900});
+  await approvalFixture(page);
+  const frame=page.locator('#ai-console');
+  const original=await frame.boundingBox();
+  expect(original).not.toBeNull();
+  await page.locator('[data-ai="settings"]').click();
+  const slider=page.locator('[name="ai-transparency"]');
+  await slider.evaluate(element=>{element.value='60';element.dispatchEvent(new Event('input',{bubbles:true}));});
+  await expect(page.locator('[data-ai-transparency-value]')).toHaveText('60%');
+  await expect(frame).toHaveCSS('background-color','rgba(17, 24, 31, 0.4)');
+  await page.locator('[data-ai="settings"]').click();
+
+  let current=await frame.boundingBox();
+  await page.mouse.move(current.x+55,current.y+18);
+  await page.mouse.down();
+  await page.mouse.move(current.x+125,current.y-82,{steps:8});
+  await page.mouse.up();
+  const moved=await frame.boundingBox();
+  expect(moved.x).toBeGreaterThan(current.x+40);
+  expect(moved.y).toBeLessThan(current.y-70);
+  current=moved;
+
+  await page.mouse.move(current.x+3,current.y+current.height/2);
+  await page.mouse.down();
+  await page.mouse.move(current.x+103,current.y+current.height/2,{steps:8});
+  await page.mouse.up();
+  const resized=await frame.boundingBox();
+  expect(resized.x).toBeGreaterThan(current.x+70);
+  expect(resized.width).toBeLessThan(current.width-70);
+
+  await page.reload();
+  await page.waitForFunction(()=>window.__createApprovalHarness?.ready);
+  await page.locator('.ai-launch').click();
+  const restored=await page.locator('#ai-console').boundingBox();
+  expect(Math.abs(restored.x-resized.x)).toBeLessThan(3);
+  expect(Math.abs(restored.y-resized.y)).toBeLessThan(3);
+  expect(Math.abs(restored.width-resized.width)).toBeLessThan(3);
+  expect(Math.abs(restored.height-resized.height)).toBeLessThan(3);
+  await page.locator('[data-ai="settings"]').click();
+  await expect(page.locator('[name="ai-transparency"]')).toHaveValue('60');
+  await page.locator('[data-ai="reset-window"]').click();
+  await expect(page.locator('#ai-console')).not.toHaveClass(/ai-floating/);
+  await expect(page.locator('#ai-console')).toHaveCSS('background-color','rgba(17, 24, 31, 0.4)');
+});
