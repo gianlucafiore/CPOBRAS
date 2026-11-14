@@ -15,7 +15,7 @@ import {e,dateToday} from "./helpers.js";
 import {buildCatalogContext,parseCatalogQuery,constructionCatalogAdvice,constructionAdviceText} from "../services/ai-catalog-context.js";
 import {appendRequest} from "../services/ai-acu-addition.js";
 import {productivityEditRequest} from "../services/ai-acu-productivity.js";
-import {parseAiReply,draftFromProposal,lineProposalFromClarification,lineProposalFromDirectRequest,simpleArithmeticAnswer,answerForDisplay,screenContext,createAiRequest,budgetScreenContext,acuChatRequest,resolvedPendingApproval,isApprovalReply,materialAdditionFollowup,materialAdditionConfirmation,selectedAcuRequest,affirmativeMissingMaterialRequest,contextualAcuLine,availableCatalogFollowup} from "../services/ai-assistant.js";
+import {parseAiReply,draftFromProposal,lineProposalFromClarification,lineProposalFromDirectRequest,simpleArithmeticAnswer,simpleUnitConversionAnswer,answerForDisplay,screenContext,createAiRequest,budgetScreenContext,acuChatRequest,resolvedPendingApproval,isApprovalReply,materialAdditionFollowup,materialAdditionConfirmation,selectedAcuRequest,affirmativeMissingMaterialRequest,contextualAcuLine,availableCatalogFollowup} from "../services/ai-assistant.js";
 const defaults={openai:"gpt-4.1-mini",anthropic:"claude-haiku-4-5",lmstudio:""};
 export function createAiAssistant({invoke,state,document,window,openModal,editable,loadEstimate,loadEstimates,openEstimate,openResourceLibrary,reloadCatalog,refreshAnalysis,render}) {
   const host=document.createElement("div");host.id="ai-assistant";document.body.append(host);
@@ -969,9 +969,10 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     // Exact, short calculations belong to CPOBRAS, not to language-model
     // inference. No catalog access, token cost, or database write.
     const arithmetic=simpleArithmeticAnswer(question);
-    if(arithmetic!==null){
-      addReply(question,{answer:arithmetic});
-      model.error="";model.notice="Cálculo exacto realizado localmente.";paint();return;
+    const unitConversion=arithmetic===null?simpleUnitConversionAnswer(question):null;
+    if(arithmetic!==null||unitConversion!==null){
+      addReply(question,{answer:arithmetic??unitConversion});
+      model.error="";model.notice="Cálculo exacto realizado localmente, sin consultar la IA.";paint();return;
     }
     // Keep the review card inside this conversation. Only explicit details
     // supplied by the user are put into the new line; no price or quantity
