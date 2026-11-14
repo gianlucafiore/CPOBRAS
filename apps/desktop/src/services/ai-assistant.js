@@ -316,8 +316,27 @@ export function simpleArithmeticAnswer(question){
  * a review card only, NOT an ACU recipe or a saved record. No quantities or
  * prices are fabricated. More general construction asks go through the model.
  */
+function parseLineDescriptionUnit(source){
+  const text=source.trim().replace(/[.!]+$/,"").trim();
+  const match=/^(.{6,250}?)\s*(?:[,;]\s*|\s+)(?:(?:medid[oa]\s+)?(?:en|por|unidad(?:\s+de\s+medida)?\s*[:=]?))\s*(m2|m²|m3|m³|m|ml|kg|u|un|unidad(?:es)?|h|hora(?:s)?|d[ií]a(?:s)?|metros?\s+cuadrados?|metros?\s+c[uú]bicos?|metros?\s+lineales?)$/iu.exec(text);
+  if(!match)return null;
+  const description=match[1].trim();
+  if(!/[a-záéíóúñ]{3}/iu.test(description)||/[?{}[\]\\]/.test(description))return null;
+  const unitInput=chatFold(match[2]).replace(/\s+/g," ");
+  const unit=({m2:"m²",m3:"m³",m:"m",ml:"m",kg:"kg",u:"unidad",un:"unidad",unidad:"unidad",unidades:"unidad",h:"h",hora:"h",horas:"h",dia:"día",dias:"día",
+    "metro cuadrado":"m²","metros cuadrados":"m²","metro cubico":"m³","metros cubicos":"m³","metro lineal":"m","metros lineales":"m"})[unitInput];
+  if(!unit)return null;
+  const proposal=parseAiReply(JSON.stringify({answer:"",proposal:{kind:"line",description,unit}})).proposal;
+  return proposal?.kind==="line"?proposal:null;
+}
+
 export function lineProposalFromDirectRequest(question){
   if(typeof question!=="string"||question.length>500)return null;
+  const direct=/^\s*(?:crea(?:r|me)?|genera(?:r|me)?|agrega(?:r|me)?|carga(?:r|me)?|prepara(?:r|me)?)\s+(?:un[ao]?\s+)?partida\s+(?:de|con|para)\s+(.{6,300})$/iu.exec(question.trim());
+  if(direct){
+    const withUnit=parseLineDescriptionUnit(direct[1]);
+    if(withUnit)return withUnit;
+  }
   const folded=chatFold(question);
   if(!/\b(?:crea|crear|creame|generar|genera|agrega|agregar|carga|cargar|prepara|preparar)\b/.test(folded)
     || !/\bpartida\b/.test(folded)
@@ -344,17 +363,7 @@ export function lineProposalFromClarification(question,messages=[]){
   const asksForDefinition=/(?:descripcion|trabajo|nombre)/.test(assistant)&&/(?:unidad|medida)/.test(assistant);
   const lineRequest=/(?:partida|linea|presupuesto)/.test(assistant)&&/(?:propon|prepar|agreg|carg|crea)/.test(assistant);
   if(!asksForDefinition||!lineRequest)return null;
-  const text=question.trim().replace(/[.!]+$/,"").trim();
-  const match=/^(.{6,250}?)\s*[,;]\s*(?:(?:medid[oa]\s+)?(?:en|por|unidad(?:\s+de\s+medida)?\s*[:=]?))\s*(m2|m²|m3|m³|m|ml|kg|u|un|unidad(?:es)?|h|hora(?:s)?|d[ií]a(?:s)?|metros?\s+cuadrados?|metros?\s+c[uú]bicos?|metros?\s+lineales?)$/iu.exec(text);
-  if(!match)return null;
-  const description=match[1].trim();
-  if(!/[a-záéíóúñ]{3}/iu.test(description)||/[?{}[\]\\]/.test(description))return null;
-  const unitInput=chatFold(match[2]).replace(/\s+/g," ");
-  const unit=({m2:"m²",m3:"m³",m:"m",ml:"m",kg:"kg",u:"unidad",un:"unidad",unidad:"unidad",unidades:"unidad",h:"h",hora:"h",horas:"h",dia:"día",dias:"día",
-    "metro cuadrado":"m²","metros cuadrados":"m²","metro cubico":"m³","metros cubicos":"m³","metro lineal":"m","metros lineales":"m"})[unitInput];
-  if(!unit)return null;
-  const proposal=parseAiReply(JSON.stringify({answer:"",proposal:{kind:"line",description,unit}})).proposal;
-  return proposal?.kind==="line"?proposal:null;
+  return parseLineDescriptionUnit(question);
 }
 
 // Only this allowlist can become a draft. Never execute model output as code/HTML.
