@@ -55,3 +55,56 @@ test('wrong currency, duplicates and ambiguous input never get silently written'
   assert.match(review.pending[0].errors.join(' '),/ya existe/);
   assert.equal(resourceChatTurn('cancelar',{rows:withUnit.rows}).action,'discard');
 });
+
+
+test('user fence prices and exclusions correct a previously suggested seven-resource draft',()=>{
+  const proposed=[
+    {description:'Tejido romboidal para cercado',kind:'material',unit:'m²',price:null},
+    {description:'Postes de madera o metálicos para cercado',kind:'material',unit:'unidad',price:null},
+    {description:'Cemento para fijación de postes',kind:'material',unit:'bolsa',price:null},
+    {description:'Alambre para tensar',kind:'material',unit:'kg',price:null},
+    {description:'Grampas metálicas',kind:'material',unit:'unidad',price:null},
+    {description:'Mano de obra para instalación de cercado',kind:'labor',unit:'m²',price:null},
+    {description:'Alquiler de equipos',kind:'equipment',unit:'día',price:null},
+  ];
+  const request='el precio del tejido es $1500 xm2 el del poste 17500 por unidad El cemento no lo agregues ya existe, alambre tampoco Las grampas valen 1000 cada una Mano de obra, es 50.000 el m2 equipos no pongas';
+  const response=resourceChatTurn(request,{rows:proposed});
+  assert.equal(response.action,'draft');
+  assert.deepEqual(response.excluded.sort(),['alambre','cemento','equipo']);
+  assert.equal(response.rows.length,4);
+  assert.deepEqual(response.rows.map(row=>row.price),['1500','17500','1000','50000']);
+  assert.deepEqual(response.rows.map(row=>row.unit),['m²','unidad','unidad','m²']);
+  assert.deepEqual(response.rows.map(row=>row.kind),['material','material','material','labor']);
+  assert.equal(validatedResourceDraft(response.rows).pending.length,0);
+  assert.equal(resourceChatTurn('bien cargalo',{rows:response.rows,excluded:response.excluded}).action,'approve');
+  const discard=resourceChatTurn('quita el insumo de cemento',{rows:proposed});
+  assert.equal(discard.action,'draft');
+  assert.equal(discard.rows.some(row=>row.description.includes('Cemento')),false);
+  assert.ok(discard.excluded.includes('cemento'));
+  assert.equal(resourceChatTurn('agrega cemento por bolsa',{rows:discard.rows,excluded:discard.excluded}),null);
+});
+
+test('single natural-language fence list yields three exact resources without measurements becoming prices',()=>{
+  const question='necesitamos los insumos para cerco de tejido romboidal: Mano de obra: 50.000 x m2 Poste de 3" x 2.2m a 17.500 cada uno tejido romboidal a 1500 xm2';
+  const turn=resourceChatTurn(question);
+  assert.equal(turn.action,'draft');
+  assert.deepEqual(turn.rows.map(row=>({description:row.description,unit:row.unit,kind:row.kind,price:row.price})),[
+    {description:'Mano de obra para cerco de tejido romboidal',unit:'m²',kind:'labor',price:'50000'},
+    {description:'Poste de 3" x 2.2m',unit:'unidad',kind:'material',price:'17500'},
+    {description:'tejido romboidal',unit:'m²',kind:'material',price:'1500'},
+  ]);
+  const review=validatedResourceDraft(turn.rows);
+  assert.equal(review.pending.length,0);
+  assert.equal(review.ready.length,3);
+  assert.equal(resourceChatTurn('bien cargalo',{rows:turn.rows,excluded:[]}).action,'approve');
+});
+
+test('exclusions do not accidentally suppress adjacent items, and quantities are not prices',()=>{
+  const items=resourceChatTurn('necesitamos insumos para cerco: cemento no lo agregues, grampas valen 1000 cada una Poste de madera 3" x 2,2m a 17500 cada uno');
+  assert.equal(items.action,'draft');
+  assert.ok(items.excluded.includes('cemento'));
+  assert.deepEqual(items.rows.map(x=>x.price),['1000','17500']);
+  assert.equal(items.rows[1].description,'Poste de madera 3" x 2,2m');
+  assert.equal(items.rows.some(x=>/cemento/i.test(x.description)),false);
+  assert.equal(resourceChatTurn('agregá mano de obra a ese ACU'),null);
+});
