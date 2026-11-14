@@ -1246,7 +1246,17 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     }
     // If no reviewed action exists, the model should interpret the
     // acknowledgement using the current task history instead of failing.
-    if(isApprovalReply(question)&&model.lastAction){showActionState(question);return;}
+    if(isApprovalReply(question)){
+      const receipt=model.messages.at(-1);
+      if(receipt?.taskCompleted&&receipt.approval){
+        // The database already confirmed this action. Do not dispatch a
+        // second model call or attempt a second write for the same approval.
+        addReply(question,{answer:receipt.approval.message||receipt.answer,
+          taskCompleted:true,actionStatus:true,approval:receipt.approval});
+        paint();return;
+      }
+      if(model.lastAction){showActionState(question);return;}
+    }
     }
     // Keep the active task dialogue rather than only five exchanges.
     // The model receives a bounded window (28 KB) while the first request
