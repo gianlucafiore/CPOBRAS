@@ -272,7 +272,9 @@ test('resource chat remembers price and unit, reviews in-chat and saves only aft
   await expect(page.locator('.ai-resource-chat-card li')).toHaveCount(2);
   await expect(page.locator('[data-ai=approve-resources]')).toBeDisabled(); // poste ya existe
   const modes=await page.evaluate(()=>window.__resourceChatHarness.calls.filter(c=>c.name==='ai_chat').map(c=>c.args.mode||'chat'));
-  expect(modes).toEqual(['chat','resources']);
+  // The previously enumerated suggestions are now converted locally,
+  // rather than burning a second AI call to re-generate the same items.
+  expect(modes).toEqual(['chat']);
   expect(await page.evaluate(()=>window.__resourceChatHarness.imports.length)).toBe(1);
 });
 
