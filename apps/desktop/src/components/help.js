@@ -1,5 +1,9 @@
 import { e } from "./helpers.js";
 const pages = {
+  "system-settings": [
+    "Datos generales",
+    "Administrá las unidades, monedas y cotizaciones compartidas por las obras. Estos datos están disponibles para reutilizarlos al preparar insumos, ACU y presupuestos.",
+  ],
   organizations: [
     "Organizaciones",
     "Elegí una organización propia o consultá una externa de solo lectura. Sus datos públicos, logotipo y directorios están dentro de la misma ficha. La predeterminada se preselecciona solo al crear obras nuevas.",

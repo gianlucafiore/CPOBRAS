@@ -6,6 +6,7 @@ commands.allow = [
   "switch_database",
   "ai_configure",
   "ai_status",
+  "ai_local_models",
   "ai_catalog_context",
   "ai_forget",
   "ai_chat",
