@@ -226,7 +226,8 @@ test("planner saves a task, progress and resource assignment and renders Gantt",
 });
 
 test("nested ACU preserves fields when components are added and calculates a scenario", async ({ page }) => {
- await bridge(page); await page.getByRole("button", { name: "Costos y precios", exact: true }).click();
+ await bridge(page); await page.getByRole("button", { name: "ACU", exact: true }).click();
+ await page.locator('[data-cost-tools="analyses"] > summary').click();
  await page.getByRole("button", { name: "Nuevo ACU compuesto", exact: true }).click();
  await expect(page.getByLabel("Código", { exact: true })).toHaveAttribute("readonly","");
  await page.getByLabel("Descripción", { exact: true }).fill("Estructura compuesta");
@@ -235,6 +236,7 @@ test("nested ACU preserves fields when components are added and calculates a sce
  await page.getByLabel("Consumo o fórmula").fill("largo * ancho");
  await page.getByLabel("Variables (por ejemplo largo=3; ancho=2)").fill("largo=3; ancho=2");
  await page.getByRole("button", { name: "Guardar análisis", exact: true }).click();
+ await page.getByRole("button", {name:"Comparar costos",exact:true}).click();
  await page.getByLabel("Variación de precio %").fill("10");
  await page.getByRole("button", { name: "Calcular escenario", exact: true }).click();
  await expect(page.locator(".compare-cards")).toContainText("110,00");
@@ -258,7 +260,7 @@ test("budget tools submit an atomic bulk edit and generate a PDF", async ({ page
 
 test("navigation marks the active section and every section explains its purpose",async({page})=>{
  await bridge(page);
- for(const [label,help]of [["Costos y precios","Costos y precios"],["Organizaciones","Organizaciones"],["Clientes","Clientes"],["Insumos","Catálogo de insumos"],["ACU","Biblioteca de ACU"]]){
+ for(const [label,help]of [["Datos generales","Datos generales"],["Organizaciones","Organizaciones"],["Clientes","Clientes"],["Insumos","Catálogo de insumos"],["ACU","Biblioteca de ACU"]]){
   const tab=page.getByRole('button',{name:label,exact:true}).first();await tab.click();await expect(tab).toHaveAttribute('aria-current','page');await expect(page.getByRole('complementary',{name:'Ayuda: '+help,exact:true})).toBeVisible();
  }
 });
@@ -606,7 +608,7 @@ test('issued external estimates keep their issued label and block synthetic edit
 });
 test('sharing permissions can be selected and changed per observer',async({page})=>{
  await bridge(page);await page.getByRole('button',{name:'Vinculación P2P',exact:true}).click();
- const form=page.locator('#p2p-invite-form');await form.getByLabel('Nombre del observador').fill('Consulta parcial');await form.getByLabel('Determinación de precio',{exact:true}).uncheck();await form.getByLabel('Contabilidad y finanzas',{exact:true}).uncheck();await form.getByLabel('Insumos y composiciones',{exact:true}).uncheck();await form.getByRole('button',{name:'Crear invitación',exact:true}).click();
+ const form=page.locator('#p2p-invite-form');await form.getByLabel('Nombre del observador').fill('Consulta parcial');await form.getByLabel('Determinación de precio',{exact:true}).uncheck();await form.getByLabel('Finanzas y tablero financiero',{exact:true}).uncheck();await form.getByLabel('Insumos y composiciones',{exact:true}).uncheck();await form.getByRole('button',{name:'Crear invitación',exact:true}).click();
  await expect.poll(()=>page.evaluate(()=>window.__calls.filter(c=>c.command==='p2p_invite').at(-1)?.args.permissions)).toMatchObject({price:false,accounting:false,resources:false,budget:true});
  await page.getByRole('button',{name:'Permisos',exact:true}).click();const edit=page.locator('#p2p-access-form');await expect(edit.getByLabel('Determinación de precio',{exact:true})).not.toBeChecked();await edit.getByLabel('Planificación',{exact:true}).uncheck();await edit.getByRole('button',{name:'Guardar permisos',exact:true}).click();
  await expect.poll(()=>page.evaluate(()=>window.__calls.find(c=>c.command==='p2p_set_permissions')?.args.permissions.planning)).toBe(false);
@@ -760,7 +762,7 @@ test('certification cuts save financing settings and can be marked directly on t
  await bridge(page);await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.locator('[data-action=manage-dashboard-budget]').first().click();await page.getByRole('button',{name:'Planificación',exact:true}).click();
  await page.getByRole('tab',{name:'Gantt',exact:true}).click();await page.getByRole('button',{name:'Marcar cortes de certificación',exact:true}).click();await page.locator('button[data-gantt-date="2026-11-15"]').click();
  let saved=await page.evaluate(()=>window.__calls.filter(c=>c.command==='save_project_plan').at(-1).args.plan.finance);expect(saved.cut_dates).toEqual(['2026-11-15']);
- const date=page.locator('button[data-action="plan-cut-date"]').nth(3);const selected=await date.getAttribute('data-date');await date.click();
+ const date=page.locator('button[data-action="plan-cut-date"]:not([data-date="2026-11-15"])').nth(3);const selected=await date.getAttribute('data-date');await date.click();
  await expect(page.locator(`[data-gantt-date="${selected}"]`)).toHaveClass(/is-certification-cut/);saved=await page.evaluate(()=>window.__calls.filter(c=>c.command==='save_project_plan').at(-1).args.plan.finance);expect(saved.cut_dates).toContain(selected);
 });
 test('financial periods show stock offsets and partial invoices can link to monthly rentals',async({page})=>{
@@ -826,9 +828,14 @@ test('requests can be edited from the list and saved supplier prices survive edi
  await bridge(page);await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.locator('[data-action=manage-dashboard-budget]').first().click();await page.getByRole('button',{name:'Gestión de obra',exact:true}).click();await page.getByRole('button',{name:'+ Nueva',exact:true}).click();await page.getByLabel('Nombre de la solicitud',{exact:true}).fill('Corralón editable');await page.locator('[data-request-source] input[type=checkbox]').check();await page.locator('[data-request-source] input[type=number]').fill('4');await page.getByRole('button',{name:'Guardar solicitud',exact:true}).click();await addQuoteSupplier(page,'supplier-1');await page.locator('[data-quote-cell]').fill('25');await expect(page.locator('[data-quote-save-state]')).toHaveText('Cambios sin guardar');await page.getByRole('button',{name:'Guardar precios',exact:true}).click();await expect(page.locator('[data-quote-save-state]')).toHaveText('Precios guardados');await page.getByRole('button',{name:'Editar solicitud Corralón editable',exact:true}).click();await expect(page.getByRole('dialog',{name:'Solicitud de cotización',exact:true})).toContainText('Editar solicitud');await expect(page.getByRole('combobox',{name:'Moneda',exact:true})).toBeDisabled();await page.locator('[data-request-source] input[type=number]').fill('6');await page.getByRole('button',{name:'Guardar cambios',exact:true}).click();await expect(page.locator('[data-quote-cell]')).toHaveValue('25');await expect(page.locator('[data-quote-total]')).toContainText('150,00');
  await page.locator('[data-action=ops-rfq-provider-menu]').first().click();page.once('dialog',d=>d.accept());await page.getByRole('button',{name:'Quitar proveedor',exact:true}).click();await expect(page.locator('[data-quote-cell]')).toHaveCount(0);await page.getByRole('button',{name:'Libro de obra',exact:true}).click();await page.getByRole('button',{name:'Materiales y Acopio',exact:true}).click();await expect(page.locator('[data-quote-cell]')).toHaveCount(0);await addQuoteSupplier(page,'supplier-1');await expect(page.locator('[data-quote-cell]')).toHaveValue('25');
 });
-test('unsaved supplier prices can be saved on navigation, cancelled or explicitly discarded',async({page})=>{
- await bridge(page);await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.locator('[data-action=manage-dashboard-budget]').first().click();await page.getByRole('button',{name:'Gestión de obra',exact:true}).click();await page.getByRole('button',{name:'+ Nueva',exact:true}).click();await page.getByLabel('Nombre de la solicitud',{exact:true}).fill('Precios');await page.locator('[data-request-source] input[type=checkbox]').check();await page.getByRole('button',{name:'Guardar solicitud',exact:true}).click();await addQuoteSupplier(page,'supplier-1');await page.locator('[data-quote-cell]').fill('123');await page.getByRole('button',{name:'Libro de obra',exact:true}).click();const dialog=page.getByRole('dialog',{name:'Precios sin guardar',exact:true});await expect(dialog).toBeVisible();await dialog.getByRole('button',{name:'Cancelar',exact:true}).click();await expect(page.locator('[data-quote-cell]')).toHaveValue('123');await page.getByRole('button',{name:'Libro de obra',exact:true}).click();await dialog.getByRole('button',{name:'Guardar y continuar',exact:true}).click();await expect(page.getByRole('heading',{name:'Libro de obra',exact:true})).toBeVisible();await page.getByRole('button',{name:'Materiales y Acopio',exact:true}).click();await expect(page.locator('[data-quote-cell]')).toHaveValue('123');await page.locator('[data-quote-cell]').fill('999');await page.getByRole('button',{name:'Libro de obra',exact:true}).click();await dialog.getByRole('button',{name:'Descartar',exact:true}).click();await page.getByRole('button',{name:'Materiales y Acopio',exact:true}).click();await expect(page.locator('[data-quote-cell]')).toHaveValue('123');
- await page.locator('[data-quote-cell]').fill('456');await page.getByRole('button',{name:'Planificación',exact:true}).click();await dialog.getByRole('button',{name:'Guardar y continuar',exact:true}).click();await expect(page.getByRole('heading',{name:'Planificación de obras',exact:true})).toBeVisible();await page.getByRole('button',{name:'Gestión de obra',exact:true}).click();await expect(page.locator('[data-quote-cell]')).toHaveValue('456');
+test('valid supplier prices autosave on navigation and persist between management and planning',async({page})=>{
+ await bridge(page);await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.locator('[data-action=manage-dashboard-budget]').first().click();await page.getByRole('button',{name:'Gestión de obra',exact:true}).click();await page.getByRole('button',{name:'+ Nueva',exact:true}).click();await page.getByLabel('Nombre de la solicitud',{exact:true}).fill('Precios');await page.locator('[data-request-source] input[type=checkbox]').check();await page.getByRole('button',{name:'Guardar solicitud',exact:true}).click();await addQuoteSupplier(page,'supplier-1');
+ await page.locator('[data-quote-cell]').fill('123');await page.getByRole('button',{name:'Libro de obra',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Libro de obra',exact:true})).toBeVisible();
+ await expect(page.getByRole('dialog',{name:'Precios sin guardar',exact:true})).toHaveCount(0);
+ await page.getByRole('button',{name:'Materiales y Acopio',exact:true}).click();await expect(page.locator('[data-quote-cell]')).toHaveValue('123');
+ await page.locator('[data-quote-cell]').fill('456');await page.getByRole('button',{name:'Planificación',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Planificación de obras',exact:true})).toBeVisible();await page.getByRole('button',{name:'Gestión de obra',exact:true}).click();await expect(page.locator('[data-quote-cell]')).toHaveValue('456');
 });
 
 test('a failed save in the navigation dialog keeps prices and prevents leaving',async({page})=>{
