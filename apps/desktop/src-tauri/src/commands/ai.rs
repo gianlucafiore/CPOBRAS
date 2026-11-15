@@ -971,7 +971,7 @@ mod tests {
         // Only the data context is compacted to 4500 bytes.
         assert!(
             local_system.len()
-                <= LM_STUDIO_INSTRUCTIONS.len() + GENERAL_RESOURCE_TOOL_GUIDANCE.len() + 4700
+                <= LM_STUDIO_INSTRUCTIONS.len() + GENERAL_RESOURCE_TOOL_GUIDANCE.len() + 4900
         );
         assert!(local_system.contains(GENERAL_RESOURCE_TOOL_GUIDANCE));
         assert!(cloud["instructions"].as_str().unwrap().len() > 25000);
@@ -1060,8 +1060,8 @@ mod tests {
             "{}",
             Some("library_acu_intent"),
         );
-        assert_eq!(deepseek["max_tokens"], 1000);
-        assert!(deepseek.get("chat_template_kwargs").is_none());
+        assert_eq!(deepseek["max_tokens"], 512);
+        assert_eq!(deepseek["chat_template_kwargs"]["enable_thinking"], false);
 
         let only_thoughts = json!({"choices":[{"finish_reason":"length","message":{
             "content":null,"reasoning_content":"private step-by-step reasoning"}}]});

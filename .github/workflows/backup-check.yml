@@ -1,5 +1,6 @@
 name: Backup portability
 on:
+  workflow_dispatch:
   push:
     paths: [".gitattributes", "apps/desktop/src-tauri/src/backups.rs", "apps/desktop/src-tauri/src/database.rs", "crates/**", "tools/backup-check/**", ".github/workflows/backup-check.yml"]
   pull_request:
