@@ -185,6 +185,14 @@ async function act(button) {
   if (action === "select-analysis") {
     state.selectedAnalysisId = button.dataset.id; await refreshAnalysis(); render(); return;
   }
+  if (action === "remove-line-resource") {
+    const line=currentLine(),index=Number(button.dataset.index);
+    if(!editable()||!line||!Number.isInteger(index)||index<0)return;
+    const component=state.detail?.components?.[index];
+    if(!component)throw new Error("El insumo ya no está en esta partida. Actualizá la vista.");
+    await invoke("remove_line_resource",{estimateId:state.estimateId,lineId:line.id,componentIndex:index,resourceId:component.resource_id});
+    await loadEstimate();state.message="Insumo quitado de la partida. Se conserva en el catálogo.";render();return;
+  }
   if (["edit-line-resources","assign-resource","edit-line-resource"].includes(action)) {
     const line=currentLine();if(!editable()||!line)return;
     const detail=line.analysis_id ? await invoke("get_analysis_details",{analysisId:line.analysis_id}):null;

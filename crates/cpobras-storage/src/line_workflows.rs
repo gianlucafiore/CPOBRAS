@@ -23,6 +23,73 @@ impl LocalStore {
             |r| r.get(0),
         )?)
     }
+    /// Remove exactly the reviewed component; shared library analyses stay unchanged.
+    pub fn remove_line_resource(
+        &mut self,
+        estimate_id: Uuid,
+        line_id: Uuid,
+        component_index: usize,
+        resource_id: Uuid,
+    ) -> Result<()> {
+        let line = self
+            .estimate_items(estimate_id)?
+            .into_iter()
+            .find(|line| line.id == line_id)
+            .ok_or_else(|| invalid("Partida inexistente en este presupuesto"))?;
+        let analysis = line
+            .analysis_id
+            .map(|id| self.get_analysis(id))
+            .transpose()?
+            .flatten()
+            .ok_or_else(|| invalid("La partida ya no tiene composición"))?;
+        if analysis
+            .components
+            .get(component_index)
+            .map(|c| c.resource_id)
+            != Some(resource_id)
+        {
+            return Err(invalid(
+                "La composición cambió. Actualizá la vista antes de quitar el insumo",
+            ));
+        }
+        let remaining: Vec<_> = analysis
+            .components
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| *index != component_index)
+            .map(|(_, c)| LineResourceInput {
+                resource_id: c.resource_id,
+                quantity: c.quantity_per_unit,
+                unit_price: c.unit_price,
+            })
+            .collect();
+        if !remaining.is_empty() {
+            self.save_line_resources(estimate_id, line_id, &remaining)?;
+            return Ok(());
+        }
+        let tx = self
+            .conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let status: String = tx.query_row(
+            "SELECT status FROM estimates WHERE id=?1",
+            [estimate_id.to_string()],
+            |r| r.get(0),
+        )?;
+        if status != "draft" {
+            return Err(invalid(
+                "Los insumos de un presupuesto emitido no se modifican",
+            ));
+        }
+        tx.execute("UPDATE estimate_lines SET analysis_id=NULL,unit_cost_snapshot='0' WHERE id=?1 AND estimate_id=?2",
+            params![line_id.to_string(), estimate_id.to_string()])?;
+        tx.execute(
+            "DELETE FROM line_analysis_sources WHERE line_id=?1",
+            [line_id.to_string()],
+        )?;
+        checked_budget_total(&tx, estimate_id)?;
+        tx.commit()?;
+        Ok(())
+    }
     pub fn save_line_resources(
         &mut self,
         estimate_id: Uuid,

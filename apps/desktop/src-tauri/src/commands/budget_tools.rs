@@ -124,6 +124,25 @@ pub(crate) fn move_budget_line(
         .map_err(|e| e.to_string())
 }
 #[tauri::command]
+pub(crate) fn remove_line_resource(
+    db: tauri::State<'_, Db>,
+    estimate_id: String,
+    line_id: String,
+    component_index: usize,
+    resource_id: String,
+) -> Result<(), String> {
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .remove_line_resource(
+            Uuid::parse_str(&estimate_id).map_err(|e| e.to_string())?,
+            Uuid::parse_str(&line_id).map_err(|e| e.to_string())?,
+            component_index,
+            Uuid::parse_str(&resource_id).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub(crate) fn save_line_resources(
     db: tauri::State<'_, Db>,
     estimate_id: String,

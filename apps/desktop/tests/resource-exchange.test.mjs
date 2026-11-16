@@ -41,3 +41,14 @@ test("resource import accepts catalog abbreviations, names and common MO punctua
  assert.deepEqual(rows.map(r=>r.kind),aliases.map(([,kind])=>kind));
  assert.ok(rows.every(r=>r.errors.length===0));
 });
+
+test('downloaded catalog includes all rows with latest known prices, explicit zero and original import headers',async()=>{
+ const bytes=await resourceTemplateBytes([
+  {code:'A',description:'Material',kind:'material',unit:'kg',price:'1234.56'},
+  {code:'B',description:'Oficial',kind:'labor',unit:'h',price:'0'},
+  {code:'C',description:'Equipo',kind:'equipment',unit:'h',price:null}
+ ]);
+ const rows=await parseExcel(bytes);
+ assert.deepEqual(rows,[resourceHeaders,['A','Material','Material','kg','1234.56'],['B','Oficial','Mano de obra','h','0'],['C','Equipo','Equipo','h','']]);
+ assert.ok(parseResourceRows(rows).every(r=>!r.errors.length));
+});

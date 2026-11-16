@@ -31,7 +31,7 @@ async function openLibrary(page, proseFirst = false, asksWork = 0, selectedFixtu
         if (command === "list_resources") return resources;
         if (command === "list_analyses") return analyses;
         if (command === "get_analysis_details") return analyses.find(item => item.id === args.analysisId);
-        if (command === "save_export_file") return {path:"/tmp/Plantilla de insumos.xlsx"};
+        if (command === "save_export_file") return {path:"/tmp/Listado de insumos.xlsx"};
         if (command === "open_recent_export") { window.exportOpens.push(args.path); return; }
         if (command === "ai_status") return {configured:true,provider:"openai",model:"fixture"};
         if (command === "ai_catalog_context") {
@@ -276,9 +276,9 @@ test("converses about the proposal, revises it, and saves only on explicit appro
 test("the export notification opens the file through the default-app command", async ({page}) => {
   await openLibrary(page);
   await page.getByRole("button", {name:"Insumos",exact:true}).click();
-  await page.getByRole("button", {name:"Descargar plantilla Excel"}).click();
-  await page.getByRole("link", {name:"/tmp/Plantilla de insumos.xlsx"}).click();
-  expect(await page.evaluate(() => window.exportOpens)).toEqual(["/tmp/Plantilla de insumos.xlsx"]);
+  await page.getByRole("button", {name:"Descargar listado"}).click();
+  await page.getByRole("link", {name:"/tmp/Listado de insumos.xlsx"}).click();
+  expect(await page.evaluate(() => window.exportOpens)).toEqual(["/tmp/Listado de insumos.xlsx"]);
 });
 
 test("the doubled square AI button can be dragged and still opens on a click", async ({page}) => {

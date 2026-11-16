@@ -5682,3 +5682,80 @@ fn assisted_acu_reuses_reference_consumption_but_not_historical_prices() {
         20.into()
     );
 }
+
+#[test]
+fn removing_line_resources_preserves_catalog_snapshots_and_handles_the_last_component() {
+    use crate::line_workflows::LineResourceInput;
+    use crate::resource_catalog::Resource;
+    let (mut store, _, estimate, line) = fixture();
+    let resource = Resource {
+        id: Uuid::new_v4(),
+        code: "REMOVE-1".into(),
+        description: "Material para quitar".into(),
+        unit: "kg".into(),
+        kind: cpobras_core::ResourceKind::Material,
+        active: true,
+    };
+    store.save_resource(&resource).unwrap();
+    let second = Resource {
+        id: Uuid::new_v4(),
+        code: "REMOVE-2".into(),
+        ..resource.clone()
+    };
+    store.save_resource(&second).unwrap();
+    let inputs = vec![
+        LineResourceInput {
+            resource_id: resource.id,
+            quantity: Decimal::ONE,
+            unit_price: Decimal::from(10),
+        },
+        LineResourceInput {
+            resource_id: second.id,
+            quantity: Decimal::from(3),
+            unit_price: Decimal::from(20),
+        },
+    ];
+    let original = store
+        .save_line_resources(estimate.id, line.id, &inputs)
+        .unwrap();
+    assert!(store
+        .remove_line_resource(estimate.id, line.id, 0, second.id)
+        .is_err());
+    store
+        .remove_line_resource(estimate.id, line.id, 0, resource.id)
+        .unwrap();
+    let current = store.estimate_items(estimate.id).unwrap().remove(0);
+    let analysis = store
+        .get_analysis(current.analysis_id.unwrap())
+        .unwrap()
+        .unwrap();
+    assert_eq!(analysis.components.len(), 1);
+    assert_eq!(analysis.components[0].resource_id, second.id);
+    assert_eq!(analysis.components[0].quantity_per_unit, Decimal::from(3));
+    assert_eq!(
+        store
+            .get_analysis(original)
+            .unwrap()
+            .unwrap()
+            .components
+            .len(),
+        2
+    );
+    store
+        .remove_line_resource(estimate.id, line.id, 0, second.id)
+        .unwrap();
+    let empty = store.estimate_items(estimate.id).unwrap().remove(0);
+    assert!(empty.analysis_id.is_none());
+    assert_eq!(empty.unit_cost_snapshot, Decimal::ZERO);
+    assert_eq!(empty.quantity, line.quantity);
+    assert!(store.get_resource(resource.id).unwrap().is_some());
+    assert!(store.get_resource(second.id).unwrap().is_some());
+    store
+        .save_line_resources(estimate.id, line.id, &inputs)
+        .unwrap();
+    store.issue_estimate(estimate.id).unwrap();
+    assert!(store
+        .remove_line_resource(estimate.id, line.id, 0, resource.id)
+        .is_err());
+    store.verify_integrity().unwrap();
+}

@@ -66,7 +66,7 @@ export function createResourcePicker({
     parentFocus = null;
   function results(input) {
     hide();
-    const box = input.parentElement.querySelector(".resource-results");
+    const box = input.closest(".resource-picker").querySelector(".resource-results");
     const matches = searchResources(state.resources, input.value);
     box.innerHTML =
       matches
@@ -212,7 +212,7 @@ export function createResourcePicker({
       .closest?.(".resource-picker")
       ?.querySelector(".resource-search");
     if (!input) return false;
-    const box = input.parentElement.querySelector(".resource-results");
+    const box = input.closest(".resource-picker").querySelector(".resource-results");
     if (evt.key === "Escape" && !box.hidden) {
       evt.preventDefault();
       hide();
@@ -254,8 +254,8 @@ export function createResourcePicker({
     keyDown,
     input: (evt) => {
       if (evt.target.matches(".resource-search")) {
-        evt.target.parentElement.querySelector('[name="resource"]').value = "";
-        const unit = evt.target.parentElement.querySelector('[data-resource-unit]');
+        evt.target.closest(".resource-picker").querySelector('[name="resource"]').value = "";
+        const unit = evt.target.closest(".resource-picker").querySelector('[data-resource-unit]');
         if (unit) {unit.textContent = '';unit.hidden = true;}
         results(evt.target);
       }

@@ -256,8 +256,8 @@ export function createViews({
     if (state.panel === "summary") return summaryPane();
     if (state.panel === "resources")
       return `<div class="detail-heading"><b>INSUMOS DEL PRESUPUESTO</b><span>${line ? e(line.description) : "Seleccioná una partida para asignar"}</span><button class="btn tiny primary" data-action="edit-line-resources" ${locked()} ${!line ? "disabled" : ""}>＋ Agregar insumo</button></div>
-    <div class="mini-scroll"><table class="mini-table"><thead><tr><th>TIPO</th><th>DESCRIPCIÓN</th><th>UND.</th><th class="number">PRECIO ${e(currentEstimate()?.currency || "ARS")}</th><th>ASIGNAR</th></tr></thead><tbody>
-    ${state.resources.filter(r => (state.estimateRequiredResourceIds || []).includes(r.id)).map((r) => `<tr><td><span class="kind kind-${e(r.kind)}">${kindBadge(r.kind)}</span></td><td>${e(r.description)}</td><td>${e(r.unit)}</td><td class="number">${(state.estimateResourcePrices?.[r.id] ?? (currentEstimate()?.currency === "USD" ? null : r.price)) == null ? "—" : money(state.estimateResourcePrices?.[r.id] ?? r.price)}</td><td><button class="btn tiny" data-action="assign-resource" data-id="${e(r.id)}" ${locked()} ${!line || r.active === false ? "disabled" : ""}>Asignar</button></td></tr>`).join("") || '<tr><td colspan="5" class="empty-cell">Todavía no hay insumos en este presupuesto. Usá «Agregar insumo» para incorporarlos a una partida.</td></tr>'}
+    <div class="mini-scroll"><table class="mini-table"><thead><tr><th>TIPO</th><th>DESCRIPCIÓN</th><th>UND.</th><th class="number">CANT. TOTAL</th><th class="number">PRECIO TOTAL ${e(currentEstimate()?.currency || "ARS")}</th><th>ASIGNAR</th></tr></thead><tbody>
+    ${(state.estimateResourceTotals||[]).map((r) => `<tr><td><span class="kind kind-${e(r.kind)}">${kindBadge(r.kind)}</span></td><td>${e(r.description)}</td><td>${e(r.unit)}</td><td class="number">${numeric(r.quantity)}</td><td class="number">${r.total==null?'—':money(r.total)}</td><td><button class="btn tiny" data-action="assign-resource" data-id="${e(r.resource_id)}" ${locked()} ${!line || state.resources.find(c=>c.id===r.resource_id)?.active===false ? "disabled" : ""}>Asignar</button></td></tr>`).join("") || '<tr><td colspan="6" class="empty-cell">Todavía no hay insumos en este presupuesto. Usá «Agregar insumo» para incorporarlos a una partida.</td></tr>'}
     </tbody></table></div><div class="detail-footer"><span>Solo se muestran los insumos usados por las partidas de este presupuesto. «Agregar insumo» permite elegir otros de la biblioteca.</span></div>`;
     if (!line)
       return `<div class="blank-state"><span>▧</span><strong>Seleccioná una partida</strong><p>Su análisis de costos y mediciones aparecerán acá.</p></div>`;
@@ -274,8 +274,8 @@ export function createViews({
       .map((type) => {
         const group = rows.filter((row) => row.kind === type);
         if (!group.length) return "";
-        return `<tr class="group-row"><td colspan="7">${kindName(type).toUpperCase()}</td></tr>
-      ${group.map((row) => `<tr class="line-resource-row" data-component-index="${rows.indexOf(row)}" tabindex="0" aria-label="Insumo ${e(row.description)}"><td><span class="kind kind-${type}">${kindBadge(type)}</span></td><td>${e(row.description)}</td><td class="component-unit">${e(state.resources.find(r => r.id === row.resource_id)?.unit || row.unit || "—")}</td><td class="number">${numeric(row.quantity)}</td><td class="number">${money(row.unit_price)}</td><td class="number">${money(row.total)}</td><td><button class="btn tiny" data-action="edit-line-resource" data-index="${rows.indexOf(row)}" ${locked()}>Editar</button></td></tr>`).join("")}`;
+        return `<tr class="group-row"><td colspan="6">${kindName(type).toUpperCase()}</td><td class="number group-total">${money(sumDecimals(group.map(row=>row.total)))}</td></tr>
+      ${group.map((row) => `<tr class="line-resource-row" data-component-index="${rows.indexOf(row)}" tabindex="0" aria-label="Insumo ${e(row.description)}"><td><span class="kind kind-${type}">${kindBadge(type)}</span></td><td>${e(row.description)}</td><td class="component-unit">${e(state.resources.find(r => r.id === row.resource_id)?.unit || row.unit || "—")}</td><td class="number">${numeric(row.quantity)}</td><td class="number">${money(row.unit_price)}</td><td class="number">${money(row.total)}</td><td class="component-actions"><button class="btn tiny" data-action="edit-line-resource" data-index="${rows.indexOf(row)}" ${locked()}>Editar</button><button class="btn tiny tiny-danger" data-action="remove-line-resource" data-index="${rows.indexOf(row)}" aria-label="Quitar ${e(row.description)} de la partida" ${locked()}>×</button></td></tr>`).join("")}`;
       })
       .join("");
     return `<div class="detail-heading"><div><strong>${e(line.description)}</strong>${subtitle}</div>
@@ -381,7 +381,7 @@ export function createViews({
     } else if (state.view === "resources") {
       title = "Biblioteca de insumos";
       subtitle = "Materiales, mano de obra, equipos y subcontratos.";
-      action = btn("Descargar plantilla Excel", "resource-import-template") + btn("Importar Excel", "resource-import-open") + btn("Preparar insumos con IA", "ai-resource-open") + btn("＋ Nuevo insumo", "modal-resource", "primary");
+      action = btn("Descargar listado", "resource-import-template") + btn("Importar Excel", "resource-import-open") + btn("Preparar insumos con IA", "ai-resource-open") + btn("＋ Nuevo insumo", "modal-resource", "primary");
       headers = ["CÓDIGO", "DESCRIPCIÓN", "TIPO", "UND.", "PRECIO ARS", ""];
       rows = state.resources
         .map(

@@ -24,6 +24,15 @@ async function bridge(page, options={}) {
   const takeoffRows=fixture.restorableTakeoff?[{id:"takeoff-1",line_id:line.id,estimate_id:estimate.id,note:"Medición de prueba",factor:"1",length:"3",width:"2",height:"1",sign:1,quantity:"6"}]:[];
   if(fixture.restorableTakeoff){line.quantity="6";line.total="600";totals.direct="600";totals.total="600";}
   const resources=[{ id: "resource-1", code: "MAT-1", description: "Acero", unit: "kg", kind: "material", price: "100" }];
+  if(fixture.composition){
+   resources.push({id:'resource-sand',code:'MAT-2',description:'Arena',unit:'m³',kind:'material',price:'25'},
+    {id:'resource-labor',code:'MO-1',description:'Oficial',unit:'h',kind:'labor',price:'50'});
+   lineDetails['composition']={is_line_owned:true,code:'PART',description:'Hormigón',unit:'m³',unit_cost:'400',components:[
+    {resource_id:'resource-1',description:'Acero',kind:'material',quantity:'3',unit_price:'100',total:'300'},
+    {resource_id:'resource-sand',description:'Arena',kind:'material',quantity:'2',unit_price:'25',total:'50'},
+    {resource_id:'resource-labor',description:'Oficial',kind:'labor',quantity:'1',unit_price:'50',total:'50'}]};
+   for(const l of lines)l.analysis_id='composition';
+  }
   const resourcePrices={};const templates=[];
   const sourceProject={...project,id:'source-project',name:'Obra modelo'};
   const sourceDocument={format_version:1,currency:'Ars',title:'Modelo de cómputo',rates:{},line_analyses:[],sections:[{id:'src-parent',parent_id:null,code:'01',title:'Estructura modelo',position:0},{id:'src-child',parent_id:'src-parent',code:'01.01',title:'Terminaciones modelo',position:1},{id:'src-other',parent_id:null,code:'02',title:'Otros modelo',position:2},{id:'src-empty',parent_id:null,code:'03',title:'Rubro vacío',position:3}],lines:[{id:'src-a',description:'Columna modelo',unit:'m³',quantity:'2',unit_cost_snapshot:'10',analysis_id:null},{id:'src-b',description:'Muro modelo',unit:'m²',quantity:'6',unit_cost_snapshot:'20',analysis_id:null},{id:'src-c',description:'Pintura modelo',unit:'m²',quantity:'3',unit_cost_snapshot:'30',analysis_id:null}],assignments:[['src-a','src-parent'],['src-b','src-child'],['src-c','src-other']],formulas:[{line_id:'src-a',expression:'x',variables:{x:'2'}}],takeoffs:[{line_id:'src-b',factor:'2',length:'3',width:'1',height:'1',sign:1,position:0,note:'Pared'}]};
@@ -161,6 +170,14 @@ async function bridge(page, options={}) {
     const assigned=assignments.findIndex(row=>row.line_id===args.lineId);if(assigned>=0)assignments.splice(assigned,1);if(args.sectionId)assignments.push({line_id:args.lineId,section_id:args.sectionId});return null;
    }
    if(command === "delete_estimate_line"){const index=lines.findIndex(row=>row.id===args.lineId);lines.splice(index,1);return null;}
+   if(command==='remove_line_resource'){
+    const l=lines.find(l=>l.id===args.lineId),original=lineDetails[l.analysis_id];
+    if(original.components[args.componentIndex]?.resource_id!==args.resourceId)throw Error('La composición cambió');
+    const components=original.components.filter((_,i)=>i!==args.componentIndex);
+    if(components.length){l.analysis_id='removed-'+calls.length;lineDetails[l.analysis_id]={...structuredClone(original),components};}
+    else l.analysis_id=null;
+    l.unit_cost=String(components.reduce((n,c)=>n+Number(c.total),0));l.total=String(Number(l.quantity)*Number(l.unit_cost));return null;
+   }
    if(command === "save_line_resources"){
     const selected=lines.find(row=>row.id===args.lineId);const id="private-"+calls.length;const cost=args.components.reduce((sum,row)=>sum+Number(row.quantity)*Number(row.unitPrice),0);
     selected.analysis_id=id;selected.unit_cost=String(cost);selected.total=String(cost*Number(selected.quantity));
@@ -514,7 +531,7 @@ test('new own organizations can be edited and default changes do not replace the
 test('clients and suppliers stay separate and importing adds a role without duplicating a person',async({page})=>{
  await bridge(page,{people:true});await page.getByRole('button',{name:'Clientes',exact:true}).click();await expect(page.getByRole('cell',{name:'Corralón García',exact:true})).toHaveCount(0);await page.getByRole('button',{name:'Importar desde proveedores',exact:true}).click();await page.getByRole('button',{name:'Incorporar como cliente',exact:true}).click();await expect(page.getByRole('cell').filter({hasText:'Corralón García'})).toBeVisible();
  expect(await page.evaluate(()=>window.__calls.filter(c=>c.command==='save_person').length)).toBe(0);expect(await page.evaluate(()=>window.__calls.filter(c=>c.command==='add_person_role').at(-1).args)).toMatchObject({id:'supplier-1',role:'client'});
- await page.getByRole('row').filter({hasText:'Corralón García'}).getByRole('button',{name:'Editar cliente',exact:true}).click();await page.getByLabel('Teléfono del contacto',{exact:true}).fill('1144556677');await page.getByRole('button',{name:'Guardar contacto',exact:true}).click();await page.getByRole('button',{name:'Proveedores',exact:true}).click();await expect(page.getByRole('row').filter({hasText:'Corralón García'})).toContainText('1144556677');await expect(page.getByRole('cell',{name:'Comitente',exact:true})).toHaveCount(0);
+ await page.getByRole('row').filter({hasText:'Corralón García'}).getByText('Acciones',{exact:true}).click();await page.getByRole('row').filter({hasText:'Corralón García'}).getByRole('button',{name:'Editar cliente',exact:true}).click();await page.getByLabel('Teléfono del contacto',{exact:true}).fill('1144556677');await page.getByRole('button',{name:'Guardar contacto',exact:true}).click();await page.getByRole('button',{name:'Proveedores',exact:true}).click();await expect(page.getByRole('row').filter({hasText:'Corralón García'})).toContainText('1144556677');await expect(page.getByRole('cell',{name:'Comitente',exact:true})).toHaveCount(0);
 });
 
 test('new contact suggests reusing a similar opposite-role person and preserves drafts on outside click',async({page})=>{
@@ -1079,13 +1096,13 @@ test('resource library downloads an Excel template and imports materials and lab
  const headers=['Código','Descripción','Tipo','Unidad','Precio ARS'];
  const buffer=await resourceImportWorkbook([headers,['MAT-NUEVO','Cemento para prueba','MAT','bolsa','1234.56'],['','Oficial para prueba','MO','h','']]);
  await bridge(page);await page.getByRole('button',{name:'Insumos',exact:true}).first().click();
- await page.getByRole('button',{name:'Descargar plantilla Excel',exact:true}).click();
+ await page.getByRole('button',{name:'Descargar listado',exact:true}).click();
  const {parseExcel}=await import('../../src/services/exchange.js');
  await expect.poll(()=>page.evaluate(()=>window.__calls.filter(c=>c.command==='save_export_file').length)).toBe(1);
  const template=await page.evaluate(()=>window.__calls.find(c=>c.command==='save_export_file').args);
- expect(template.name).toBe('Plantilla_insumos_CPOBRAS.xlsx');
+ expect(template.name).toBe('Listado_insumos_CPOBRAS.xlsx');
  expect(template.openAfter).toBe(false);
- expect(await parseExcel(Uint8Array.from(template.bytes))).toEqual([headers]);
+ expect(await parseExcel(Uint8Array.from(template.bytes))).toEqual([headers,['MAT-1','Acero','Material','kg','100']]);
  await page.getByRole('button',{name:'Importar Excel',exact:true}).click();
  const dialog=page.getByRole('dialog',{name:'Importar biblioteca de insumos',exact:true});
  await dialog.getByLabel('Fecha de los precios',{exact:true}).fill('2026-11-09');
@@ -1211,4 +1228,86 @@ test('opening a database displays native errors inside the app without browser a
  await page.getByRole('button',{name:'Abrir base de datos…',exact:true}).click();
  await expect.poll(()=>page.evaluate(()=>window.__calls.filter(x=>x.command==='switch_database').length)).toBe(2);
  await expect(page.getByRole('alert')).toContainText('os error 5');
+});
+
+async function openCompositionBudget(page,options={}){
+ await bridge(page,{composition:true,twoLines:true,...options});
+ await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();
+ await page.locator('[data-action=manage-dashboard-budget]').first().click();
+}
+test('budget resource totals include every line and group headings show their composition subtotals',async({page})=>{
+ await openCompositionBudget(page);
+ await expect(page.locator('.group-row').filter({hasText:'MATERIALES'})).toContainText('350,00');
+ await expect(page.locator('.group-row').filter({hasText:'MANO DE OBRA'})).toContainText('50,00');
+ await page.getByRole('tab',{name:'Insumos',exact:true}).click();
+ const steel=page.locator('.mini-table tbody tr').filter({hasText:'Acero'});
+ await expect(steel.locator('td').nth(3)).toHaveText('12');await expect(steel.locator('td').nth(4)).toHaveText('1.200,00');
+ await page.screenshot({path:test.info().outputPath('budget-resources.png'),fullPage:true});
+ await expect(page.getByRole('columnheader',{name:'CANT. TOTAL',exact:true})).toBeVisible();
+});
+test('resource actions appear on hover or keyboard focus and remove only that line, including its last resource',async({page})=>{
+ await openCompositionBudget(page);
+ const row=page.locator('.line-resource-row').filter({hasText:'Acero'});
+ await expect(row.locator('[data-action=remove-line-resource]')).toHaveCSS('opacity','0');
+ await row.hover();await expect(row.locator('[data-action=remove-line-resource]')).toHaveCSS('opacity','1');
+ await row.locator('[data-action=remove-line-resource]').click();
+ await expect(page.locator('.line-resource-row')).toHaveCount(2);
+ const remaining=page.locator('.line-resource-row').first();await remaining.focus();
+ await expect(remaining.locator('[data-action=remove-line-resource]')).toHaveCSS('opacity','1');
+ await remaining.locator('[data-action=remove-line-resource]').click();
+ await page.locator('.line-resource-row').first().hover();await page.locator('[data-action=remove-line-resource]').click();
+ await expect(page.locator('.line-resource-row')).toHaveCount(0);
+ await page.getByRole('tab',{name:'Insumos',exact:true}).click();
+ await expect(page.locator('.mini-table')).toContainText('Acero');
+ await expect(page.locator('.mini-table tbody tr').filter({hasText:'Acero'}).locator('td').nth(3)).toHaveText('6');
+ expect(await page.evaluate(()=>window.__calls.filter(c=>c.command==='remove_line_resource').length)).toBe(3);
+});
+test('clear buttons reset list filters and the actual resource and unit picker selections',async({page})=>{
+ await openCompositionBudget(page);
+ const search=page.locator('[data-search]').first();await search.fill('No existe');
+ await search.locator('..').getByRole('button',{name:/Limpiar/}).click();
+ await expect(search).toHaveValue('');await expect(page.locator('.line-row').first()).toBeVisible();
+ await page.getByRole('button',{name:'＋ Agregar insumo',exact:true}).click();
+ const picker=page.getByRole('combobox',{name:'Buscar insumo 1'});await picker.fill('Arena');
+ await page.getByRole('option',{name:'MAT-2 · Arena (m³)',exact:true}).click();
+ await picker.locator('..').getByRole('button',{name:/Limpiar/}).click();
+ await expect(picker).toHaveValue('');await expect(page.locator('select[name=resource]')).toHaveValue('');
+ await expect(page.locator('[data-resource-unit]')).toBeHidden();
+ await page.getByRole('button',{name:'Guardar',exact:true}).click();
+ await expect(page.locator('.modal-error')).toContainText('Seleccioná un insumo');
+});
+test('quotation highlights all actual budget materials even when the management report omits one',async({page})=>{
+ await openCompositionBudget(page,{financialReport:{needs:[{resource_id:'resource-1',required:'1',stock:'2',ordered:'5',received:'1',consumed:'0',shortage:'0'}]}});
+ await page.getByRole('button',{name:'Gestión de obra',exact:true}).click();
+ await page.getByRole('button',{name:'+ Nueva',exact:true}).click();
+ await expect(page.locator('.required-material')).toHaveCount(2);
+ const steel=page.locator('.required-material').filter({hasText:'Acero'}),sand=page.locator('.required-material').filter({hasText:'Arena'});
+ await expect(steel).toContainText('Necesario: 12');await expect(steel).toContainText('Sugerido a pedir: 6');
+ await expect(sand).toContainText('Necesario: 8');await expect(sand.locator('input[type=number]')).toHaveValue('8');
+ await sand.locator('input[type=checkbox]').check();
+ await page.getByLabel('Buscar materiales / tareas',{exact:true}).fill('Acero');await page.getByRole('button',{name:'Buscar',exact:true}).click();
+ await expect(page.locator('.required-material')).toHaveCount(1);
+ await page.getByLabel('Buscar materiales / tareas',{exact:true}).locator('..').getByRole('button',{name:/Limpiar/}).click();
+ await expect(page.locator('.required-material')).toHaveCount(2);
+ await expect(page.locator('.required-material').filter({hasText:'Arena'}).locator('input[type=checkbox]')).toBeChecked();
+});
+test('client row exposes one Actions menu containing edit and existing contact actions',async({page})=>{
+ await bridge(page);await page.getByRole('button',{name:'Clientes',exact:true}).click();
+ const row=page.locator('.persons-page tbody tr').filter({hasText:'Comitente'}).first();
+ await expect(row.getByRole('button',{name:'Editar cliente',exact:true})).toBeHidden();
+ await row.getByText('Acciones',{exact:true}).click();
+ await row.getByRole('button',{name:'Editar cliente',exact:true}).click();
+ await expect(page.getByRole('dialog',{name:'Editar cliente',exact:true})).toBeVisible();
+});
+
+test('clearing a selected unit keeps its accessible label and allows selecting another unit',async({page})=>{
+ await bridge(page);await page.getByRole('button',{name:'Insumos',exact:true}).click();
+ await page.getByRole('button',{name:'＋ Nuevo insumo',exact:true}).click();
+ const unit=page.getByRole('combobox',{name:'Unidad',exact:true});
+ await unit.fill('kilo');await page.getByRole('option',{name:'kg · Kilogramo',exact:true}).click();
+ await expect(unit).toHaveValue('kg');
+ await unit.locator('..').getByRole('button',{name:'Limpiar',exact:true}).click();
+ await expect(unit).toHaveValue('');await unit.fill('metro');
+ await page.getByRole('option',{name:'m · Metro',exact:true}).click();
+ await expect(unit).toHaveValue('m');
 });

@@ -1,3 +1,4 @@
+import {createClearSearch} from "./components/clear-search.js";
 import { createAiAssistant } from "./components/ai-assistant.js";
 import { createAiResourceImport } from "./components/ai-resource-import.js";
 import { createEntityActions } from "./components/entity-actions.js";
@@ -36,6 +37,7 @@ export function createWorkspaceApp({
   databaseSwitching = false,
 }) {
   const root = document.querySelector("#app");
+  createClearSearch({document,window});
   const state = createState();
   const originalInvoke = invoke;
   let pendingCommands = 0;
