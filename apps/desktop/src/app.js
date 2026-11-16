@@ -1,3 +1,4 @@
+import {createReminders} from "./components/reminders.js";
 import {createClearSearch} from "./components/clear-search.js";
 import { createAiAssistant } from "./components/ai-assistant.js";
 import { createAiResourceImport } from "./components/ai-resource-import.js";
@@ -101,10 +102,12 @@ export function createWorkspaceApp({
     management,
   });
   const printing = createBudgetPrinting(context);
+  const reminders = createReminders({...context,invoke:nativeInvoke});
   const { workspace, listViews, chrome, rightPanel } = createViews({
     ...context,
     modalMarkup,
     costingMarkup: costing.markup,
+    remindersMarkup: reminders.markup,
   });
   const { act, handleSubmit } = createActions(context);
   const interactions = createBudgetInteractions({ ...context, act });
@@ -630,6 +633,7 @@ export function createWorkspaceApp({
         );
         return;
       }
+      if(button.dataset.action.startsWith("reminder-")){await reminders.act(button);return;}
       if(button.dataset.action.startsWith("agreement-")){await agreement.act(button);return;}
       if (button.dataset.action === "open-system-settings" || button.dataset.action.startsWith("system-") || (state.view==="system-settings" && button.dataset.action.startsWith("plan-calendar-"))) {await systemSettings.act(button);return;}
       if (button.classList?.contains("resource-search")) return;
@@ -684,6 +688,7 @@ export function createWorkspaceApp({
       [organizations, ["organization-create-form"]],
       [printProfile, ["print-profile-form"]],
       [printing, ["budget-print-form"]],
+      [reminders, ["reminder-form"]],
       [
         pricing,
         ["price-item-form", "price-template-form", "price-export-form"],
@@ -827,6 +832,7 @@ export function createWorkspaceApp({
       }
     }
     try {
+      reminders.change(evt.target);
       await people.change(evt.target);
       await resourceImport.change(evt.target);
       await pricing.change(evt.target);
@@ -877,6 +883,7 @@ export function createWorkspaceApp({
       )
     )
       if(evt.target.name!=="calendar-month")state.pageDirty = true;
+    reminders.input(evt.target);
     people.input(evt.target);
     printing.input(evt.target);
     budgetTools.input(evt.target);

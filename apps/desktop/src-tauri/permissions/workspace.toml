@@ -2,6 +2,9 @@
 identifier = "workspace"
 description = "Local workspace operations, granted only to the main window."
 commands.allow = [
+  "list_reminders",
+  "save_reminder",
+  "delete_reminder",
   "active_database",
   "switch_database",
   "ai_configure",

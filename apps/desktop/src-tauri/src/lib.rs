@@ -53,6 +53,9 @@ pub(crate) fn configure<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri:
         .manage(commands::maintenance::RecentExports::default())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
+            commands::reminders::list_reminders,
+            commands::reminders::save_reminder,
+            commands::reminders::delete_reminder,
             commands::database::active_database,
             commands::database::switch_database,
             commands::ai::ai_configure,

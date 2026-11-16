@@ -80,6 +80,22 @@ async function bridge(page, options={}) {
    if (command === "list_resources") return resources;
    if(command==='import_resources'){const imported=args.rows.map(row=>({id:crypto.randomUUID(),...row,code:row.code||"INS-"+String(resources.length+1).padStart(4,"0"),active:true}));resources.push(...imported);return {created:imported.length,resource_ids:imported.map(r=>r.id)};}
    if(command==='create_resource'){const r={id:'resource-'+(resources.length+1),...args,code:args.code||'INS-'+String(resources.length+1).padStart(4,'0')};resources.push(r);return r;}
+   if(command==='list_reminders'){
+    window.__reminders ||= JSON.parse(localStorage.getItem('test-reminders')||'null')||structuredClone(fixture.reminders||[]);
+    const group=r=>r.completed?2:r.due_date<args.today?1:0;
+    const all=window.__reminders.slice().sort((a,b)=>group(a)-group(b)||(group(a)===0?a.due_date.localeCompare(b.due_date):b.due_date.localeCompare(a.due_date))||a.id.localeCompare(b.id));
+    const page=Math.min(args.page,Math.max(0,Math.ceil(all.length/20)-1));
+    return {items:structuredClone(all.slice(page*20,page*20+20)),page,total:all.length,page_size:20};
+   }
+   if(command==='save_reminder'){
+    if(fixture.reminderSaveFails)throw new Error('No se pudo guardar el recordatorio');
+    window.__reminders ||= [];const input=args.reminder,old=window.__reminders.find(r=>r.id===input.id);
+    if(old&&old.revision!==input.revision)throw new Error('Actualizá la lista');
+    const saved={...input,id:input.id||crypto.randomUUID(),revision:(old?.revision||0)+1,project_name:projectList.find(p=>p.id===input.project_id)?.name||'',person_name:persons.find(p=>p.id===input.person_id)?.name||''};
+    if(old)window.__reminders.splice(window.__reminders.indexOf(old),1,saved);else window.__reminders.push(saved);
+    localStorage.setItem('test-reminders',JSON.stringify(window.__reminders));return structuredClone(saved);
+   }
+   if(command==='delete_reminder'){window.__reminders=window.__reminders.filter(r=>r.id!==args.id);localStorage.setItem('test-reminders',JSON.stringify(window.__reminders));return null;}
    if(command==='get_general_calendar')return structuredClone(generalCalendar);
    if(command==='save_general_calendar'){if(args.calendar.revision!==generalCalendar.revision)throw new Error('Recargá');generalCalendar={...structuredClone(args.calendar),revision:generalCalendar.revision+1};return structuredClone(generalCalendar);}
    if(command==='list_index_points')return structuredClone(indexPoints);
@@ -1366,4 +1382,56 @@ test('client exports support all three layouts, preserve the draft and omit priv
  await form.getByRole('combobox',{name:'Contenido para el cliente',exact:true}).selectOption('memory_price');
  await expect(form.locator('[name=memory]')).toHaveValue('ALCANCE PUBLICO: estructura y terminaciones.');
  await expect(form.locator('[name=notes]')).toHaveValue('Validez: 15 días. Entrega: 30 días.');
+});
+
+test('home reserves a quarter of its width for manual reminders and preserves a client quote after reopening',async({page})=>{
+ await page.setViewportSize({width:1600,height:1000});
+ await bridge(page,{now:'2026-11-16T12:00:00Z'});
+ const panel=page.getByRole('complementary',{name:'Recordatorios',exact:true});
+ const area=await page.locator('.home-project-columns').boundingBox(),box=await panel.boundingBox();expect(box.width/area.width).toBeGreaterThan(.24);expect(box.width/area.width).toBeLessThan(.26);
+ await panel.getByRole('button',{name:'＋ Nuevo',exact:true}).click();
+ await panel.getByLabel('Recordatorio',{exact:true}).fill('Enviar presupuesto de ampliación');
+ await panel.getByLabel('Fecha de vencimiento',{exact:true}).fill('2026-11-18');
+ await panel.getByRole('combobox',{name:'Tipo de recordatorio',exact:true}).selectOption('client_quote');
+ await panel.getByRole('combobox',{name:'Obra (opcional)',exact:true}).selectOption('10000000-0000-4000-8000-000000000001');
+ await expect(panel.getByRole('combobox',{name:'Cliente / contratista (opcional)',exact:true})).toHaveValue('client-1');
+ await panel.getByLabel('Notas',{exact:true}).fill('Enviar alternativas antes de las 18 h.');
+ await panel.getByRole('button',{name:'Guardar recordatorio',exact:true}).click();
+ const row=panel.locator('tbody tr').filter({hasText:'Enviar presupuesto de ampliación'});await expect(row).toContainText('18/11/2026');await expect(row).toContainText('Obra de prueba');await expect(row).toContainText('Comitente');
+ await page.reload();await expect(panel.locator('tbody')).toContainText('Enviar presupuesto de ampliación');
+ await panel.getByRole('button',{name:'Editar recordatorio Enviar presupuesto de ampliación',exact:true}).click();
+ await panel.getByLabel('Recordatorio',{exact:true}).fill('Enviar presupuesto revisado');
+ await panel.getByRole('button',{name:'Guardar recordatorio',exact:true}).click();
+ await expect(panel.locator('tbody')).toContainText('Enviar presupuesto revisado');
+ await page.screenshot({path:test.info().outputPath('home-reminders.png'),fullPage:true});
+});
+
+test('reminders paginate at twenty and put expired and completed history after current reminders',async({page})=>{
+ const reminders=Array.from({length:22},(_,i)=>({id:'10000000-0000-4000-8000-'+String(100+i).padStart(12,'0'),revision:1,title:'Comprar material '+String(i+1).padStart(2,'0'),due_date:'2026-11-20',kind:'materials',project_id:null,person_id:null,project_name:'',person_name:'',notes:'',completed:false}));
+ reminders.push({...reminders[0],id:'20000000-0000-4000-8000-000000000001',title:'Certificado vencido',due_date:'2026-11-15',kind:'client_certificate'});
+ await bridge(page,{now:'2026-11-16T12:00:00Z',reminders});
+ const panel=page.getByRole('complementary',{name:'Recordatorios',exact:true});await expect(panel.locator('[data-reminder-id]')).toHaveCount(20);await expect(panel).not.toContainText('Certificado vencido');
+ await panel.getByRole('button',{name:'Recordatorios: página siguiente',exact:true}).click();
+ await expect(panel.locator('[data-reminder-id]')).toHaveCount(3);
+ const old=panel.locator('tr').filter({hasText:'Certificado vencido'});await expect(old).toHaveClass('reminder-history');await expect(old).toContainText('Vencido');await expect(panel.getByRole('button',{name:'Recordatorios: página siguiente',exact:true})).toBeDisabled();
+ page.once('dialog',d=>d.dismiss());await panel.getByRole('button',{name:'Eliminar recordatorio Certificado vencido',exact:true}).click();await expect(old).toBeVisible();
+ await panel.getByRole('button',{name:'Recordatorios: página anterior',exact:true}).click();
+ await panel.getByRole('button',{name:'Resolver recordatorio Comprar material 01',exact:true}).click();
+ await expect(panel.locator('[data-reminder-id]')).toHaveCount(20);await expect(panel.locator('tbody')).not.toContainText('Comprar material 01');
+ await panel.getByRole('button',{name:'Recordatorios: página siguiente',exact:true}).click();await expect(panel.locator('tbody tr').last()).toContainText('Resuelto');
+});
+
+test('failed reminder saves retain the draft',async({page})=>{
+ await bridge(page,{now:'2026-11-16T12:00:00Z',reminderSaveFails:true});
+ const panel=page.getByRole('complementary',{name:'Recordatorios',exact:true});await panel.getByRole('button',{name:'＋ Nuevo',exact:true}).click();
+ await panel.getByLabel('Recordatorio',{exact:true}).fill('Certificar al contratista');await panel.getByRole('combobox',{name:'Tipo de recordatorio',exact:true}).selectOption('contractor_certificate');await panel.getByRole('button',{name:'Guardar recordatorio',exact:true}).click();
+ await expect(panel.getByRole('alert')).toContainText('No se pudo guardar');await expect(panel.getByLabel('Recordatorio',{exact:true})).toHaveValue('Certificar al contratista');
+});
+
+test('reminders become gray history after midnight without restarting the app',async({page})=>{
+ const one={id:'10000000-0000-4000-8000-000000000100',revision:1,title:'Certificado de hoy',due_date:'2026-11-16',kind:'client_certificate',project_id:null,person_id:null,project_name:'',person_name:'',notes:'',completed:false};
+ await bridge(page,{now:'2026-11-16T23:59:50Z',reminders:[one,{...one,id:'10000000-0000-4000-8000-000000000101',title:'Compra de mañana',due_date:'2026-11-17',kind:'materials'}]});
+ const panel=page.getByRole('complementary',{name:'Recordatorios',exact:true});await expect(panel.locator('[data-reminder-id]').first()).toContainText('Certificado de hoy');
+ await page.clock.fastForward(20000);await page.evaluate(()=>window.dispatchEvent(new Event('focus')));
+ await expect(panel.locator('[data-reminder-id]').first()).toContainText('Compra de mañana');await expect(panel.locator('[data-reminder-id]').last()).toHaveClass('reminder-history');await expect(panel.locator('[data-reminder-id]').last()).toContainText('Vencido');
 });

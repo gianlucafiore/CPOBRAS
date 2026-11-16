@@ -31,6 +31,7 @@ pub mod printing;
 pub mod procurement;
 pub mod quotation_edits;
 pub mod quotation_workflow;
+pub mod reminders;
 pub mod resource_catalog;
 pub mod resource_import;
 pub mod section_batches;
@@ -161,6 +162,7 @@ impl LocalStore {
             include_str!("../migrations/0032_takeoff_manual_quantity.sql"),
             include_str!("../migrations/0033_entity_lifecycle.sql"),
             include_str!("../migrations/0034_assisted_budget_batches.sql"),
+            include_str!("../migrations/0035_reminders.sql"),
         ];
         let latest: i64 = tx.query_row(
             "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",

@@ -24,6 +24,7 @@ export function createViews({
   locked,
   modalMarkup,
   costingMarkup = () => "",
+  remindersMarkup = () => "",
 }) {
   function chrome(content) {
     const work = Boolean(state.projectId);
@@ -422,8 +423,8 @@ export function createViews({
     }
     return chrome(`<main class="list-workspace">
     <div class="list-top"><div><h1>${title}</h1><p>${subtitle}</p></div><div class="list-top-actions">${action}</div></div>
-    <div class="list-content"><section class="list-table-pane"><div class="pane-toolbar"><span class="pane-title">REGISTROS <em>${rows ? "" : "Sin datos"}</em></span><span class="grow"></span><input class="search-compact" data-search placeholder="⌕ Buscar..." value="${e(state.search)}"></div>
-      <div class="table-scroll"><table class="data-grid"><thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows || `<tr><td colspan="6" class="empty-cell">No hay registros todavía. Usá el botón superior para crear uno.</td></tr>`}</tbody></table></div></section>${inspector}</div>${["resources","analyses"].includes(state.view)?costingMarkup(state.view):""}
+    <div class="list-content ${state.view === "projects" ? "home-project-columns" : ""}"><section class="list-table-pane"><div class="pane-toolbar"><span class="pane-title">REGISTROS <em>${rows ? "" : "Sin datos"}</em></span><span class="grow"></span><input class="search-compact" data-search placeholder="⌕ Buscar..." value="${e(state.search)}"></div>
+      <div class="table-scroll"><table class="data-grid"><thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows || `<tr><td colspan="6" class="empty-cell">No hay registros todavía. Usá el botón superior para crear uno.</td></tr>`}</tbody></table></div></section>${state.view === "projects" ? remindersMarkup() : inspector}</div>${["resources","analyses"].includes(state.view)?costingMarkup(state.view):""}
   </main>`);
   }
 

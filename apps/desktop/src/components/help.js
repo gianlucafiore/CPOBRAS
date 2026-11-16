@@ -26,7 +26,7 @@ const pages = {
   ],
   projects: [
     "Obras y presupuestos",
-    "Inicio reúne los datos base y las obras. Abrí una obra para trabajar con sus presupuestos. Elegí su cliente al crearla, o creá uno desde esa misma ventana. Clientes y Proveedores se administran desde Inicio.",
+    "Inicio reúne los datos base y las obras. Abrí una obra para trabajar con sus presupuestos. Elegí su cliente al crearla, o creá uno desde esa misma ventana. Clientes y Proveedores se administran desde Inicio. A la derecha podés cargar recordatorios manuales de compras, certificados y solicitudes de presupuesto.",
   ],
   suppliers: [
     "Proveedores",
