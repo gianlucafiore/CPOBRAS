@@ -189,7 +189,7 @@ export function createViews({
         )
         .join("");
       return `<tr class="section-row ${state.selectedSectionId === section.id ? "selected" : ""}" data-drop-section="true" data-action="select-section" data-id="${e(section.id)}" data-searchable="${e((section.code + " " + section.title).toLowerCase())}">
-      <td class="col-code">${e(numbering.sections.get(section.id))}</td><td class="col-desc" style="padding-left:${12 + depth * 15}px">▾ &nbsp; ${e(section.title)}</td>
+      <td class="col-code"><button type="button" class="section-drag-handle" draggable="${editable()}" aria-label="Arrastrar rubro ${e(section.title)}" title="Arrastrar rubro · Alt + ↑ / ↓ para reordenar" ${locked()}>⋮⋮</button>${e(numbering.sections.get(section.id))}</td><td class="col-desc" style="padding-left:${12 + depth * 15}px">▾ &nbsp; ${e(section.title)}</td>
       <td></td><td></td><td></td><td class="number partial">${money(sectionSum(section.id))}</td>
     </tr>${own}${children.map((s) => sectionRow(s, depth + 1)).join("")}`;
     };

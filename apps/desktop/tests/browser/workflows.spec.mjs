@@ -9,10 +9,11 @@ async function bridge(page, options={}) {
   const line = { id: "10000000-0000-4000-8000-000000000002", description: "Hormigón", unit: "m³", quantity: fixture.lineQuantity || "2", unit_cost: "100", total: "200", analysis_id: null };
   const lines=[line]; if(fixture.twoLines)lines.push({...line,id:"10000000-0000-4000-8000-000000000003",description:"Revoque"});
   const sections=fixture.twoLines?[{id:"10000000-0000-4000-8000-000000000004",code:"01",title:"Preliminares",parent_id:null,position:0}]:[];
+  if(fixture.sectionDrag){sections.push({id:'20000000-0000-4000-8000-000000000001',code:'REG-002',title:'Estructura',parent_id:null,position:1},{id:'20000000-0000-4000-8000-000000000002',code:'REG-003',title:'Cubierta',parent_id:null,position:2},{id:'20000000-0000-4000-8000-000000000003',code:'SUB-1',title:'Zapatas',parent_id:'10000000-0000-4000-8000-000000000004',position:0});}
   const sharedStatus={enabled:false,peer_id:'owner-key',shares:[],subscriptions:[],network_error:null};
   const sharedDoc={version:1,project:{...project,name:'Obra remota de María'},organization:{id:'remote-org',name:'Estudio de María',profile:{company_name:'Estudio de María',logo_png:[],email:'maria@example.test'}},client:{name:'Cliente remoto'},suppliers:[],budgets:[{estimate:{id:'remote-estimate',title:'Presupuesto remoto',currency:'ARS',issued:Boolean(fixture.remoteIssued)},document:{lines:[{...line,unit_cost_snapshot:'100'}],sections:[],assignments:[],line_analyses:[],takeoffs:[]},resource_prices:{},pricing:{direct:'200',definition:{rows:[]},calculation:{rows:[],breakdown:{direct:'200',total:'242',general_expenses:'0',financial_expenses:'0',profit:'0',discount:'0',taxable_subtotal:'200',taxes:'42'}}}}],planning:{revision:1,plan:{calendar:{start_date:'2026-11-07',nonworking_weekdays:[5,6],holidays:[]},tasks:[{id:'remote-task',name:'Replanteo remoto',duration_days:3,actual_progress:'25',parent_id:null,estimate_line_id:null,predecessors:[],assignments:[],budget:'0',not_before:null,finish_by:null}]}},schedule:{Ok:{tasks:[{id:'remote-task',start:'2026-11-07',finish:'2026-11-10'}]}},baselines:[],operations:[],records:[],stock:[],warehouses:[],parties:[],resources:[]};
   sharedDoc.permissions={budget:true,price:true,resources:true,operations:true,accounting:true,planning:true,project_data:true,...(fixture.remotePermissions||{})};
-  const assignments=[];const lineDetails={};
+  const assignments=fixture.sectionDrag?[{line_id:line.id,section_id:'20000000-0000-4000-8000-000000000003'}]:[];const lineDetails={};
   let backupSettings={directory:'/data/CPOBRAS/backups',enabled:false,interval_minutes:60,last_success:null,last_file:null,last_error:null};const backupCopies=[];
 
   const estimate = { id: "estimate-1", title: "Presupuesto inicial", currency: "ARS", issued: Boolean(fixture.issued) };
@@ -186,6 +187,11 @@ async function bridge(page, options={}) {
    if (command === "list_budget_sections") return sections;
    if (command === "list_line_sections") return assignments;
    if (command === "get_analysis_details") return lineDetails[args.analysisId];
+   if(command==='move_budget_section'){
+    if(estimate.issued)throw Error('Presupuesto emitido');
+    const source=sections.find(s=>s.id===args.sectionId),siblings=sections.filter(s=>(s.parent_id||null)===(source.parent_id||null)&&s.id!==source.id).sort((a,b)=>a.position-b.position);
+    const index=args.beforeId?siblings.findIndex(s=>s.id===args.beforeId):siblings.length;if(index<0)throw Error('Destino inválido');siblings.splice(index,0,source);siblings.forEach((s,i)=>s.position=i);return null;
+   }
    if (command === "move_budget_line"){
     const index=lines.findIndex(row=>row.id===args.lineId),[moving]=lines.splice(index,1);const before=args.beforeId?lines.findIndex(row=>row.id===args.beforeId):lines.length;lines.splice(before,0,moving);
     const assigned=assignments.findIndex(row=>row.line_id===args.lineId);if(assigned>=0)assignments.splice(assigned,1);if(args.sectionId)assignments.push({line_id:args.lineId,section_id:args.sectionId});return null;
@@ -313,7 +319,7 @@ test("line handles reorder and move into a section",async({page})=>{
  await second.locator('.line-drag-handle').dragTo(page.locator('[data-drop-section]'));
  await expect.poll(()=>page.evaluate(()=>window.__calls.filter(row=>row.command==='move_budget_line').at(-1)?.args.sectionId)).toBe('10000000-0000-4000-8000-000000000004');
  await expect(page.getByRole('status')).toContainText('Preliminares');
- await expect(page.locator('.section-row:not(.unassigned) .col-code')).toHaveText('1');
+ await expect(page.locator('.section-row:not(.unassigned) .col-code')).toContainText('1');
  await expect(page.locator('.line-row').filter({hasText:'Revoque'}).locator('.col-code')).toContainText('1.1');
  await expect(page.locator('.line-row').filter({hasText:'Hormigón'}).locator('.col-code')).toContainText('2');
 });
@@ -1465,4 +1471,25 @@ test('reminder actions stay compact and horizontal, reveal on hover or keyboard 
  await page.keyboard.press('Enter');await expect(page.getByRole('heading',{name:'Editar recordatorio',exact:true})).toBeVisible();
  const context=await browser.newContext({hasTouch:true,viewport:{width:1280,height:800}});
  try{const touch=await context.newPage();await bridge(touch,{reminders:[reminder]});const actions=touch.locator('.reminder-actions');await expect(actions).toHaveCSS('opacity','1');await actions.getByRole('button',{name:'Resolver recordatorio Cotizar ampliación',exact:true}).tap();await expect(touch.locator('[data-reminder-id]')).toContainText('Resuelto');}finally{await context.close();}
+});
+
+test('section dragging moves whole blocks, renumbers items and supports keyboard and end placement',async({page})=>{
+ await bridge(page,{twoLines:true,sectionDrag:true});await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.locator('[data-action=manage-dashboard-budget]').first().click();
+ const section=title=>page.locator('.section-row[data-id]').filter({has:page.locator('.col-desc').filter({hasText:title})});
+ const first=section('Preliminares'),cover=section('Cubierta');
+ await cover.locator('.section-drag-handle').dragTo(first,{targetPosition:{x:130,y:2}});
+ await expect(page.locator('.section-row[data-id] .col-desc')).toHaveText([/Cubierta/,/Preliminares/,/Zapatas/,/Estructura/]);
+ await expect(cover.locator('.col-code')).toContainText('1');await expect(first.locator('.col-code')).toContainText('2');await expect(page.locator('.line-row').filter({hasText:'Hormigón'}).locator('.col-code')).toContainText('2.1.1');
+ await cover.locator('.section-drag-handle').focus();await page.keyboard.press('Alt+ArrowDown');await expect(page.locator('.section-row[data-id] .col-desc').first()).toContainText('Preliminares');
+ await cover.locator('.section-drag-handle').dragTo(section('Estructura'),{targetPosition:{x:130,y:25}});
+ await expect(page.locator('.section-row[data-id] .col-desc')).toHaveText([/Preliminares/,/Zapatas/,/Estructura/,/Cubierta/]);
+ await first.locator('.section-drag-handle').dragTo(page.locator('[data-drop-unassigned]'));
+ await expect(page.locator('.section-row[data-id] .col-desc')).toHaveText([/Estructura/,/Cubierta/,/Preliminares/,/Zapatas/]);
+ const moved=await page.evaluate(()=>window.__calls.filter(c=>c.command==='move_budget_section').map(c=>c.args));expect(moved).toHaveLength(4);expect(moved.at(-1).beforeId).toBeNull();
+ expect(await page.evaluate(()=>window.__calls.filter(c=>c.command==='move_budget_line').length)).toBe(0);
+});
+
+test('issued section drag handles are disabled',async({page})=>{
+ await bridge(page,{twoLines:true,sectionDrag:true,issued:true});await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.locator('[data-action=manage-dashboard-budget]').first().click();
+ for(const handle of await page.locator('.section-drag-handle').all()){await expect(handle).toBeDisabled();await expect(handle).toHaveAttribute('draggable','false');}
 });

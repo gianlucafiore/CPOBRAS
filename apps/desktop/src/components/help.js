@@ -46,7 +46,7 @@ const pages = {
   ],
   workspace: [
     "Trabajar con el presupuesto",
-    "Seleccioná un rubro antes de agregar partidas. Arrastrá el asa ⋮⋮ para ordenarlas o moverlas a otro rubro. Doble clic o clic derecho para editar; en Insumos podés construir su precio.",
+    "Seleccioná un rubro antes de agregar partidas. Arrastrá el asa ⋮⋮ para ordenarlas o moverlas a otro rubro. Los rubros también tienen un asa para reordenar su bloque completo (Alt + ↑/↓ con teclado). Doble clic o clic derecho para editar; en Insumos podés construir su precio.",
   ],
   "budget-tools": [
     "Herramientas del presupuesto",

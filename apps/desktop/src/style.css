@@ -523,3 +523,5 @@ input[type=search]::-webkit-search-cancel-button{appearance:none}
 @media(hover:hover) and (pointer:fine){.reminder-actions{opacity:0;pointer-events:none}.reminders-table tr:hover .reminder-actions,.reminders-table tr:focus-within .reminder-actions{opacity:1;pointer-events:auto}}
 
 @media(any-pointer:coarse){.reminder-actions{opacity:1;pointer-events:auto}}
+
+.section-drag-handle{border:0;background:transparent;color:inherit;font-size:15px;padding:0 3px 0 0;cursor:grab;vertical-align:middle}.section-drag-handle:active{cursor:grabbing}.section-row.dragging{opacity:.4}

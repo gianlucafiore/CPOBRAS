@@ -143,3 +143,12 @@ Mover, agregar o eliminar elementos actualiza la numeración sin modificar
 sus identificadores persistentes. La grilla, las planillas y los PDF utilizan
 la misma numeración. Los encabezados de ACU muestran número, descripción y
 unidad de la partida; los códigos internos `PART-…` no se imprimen.
+
+Los rubros se pueden arrastrar desde el asa ⋮⋮ de su columna Ítem para
+cambiar su posición. Se trasladan como bloques, conservando partidas y
+subrubros. La marca indica antes o después del rubro de destino; soltar
+sobre «Partidas sin rubro» envía un rubro principal al final. Los subrubros
+se reordenan dentro de su mismo padre. Con el asa enfocada se puede usar
+Alt + ↑ / ↓. El orden se guarda y actualiza la numeración de pantalla y
+exportaciones; los presupuestos emitidos y las obras de solo lectura no
+admiten este cambio.

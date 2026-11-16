@@ -3,14 +3,39 @@ export function createBudgetInteractions({invoke,state,editable,currentLine,load
  const rowAt=target=>target.closest?.('.line-row[data-id],.section-row[data-id],.section-row[data-drop-unassigned]');
  function clearDrop(){document.querySelectorAll('.drop-before,.drop-after,.drop-section').forEach(row=>row.classList.remove('drop-before','drop-after','drop-section'));}
  function dragStart(event){
-  const handle=event.target.closest?.('.line-drag-handle');
-  if(!handle||!editable()||state.busy){event.preventDefault();return;}
-  const row=handle.closest('.line-row');dragging={lineId:row.dataset.id,estimateId:state.estimateId};
-  event.dataTransfer.setData('application/x-cpobras-line',row.dataset.id);event.dataTransfer.effectAllowed='move';row.classList.add('dragging');
+  const handle=event.target.closest?.('.line-drag-handle,.section-drag-handle');
+  if(!handle||!editable()||state.busy||state.modal||state.navigating||state.pageDirty){event.preventDefault();return;}
+  const section=handle.classList.contains('section-drag-handle'),row=handle.closest(section?'.section-row':'.line-row');dragging={...(section?{sectionId:row.dataset.id}:{lineId:row.dataset.id}),estimateId:state.estimateId};
+  event.dataTransfer.setData(section?'application/x-cpobras-section':'application/x-cpobras-line',row.dataset.id);event.dataTransfer.effectAllowed='move';row.classList.add('dragging');
+ }
+ function sectionTarget(row,moving){
+  const source=state.sections.find(s=>s.id===moving.sectionId);if(!source)return null;
+  if(row?.dataset.dropUnassigned)return source.parent_id?null:{end:true};
+  if(!row?.dataset.dropSection)return null;
+  let target=state.sections.find(s=>s.id===row.dataset.id);const seen=new Set();
+  while(target&&(target.parent_id||null)!==(source.parent_id||null)){
+   if(seen.has(target.id))return null;seen.add(target.id);target=state.sections.find(s=>s.id===target.parent_id);
+  }
+  return target&&target.id!==source.id?target:null;
+ }
+ async function moveSection(sectionId,beforeId){
+  state.busy=true;
+  try{
+   await invoke('move_budget_section',{estimateId:state.estimateId,sectionId,beforeId});
+   await loadEstimate();state.selectedLineId=null;state.selectedSectionId=sectionId;await loadPanel();
+   state.message='Rubro reordenado con sus partidas y subrubros';render();
+   document.querySelector(`.section-row[data-id="${sectionId}"] .section-drag-handle`)?.focus();
+  }finally{state.busy=false;}
  }
  function dragOver(event){
-  if(!dragging||dragging.estimateId!==state.estimateId||!editable())return;
-  const row=rowAt(event.target);if(!row)return;
+  if(!dragging||dragging.estimateId!==state.estimateId||!editable()||state.busy||state.modal||state.navigating||state.pageDirty)return;
+  const row=rowAt(event.target);clearDrop();if(!row)return;
+  if(dragging.sectionId){
+   const target=sectionTarget(row,dragging);if(!target)return;
+   event.preventDefault();event.dataTransfer.dropEffect='move';
+   const marker=target.end?row:document.querySelector(`.section-row[data-id="${target.id}"]`);
+   marker?.classList.add(!target.end&&event.clientY>row.getBoundingClientRect().top+row.getBoundingClientRect().height/2?'drop-after':'drop-before');return;
+  }
   event.preventDefault();event.dataTransfer.dropEffect='move';clearDrop();
   if(row.classList.contains('line-row'))row.classList.add(event.clientY>row.getBoundingClientRect().top+row.getBoundingClientRect().height/2?'drop-after':'drop-before');
   else row.classList.add('drop-section');
@@ -18,8 +43,17 @@ export function createBudgetInteractions({invoke,state,editable,currentLine,load
  function dragEnd(){dragging=null;clearDrop();document.querySelectorAll('.dragging').forEach(row=>row.classList.remove('dragging'));}
  async function drop(event){
   if(!dragging)return;const moving=dragging,row=rowAt(event.target);event.preventDefault();
-  const after=row?.classList.contains('drop-after');dragEnd();
-  if(!row||state.busy||!editable()||moving.estimateId!==state.estimateId)return;
+  const target=moving.sectionId?sectionTarget(row,moving):null;
+  const marker=target?.id?document.querySelector(`.section-row[data-id="${target.id}"]`):row;
+  const after=marker?.classList.contains('drop-after');dragEnd();
+  if(!row||state.busy||state.modal||state.navigating||state.pageDirty||!editable()||moving.estimateId!==state.estimateId)return;
+  if(moving.sectionId){
+   if(!target)return;
+   const source=state.sections.find(s=>s.id===moving.sectionId);
+   const siblings=state.sections.filter(s=>(s.parent_id||null)===(source.parent_id||null)&&s.id!==source.id).sort((a,b)=>a.position-b.position);
+   const index=siblings.findIndex(s=>s.id===target.id);
+   await moveSection(moving.sectionId,target.end?null:after?siblings[index+1]?.id||null:target.id);return;
+  }
   if(row.classList.contains('line-row')&&row.dataset.id===moving.lineId)return;
   let beforeId=null,sectionId=null;
   if(row.classList.contains('line-row')){
@@ -68,6 +102,15 @@ export function createBudgetInteractions({invoke,state,editable,currentLine,load
   render();document.querySelector('.app-context-menu button:not(:disabled)')?.focus();
  }
  function keyDown(event){
+  const sectionHandle=event.target.closest?.('.section-drag-handle');
+  if(sectionHandle&&event.altKey&&['ArrowUp','ArrowDown'].includes(event.key)){
+   event.preventDefault();if(!editable()||state.busy||state.modal||state.navigating||state.pageDirty)return true;
+   const source=state.sections.find(s=>s.id===sectionHandle.closest('.section-row').dataset.id);
+   const siblings=state.sections.filter(s=>(s.parent_id||null)===(source.parent_id||null)).sort((a,b)=>a.position-b.position);
+   const index=siblings.findIndex(s=>s.id===source.id),next=index+(event.key==='ArrowUp'?-1:1);
+   if(next>=0&&next<siblings.length)moveSection(source.id,event.key==='ArrowUp'?siblings[next].id:siblings[next+1]?.id||null).catch(error=>{state.message=String(error);render();});return true;
+  }
+
   if((event.key==='Enter'||event.key===' ')&&event.target.matches?.('.line-resource-row')&&!state.modal&&!state.busy&&editable()){event.preventDefault();act({dataset:{action:'edit-line-resource',index:event.target.dataset.componentIndex}}).catch(error=>{state.message=String(error);render();});return true;}
 
   if(state.contextMenu){
