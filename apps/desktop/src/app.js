@@ -827,6 +827,7 @@ export function createWorkspaceApp({
       }
     }
     try {
+      await people.change(evt.target);
       await resourceImport.change(evt.target);
       await pricing.change(evt.target);
       await patterns.change(evt.target);

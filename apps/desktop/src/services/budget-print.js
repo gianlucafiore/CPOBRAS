@@ -1,3 +1,4 @@
+import { budgetNumbering } from "./budget-numbering.js";
 import { money, numeric, sumDecimals } from "../decimal.js";
 import {
   clientPrintData,
@@ -17,7 +18,7 @@ export function printRows(data, mode = "client") {
     values = new Map(data.lines.map((l) => [l.id, l])),
     assign = new Map(doc.assignments),
     sections = new Map(doc.sections.map((s) => [s.id, s])),
-    positions = new Map(doc.lines.map((l, i) => [l.id, i + 1]));
+    numbering = budgetNumbering(doc.sections,doc.lines,doc.assignments);
   const children = (parent) =>
     doc.sections
       .filter((s) => (s.parent_id || null) === parent)
@@ -50,7 +51,7 @@ export function printRows(data, mode = "client") {
     if (!v) throw new Error("Partida sin cálculo de impresión");
     rows.push({
       kind: "line",
-      code: String(positions.get(l.id)).padStart(2, "0"),
+      code: numbering.lines.get(l.id),
       description: l.description,
       unit: l.unit,
       quantity: l.quantity,
@@ -66,7 +67,7 @@ export function printRows(data, mode = "client") {
     rows.push({
       kind: "section",
       id: s.id,
-      code: s.code,
+      code: numbering.sections.get(s.id),
       description: s.title,
       ...summary(doc.lines.filter((l) => ids.has(assign.get(l.id)))),
     });

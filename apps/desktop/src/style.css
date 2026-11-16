@@ -495,7 +495,6 @@ body:has(.analysis-dialog) .ai-launch{display:none}
 .clearable-input>.clear-search[hidden]{display:none}
 .clearable-compact{width:190px;flex:0 1 190px}
 input[type=search]::-webkit-search-cancel-button{appearance:none}
-.person-actions>summary{min-width:85px!important;width:auto!important;padding:6px 10px!important}
 .component-actions{white-space:nowrap}.component-actions>.btn{margin-right:3px}
 @media(hover:hover) and (pointer:fine){.line-resource-row .component-actions>.btn{opacity:0;pointer-events:none}.line-resource-row:hover .component-actions>.btn,.line-resource-row:focus-within .component-actions>.btn{opacity:1;pointer-events:auto}}
 .group-total{white-space:nowrap;font-weight:750}
@@ -507,3 +506,5 @@ input[type=search]::-webkit-search-cancel-button{appearance:none}
 
 .budget-export-editor{margin-bottom:18px}.budget-export-editor textarea{width:100%;resize:vertical;min-height:85px;border:1px solid #bed0df;border-radius:4px;padding:9px;font:inherit}.budget-export-editor>.btn{justify-self:start}.budget-export-editor code{overflow-wrap:anywhere}.budget-export-editor+.feature-editor>summary{cursor:pointer;font-weight:600;padding:5px 0}.budget-export-editor+.feature-editor:not([open]){display:block}
 @media(max-width:650px){.budget-export-editor .form-grid{grid-template-columns:1fr}}
+
+.persons-page select.person-actions{width:112px;min-width:0;height:27px;padding:3px 7px;font:inherit;font-size:11px;border:1px solid #bed0df;border-radius:3px;background:#fff;color:#28435b}

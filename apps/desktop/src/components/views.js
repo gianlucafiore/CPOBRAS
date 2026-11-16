@@ -1,3 +1,4 @@
+import { budgetNumbering } from "../services/budget-numbering.js";
 import { entityActions } from "./entity-actions.js";
 const appLogo = new URL("../../src-tauri/icons/icon.png", import.meta.url).href;
 import { helpBox } from "./help.js";
@@ -154,6 +155,7 @@ export function createViews({
       if (!byParent.has(parent)) byParent.set(parent, []);
       byParent.get(parent).push(section);
     }
+    const numbering = budgetNumbering(state.sections,state.lines,state.assignments);
     const lineRow = (
       line,
       code = "",
@@ -182,11 +184,11 @@ export function createViews({
       );
       const own = (groups.get(section.id) || [])
         .map((line, i) =>
-          lineRow(line, section.code + "." + String(i + 1).padStart(2, "0")),
+          lineRow(line, numbering.lines.get(line.id)),
         )
         .join("");
       return `<tr class="section-row ${state.selectedSectionId === section.id ? "selected" : ""}" data-drop-section="true" data-action="select-section" data-id="${e(section.id)}" data-searchable="${e((section.code + " " + section.title).toLowerCase())}">
-      <td class="col-code">${e(section.code)}</td><td class="col-desc" style="padding-left:${12 + depth * 15}px">▾ &nbsp; ${e(section.title)}</td>
+      <td class="col-code">${e(numbering.sections.get(section.id))}</td><td class="col-desc" style="padding-left:${12 + depth * 15}px">▾ &nbsp; ${e(section.title)}</td>
       <td></td><td></td><td></td><td class="number partial">${money(sectionSum(section.id))}</td>
     </tr>${own}${children.map((s) => sectionRow(s, depth + 1)).join("")}`;
     };
@@ -194,7 +196,7 @@ export function createViews({
       (a, b) => a.position - b.position,
     );
     const others = (groups.get("unassigned") || [])
-      .map((line, i) => lineRow(line, String(i + 1).padStart(2, "0")))
+      .map((line, i) => lineRow(line, numbering.lines.get(line.id)))
       .join("");
     return (
       roots.map((s) => sectionRow(s)).join("") +

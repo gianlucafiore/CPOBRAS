@@ -1,3 +1,4 @@
+import { budgetNumbering } from "./budget-numbering.js";
 import {
   sumDecimals,
   multiplyDecimals,
@@ -192,6 +193,7 @@ export function buildBudgetWorkbook(
   } = {},
 ) {
   const doc = data.document,
+    numbering = budgetNumbering(doc.sections,doc.lines,doc.assignments),
     normalized = normalizedAnalyses(data, analyses, resources, prices),
     publicValues = new Map(clientPrintData(data).lines.map((l) => [l.id, l]));
   const lineStart = 5,
@@ -226,7 +228,7 @@ export function buildBudgetWorkbook(
       uses = doc.lines.filter((l) => l.analysis_id === a.id),
       quantity = sumDecimals(uses.map((l) => l.quantity));
     acu.push([
-      text((a.code || "ACU") + " · " + a.description + " · " + a.unit, {
+      text(uses.map(l=>numbering.lines.get(l.id)+" · "+l.description+" · "+l.unit).join(" / "), {
         columnSpan: 6,
         fontWeight: "bold",
         backgroundColor: "#DFECE6",
@@ -549,7 +551,7 @@ export function buildBudgetWorkbook(
     const cumulative = `ROUND(SUM($G$${lineStart}:G${n})/${ref("Precio", "G", 4)}*${ref("Precio", "G", subtotalRow)},2)`;
     const before = n > lineStart ? `SUM($I$${lineStart}:I${n - 1})` : "0";
     parts.push([
-      text(String(index + 1).padStart(2, "0")),
+      text(numbering.lines.get(l.id)),
       text(sections.get(assignments.get(l.id))?.title || ""),
       text(l.description),
       text(l.unit),

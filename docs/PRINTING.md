@@ -133,3 +133,13 @@ Para probar el respaldo completo, abrí el Excel en Excel o LibreOffice, cambiá
 un consumo y su precio en ACU y comprobá el costo unitario vinculado en
 Partidas, el IVA y el total en Precio y las cantidades en Insumos. Cambiá
 también una partida sin ACU: su precio declarado debe seguir siendo editable.
+
+## Numeración visible
+
+Los rubros y las partidas se numeran según el orden del presupuesto: `1`,
+`1.1`, `1.2`, `2`, `2.1`, etc. Los subrubros continúan la jerarquía y las
+partidas sin rubro reciben números de primer nivel después de los rubros.
+Mover, agregar o eliminar elementos actualiza la numeración sin modificar
+sus identificadores persistentes. La grilla, las planillas y los PDF utilizan
+la misma numeración. Los encabezados de ACU muestran número, descripción y
+unidad de la partida; los códigos internos `PART-…` no se imprimen.

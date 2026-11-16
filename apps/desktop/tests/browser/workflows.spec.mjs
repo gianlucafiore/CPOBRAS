@@ -297,6 +297,9 @@ test("line handles reorder and move into a section",async({page})=>{
  await second.locator('.line-drag-handle').dragTo(page.locator('[data-drop-section]'));
  await expect.poll(()=>page.evaluate(()=>window.__calls.filter(row=>row.command==='move_budget_line').at(-1)?.args.sectionId)).toBe('10000000-0000-4000-8000-000000000004');
  await expect(page.getByRole('status')).toContainText('Preliminares');
+ await expect(page.locator('.section-row:not(.unassigned) .col-code')).toHaveText('1');
+ await expect(page.locator('.line-row').filter({hasText:'Revoque'}).locator('.col-code')).toContainText('1.1');
+ await expect(page.locator('.line-row').filter({hasText:'Hormigón'}).locator('.col-code')).toContainText('2');
 });
 
 test("double click edits a different line and right click opens software actions",async({page})=>{
@@ -537,7 +540,7 @@ test('new own organizations can be edited and default changes do not replace the
 test('clients and suppliers stay separate and importing adds a role without duplicating a person',async({page})=>{
  await bridge(page,{people:true});await page.getByRole('button',{name:'Clientes',exact:true}).click();await expect(page.getByRole('cell',{name:'Corralón García',exact:true})).toHaveCount(0);await page.getByRole('button',{name:'Importar desde proveedores',exact:true}).click();await page.getByRole('button',{name:'Incorporar como cliente',exact:true}).click();await expect(page.getByRole('cell').filter({hasText:'Corralón García'})).toBeVisible();
  expect(await page.evaluate(()=>window.__calls.filter(c=>c.command==='save_person').length)).toBe(0);expect(await page.evaluate(()=>window.__calls.filter(c=>c.command==='add_person_role').at(-1).args)).toMatchObject({id:'supplier-1',role:'client'});
- await page.getByRole('row').filter({hasText:'Corralón García'}).getByText('Acciones',{exact:true}).click();await page.getByRole('row').filter({hasText:'Corralón García'}).getByRole('button',{name:'Editar cliente',exact:true}).click();await page.getByLabel('Teléfono del contacto',{exact:true}).fill('1144556677');await page.getByRole('button',{name:'Guardar contacto',exact:true}).click();await page.getByRole('button',{name:'Proveedores',exact:true}).click();await expect(page.getByRole('row').filter({hasText:'Corralón García'})).toContainText('1144556677');await expect(page.getByRole('cell',{name:'Comitente',exact:true})).toHaveCount(0);
+ await page.getByRole('row').filter({hasText:'Corralón García'}).getByRole('combobox',{name:'Acciones de Corralón García',exact:true}).selectOption('person-edit');await page.getByLabel('Teléfono del contacto',{exact:true}).fill('1144556677');await page.getByRole('button',{name:'Guardar contacto',exact:true}).click();await page.getByRole('button',{name:'Proveedores',exact:true}).click();await expect(page.getByRole('row').filter({hasText:'Corralón García'})).toContainText('1144556677');await expect(page.getByRole('cell',{name:'Comitente',exact:true})).toHaveCount(0);
 });
 
 test('new contact suggests reusing a similar opposite-role person and preserves drafts on outside click',async({page})=>{
@@ -1300,12 +1303,14 @@ test('quotation highlights all actual budget materials even when the management 
  await expect(page.getByLabel('Buscar materiales / tareas',{exact:true})).toBeFocused();
  await expect(page.locator('.required-material').filter({hasText:'Arena'}).locator('input[type=checkbox]')).toBeChecked();
 });
-test('client row exposes one Actions menu containing edit and existing contact actions',async({page})=>{
+test('client row uses a compact native actions select and preserves existing actions',async({page})=>{
  await bridge(page);await page.getByRole('button',{name:'Clientes',exact:true}).click();
  const row=page.locator('.persons-page tbody tr').filter({hasText:'Comitente'}).first();
- await expect(row.getByRole('button',{name:'Editar cliente',exact:true})).toBeHidden();
- await row.getByText('Acciones',{exact:true}).click();
- await row.getByRole('button',{name:'Editar cliente',exact:true}).click();
+ const actions=row.getByRole('combobox',{name:'Acciones de Comitente',exact:true});
+ await expect(actions).toHaveValue('');
+ expect(await actions.locator('option').allTextContents()).toEqual(['Acciones','Editar cliente','Dar de baja','Eliminar si no fue usado']);
+ const box=await actions.boundingBox();expect(box.height).toBeLessThanOrEqual(28);expect(box.width).toBeLessThanOrEqual(120);
+ await actions.selectOption('person-edit');
  await expect(page.getByRole('dialog',{name:'Editar cliente',exact:true})).toBeVisible();
 });
 
