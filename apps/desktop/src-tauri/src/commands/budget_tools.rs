@@ -214,3 +214,18 @@ pub(crate) fn get_estimate_resource_prices(
         .estimate_resource_prices(estimate_id)
         .map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub(crate) fn set_line_components_included(
+    db: tauri::State<'_, crate::Db>,
+    estimate_id: uuid::Uuid,
+    line_id: uuid::Uuid,
+    analysis_id: uuid::Uuid,
+    indices: Vec<usize>,
+    included: bool,
+) -> Result<(), String> {
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .set_line_components_included(estimate_id, line_id, analysis_id, &indices, included)
+        .map_err(|e| e.to_string())
+}

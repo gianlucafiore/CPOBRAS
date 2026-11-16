@@ -1,0 +1,3 @@
+-- Components in analysis snapshot_json may now carry included=false.
+-- Advancing the schema version prevents older binaries from recomputing those
+-- components as chargeable when opening a database with saved exclusions.

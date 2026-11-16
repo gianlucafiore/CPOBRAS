@@ -152,3 +152,24 @@ se reordenan dentro de su mismo padre. Con el asa enfocada se puede usar
 Alt + ↑ / ↓. El orden se guarda y actualiza la numeración de pantalla y
 exportaciones; los presupuestos emitidos y las obras de solo lectura no
 admiten este cambio.
+
+## Insumos sin cobrar al comitente
+
+En el ACU de cada partida, el foquito junto a Editar y × permite incluir o
+excluir un insumo del costo que se cobra en ese presupuesto. También se puede
+encender o apagar un grupo completo. Los apagados quedan en gris y no suman al
+parcial del ACU; conservan cantidad y precio. Un **!** rojo identifica en la
+grilla las partidas con componentes sin sumar. Encenderlos restaura el cobro.
+
+El cambio es propio de la partida: no modifica el ACU de biblioteca ni otra
+partida que lo use. Los insumos siguen completos en cantidad y valor en el
+consolidado de Insumos y en las solicitudes para provisión: pueden seguir
+siendo necesarios aunque los pague directamente el comitente. Editar precios
+o cantidades no enciende los componentes apagados.
+
+El estado se conserva en las copias de presupuestos, JSON completo y respaldos.
+El Excel de respaldo incorpora «Cobrar (1/0)» en ACU, que controla sus fórmulas;
+Insumos mantiene los valores completos para provisión. El PDF interno identifica
+los componentes sin sumar. La presentación para cliente refleja el precio a
+cobrar. El intercambio JSON usa formato 6 y la versión de base 36 evita que un
+binario anterior recalcule como cobrables los componentes excluidos.

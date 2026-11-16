@@ -510,6 +510,10 @@ pub(crate) fn apply_changes(conn: &Connection, batch: &ReviewedBatch) -> Result<
             params![change.line_id.to_string(), batch.estimate_id.to_string()],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )?;
+        let previous_json:Option<String>=conn.query_row("SELECT a.snapshot_json FROM estimate_lines l LEFT JOIN analyses a ON a.id=l.analysis_id WHERE l.id=?1",[change.line_id.to_string()],|r|r.get(0))?;
+        let previous: Option<UnitCostAnalysis> = previous_json
+            .map(|j| serde_json::from_str(&j))
+            .transpose()?;
         let mut components = Vec::new();
         for c in &change.components {
             let r = &c.expected_resource;
@@ -524,6 +528,15 @@ pub(crate) fn apply_changes(conn: &Connection, batch: &ReviewedBatch) -> Result<
                 _ => return Err(invalid("Tipo de insumo inválido")),
             };
             components.push(ResourcePriceSnapshot {
+                included: previous
+                    .as_ref()
+                    .and_then(|a| {
+                        a.components
+                            .iter()
+                            .find(|old| old.resource_id == c.resource_id)
+                    })
+                    .map(|old| old.included)
+                    .unwrap_or(true),
                 resource_id: c.resource_id,
                 description: r.description.clone(),
                 kind,

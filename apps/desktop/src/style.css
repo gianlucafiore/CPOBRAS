@@ -525,3 +525,5 @@ input[type=search]::-webkit-search-cancel-button{appearance:none}
 @media(any-pointer:coarse){.reminder-actions{opacity:1;pointer-events:auto}}
 
 .section-drag-handle{border:0;background:transparent;color:inherit;font-size:15px;padding:0 3px 0 0;cursor:grab;vertical-align:middle}.section-drag-handle:active{cursor:grabbing}.section-row.dragging{opacity:.4}
+
+.inclusion-bulb{padding:2px 4px;min-width:25px;line-height:1}.inclusion-bulb.is-off{filter:grayscale(1);opacity:.65}.line-resource-row.component-excluded{background:#f0f1f2;color:#68717b}.line-resource-row.component-excluded .kind{filter:grayscale(1)}.acu-exclusion-warning{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;margin-right:5px;border-radius:50%;background:#c62828;color:#fff;font-size:12px;font-weight:900;vertical-align:middle}.group-total .inclusion-bulb{margin-left:5px}

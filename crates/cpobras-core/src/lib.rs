@@ -41,6 +41,8 @@ pub enum ResourceKind {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResourcePriceSnapshot {
+    #[serde(default = "included_by_default")]
+    pub included: bool,
     pub resource_id: Uuid,
     pub description: String,
     pub kind: ResourceKind,
@@ -74,6 +76,10 @@ pub enum DomainError {
     EmptyAnalysis,
 }
 
+fn included_by_default() -> bool {
+    true
+}
+
 impl UnitCostAnalysis {
     pub fn direct_unit_cost(&self) -> Result<Decimal, DomainError> {
         if self.components.is_empty() {
@@ -84,6 +90,9 @@ impl UnitCostAnalysis {
             .try_fold(Decimal::ZERO, |total, item| {
                 if item.quantity_per_unit < Decimal::ZERO || item.unit_price < Decimal::ZERO {
                     return Err(DomainError::NegativeValue);
+                }
+                if !item.included {
+                    return Ok(total);
                 }
                 item.quantity_per_unit
                     .checked_mul(item.unit_price)
@@ -187,6 +196,9 @@ impl UnitCostAnalysis {
             if item.quantity_per_unit < Decimal::ZERO || item.unit_price < Decimal::ZERO {
                 return Err(DomainError::NegativeValue);
             }
+            if !item.included {
+                continue;
+            }
             let amount = item
                 .quantity_per_unit
                 .checked_mul(item.unit_price)
@@ -252,6 +264,7 @@ mod tests {
             description: "Mampostería".into(),
             unit: "m2".into(),
             components: vec![ResourcePriceSnapshot {
+                included: true,
                 resource_id: Uuid::new_v4(),
                 description: "Ladrillo".into(),
                 kind: ResourceKind::Material,
@@ -274,6 +287,7 @@ mod tests {
             unit: "kg".into(),
             components: vec![
                 ResourcePriceSnapshot {
+                    included: true,
                     resource_id: Uuid::new_v4(),
                     description: "Acero".into(),
                     kind: ResourceKind::Material,
@@ -281,6 +295,7 @@ mod tests {
                     unit_price: Decimal::new(10, 0),
                 },
                 ResourcePriceSnapshot {
+                    included: true,
                     resource_id: Uuid::new_v4(),
                     description: "Soldador".into(),
                     kind: ResourceKind::Labor,
@@ -288,6 +303,7 @@ mod tests {
                     unit_price: Decimal::new(15, 0),
                 },
                 ResourcePriceSnapshot {
+                    included: true,
                     resource_id: Uuid::new_v4(),
                     description: "Grúa".into(),
                     kind: ResourceKind::Equipment,
@@ -295,6 +311,7 @@ mod tests {
                     unit_price: Decimal::new(5, 0),
                 },
                 ResourcePriceSnapshot {
+                    included: true,
                     resource_id: Uuid::new_v4(),
                     description: "Montaje".into(),
                     kind: ResourceKind::Subcontract,
@@ -346,6 +363,7 @@ mod tests {
             description: "Prueba".into(),
             unit: "u".into(),
             components: vec![ResourcePriceSnapshot {
+                included: true,
                 resource_id: Uuid::new_v4(),
                 description: "Insumo".into(),
                 kind: ResourceKind::Material,
@@ -390,6 +408,7 @@ mod arithmetic_regressions {
             description: "Extremo".into(),
             unit: "u".into(),
             components: vec![ResourcePriceSnapshot {
+                included: true,
                 resource_id: Uuid::new_v4(),
                 description: "Insumo".into(),
                 kind: ResourceKind::Material,

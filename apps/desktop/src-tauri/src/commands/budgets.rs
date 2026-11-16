@@ -239,6 +239,7 @@ pub(crate) fn add_line_from_analysis(
 
 #[derive(serde::Serialize)]
 pub(crate) struct LineView {
+    has_excluded_components: bool,
     id: String,
     description: String,
     unit: String,
@@ -252,6 +253,7 @@ impl From<EstimateItem> for LineView {
     fn from(line: EstimateItem) -> Self {
         let total = line.total().to_string();
         Self {
+            has_excluded_components: false,
             id: line.id.to_string(),
             description: line.description,
             unit: line.unit,
@@ -274,7 +276,21 @@ pub(crate) fn list_estimate_lines(
         return Err("El presupuesto no existe".into());
     }
     let lines = store.estimate_items(id).map_err(|e| e.to_string())?;
-    Ok(lines.into_iter().map(LineView::from).collect())
+    lines
+        .into_iter()
+        .map(|line| {
+            let excluded = line
+                .analysis_id
+                .map(|id| store.get_analysis(id))
+                .transpose()
+                .map_err(|e| e.to_string())?
+                .flatten()
+                .is_some_and(|a| a.components.iter().any(|c| !c.included));
+            let mut view = LineView::from(line);
+            view.has_excluded_components = excluded;
+            Ok(view)
+        })
+        .collect()
 }
 
 #[tauri::command]

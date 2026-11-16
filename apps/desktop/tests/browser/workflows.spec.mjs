@@ -39,6 +39,7 @@ async function bridge(page, options={}) {
    lineDetails[line.analysis_id]={is_line_owned:true,code:'PART',description:line.description,unit:line.unit,unit_cost:'100',components:[
     {resource_id:'resource-1',description:'Acero',kind:'material',quantity:fixture.materialRequirement,unit_price:'100',total:String(Number(fixture.materialRequirement)*100)}]};
   }
+  if(fixture.inclusion){for(const l of lines){l.unit_cost='400';l.total=String(Number(l.quantity)*400);}totals.direct=String(lines.reduce((n,l)=>n+Number(l.total),0));totals.total=totals.direct;}
   const resourcePrices={};const templates=[];
   const sourceProject={...project,id:'source-project',name:'Obra modelo'};
   const sourceDocument={format_version:1,currency:'Ars',title:'Modelo de cómputo',rates:{},line_analyses:[],sections:[{id:'src-parent',parent_id:null,code:'01',title:'Estructura modelo',position:0},{id:'src-child',parent_id:'src-parent',code:'01.01',title:'Terminaciones modelo',position:1},{id:'src-other',parent_id:null,code:'02',title:'Otros modelo',position:2},{id:'src-empty',parent_id:null,code:'03',title:'Rubro vacío',position:3}],lines:[{id:'src-a',description:'Columna modelo',unit:'m³',quantity:'2',unit_cost_snapshot:'10',analysis_id:null},{id:'src-b',description:'Muro modelo',unit:'m²',quantity:'6',unit_cost_snapshot:'20',analysis_id:null},{id:'src-c',description:'Pintura modelo',unit:'m²',quantity:'3',unit_cost_snapshot:'30',analysis_id:null}],assignments:[['src-a','src-parent'],['src-b','src-child'],['src-c','src-other']],formulas:[{line_id:'src-a',expression:'x',variables:{x:'2'}}],takeoffs:[{line_id:'src-b',factor:'2',length:'3',width:'1',height:'1',sign:1,position:0,note:'Pared'}]};
@@ -197,6 +198,12 @@ async function bridge(page, options={}) {
     const assigned=assignments.findIndex(row=>row.line_id===args.lineId);if(assigned>=0)assignments.splice(assigned,1);if(args.sectionId)assignments.push({line_id:args.lineId,section_id:args.sectionId});return null;
    }
    if(command === "delete_estimate_line"){const index=lines.findIndex(row=>row.id===args.lineId);lines.splice(index,1);return null;}
+   if(command==='set_line_components_included'){
+    if(estimate.issued)throw Error('Presupuesto emitido');
+    const l=lines.find(l=>l.id===args.lineId);if(l.analysis_id!==args.analysisId)throw Error('El ACU cambió');
+    const original=lineDetails[l.analysis_id],copy=structuredClone(original);copy.components.forEach((c,i)=>{if(args.indices.includes(i))c.included=args.included;c.total=c.included===false?'0':String(Number(c.quantity)*Number(c.unit_price));});copy.unit_cost=String(copy.components.reduce((n,c)=>n+Number(c.total),0));
+    l.analysis_id='inclusion-'+calls.length;lineDetails[l.analysis_id]=copy;l.unit_cost=copy.unit_cost;l.total=String(Number(l.quantity)*Number(l.unit_cost));l.has_excluded_components=copy.components.some(c=>c.included===false);totals.direct=String(lines.reduce((n,r)=>n+Number(r.total),0));totals.total=totals.direct;return null;
+   }
    if(command==='remove_line_resource'){
     const l=lines.find(l=>l.id===args.lineId),original=lineDetails[l.analysis_id];
     if(original.components[args.componentIndex]?.resource_id!==args.resourceId)throw Error('La composición cambió');
@@ -206,11 +213,11 @@ async function bridge(page, options={}) {
     l.unit_cost=String(components.reduce((n,c)=>n+Number(c.total),0));l.total=String(Number(l.quantity)*Number(l.unit_cost));return null;
    }
    if(command === "save_line_resources"){
-    const selected=lines.find(row=>row.id===args.lineId);const id="private-"+calls.length;const cost=args.components.reduce((sum,row)=>sum+Number(row.quantity)*Number(row.unitPrice),0);
+    const selected=lines.find(row=>row.id===args.lineId);const id="private-"+calls.length;const cost=args.components.reduce((sum,row)=>sum+(row.included===false?0:Number(row.quantity)*Number(row.unitPrice)),0);
     selected.analysis_id=id;selected.unit_cost=String(cost);selected.total=String(cost*Number(selected.quantity));
     for(const row of args.components)resourcePrices[row.resourceId]=row.unitPrice;
-    lineDetails[id]={is_line_owned:true,code:"PART",description:selected.description,unit:selected.unit,unit_cost:String(cost),components:args.components.map(row=>({resource_id:row.resourceId,description:resources.find(r=>r.id===row.resourceId)?.description,kind:"material",quantity:row.quantity,unit_price:row.unitPrice,total:String(Number(row.quantity)*Number(row.unitPrice))}))};
-    for(const l of lines){const detail=lineDetails[l.analysis_id];if(!detail)continue;for(const c of detail.components){c.unit_price=resourcePrices[c.resource_id];c.total=String(Number(c.quantity)*Number(c.unit_price));}detail.unit_cost=String(detail.components.reduce((n,c)=>n+Number(c.total),0));l.unit_cost=detail.unit_cost;l.total=String(Number(l.quantity)*Number(l.unit_cost));}
+    lineDetails[id]={is_line_owned:true,code:"PART",description:selected.description,unit:selected.unit,unit_cost:String(cost),components:args.components.map(row=>({resource_id:row.resourceId,description:resources.find(r=>r.id===row.resourceId)?.description,kind:"material",quantity:row.quantity,unit_price:row.unitPrice,included:row.included!==false,total:row.included===false?"0":String(Number(row.quantity)*Number(row.unitPrice))}))};
+    for(const l of lines){const detail=lineDetails[l.analysis_id];if(!detail)continue;for(const c of detail.components){c.unit_price=resourcePrices[c.resource_id];c.total=c.included===false?"0":String(Number(c.quantity)*Number(c.unit_price));}detail.unit_cost=String(detail.components.reduce((n,c)=>n+Number(c.total),0));l.unit_cost=detail.unit_cost;l.total=String(Number(l.quantity)*Number(l.unit_cost));}
     return id;
    }
    if (command === "list_budget_sections" || command === "list_line_sections" || command === "list_backups" || command === "list_budget_templates" || command === "list_plan_revisions" || command === "list_plan_baselines" || command === "list_fx_quotes" || command === "scoped_price_history") return [];
@@ -342,7 +349,7 @@ test("assigning a catalog resource directly recalculates the selected line",asyn
  await page.getByLabel('Rendimiento / unidad',{exact:true}).fill('2.5');await page.getByRole('button',{name:'Guardar',exact:true}).click();
  await expect(page.locator('.detail-content')).toContainText('Precio calculado por insumos');
  await expect(page.locator('.line-row .partial')).toHaveText('500,00');
- const saved=await page.evaluate(()=>window.__calls.find(row=>row.command==='save_line_resources').args);expect(saved.components[0]).toEqual({resourceId:'resource-1',quantity:'2.5',unitPrice:'100'});
+ const saved=await page.evaluate(()=>window.__calls.find(row=>row.command==='save_line_resources').args);expect(saved.components[0]).toEqual({resourceId:'resource-1',quantity:'2.5',unitPrice:'100',included:true});
 });
 
 test("issued budgets disable editing, assignment and drag handles",async({page})=>{
@@ -1492,4 +1499,17 @@ test('section dragging moves whole blocks, renumbers items and supports keyboard
 test('issued section drag handles are disabled',async({page})=>{
  await bridge(page,{twoLines:true,sectionDrag:true,issued:true});await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.locator('[data-action=manage-dashboard-budget]').first().click();
  for(const handle of await page.locator('.section-drag-handle').all()){await expect(handle).toBeDisabled();await expect(handle).toHaveAttribute('draggable','false');}
+});
+
+test('ACU bulbs exclude only the charged cost, show gray rows and a red warning while supply totals stay complete',async({page})=>{
+ await bridge(page,{twoLines:true,composition:true,inclusion:true});await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.locator('[data-action=manage-dashboard-budget]').first().click();
+ const line=page.locator('.line-row').filter({hasText:'Hormigón'}),other=page.locator('.line-row').filter({hasText:'Revoque'});
+ const acero=page.locator('.line-resource-row').filter({hasText:'Acero'});await acero.hover();await acero.getByRole('button',{name:'Excluir Acero del costo',exact:true}).click();
+ await expect(line.getByRole('img',{name:'Hay insumos sin sumar',exact:true})).toBeVisible();await expect(other.getByRole('img',{name:'Hay insumos sin sumar',exact:true})).toHaveCount(0);
+ await expect(acero).toHaveClass(/component-excluded/);await expect(acero).toContainText('100,00');await expect(acero.locator('td').nth(5)).toHaveText('0,00');await expect(line.locator('td').nth(4)).toHaveText('100,00');await expect(other.locator('td').nth(4)).toHaveText('400,00');
+ await page.getByRole('tab',{name:'Insumos',exact:true}).click();
+ const candidates=page.locator('table tbody tr').filter({hasText:'Acero'});await expect(candidates.first()).toContainText('1.200,00');
+ await page.getByRole('tab',{name:'ACU',exact:true}).click();
+ await page.getByRole('button',{name:'Incluir grupo Materiales del costo',exact:true}).click();await expect(line.getByRole('img',{name:'Hay insumos sin sumar',exact:true})).toHaveCount(0);await expect(line.locator('td').nth(4)).toHaveText('400,00');
+ await page.getByRole('button',{name:'Excluir grupo Materiales del costo',exact:true}).click();await expect(page.locator('.line-resource-row.component-excluded')).toHaveCount(2);await expect(line.locator('td').nth(4)).toHaveText('50,00');
 });

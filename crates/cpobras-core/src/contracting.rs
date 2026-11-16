@@ -79,6 +79,7 @@ pub fn quoted_subcontract(
     ContractingScenario {
         name: description.to_owned(),
         components: vec![ResourcePriceSnapshot {
+            included: true,
             resource_id,
             description: description.to_owned(),
             kind: ResourceKind::Subcontract,
@@ -100,6 +101,7 @@ mod tests {
             name: "Montaje propio".into(),
             components: vec![
                 ResourcePriceSnapshot {
+                    included: true,
                     resource_id: Uuid::new_v4(),
                     description: "Oficial".into(),
                     kind: ResourceKind::Labor,
@@ -107,6 +109,7 @@ mod tests {
                     unit_price: Decimal::new(1000, 0),
                 },
                 ResourcePriceSnapshot {
+                    included: true,
                     resource_id: Uuid::new_v4(),
                     description: "Hidroelevador".into(),
                     kind: ResourceKind::Equipment,

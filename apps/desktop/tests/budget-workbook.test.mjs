@@ -387,3 +387,14 @@ test("internal Excel totals stay in the final amount column after adding inciden
   assert.equal(last[6], "508.20");
   assert.equal(last[7], "100");
 });
+
+test('excluded ACU components remain priced for supply but are controlled independently in the charged Excel cost',async()=>{
+ const d=workbookFixture();d.document.line_analyses[0].components[0].included=false;d.document.lines[0].unit_cost_snapshot='0';d.final_total='217.80';
+ d.calculation.breakdown={direct:'150',taxable_subtotal:'180',taxes:'37.80',total:'217.80'};
+ Object.assign(d.calculation.rows[0],{base:'150',amount:'30',running_total:'180'});Object.assign(d.calculation.rows[1],{base:'180',amount:'37.80',running_total:'217.80'});
+ Object.assign(d.lines[0],{direct_total:'0',sale_total:'0',sale_unit:'0',incidence_percent:'0'});Object.assign(d.lines[1],{direct_total:'150',sale_total:'217.80',sale_unit:'72.60',incidence_percent:'100'});
+ const sheets=buildBudgetWorkbook(d),acu=sheets.find(s=>s.sheet==='ACU'),supplies=sheets.find(s=>s.sheet==='Insumos');
+ assert.match(acu.data[4][0].value,/SIN SUMAR/);assert.equal(acu.data[4][3].value,4);assert.equal(acu.data[4][4].value,25);assert.equal(acu.data[4][5].cached,'0');assert.equal(acu.data[4][10].value,0);assert.match(acu.data[4][5].value,/IF\(K5=1,D5\*E5,0\)/);
+ assert.equal(supplies.data[3][3].cached,'8');assert.equal(supplies.data[3][4].cached,'200');assert.match(supplies.data[3][4].value,/!L4:L/);
+ const files=unzipSync(await workbookBytes(sheets));assert.match(strFromU8(files['xl/worksheets/sheet2.xml']),/IF\(K5=1,D5\*E5,0\)/);
+});

@@ -136,7 +136,7 @@ export function normalizedAnalyses(
           ...c,
           quantity,
           unit_price,
-          total: multiplyDecimals(quantity, unit_price),
+          total: c.included===false?"0":multiplyDecimals(quantity, unit_price),
           unit: resource?.unit || c.unit || "—",
           kind: String(c.kind || resource?.kind || "material").toLowerCase(),
           code: resource?.code || "",
@@ -217,6 +217,8 @@ export function buildBudgetWorkbook(
       "Cantidad total",
       "Precio total",
       "",
+      "Cobrar (1/0)",
+      "",
     ]),
   ];
   const acuRefs = new Map(),
@@ -249,22 +251,24 @@ export function buildBudgetWorkbook(
     for (const c of a.components) {
       const n = acu.length + 1;
       acu.push([
-        text(kindName(c.kind)),
+        text(kindName(c.kind)+(c.included===false?" · SIN SUMAR":"")),
         text(c.description),
         text(c.unit),
         number(c.quantity, decimal, true),
         number(c.unit_price, cash, true),
-        formula(`D${n}*E${n}`, c.total),
+        formula(`IF(K${n}=1,D${n}*E${n},0)`, c.total),
         formula(`G${row}`, quantity, decimal),
         formula(`D${n}*G${n}`, multiplyDecimals(c.quantity, quantity), decimal),
         formula(`F${n}*G${n}`, multiplyDecimals(c.total, quantity)),
         text(c.resource_id),
+        number(c.included===false?0:1,"0",true),
+        formula(`D${n}*E${n}*G${n}`,multiplyDecimals(multiplyDecimals(c.quantity,c.unit_price),quantity)),
       ]);
       componentRefs.push({
         ...c,
         row: n,
         quantity: multiplyDecimals(c.quantity, quantity),
-        amount: multiplyDecimals(c.total, quantity),
+        amount: multiplyDecimals(multiplyDecimals(c.quantity,c.unit_price),quantity),
       });
     }
     const last = acu.length,
@@ -598,7 +602,7 @@ export function buildBudgetWorkbook(
   const consolidated = [
     banner("Consolidado de insumos", 5),
     note(
-      "Cantidades y costos acumulados de todas las partidas. Se actualizan desde los ACU y las cantidades de obra.",
+      "Cantidades y valores completos para provisión, incluidos los insumos que paga el comitente y no se cobran en el presupuesto.",
       5,
     ),
     head(["Tipo", "Insumo", "Unidad", "Cantidad total", "Precio total"]),
@@ -623,7 +627,7 @@ export function buildBudgetWorkbook(
         decimal,
       ),
       formula(
-        `SUMIF(${sq("ACU")}!J4:J${lastAcu},${literal(c.resource_id)},${sq("ACU")}!I4:I${lastAcu})`,
+        `SUMIF(${sq("ACU")}!J4:J${lastAcu},${literal(c.resource_id)},${sq("ACU")}!L4:L${lastAcu})`,
         c.amount,
       ),
     ]);
@@ -657,8 +661,8 @@ export function buildBudgetWorkbook(
       printColumns: 10,
       stickyRowsCount: 4,
     }),
-    sheet("ACU", acu, [18, 48, 12, 18, 20, 22, 20, 20, 24, 1], {
-      hiddenColumns: [10],
+    sheet("ACU", acu, [18, 48, 12, 18, 20, 22, 20, 20, 24, 1, 16, 1], {
+      hiddenColumns: [10,12],
       printColumns: 9,
       pageBreakRows: breaks,
     }),

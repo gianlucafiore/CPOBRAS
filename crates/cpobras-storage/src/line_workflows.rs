@@ -8,6 +8,8 @@ use uuid::Uuid;
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LineResourceInput {
+    #[serde(default)]
+    pub included: Option<bool>,
     pub resource_id: Uuid,
     pub quantity: Decimal,
     pub unit_price: Decimal,
@@ -58,6 +60,7 @@ impl LocalStore {
             .enumerate()
             .filter(|(index, _)| *index != component_index)
             .map(|(_, c)| LineResourceInput {
+                included: Some(c.included),
                 resource_id: c.resource_id,
                 quantity: c.quantity_per_unit,
                 unit_price: c.unit_price,
@@ -90,11 +93,66 @@ impl LocalStore {
         tx.commit()?;
         Ok(())
     }
+    pub fn set_line_components_included(
+        &mut self,
+        estimate_id: Uuid,
+        line_id: Uuid,
+        analysis_id: Uuid,
+        indices: &[usize],
+        included: bool,
+    ) -> Result<()> {
+        let line = self
+            .estimate_items(estimate_id)?
+            .into_iter()
+            .find(|l| l.id == line_id)
+            .ok_or_else(|| invalid("Partida inexistente"))?;
+        if line.analysis_id != Some(analysis_id) {
+            return Err(invalid(
+                "El ACU cambió. Actualizá la vista antes de encender o apagar insumos",
+            ));
+        }
+        let analysis = self
+            .get_analysis(analysis_id)?
+            .ok_or_else(|| invalid("ACU inexistente"))?;
+        let selected: std::collections::BTreeSet<_> = indices.iter().copied().collect();
+        if selected.is_empty()
+            || selected.len() != indices.len()
+            || selected.iter().any(|i| *i >= analysis.components.len())
+        {
+            return Err(invalid("Selección de insumos inválida"));
+        }
+        let inputs = analysis
+            .components
+            .iter()
+            .enumerate()
+            .map(|(i, c)| LineResourceInput {
+                included: Some(if selected.contains(&i) {
+                    included
+                } else {
+                    c.included
+                }),
+                resource_id: c.resource_id,
+                quantity: c.quantity_per_unit,
+                unit_price: c.unit_price,
+            })
+            .collect::<Vec<_>>();
+        self.save_line_resources_checked(estimate_id, line_id, &inputs, Some(analysis_id))?;
+        Ok(())
+    }
     pub fn save_line_resources(
         &mut self,
         estimate_id: Uuid,
         line_id: Uuid,
         inputs: &[LineResourceInput],
+    ) -> Result<Uuid> {
+        self.save_line_resources_checked(estimate_id, line_id, inputs, None)
+    }
+    fn save_line_resources_checked(
+        &mut self,
+        estimate_id: Uuid,
+        line_id: Uuid,
+        inputs: &[LineResourceInput],
+        expected: Option<Uuid>,
     ) -> Result<Uuid> {
         if inputs.is_empty() || inputs.len() > 1000 {
             return Err(invalid("Agregá entre 1 y 1000 insumos"));
@@ -104,15 +162,36 @@ impl LocalStore {
             .into_iter()
             .find(|line| line.id == line_id)
             .ok_or_else(|| invalid("Partida inexistente en este presupuesto"))?;
+        let previous = line
+            .analysis_id
+            .map(|id| self.get_analysis(id))
+            .transpose()?
+            .flatten();
         let mut components = Vec::new();
-        for input in inputs {
+        for (index, input) in inputs.iter().enumerate() {
             let resource = self
                 .get_resource(input.resource_id)?
                 .ok_or_else(|| invalid("El insumo ya no existe en el catálogo"))?;
-            if !resource.active {
+            if !resource.active && expected.is_none() {
                 return Err(invalid("No se pueden asignar insumos inactivos"));
             }
             components.push(ResourcePriceSnapshot {
+                included: input.included.unwrap_or_else(|| {
+                    previous
+                        .as_ref()
+                        .and_then(|a| {
+                            a.components
+                                .get(index)
+                                .filter(|c| c.resource_id == input.resource_id)
+                                .or_else(|| {
+                                    a.components
+                                        .iter()
+                                        .find(|c| c.resource_id == input.resource_id)
+                                })
+                        })
+                        .map(|c| c.included)
+                        .unwrap_or(true)
+                }),
                 resource_id: resource.id,
                 description: resource.description,
                 kind: resource.kind,
@@ -159,7 +238,7 @@ impl LocalStore {
             "INSERT INTO line_analysis_snapshots(analysis_id) VALUES (?1)",
             [analysis.id.to_string()],
         )?;
-        let changed=tx.execute("UPDATE estimate_lines SET analysis_id=?1,unit_cost_snapshot=?2 WHERE id=?3 AND estimate_id=?4",params![analysis.id.to_string(),cost.to_string(),line_id.to_string(),estimate_id.to_string()])?;
+        let changed=tx.execute("UPDATE estimate_lines SET analysis_id=?1,unit_cost_snapshot=?2 WHERE id=?3 AND estimate_id=?4 AND (?5 IS NULL OR analysis_id=?5)",params![analysis.id.to_string(),cost.to_string(),line_id.to_string(),estimate_id.to_string(),expected.map(|id|id.to_string())])?;
         if changed != 1 {
             return Err(invalid("La partida ya no existe"));
         }

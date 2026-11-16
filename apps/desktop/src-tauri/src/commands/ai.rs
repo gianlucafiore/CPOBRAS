@@ -1574,6 +1574,7 @@ mod catalog_context_tests {
                 estimate.id,
                 line.id,
                 &[LineResourceInput {
+                    included: None,
                     resource_id: mortar.id,
                     quantity: Decimal::ONE,
                     unit_price: Decimal::from(777),

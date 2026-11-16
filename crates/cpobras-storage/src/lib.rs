@@ -163,6 +163,7 @@ impl LocalStore {
             include_str!("../migrations/0033_entity_lifecycle.sql"),
             include_str!("../migrations/0034_assisted_budget_batches.sql"),
             include_str!("../migrations/0035_reminders.sql"),
+            include_str!("../migrations/0036_component_cost_inclusion.sql"),
         ];
         let latest: i64 = tx.query_row(
             "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
@@ -443,6 +444,7 @@ mod tests {
             description: "Hormigón".into(),
             unit: "m3".into(),
             components: vec![ResourcePriceSnapshot {
+                included: true,
                 resource_id: Uuid::new_v4(),
                 description: "Cemento".into(),
                 kind: ResourceKind::Material,
@@ -490,6 +492,7 @@ mod tests {
             description: "Estructura".into(),
             unit: "kg".into(),
             components: vec![ResourcePriceSnapshot {
+                included: true,
                 resource_id: resource.id,
                 description: resource.description.clone(),
                 kind: ResourceKind::Material,

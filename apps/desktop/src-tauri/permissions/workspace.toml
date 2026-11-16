@@ -102,6 +102,7 @@ commands.allow = [
   "list_budget_templates",
   "edit_budget_lines",
   "move_budget_line",
+  "set_line_components_included",
   "save_line_resources",
   "remove_line_resource",
   "duplicate_budget_line",

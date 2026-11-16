@@ -153,6 +153,7 @@ pub(crate) fn configure<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri:
             commands::budget_tools::list_budget_templates,
             commands::budget_tools::edit_budget_lines,
             commands::budget_tools::move_budget_line,
+            commands::budget_tools::set_line_components_included,
             commands::budget_tools::save_line_resources,
             commands::budget_tools::remove_line_resource,
             commands::budget_tools::duplicate_budget_line,

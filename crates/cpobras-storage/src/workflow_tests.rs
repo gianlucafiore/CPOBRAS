@@ -463,6 +463,7 @@ fn direct_line_resources_are_private_snapshots_and_survive_versions_and_exchange
     };
     store.save_resource(&resource).unwrap();
     let inputs = vec![LineResourceInput {
+        included: None,
         resource_id: resource.id,
         quantity: Decimal::new(25, 1),
         unit_price: Decimal::from(100),
@@ -482,6 +483,7 @@ fn direct_line_resources_are_private_snapshots_and_survive_versions_and_exchange
             estimate.id,
             line.id,
             &[LineResourceInput {
+                included: None,
                 resource_id: resource.id,
                 quantity: Decimal::from(3),
                 unit_price: Decimal::from(100),
@@ -1112,6 +1114,7 @@ fn deleting_a_draft_cascades_owned_data_preserves_catalog_and_other_versions() {
         })
         .unwrap();
     let inputs = [LineResourceInput {
+        included: None,
         resource_id: resource,
         quantity: 2.into(),
         unit_price: 3.into(),
@@ -1195,6 +1198,7 @@ fn deleting_a_line_keeps_documents_stock_and_receiving_pending_orders_working() 
             e.id,
             line.id,
             &[crate::line_workflows::LineResourceInput {
+                included: None,
                 resource_id: res,
                 quantity: 1.into(),
                 unit_price: 2.into(),
@@ -1356,7 +1360,7 @@ fn upgrades_populated_schema_fifteen_and_deletes_its_preexisting_linked_line() {
             .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| r
                 .get::<_, i64>(0))
             .unwrap(),
-        35
+        36
     );
     upgraded.delete_estimate_item(e.id, line.id).unwrap();
     assert!(upgraded.estimate_items(e.id).unwrap().is_empty());
@@ -1727,6 +1731,7 @@ fn resource_price_changes_propagate_within_one_budget_without_changing_yields_or
     };
     s.add_estimate_item(&second).unwrap();
     let input = |qty, price| crate::line_workflows::LineResourceInput {
+        included: None,
         resource_id: res,
         quantity: Decimal::from(qty),
         unit_price: Decimal::from(price),
@@ -1774,6 +1779,7 @@ fn pattern_prices_use_destination_resource_prices_and_without_prices_do_not_get_
     use crate::budget_patterns::*;
     let (mut s, p, e, l, _, res, _) = stock_fixture();
     let input = |q, p| crate::line_workflows::LineResourceInput {
+        included: None,
         resource_id: res,
         quantity: Decimal::from(q),
         unit_price: Decimal::from(p),
@@ -1845,6 +1851,7 @@ fn resource_price_overflow_rolls_back_every_partida_and_price() {
     };
     s.add_estimate_item(&second).unwrap();
     let input = |q, p| crate::line_workflows::LineResourceInput {
+        included: None,
         resource_id: res,
         quantity: q,
         unit_price: p,
@@ -1874,6 +1881,7 @@ fn library_acus_adopt_the_budget_price_without_mutating_the_library() {
         description: "ACU".into(),
         unit: l.unit.clone(),
         components: vec![cpobras_core::ResourcePriceSnapshot {
+            included: true,
             resource_id: res,
             description: "Material".into(),
             kind: cpobras_core::ResourceKind::Material,
@@ -1916,6 +1924,7 @@ fn schema_seventeen_reconciles_legacy_draft_prices_once_using_the_latest_composi
         e.id,
         l.id,
         &[crate::line_workflows::LineResourceInput {
+            included: None,
             resource_id: res,
             quantity: 2.into(),
             unit_price: 10.into(),
@@ -1934,6 +1943,7 @@ fn schema_seventeen_reconciles_legacy_draft_prices_once_using_the_latest_composi
         description: "Legacy".into(),
         unit: l.unit.clone(),
         components: vec![cpobras_core::ResourcePriceSnapshot {
+            included: true,
             resource_id: res,
             description: "Material".into(),
             kind: cpobras_core::ResourceKind::Material,
@@ -1987,6 +1997,7 @@ fn legacy_library_unit_changes_do_not_prevent_opening_or_reinterpret_stored_pric
         description: "Biblioteca modificada".into(),
         unit: "kg".into(),
         components: vec![cpobras_core::ResourcePriceSnapshot {
+            included: true,
             resource_id: res,
             description: "Material".into(),
             kind: cpobras_core::ResourceKind::Material,
@@ -2049,7 +2060,7 @@ fn custom_price_definition_revision_copy_export_and_issue_are_consistent() {
         Decimal::new(3025, 1)
     );
     let document = store.export_budget(estimate.id).unwrap();
-    assert_eq!(document.format_version, 5);
+    assert_eq!(document.format_version, 6);
     let json = serde_json::to_string(&document).unwrap();
     let imported = store
         .import_budget(project.id, &serde_json::from_str(&json).unwrap())
@@ -2760,6 +2771,7 @@ fn saving_an_acu_pattern_copies_unit_composition_without_changing_the_source() {
             e.id,
             line.id,
             &[LineResourceInput {
+                included: None,
                 resource_id: r.id,
                 quantity: Decimal::from(3),
                 unit_price: Decimal::from(100),
@@ -3176,6 +3188,7 @@ fn declared_acopio_reduces_period_purchases_without_creating_a_payment() {
         description: "Materiales".into(),
         unit: "m".into(),
         components: vec![ResourcePriceSnapshot {
+            included: true,
             resource_id: resource,
             description: "Material".into(),
             kind: ResourceKind::Material,
@@ -3189,6 +3202,7 @@ fn declared_acopio_reduces_period_purchases_without_creating_a_payment() {
         e.id,
         l.id,
         &[crate::line_workflows::LineResourceInput {
+            included: None,
             resource_id: resource,
             quantity: 5.into(),
             unit_price: 10.into(),
@@ -3280,6 +3294,7 @@ fn crew_friday_payments_cap_advance_recovery_and_replace_liquidated_wages() {
         e.id,
         l.id,
         &[LineResourceInput {
+            included: None,
             resource_id: resource,
             quantity: 1.into(),
             unit_price: 100.into(),
@@ -3349,6 +3364,7 @@ fn material_orders_in_another_currency_cover_supply_without_implicit_currency_co
         e.id,
         l.id,
         &[crate::line_workflows::LineResourceInput {
+            included: None,
             resource_id: resource,
             quantity: 5.into(),
             unit_price: 10.into(),
@@ -5625,6 +5641,7 @@ fn assisted_acu_reuses_reference_consumption_but_not_historical_prices() {
         e.id,
         line.id,
         &[LineResourceInput {
+            included: None,
             resource_id: id,
             quantity: 2.into(),
             unit_price: 10.into(),
@@ -5706,11 +5723,13 @@ fn removing_line_resources_preserves_catalog_snapshots_and_handles_the_last_comp
     store.save_resource(&second).unwrap();
     let inputs = vec![
         LineResourceInput {
+            included: None,
             resource_id: resource.id,
             quantity: Decimal::ONE,
             unit_price: Decimal::from(10),
         },
         LineResourceInput {
+            included: None,
             resource_id: second.id,
             quantity: Decimal::from(3),
             unit_price: Decimal::from(20),
@@ -5759,4 +5778,133 @@ fn removing_line_resources_preserves_catalog_snapshots_and_handles_the_last_comp
         .remove_line_resource(estimate.id, line.id, 0, resource.id)
         .is_err());
     store.verify_integrity().unwrap();
+}
+
+#[test]
+fn line_cost_exclusions_keep_prices_quantities_other_lines_and_survive_edit_copy_import_and_backup()
+{
+    use crate::line_workflows::LineResourceInput;
+    let (mut s, p, e, l, _, resource, _) = stock_fixture();
+    let inputs = [LineResourceInput {
+        included: None,
+        resource_id: resource,
+        quantity: Decimal::from(2),
+        unit_price: Decimal::from(10),
+    }];
+    let original = s.save_line_resources(e.id, l.id, &inputs).unwrap();
+    let sibling = EstimateItem {
+        id: Uuid::new_v4(),
+        position: 1,
+        analysis_id: Some(original),
+        unit_cost_snapshot: Decimal::from(20),
+        ..l.clone()
+    };
+    s.add_estimate_item(&sibling).unwrap();
+    s.set_line_components_included(e.id, l.id, original, &[0], false)
+        .unwrap();
+    let off = s
+        .estimate_items(e.id)
+        .unwrap()
+        .into_iter()
+        .find(|x| x.id == l.id)
+        .unwrap();
+    assert_eq!(off.unit_cost_snapshot, Decimal::ZERO);
+    let off_analysis = s.get_analysis(off.analysis_id.unwrap()).unwrap().unwrap();
+    assert!(!off_analysis.components[0].included);
+    assert_eq!(off_analysis.components[0].unit_price, Decimal::from(10));
+    assert_eq!(
+        off_analysis.components[0].quantity_per_unit,
+        Decimal::from(2)
+    );
+    assert!(s.get_analysis(original).unwrap().unwrap().components[0].included);
+    assert_eq!(
+        s.estimate_items(e.id)
+            .unwrap()
+            .into_iter()
+            .find(|x| x.id == sibling.id)
+            .unwrap()
+            .unit_cost_snapshot,
+        Decimal::from(20)
+    );
+    assert!(s
+        .set_line_components_included(e.id, l.id, original, &[0], true)
+        .is_err());
+    assert!(s
+        .set_line_components_included(e.id, l.id, off.analysis_id.unwrap(), &[99], true)
+        .is_err());
+    // Legacy edits omit the flag and must preserve the existing exclusion.
+    let edited = s
+        .save_line_resources(
+            e.id,
+            l.id,
+            &[LineResourceInput {
+                included: None,
+                resource_id: resource,
+                quantity: Decimal::from(3),
+                unit_price: Decimal::from(12),
+            }],
+        )
+        .unwrap();
+    assert!(!s.get_analysis(edited).unwrap().unwrap().components[0].included);
+    assert_eq!(
+        s.estimate_items(e.id)
+            .unwrap()
+            .into_iter()
+            .find(|x| x.id == l.id)
+            .unwrap()
+            .unit_cost_snapshot,
+        Decimal::ZERO
+    );
+    let copy = s.duplicate_estimate(e.id, "Copia").unwrap();
+    let copied = s.estimate_items(copy.id).unwrap()[0].clone();
+    assert!(
+        !s.get_analysis(copied.analysis_id.unwrap())
+            .unwrap()
+            .unwrap()
+            .components[0]
+            .included
+    );
+    let document = s.export_budget(e.id).unwrap();
+    assert_eq!(document.format_version, 6);
+    let imported = s.import_budget(p.id, &document).unwrap();
+    let imported_line = s.estimate_items(imported.id).unwrap()[0].clone();
+    assert!(
+        !s.get_analysis(imported_line.analysis_id.unwrap())
+            .unwrap()
+            .unwrap()
+            .components[0]
+            .included
+    );
+    let path = std::env::temp_dir().join(format!("cpobras-exclusion-{}.sqlite", Uuid::new_v4()));
+    s.backup_to(&path).unwrap();
+    let restored = LocalStore::open_existing(&path).unwrap();
+    assert_eq!(
+        restored.estimate_items(e.id).unwrap()[0].unit_cost_snapshot,
+        Decimal::ZERO
+    );
+    assert!(!restored.get_analysis(edited).unwrap().unwrap().components[0].included);
+    drop(restored);
+    std::fs::remove_file(path).unwrap();
+    s.set_line_components_included(e.id, l.id, edited, &[0], true)
+        .unwrap();
+    let active = s.estimate_items(e.id).unwrap()[0].clone();
+    assert_eq!(active.unit_cost_snapshot, Decimal::from(36));
+    s.issue_estimate(e.id).unwrap();
+    assert!(s
+        .set_line_components_included(e.id, l.id, active.analysis_id.unwrap(), &[0], false)
+        .is_err());
+}
+
+#[test]
+fn legacy_components_default_to_included_and_exclusions_only_remove_the_cost() {
+    use cpobras_core::UnitCostAnalysis;
+    let json = serde_json::json!({"id":Uuid::new_v4(),"code":"LEGACY","description":"Prueba","unit":"un","components":[{"resource_id":Uuid::new_v4(),"description":"Material","kind":"Material","quantity_per_unit":"3","unit_price":"100"}]});
+    let mut acu: UnitCostAnalysis = serde_json::from_value(json).unwrap();
+    assert!(acu.components[0].included);
+    assert_eq!(acu.direct_unit_cost().unwrap(), Decimal::from(300));
+    acu.components[0].included = false;
+    assert_eq!(acu.direct_unit_cost().unwrap(), Decimal::ZERO);
+    assert_eq!(acu.cost_breakdown().unwrap().total, Decimal::ZERO);
+    assert_eq!(acu.components[0].unit_price, Decimal::from(100));
+    assert_eq!(acu.components[0].quantity_per_unit, Decimal::from(3));
 }

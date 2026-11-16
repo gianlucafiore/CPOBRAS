@@ -67,6 +67,7 @@ export function createRemoteInvoke(nativeInvoke, state) {
         case "list_estimate_lines":
           return budget().document.lines.map((l) => ({
             ...l,
+            has_excluded_components: p.resources && (budget().document.line_analyses||[]).some(a=>a.id===l.analysis_id&&a.components.some(c=>c.included===false)),
             unit_cost: l.unit_cost_snapshot,
             total: multiplyDecimals(l.quantity, l.unit_cost_snapshot),
           }));
@@ -103,7 +104,7 @@ export function createRemoteInvoke(nativeInvoke, state) {
             ...c,
             kind: String(c.kind).toLowerCase(),
             quantity: c.quantity_per_unit,
-            total: multiplyDecimals(c.quantity_per_unit, c.unit_price),
+            total: c.included===false?"0":multiplyDecimals(c.quantity_per_unit, c.unit_price),
           }));
           return {
             ...a,
@@ -196,7 +197,7 @@ export function createRemoteInvoke(nativeInvoke, state) {
                   ...a,
                   unit_cost: sumDecimals(
                     a.components.map((c) =>
-                      multiplyDecimals(c.quantity_per_unit, c.unit_price),
+                      c.included===false?"0":multiplyDecimals(c.quantity_per_unit, c.unit_price),
                     ),
                   ),
                 }))
