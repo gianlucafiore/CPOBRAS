@@ -1399,6 +1399,7 @@ test('home reserves a quarter of its width for manual reminders and preserves a 
  await panel.getByRole('button',{name:'Guardar recordatorio',exact:true}).click();
  const row=panel.locator('tbody tr').filter({hasText:'Enviar presupuesto de ampliación'});await expect(row).toContainText('18/11/2026');await expect(row).toContainText('Obra de prueba');await expect(row).toContainText('Comitente');
  await page.reload();await expect(panel.locator('tbody')).toContainText('Enviar presupuesto de ampliación');
+ await panel.locator('tr').filter({hasText:'Enviar presupuesto de ampliación'}).hover();
  await panel.getByRole('button',{name:'Editar recordatorio Enviar presupuesto de ampliación',exact:true}).click();
  await panel.getByLabel('Recordatorio',{exact:true}).fill('Enviar presupuesto revisado');
  await panel.getByRole('button',{name:'Guardar recordatorio',exact:true}).click();
@@ -1414,8 +1415,9 @@ test('reminders paginate at twenty and put expired and completed history after c
  await panel.getByRole('button',{name:'Recordatorios: página siguiente',exact:true}).click();
  await expect(panel.locator('[data-reminder-id]')).toHaveCount(3);
  const old=panel.locator('tr').filter({hasText:'Certificado vencido'});await expect(old).toHaveClass('reminder-history');await expect(old).toContainText('Vencido');await expect(panel.getByRole('button',{name:'Recordatorios: página siguiente',exact:true})).toBeDisabled();
- page.once('dialog',d=>d.dismiss());await panel.getByRole('button',{name:'Eliminar recordatorio Certificado vencido',exact:true}).click();await expect(old).toBeVisible();
+ await old.hover();page.once('dialog',d=>d.dismiss());await panel.getByRole('button',{name:'Eliminar recordatorio Certificado vencido',exact:true}).click();await expect(old).toBeVisible();
  await panel.getByRole('button',{name:'Recordatorios: página anterior',exact:true}).click();
+ await panel.locator('tr').filter({hasText:'Comprar material 01'}).hover();
  await panel.getByRole('button',{name:'Resolver recordatorio Comprar material 01',exact:true}).click();
  await expect(panel.locator('[data-reminder-id]')).toHaveCount(20);await expect(panel.locator('tbody')).not.toContainText('Comprar material 01');
  await panel.getByRole('button',{name:'Recordatorios: página siguiente',exact:true}).click();await expect(panel.locator('tbody tr').last()).toContainText('Resuelto');
@@ -1448,4 +1450,19 @@ test('overnight reminder refresh does not overwrite an unfinished project dialog
  page.once('dialog',d=>d.accept());await dialog.getByRole('button',{name:'Cerrar',exact:true}).last().click();
  await page.evaluate(()=>window.dispatchEvent(new Event('focus')));
  await expect(page.locator('[data-reminder-id]')).toContainText('Vencido');
+});
+
+test('reminder actions stay compact and horizontal, reveal on hover or keyboard focus and remain available on touch',async({page,browser})=>{
+ const reminder={id:'10000000-0000-4000-8000-000000000100',revision:1,title:'Cotizar ampliación',due_date:'2026-11-20',kind:'client_quote',project_id:null,person_id:null,project_name:'',person_name:'',notes:'',completed:false};
+ await bridge(page,{reminders:[reminder]});
+ const row=page.locator('[data-reminder-id]'),group=row.getByRole('group',{name:'Acciones de recordatorio Cotizar ampliación',exact:true});
+ await page.getByRole('heading',{name:'Obras',exact:true}).hover();await expect(group).toHaveCSS('opacity','0');
+ const before=await row.boundingBox();await row.hover();await expect(group).toHaveCSS('opacity','1');
+ const boxes=await group.getByRole('button').evaluateAll(buttons=>buttons.map(b=>{const r=b.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height};}));
+ expect(boxes).toHaveLength(3);for(const box of boxes){expect(box.y).toBe(boxes[0].y);expect(box.width).toBeLessThanOrEqual(24);expect(box.height).toBeLessThanOrEqual(24);}expect(boxes[2].x).toBeGreaterThan(boxes[1].x);
+ expect((await row.boundingBox()).height).toBe(before.height);
+ await page.getByRole('heading',{name:'Obras',exact:true}).hover();await group.getByRole('button',{name:'Editar recordatorio Cotizar ampliación',exact:true}).focus();await expect(group).toHaveCSS('opacity','1');
+ await page.keyboard.press('Enter');await expect(page.getByRole('heading',{name:'Editar recordatorio',exact:true})).toBeVisible();
+ const context=await browser.newContext({hasTouch:true,viewport:{width:1280,height:800}});
+ try{const touch=await context.newPage();await bridge(touch,{reminders:[reminder]});const actions=touch.locator('.reminder-actions');await expect(actions).toHaveCSS('opacity','1');await actions.getByRole('button',{name:'Resolver recordatorio Cotizar ampliación',exact:true}).tap();await expect(touch.locator('[data-reminder-id]')).toContainText('Resuelto');}finally{await context.close();}
 });

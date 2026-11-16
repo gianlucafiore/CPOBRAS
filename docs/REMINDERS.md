@@ -16,7 +16,9 @@ de los vigentes. Los vencidos más recientes aparecen antes que los antiguos.
 Los resueltos quedan al final. No se borra ningún registro automáticamente.
 Cada página muestra hasta 20 recordatorios.
 
-Podés editar, resolver, reabrir o eliminar un recordatorio. Eliminar pide
+Las acciones aparecen en un grupo horizontal compacto al pasar el mouse por
+la fila o enfocar sus botones con el teclado. En pantallas táctiles permanecen
+visibles. Podés editar, resolver, reabrir o eliminar un recordatorio. Eliminar pide
 confirmación. Los cambios sin guardar se conservan al paginar y se advierte
 antes de descartarlos al abrir otro registro o salir de la sección. Un guardado
 fallido conserva el formulario. La lista se actualiza cuando cambia el día,
