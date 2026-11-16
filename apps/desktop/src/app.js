@@ -695,6 +695,7 @@ export function createWorkspaceApp({
           "budget-bulk-form",
           "line-formula-form",
           "budget-export-form",
+          "budget-exchange-form",
           "budget-import-form",
           "budget-template-save",
           "budget-template-apply",
@@ -877,6 +878,7 @@ export function createWorkspaceApp({
       if(evt.target.name!=="calendar-month")state.pageDirty = true;
     people.input(evt.target);
     printing.input(evt.target);
+    budgetTools.input(evt.target);
     pricing.input(evt.target);
     patterns.input(evt.target);
     unitPicker.input(evt);

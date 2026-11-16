@@ -504,3 +504,6 @@ input[type=search]::-webkit-search-cancel-button{appearance:none}
 .clearable-input>input{max-width:100%}
 .clearable-compact{max-width:30%}
 @media(max-width:1120px){.clearable-compact{width:135px;flex-basis:135px}}
+
+.budget-export-editor{margin-bottom:18px}.budget-export-editor textarea{width:100%;resize:vertical;min-height:85px;border:1px solid #bed0df;border-radius:4px;padding:9px;font:inherit}.budget-export-editor>.btn{justify-self:start}.budget-export-editor code{overflow-wrap:anywhere}.budget-export-editor+.feature-editor>summary{cursor:pointer;font-weight:600;padding:5px 0}.budget-export-editor+.feature-editor:not([open]){display:block}
+@media(max-width:650px){.budget-export-editor .form-grid{grid-template-columns:1fr}}

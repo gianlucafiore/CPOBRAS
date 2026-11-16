@@ -271,6 +271,7 @@ test("budget tools submit an atomic bulk edit and generate a PDF", async ({ page
  await bridge(page); await page.getByRole("button", { name: "Abrir ›", exact: true }).first().click();await page.locator('[data-action=manage-dashboard-budget]').first().click();
  await page.getByRole("button", { name: "Herramientas / exportar", exact: true }).click();
  await expect(page.getByRole("navigation",{name:"Navegación principal"}).getByRole("button",{name:"Presupuesto",exact:true})).toHaveAttribute("aria-current","page");
+ await page.getByText("Edición avanzada, intercambio y plantillas",{exact:true}).click();
  const form = page.locator("#budget-bulk-form"); await form.locator('input[name^="description-"]').fill("Hormigón actualizado");
  await form.locator('input[name^="quantity-"]').fill("3.25");
  await page.getByRole("button", { name: "Guardar edición masiva", exact: true }).click();
@@ -1318,4 +1319,46 @@ test('clearing a selected unit keeps its accessible label and allows selecting a
  await expect(unit).toHaveValue('');await unit.fill('metro');
  await page.getByRole('option',{name:'m · Metro',exact:true}).click();
  await expect(unit).toHaveValue('m');
+});
+
+test('export center creates an editable full workbook and keeps bulk editing collapsed',async({page})=>{
+ await bridge(page);await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.locator('[data-action=manage-dashboard-budget]').first().click();
+ await page.getByRole('button',{name:'Herramientas / exportar',exact:true}).click();
+ await expect(page.locator('#budget-bulk-form')).not.toBeVisible();
+ const form=page.locator('#budget-export-form');
+ await expect(form.getByRole('combobox',{name:'Presentación',exact:true})).toHaveValue('full');
+ await form.getByRole('button',{name:'Generar archivo',exact:true}).click();
+ await expect(form.getByRole('status')).toContainText('presupuesto.xlsx');
+ const bytes=await page.evaluate(()=>window.__calls.filter(c=>c.command==='write_export').at(-1).args.bytes);
+ const {unzipSync,strFromU8}=await import('fflate');const files=unzipSync(new Uint8Array(bytes)),book=strFromU8(files['xl/workbook.xml']);
+ for(const name of ['Partidas','ACU','Precio','Insumos','Metrados','Detalle precio','Memoria'])expect(book).toContain('name="'+name+'"');
+ expect(strFromU8(files['xl/worksheets/sheet1.xml'])).toContain('<f>');
+ await page.locator('.feature-page').evaluate(el=>el.scrollTo(0,0));
+ await page.screenshot({path:test.info().outputPath('export-center.png'),fullPage:true});
+});
+
+test('client exports support all three layouts, preserve the draft and omit private data',async({page})=>{
+ await bridge(page);await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.locator('[data-action=manage-dashboard-budget]').first().click();
+ await page.getByRole('button',{name:'Herramientas / exportar',exact:true}).click();
+ const form=page.locator('#budget-export-form');
+ await form.getByRole('combobox',{name:'Presentación',exact:true}).selectOption('client');
+ await form.getByRole('combobox',{name:'Formato',exact:true}).selectOption('pdf');
+ await form.getByRole('combobox',{name:'Contenido para el cliente',exact:true}).selectOption('memory_sheet_price');
+ await form.locator('[name=memory]').fill('ALCANCE PUBLICO: estructura y terminaciones.');
+ await form.locator('[name=notes]').fill('Validez: 15 días. Entrega: 30 días.');
+ for(const layout of ['memory_sheet_price','memory_price','sheet_price']){
+  await form.getByRole('combobox',{name:'Contenido para el cliente',exact:true}).selectOption(layout);
+  const before=await page.evaluate(()=>window.__calls.filter(c=>c.command==='write_export').length);
+  await form.getByRole('button',{name:'Generar archivo',exact:true}).click();
+  await expect.poll(()=>page.evaluate(()=>window.__calls.filter(c=>c.command==='write_export').length)).toBe(before+1);
+  const pdf=await page.evaluate(()=>new TextDecoder().decode(new Uint8Array(window.__calls.filter(c=>c.command==='write_export').at(-1).args.bytes)));
+  expect(pdf).toContain('Validez: 15');expect(pdf).not.toMatch(/Costo directo|Gastos generales|Beneficio/);
+  if(layout==='memory_price')expect(pdf).not.toContain('Hormig');else expect(pdf).toContain('Hormig');
+  if(layout==='sheet_price')expect(pdf).not.toContain('ALCANCE PUBLICO');else expect(pdf).toContain('ALCANCE PUBLICO');
+ }
+ await page.getByRole('button',{name:'Volver a la grilla',exact:true}).click();
+ await page.getByRole('button',{name:'Herramientas / exportar',exact:true}).click();
+ await form.getByRole('combobox',{name:'Contenido para el cliente',exact:true}).selectOption('memory_price');
+ await expect(form.locator('[name=memory]')).toHaveValue('ALCANCE PUBLICO: estructura y terminaciones.');
+ await expect(form.locator('[name=notes]')).toHaveValue('Validez: 15 días. Entrega: 30 días.');
 });

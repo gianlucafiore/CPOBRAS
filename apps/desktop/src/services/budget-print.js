@@ -1,4 +1,10 @@
 import { money, numeric, sumDecimals } from "../decimal.js";
+import {
+  clientPrintData,
+  publicPriceSummary,
+  hasMemory,
+  hasSchedule,
+} from "./budget-public.js";
 export const reportNames = {
   client: "Presupuesto para cliente",
   internal: "Presupuesto interno",
@@ -6,6 +12,7 @@ export const reportNames = {
 };
 export function printRows(data, mode = "client") {
   if (!reportNames[mode]) throw new Error("Presentación desconocida");
+  if (mode === "client") data = clientPrintData(data);
   const doc = data.document,
     values = new Map(data.lines.map((l) => [l.id, l])),
     assign = new Map(doc.assignments),
@@ -58,6 +65,7 @@ export function printRows(data, mode = "client") {
     const ids = descendants(s.id);
     rows.push({
       kind: "section",
+      id: s.id,
       code: s.code,
       description: s.title,
       ...summary(doc.lines.filter((l) => ids.has(assign.get(l.id)))),
@@ -86,7 +94,9 @@ export function printRows(data, mode = "client") {
       kind: "unallocated",
       code: "—",
       description:
-        "Importe sin distribución entre partidas (costo directo cero)",
+        mode === "client"
+          ? "Importe general del presupuesto"
+          : "Importe sin distribución entre partidas (costo directo cero)",
       sale_total: data.unallocated_total,
       incidence_percent: "100",
       cumulative_percent: "100",
@@ -103,6 +113,7 @@ export function printColumns(mode) {
         "Costo unitario",
         "Costo directo",
         "Importe final",
+        "Incidencia %",
       ]
     : mode === "incidences"
       ? ["Ítem", "Descripción", "Importe final", "Incidencia %", "Acumulado %"]
@@ -111,8 +122,9 @@ export function printColumns(mode) {
           "Descripción",
           "Un.",
           "Cantidad",
-          "P. unit. final",
-          "Importe final",
+          "P. unit. sin IVA",
+          "Importe sin IVA",
+          "Incidencia %",
         ];
 }
 export function printCells(row, mode, { formatted = false } = {}) {
@@ -128,6 +140,7 @@ export function printCells(row, mode, { formatted = false } = {}) {
           "",
           amount(row.direct),
           amount(row.sale),
+          number(row.incidence),
         ]
       : mode === "incidences"
         ? [
@@ -137,7 +150,15 @@ export function printCells(row, mode, { formatted = false } = {}) {
             number(row.incidence),
             "",
           ]
-        : [row.code, row.description, "", "", "", amount(row.sale)];
+        : [
+            row.code,
+            row.description,
+            "",
+            "",
+            "",
+            amount(row.sale),
+            number(row.incidence),
+          ];
   return mode === "internal"
     ? [
         row.code,
@@ -147,6 +168,7 @@ export function printCells(row, mode, { formatted = false } = {}) {
         amount(row.cost_unit),
         amount(row.direct_total),
         amount(row.sale_total),
+        number(row.incidence_percent),
       ]
     : mode === "incidences"
       ? [
@@ -163,6 +185,7 @@ export function printCells(row, mode, { formatted = false } = {}) {
           number(row.quantity),
           number(row.sale_unit),
           amount(row.sale_total),
+          number(row.incidence_percent),
         ];
 }
 export async function budgetReportPdf(
@@ -174,6 +197,9 @@ export async function budgetReportPdf(
     reference = "",
     notes = "",
     landscape = false,
+    layout = "sheet_price",
+    memory = "",
+    appendices = [],
   } = {},
 ) {
   const { jsPDF } = await import("jspdf");
@@ -259,11 +285,11 @@ export async function budgetReportPdf(
   };
   const proportions =
     mode === "internal"
-      ? [0.1, 0.24, 0.05, 0.09, 0.16, 0.17, 0.19]
+      ? [0.06, 0.25, 0.05, 0.09, 0.14, 0.15, 0.16, 0.1]
       : mode === "incidences"
         ? [0.1, 0.37, 0.19, 0.17, 0.17]
-        : [0.1, 0.36, 0.06, 0.12, 0.18, 0.18];
-  const widths = proportions.map((v) => v * usable),
+        : [0.06, 0.34, 0.05, 0.1, 0.16, 0.18, 0.11];
+  let widths = proportions.map((v) => v * usable),
     headers = printColumns(mode);
   function tableHeader() {
     pdf.setFillColor(58, 83, 105);
@@ -280,11 +306,20 @@ export async function budgetReportPdf(
     pdf.setTextColor(38, 58, 76);
   }
   function tableRow(row, index) {
-    const cells = printCells(row, mode, { formatted: true });
+    const cells = row.cells || printCells(row, mode, { formatted: true });
     pdf.setFontSize(8);
     pdf.setFont("helvetica", row.kind === "section" ? "bold" : "normal");
-    const parts = cells.map((c, i) =>
-      pdf.splitTextToSize(String(c ?? ""), widths[i] - 4),
+    const span = row.span || 1;
+    const cellWidths =
+      span > 1
+        ? [
+            widths.slice(0, span).reduce((a, b) => a + b, 0),
+            ...widths.slice(span),
+          ]
+        : widths;
+    const mergedCells = span > 1 ? [cells[0], ...cells.slice(span)] : cells;
+    const parts = mergedCells.map((c, i) =>
+      pdf.splitTextToSize(String(c ?? ""), cellWidths[i] - 4),
     );
     let offset = 0,
       total = Math.max(...parts.map((p) => p.length), 1);
@@ -309,10 +344,10 @@ export async function budgetReportPdf(
       let x = left;
       parts.forEach((lines, i) => {
         const chunk = lines.slice(offset, offset + count);
-        if (i >= 2)
-          pdf.text(chunk, x + widths[i] - 2, y + 1, { align: "right" });
+        if (i >= 2 || (span > 1 && i > 0))
+          pdf.text(chunk, x + cellWidths[i] - 2, y + 1, { align: "right" });
         else pdf.text(chunk, x + 2, y + 1);
-        x += widths[i];
+        x += cellWidths[i];
       });
       y += h;
       offset += count;
@@ -356,11 +391,17 @@ export async function budgetReportPdf(
     text(
       "Base de incidencia: total final del presupuesto. Los rubros son subtotales; no se suman nuevamente.",
     );
-  if (y + 19 > bottom) nextPage();
-  inTable = true;
-  tableHeader();
-  printRows(data, mode).forEach(tableRow);
-  inTable = false;
+  if (hasMemory(layout) && memory) {
+    text("Memoria descriptiva", { bold: true, size: 11 });
+    text(memory);
+  }
+  if (hasSchedule(layout) || mode !== "client") {
+    if (y + 19 > bottom) nextPage();
+    inTable = true;
+    tableHeader();
+    printRows(data, mode).forEach(tableRow);
+    inTable = false;
+  }
   y += 6;
   if (mode === "internal") {
     text("Determinación de precio", { bold: true, size: 11 });
@@ -374,6 +415,13 @@ export async function budgetReportPdf(
       text(row.label + ": " + currency + " " + money(row.amount), {
         bold: row.kind === "subtotal",
       });
+  }
+  if (mode === "client") {
+    const summary = publicPriceSummary(data);
+    text("Subtotal sin IVA: " + currency + " " + money(summary.subtotal), {
+      bold: true,
+    });
+    text("IVA / impuestos: " + currency + " " + money(summary.taxes));
   }
   if (y + 15 > bottom) nextPage();
   pdf.setFillColor(32, 53, 73);
@@ -395,7 +443,7 @@ export async function budgetReportPdf(
     );
   if (mode === "client")
     text(
-      "Precios finales según el presupuesto. Los importes por partida incluyen los ajustes de redondeo.",
+      "Precios de venta sin IVA por partida. El total final incluye los impuestos indicados.",
       { size: 8 },
     );
   if (notes) {
@@ -405,6 +453,21 @@ export async function budgetReportPdf(
   if (p.footer) {
     text("Información del emisor", { bold: true });
     text(p.footer, { size: 8 });
+  }
+  for (const appendix of appendices) {
+    nextPage();
+    text(appendix.title, { bold: true, size: 13 });
+    if (appendix.note) text(appendix.note);
+    headers = appendix.headers;
+    widths = appendix.widths || headers.map((_, i) => (i === 1 ? 3 : 1));
+    const weight = widths.reduce((a, b) => a + b, 0);
+    widths = widths.map((w) => (w / weight) * usable);
+    inTable = true;
+    tableHeader();
+    appendix.rows.forEach((row, index) =>
+      tableRow(Array.isArray(row) ? { cells: row } : row, index),
+    );
+    inTable = false;
   }
   const pages = pdf.getNumberOfPages();
   for (let i = 1; i <= pages; i++) {
@@ -428,9 +491,13 @@ export async function budgetReportExcel(
   mode = "incidences",
   options = {},
 ) {
-  const { default: writeExcelFile } = await import(
-    "write-excel-file/universal"
-  );
+  if (mode === "client") {
+    const { buildClientWorkbook, workbookBytes } =
+      await import("./budget-workbook.js");
+    return workbookBytes(buildClientWorkbook(data, options));
+  }
+  const { default: writeExcelFile } =
+    await import("write-excel-file/universal");
   const rows = [
     [reportNames[mode], options.title || data.document.title],
     [
@@ -495,8 +562,9 @@ export async function budgetReportExcel(
         ]
       : [
           "TOTAL",
-          ...Array(printColumns(mode).length - 2).fill(""),
+          ...Array(printColumns(mode).length - 3).fill(""),
           String(data.final_total),
+          /^0(?:\.0+)?$/.test(String(data.final_total)) ? "0" : "100",
         ],
   ];
   const blob = await writeExcelFile(

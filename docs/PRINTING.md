@@ -23,7 +23,7 @@ barra de contexto conserva la obra, versión y estado del presupuesto. Elegí:
 
 | Presentación | Contenido |
 | --- | --- |
-| Presupuesto para cliente | Emisor, cliente, obra, rubros y partidas con cantidad, precio unitario final, importe y total. Sin desglose de costos, beneficio ni gastos internos. |
+| Presupuesto para cliente | Emisor, cliente, obra, rubros y partidas con cantidad, precio unitario de venta sin IVA, importe, incidencia, subtotal, IVA / impuestos y total final. Sin desglose de costos, beneficio ni gastos internos. |
 | Presupuesto interno | Costos unitarios y directos, importes finales y determinación de precio con sus conceptos activos. Identificado como USO INTERNO. |
 | Incidencias porcentuales | Importe final, participación y porcentaje acumulado de cada partida. Los rubros muestran subtotales de importe e incidencia. |
 
@@ -40,11 +40,14 @@ El total final es el calculado por **Determinación de precio**, redondeado a do
 decimales para el documento. Se distribuye proporcionalmente al costo directo
 de las partidas: cada importe incluye la proporción correspondiente de gastos,
 beneficio, impuestos y deducciones. El precio unitario final se obtiene del
-importe distribuido dividido por la cantidad. La presentación para cliente no
-separa IVA u otros cargos: muestra precios finales según esa determinación.
+importe distribuido dividido por la cantidad. La presentación para cliente distribuye el subtotal de venta sin impuestos entre
+las partidas y separa subtotal, IVA / impuestos y total final. Los gastos,
+beneficios y descuentos permanecen incluidos en el precio de venta, sin
+mostrar su formación interna.
 
 El reparto utiliza acumulados y ajustes de centavos para que las partidas sumen
-exactamente el total impreso. Los importes finales por partida prevalecen sobre
+exactamente el subtotal de venta en la presentación para cliente, o el total
+final en las presentaciones internas e incidencias. Los importes finales por partida prevalecen sobre
 las diferencias que puedan resultar de redondear el precio unitario mostrado.
 No se alteran precios de insumos, costos unitarios, cantidades ni metrados de la
 base. Los costos internos conservan su precisión original.
@@ -78,10 +81,37 @@ no abre URLs, rutas externas ni enlaces simbólicos. Las pruebas en Linux verifi
 el envío a una aplicación predeterminada de prueba, incluso con espacios en el
 nombre del archivo.
 
-**Herramientas / exportar** conserva los intercambios técnicos CSV/JSON y los
-metrados/ACU. Su PDF de presupuesto utiliza la presentación interna y también
-solicita abrir el lector del sistema. CSV/JSON técnicos contienen información
-interna; usá la presentación para cliente para preparar su presupuesto.
+## Centro de exportación
+
+Desde **Herramientas / exportar** elegí:
+
+- **Respaldo completo con ACU**: Excel editable con hojas Partidas, ACU,
+  Precio, Insumos, Metrados, Detalle precio y Memoria; o PDF con presupuesto,
+  determinación del precio, composiciones, consolidado de insumos y metrados.
+- **Presupuesto para cliente**: planilla y precio; memoria descriptiva inicial,
+  planilla y precio; o memoria y precio sin planilla. Las tres variantes incluyen
+  condiciones comerciales, subtotal, IVA / impuestos y total final. Los archivos
+  para cliente omiten físicamente costos, ACU y márgenes internos.
+- **Incidencias por partida**: importes finales e incidencia individual y acumulada.
+
+En el respaldo Excel, las partidas con ACU toman su costo unitario de la hoja
+ACU mediante fórmulas. Las restantes conservan su precio declarado editable.
+Las mediciones activas alimentan las cantidades de las partidas. Al editar
+consumos, precios o cantidades se recalculan los costos, gastos, beneficios,
+impuestos y el consolidado de insumos. Los conceptos mantienen el orden y las
+bases definidos en CPOBRAS, incluidos descuentos y detalles de gastos.
+Las celdas de entrada están resaltadas en azul. Las hojas no están protegidas
+ni necesitan conectarse a CPOBRAS; tienen áreas de impresión A4, encabezados
+repetidos y ajuste al ancho. Como cualquier planilla, usan la precisión numérica
+de Excel o LibreOffice.
+
+La memoria y las condiciones se conservan localmente por base y presupuesto;
+exportarlas no modifica los datos del presupuesto. En **Edición avanzada,
+intercambio y plantillas** siguen disponibles la edición masiva, las plantillas
+y los archivos técnicos de intercambio. Para reimportar usá el Excel simple,
+CSV o JSON de ese apartado; el respaldo de varias hojas está diseñado para
+trabajo independiente e impresión. JSON conserva la estructura necesaria para
+el intercambio con CPOBRAS. Los archivos técnicos contienen información interna.
 
 Los archivos ya generados no cambian al editar el presupuesto o la ficha
 pública. Al volver a generar, se consultan los valores actuales de la versión
@@ -98,3 +128,8 @@ organización y vincula cada obra con su emisor. Ver [ORGANIZATIONS.md](ORGANIZA
 5. Elegí incidencias y exportá Excel; sumá solo las partidas, sin duplicar rubros:
    los importes deben cerrar con el total y las incidencias con 100%.
 6. Desde el lector PDF, probá la impresión física con tu impresora.
+
+Para probar el respaldo completo, abrí el Excel en Excel o LibreOffice, cambiá
+un consumo y su precio en ACU y comprobá el costo unitario vinculado en
+Partidas, el IVA y el total en Precio y las cantidades en Insumos. Cambiá
+también una partida sin ACU: su precio declarado debe seguir siendo editable.

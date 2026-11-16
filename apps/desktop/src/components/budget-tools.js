@@ -1,3 +1,6 @@
+import { exportBudget } from "../services/budget-export.js";
+import { clientLayouts, hasMemory } from "../services/budget-public.js";
+import { dateToday } from "./helpers.js";
 import { budgetReportPdf } from "../services/budget-print.js";
 import { e, field, select } from "./helpers.js";
 import {
@@ -26,9 +29,67 @@ export function createBudgetTools({
     lastExport: "",
     formulaLineId: "",
     totals: null,
+    options: {},
   };
   const current = () =>
     state.estimates.find((estimate) => estimate.id === state.estimateId);
+  const settingsKey = () =>
+    "cpobras:budget-export:" +
+    String(state.database?.scope || "local") +
+    ":" +
+    state.estimateId;
+  function saveOptions() {
+    const form = document.querySelector("#budget-export-form");
+    if (form)
+      model.options = {
+        ...model.options,
+        ...Object.fromEntries(new FormData(form)),
+      };
+    try {
+      window.localStorage.setItem(settingsKey(), JSON.stringify(model.options));
+    } catch {}
+  }
+  function exportMarkup() {
+    const o = model.options;
+    return `<form id="budget-export-form" class="feature-editor budget-export-editor"><h2>Exportar presupuesto</h2>
+    <p>Elegí una presentación para entregar o un respaldo editable e imprimible.</p>
+    <div class="form-grid">${select(
+      "Presentación",
+      "kind",
+      [
+        ["full", "Respaldo completo con ACU"],
+        ["client", "Presupuesto para cliente"],
+        ["incidences", "Incidencias por partida"],
+      ],
+      o.kind,
+    )}
+    ${select(
+      "Formato",
+      "format",
+      [
+        ["xlsx", "Excel editable (.xlsx)"],
+        ["pdf", "PDF imprimible"],
+      ],
+      o.format,
+    )}
+    ${field("Título", "title", o.title, "required")}
+    ${field("Fecha", "date", o.date, 'type="date"')}${field("Referencia", "reference", o.reference)}
+    <div ${o.kind === "client" ? "" : "hidden"}>${select("Contenido para el cliente", "layout", Object.entries(clientLayouts), o.layout)}</div>
+    </div><label class="field" ${o.kind === "incidences" || (o.kind === "client" && !hasMemory(o.layout)) ? "hidden" : ""}><span>Memoria descriptiva inicial</span><textarea name="memory" rows="7" ${o.kind === "client" && hasMemory(o.layout) ? "required" : ""}>${e(o.memory)}</textarea></label>
+    <label class="field"><span>Condiciones comerciales y observaciones</span><textarea name="notes" rows="5" placeholder="Validez de la oferta, forma de pago, plazo de entrega, alcance y exclusiones…">${e(o.notes)}</textarea></label>
+    ${select(
+      "Hoja PDF",
+      "orientation",
+      [
+        ["portrait", "Vertical"],
+        ["landscape", "Horizontal"],
+      ],
+      o.orientation,
+    )}
+    <p>${o.kind === "client" ? "Incluye únicamente precios de venta, subtotal, IVA / impuestos y total final. La planilla muestra la incidencia de cada partida." : o.kind === "incidences" ? "Importes e incidencia de cada partida y rubro sobre el total final." : "Excel: hojas Partidas, ACU, Precio, Insumos, Metrados, Detalle precio y Memoria. Los precios con ACU se recalculan desde su composición; las demás partidas conservan su precio declarado. PDF: presupuesto, formación del precio y anexos."}</p>
+    <button class="btn primary" type="submit">Generar archivo</button><p class="feature-error" role="alert"></p>
+    ${model.lastExport ? `<p role="status">Archivo guardado en:<br><code>${e(model.lastExport)}</code></p>` : ""}</form>`;
+  }
   async function refresh() {
     model.templates = await invoke("list_budget_templates");
     if (state.estimateId) {
@@ -68,8 +129,8 @@ export function createBudgetTools({
     const formula = model.snapshot?.formulas?.find(
       (row) => row.line_id === model.formulaLineId,
     );
-    return `<main class="feature-page"><div class="feature-toolbar"><h1>Herramientas de presupuesto · ${e(current()?.title)}</h1><button class="btn" data-action="budget-tools-back">Volver a la grilla</button></div>
-   <div class="feature-columns"><section><form id="budget-bulk-form"><div class="feature-toolbar"><input data-search placeholder="Buscar partidas"><button type="button" class="btn" data-action="budget-tools-sort" ${locked}>Ordenar por descripción</button><button class="btn primary" type="submit" ${locked}>Guardar edición masiva</button></div><p>Los cambios se validan y se guardan juntos. Si una partida es inválida, no se guarda ninguna.</p><table class="data-grid"><thead><tr><th>Descripción</th><th>Unidad</th><th>Cantidad</th><th>P. unitario</th><th>Orden / copia</th></tr></thead><tbody>${model.lines.map((line) => `<tr data-searchable="${e((line.description + " " + line.unit).toLowerCase())}"><td><input name="description-${line.id}" value="${e(line.description)}" required ${locked}></td><td><input name="unit-${line.id}" value="${e(line.unit)}" required ${locked}></td><td><input name="quantity-${line.id}" value="${e(line.quantity)}" type="number" min="0" step="any" required ${locked}></td><td><input name="unit_cost-${line.id}" value="${e(line.unit_cost)}" type="number" min="0" step="any" required ${locked}></td><td><button class="btn" type="button" data-action="budget-tools-up" data-id="${line.id}" ${locked}>↑</button><button class="btn" type="button" data-action="budget-tools-down" data-id="${line.id}" ${locked}>↓</button><button class="btn" type="button" data-action="budget-tools-copy" data-id="${line.id}" ${locked}>Duplicar</button></td></tr>`).join("")}</tbody></table><p class="feature-error" role="alert"></p></form>
+    return `<main class="feature-page"><div class="feature-toolbar"><h1>Exportar presupuesto · ${e(current()?.title)}</h1><button class="btn" data-action="budget-tools-back">Volver a la grilla</button></div>
+   ${exportMarkup()}<details class="feature-editor"><summary>Edición avanzada, intercambio y plantillas</summary><div class="feature-columns"><section><form id="budget-bulk-form"><div class="feature-toolbar"><input data-search placeholder="Buscar partidas"><button type="button" class="btn" data-action="budget-tools-sort" ${locked}>Ordenar por descripción</button><button class="btn primary" type="submit" ${locked}>Guardar edición masiva</button></div><p>Los cambios se validan y se guardan juntos. Si una partida es inválida, no se guarda ninguna.</p><table class="data-grid"><thead><tr><th>Descripción</th><th>Unidad</th><th>Cantidad</th><th>P. unitario</th><th>Orden / copia</th></tr></thead><tbody>${model.lines.map((line) => `<tr data-searchable="${e((line.description + " " + line.unit).toLowerCase())}"><td><input name="description-${line.id}" value="${e(line.description)}" required ${locked}></td><td><input name="unit-${line.id}" value="${e(line.unit)}" required ${locked}></td><td><input name="quantity-${line.id}" value="${e(line.quantity)}" type="number" min="0" step="any" required ${locked}></td><td><input name="unit_cost-${line.id}" value="${e(line.unit_cost)}" type="number" min="0" step="any" required ${locked}></td><td><button class="btn" type="button" data-action="budget-tools-up" data-id="${line.id}" ${locked}>↑</button><button class="btn" type="button" data-action="budget-tools-down" data-id="${line.id}" ${locked}>↓</button><button class="btn" type="button" data-action="budget-tools-copy" data-id="${line.id}" ${locked}>Duplicar</button></td></tr>`).join("")}</tbody></table><p class="feature-error" role="alert"></p></form>
    <form id="line-formula-form" class="feature-editor"><h2>Partida paramétrica</h2>${select(
      "Partida",
      "formula-line",
@@ -85,8 +146,8 @@ export function createBudgetTools({
        : "largo=1; ancho=1; factor=1",
      "required",
    )}<p>Se admiten +, −, × (*), ÷ (/), paréntesis y variables. No se ejecuta código.</p><button class="btn primary" type="submit" ${locked}>Aplicar cantidad calculada</button><p class="feature-error" role="alert"></p></form></section>
-   <aside><form id="budget-export-form" class="feature-editor"><h2>Exportación técnica / intercambio interno</h2><p>Para presentar al cliente o imprimir incidencias, usá <button class="btn" type="button" data-action="open-budget-printing">Imprimir presupuesto</button>.</p>${field("Título", "title", current()?.title || "Presupuesto", "required")}${select(
-     "Formato",
+   <aside><form id="budget-exchange-form" class="feature-editor"><h2>Exportación técnica / intercambio interno</h2><p>Para presentar al cliente o imprimir incidencias, usá <button class="btn" type="button" data-action="open-budget-printing">Imprimir presupuesto</button>.</p>${field("Título", "title", current()?.title || "Presupuesto", "required")}${select(
+     "Formato de intercambio",
      "format",
      [
        ["xlsx", "Excel (.xlsx)"],
@@ -101,14 +162,14 @@ export function createBudgetTools({
    ])}${select("Hoja PDF", "orientation", [
      ["portrait", "Vertical"],
      ["landscape", "Horizontal"],
-   ])}<button class="btn primary" type="submit">Generar archivo</button><p class="feature-error" role="alert"></p>${model.lastExport ? `<p role="status">Archivo guardado en:<br><code>${e(model.lastExport)}</code></p>` : ""}</form>
+   ])}<button class="btn primary" type="submit">Exportar intercambio</button><p class="feature-error" role="alert"></p></form>
    <form id="budget-import-form" class="feature-editor"><h2>Importar como presupuesto nuevo</h2><input name="file" type="file" accept=".xlsx,.csv,.json" required>${field("Nombre del presupuesto importado", "title", "Presupuesto importado", "required")}<p>Excel y CSV deben usar las columnas del archivo exportado por CPOBRAS. JSON conserva rubros, tasas y metrados. La importación no sobrescribe el presupuesto actual.</p><button class="btn" type="submit">Importar en esta obra</button><p class="feature-error" role="alert"></p></form>
    <form id="budget-template-save" class="feature-editor"><h2>Guardar plantilla reutilizable</h2>${field("Nombre de la plantilla", "name", current()?.title || "Plantilla", "required")}<button class="btn" type="submit">Guardar en biblioteca</button><p class="feature-error" role="alert"></p></form>
    <form id="budget-template-apply" class="feature-editor"><h2>Crear desde plantilla</h2>${select(
      "Plantilla",
      "template",
      model.templates.map((template) => [template.id, template.name]),
-   )}${field("Nombre del nuevo presupuesto", "title", "Presupuesto desde plantilla", "required")}<button class="btn" type="submit">Crear en esta obra</button><p class="feature-error" role="alert"></p></form></aside></div></main>`;
+   )}${field("Nombre del nuevo presupuesto", "title", "Presupuesto desde plantilla", "required")}<button class="btn" type="submit">Crear en esta obra</button><p class="feature-error" role="alert"></p></form></aside></div></details></main>`;
   }
   async function act(button) {
     const action = button.dataset.action;
@@ -117,6 +178,22 @@ export function createBudgetTools({
       state.view = "budget-tools";
       state.search = "";
       model.lastExport = "";
+      let saved = {};
+      try {
+        saved = JSON.parse(window.localStorage.getItem(settingsKey()) || "{}");
+      } catch {}
+      model.options = {
+        kind: "full",
+        format: "xlsx",
+        layout: "sheet_price",
+        title: current()?.title || "Presupuesto",
+        date: dateToday(),
+        reference: "",
+        memory: "",
+        notes: "",
+        orientation: "portrait",
+        ...saved,
+      };
       await refresh();
     }
     if (action === "budget-tools-back") {
@@ -242,6 +319,30 @@ export function createBudgetTools({
       await importDocument(snapshot, value("title"));
     }
     if (form.id === "budget-export-form") {
+      saveOptions();
+      const options = {
+        ...model.options,
+        landscape: value("orientation") === "landscape",
+      };
+      if (
+        options.kind === "client" &&
+        hasMemory(options.layout) &&
+        !options.memory.trim()
+      )
+        throw new Error("Completá la memoria descriptiva inicial");
+      const bytes = await exportBudget(invoke, state, options);
+      model.lastExport = await invoke("write_export", {
+        name: "presupuesto." + options.format,
+        bytes: Array.from(bytes),
+      });
+      if (options.format === "pdf")
+        try {
+          await invoke("open_export_pdf", { path: model.lastExport });
+        } catch (error) {
+          state.message = "PDF guardado. " + String(error);
+        }
+    }
+    if (form.id === "budget-exchange-form") {
       const snapshot = await invoke("export_budget_document", {
           estimateId: state.estimateId,
         }),
@@ -301,12 +402,19 @@ export function createBudgetTools({
     }
     render();
   }
+  function input(target) {
+    if (target.closest?.("#budget-export-form")) saveOptions();
+  }
   async function change(target) {
+    if (target.closest?.("#budget-export-form")) {
+      saveOptions();
+      if (["kind", "layout"].includes(target.name)) render();
+    }
     if (target.name === "formula-line") {
       readLines();
       model.formulaLineId = target.value;
       render();
     }
   }
-  return { markup, act, submit, change, model };
+  return { markup, act, submit, change, input, model };
 }

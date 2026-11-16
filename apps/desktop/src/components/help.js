@@ -50,7 +50,7 @@ const pages = {
   ],
   "budget-tools": [
     "Herramientas del presupuesto",
-    "Editá varias partidas, creá plantillas o importá y exportá archivos. Guardar edición masiva aplica todos los cambios juntos; importar crea un presupuesto nuevo.",
+    "Exportá el presupuesto para el cliente o un respaldo completo con ACU, insumos y metrados en Excel o PDF. En edición avanzada podés modificar partidas, importar y crear plantillas.",
   ],
   costing: [
     "Costos y precios",
