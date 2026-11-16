@@ -1435,3 +1435,17 @@ test('reminders become gray history after midnight without restarting the app',a
  await page.clock.fastForward(20000);await page.evaluate(()=>window.dispatchEvent(new Event('focus')));
  await expect(panel.locator('[data-reminder-id]').first()).toContainText('Compra de mañana');await expect(panel.locator('[data-reminder-id]').last()).toHaveClass('reminder-history');await expect(panel.locator('[data-reminder-id]').last()).toContainText('Vencido');
 });
+
+test('overnight reminder refresh does not overwrite an unfinished project dialog',async({page})=>{
+ const reminder={id:'10000000-0000-4000-8000-000000000100',revision:1,title:'Compra pendiente',due_date:'2026-11-16',kind:'materials',project_id:null,person_id:null,project_name:'',person_name:'',notes:'',completed:false};
+ await bridge(page,{now:'2026-11-16T23:59:50Z',reminders:[reminder]});
+ await page.getByRole('button',{name:'＋ Nueva obra',exact:true}).click();
+ const dialog=page.getByRole('dialog',{name:'Nueva obra',exact:true});await dialog.getByLabel('Nombre de la obra',{exact:true}).fill('Obra sin guardar');
+ const before=await page.evaluate(()=>window.__calls.filter(c=>c.command==='list_reminders').length);
+ await page.clock.fastForward(20000);await page.evaluate(()=>window.dispatchEvent(new Event('focus')));
+ expect(await page.evaluate(()=>window.__calls.filter(c=>c.command==='list_reminders').length)).toBe(before);
+ await expect(dialog.getByLabel('Nombre de la obra',{exact:true})).toHaveValue('Obra sin guardar');
+ page.once('dialog',d=>d.accept());await dialog.getByRole('button',{name:'Cerrar',exact:true}).last().click();
+ await page.evaluate(()=>window.dispatchEvent(new Event('focus')));
+ await expect(page.locator('[data-reminder-id]')).toContainText('Vencido');
+});

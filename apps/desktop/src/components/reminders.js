@@ -211,8 +211,12 @@ export function createReminders({
     render();
   }
   async function checkDay() {
-    if (
+    const canRender = () =>
       state.view === "projects" &&
+      !state.modal &&
+      !document.querySelector?.('[role="dialog"]');
+    if (
+      canRender() &&
       !state.navigating &&
       !state.busy &&
       !m.busy &&
@@ -221,7 +225,8 @@ export function createReminders({
       m.busy = true;
       try {
         await refresh(0);
-        render();
+        // A dialog may have opened while the database request was in flight.
+        if (canRender()) render();
       } finally {
         m.busy = false;
       }

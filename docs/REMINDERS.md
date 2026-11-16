@@ -20,7 +20,8 @@ Podés editar, resolver, reabrir o eliminar un recordatorio. Eliminar pide
 confirmación. Los cambios sin guardar se conservan al paginar y se advierte
 antes de descartarlos al abrir otro registro o salir de la sección. Un guardado
 fallido conserva el formulario. La lista se actualiza cuando cambia el día,
-también al volver a una ventana que estuvo suspendida.
+también al volver a una ventana que estuvo suspendida. El refresco se pospone
+si hay un diálogo abierto, para conservar sus datos sin guardar.
 
 Los recordatorios son manuales: no se crean a partir de compras o certificados.
 Se guardan en la base SQLite seleccionada y forman parte de sus respaldos y
