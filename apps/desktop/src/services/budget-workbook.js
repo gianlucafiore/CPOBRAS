@@ -690,7 +690,11 @@ export function buildClientWorkbook(
     rows = printRows(data, "client");
   const p = data.profile || {},
     identity = [
-      p.trade_name || p.company_name || p.professional_name || "CPOBRAS",
+      p.trade_name,
+      p.company_name,
+      p.professional_name,
+      p.qualification,
+      !p.trade_name && !p.company_name && !p.professional_name ? "CPOBRAS" : "",
       p.tax_id,
       p.address,
       p.phone,

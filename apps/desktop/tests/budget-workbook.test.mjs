@@ -197,6 +197,11 @@ test("client layouts physically omit internal sheets, costs and margin data", as
         date: "2026-11-16",
         reference: "OFERTA 123",
       };
+    Object.assign(d.profile, {
+      trade_name: "Marca pública",
+      professional_name: "Profesional responsable",
+      qualification: "Matrícula 123",
+    });
     const sheets = buildClientWorkbook(d, opts);
     assert.deepEqual(
       sheets.map((s) => s.sheet),
@@ -216,6 +221,13 @@ test("client layouts physically omit internal sheets, costs and margin data", as
       /Beneficio PRIVADO|Material privado|ACU privado|Costo directo/,
     );
     assert.match(xml, /OFERTA 123/);
+    for (const name of [
+      "Constructora Sur",
+      "Marca pública",
+      "Profesional responsable",
+      "Matrícula 123",
+    ])
+      assert.ok(xml.includes(name));
     const pdf = new TextDecoder().decode(await budgetReportPdf(d, opts));
     assert.doesNotMatch(
       pdf,
