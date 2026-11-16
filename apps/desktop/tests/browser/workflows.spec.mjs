@@ -1269,7 +1269,9 @@ test('resource actions appear on hover or keyboard focus and remove only that li
 });
 test('clear buttons reset list filters and the actual resource and unit picker selections',async({page})=>{
  await openCompositionBudget(page);
- const search=page.locator('[data-search]').first();await search.fill('No existe');
+ const search=page.locator('[data-search]').first();
+ expect((await search.boundingBox()).width).toBeGreaterThan(130);
+ await search.fill('No existe');
  await search.locator('..').getByRole('button',{name:/Limpiar/}).click();
  await expect(search).toHaveValue('');await expect(page.locator('.line-row').first()).toBeVisible();
  await page.getByRole('button',{name:'＋ Agregar insumo',exact:true}).click();
@@ -1294,6 +1296,7 @@ test('quotation highlights all actual budget materials even when the management 
  await expect(page.locator('.required-material')).toHaveCount(1);
  await page.getByLabel('Buscar materiales / tareas',{exact:true}).locator('..').getByRole('button',{name:/Limpiar/}).click();
  await expect(page.locator('.required-material')).toHaveCount(2);
+ await expect(page.getByLabel('Buscar materiales / tareas',{exact:true})).toBeFocused();
  await expect(page.locator('.required-material').filter({hasText:'Arena'}).locator('input[type=checkbox]')).toBeChecked();
 });
 test('client row exposes one Actions menu containing edit and existing contact actions',async({page})=>{

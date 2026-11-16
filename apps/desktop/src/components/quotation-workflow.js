@@ -992,7 +992,7 @@ export function createQuotationWorkflow({
     isSaving: () => pendingPriceSaves > 0,
     input: (t) => {
       if(t.name==='rfq-query'&&t.value===''){
-        readRequest();v.query='';render();return;
+        readRequest();v.query='';render();document.querySelector('[name="rfq-query"]')?.focus();return;
       }
       if (t.matches?.("[data-quote-provider-query]")) {
         const list = document.querySelector("#quote-provider-options");

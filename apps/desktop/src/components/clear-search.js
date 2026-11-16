@@ -8,7 +8,8 @@ export function createClearSearch({document,window}){
    if(!wrapper){
     wrapper=document.createElement('span');wrapper.className='clearable-input';
     if(input.classList.contains('search-compact'))wrapper.classList.add('clearable-compact');
-    input.before(wrapper);wrapper.append(input);
+    const focused=document.activeElement===input;
+    input.before(wrapper);wrapper.append(input);if(focused)input.focus();
     const button=document.createElement('button');button.type='button';button.className='clear-search';button.dataset.clearSearch='';button.textContent='×';
     const label=input.getAttribute('aria-label')||input.closest('label')?.querySelector('span')?.textContent||input.placeholder||'búsqueda';
     if(!input.hasAttribute('aria-label')&&input.closest('label'))input.setAttribute('aria-label',label);
