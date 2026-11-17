@@ -1,5 +1,5 @@
 import {createPriceAutosave} from "../services/price-autosave.js";
-import {searchResources} from "./resource-picker.js";
+import {resourcePicker} from "./resource-picker.js";
 import { e, field, select } from "./helpers.js";
 import { money, numeric } from "../decimal.js";
 import { exportPriceDetermination } from "../services/price-export.js";
@@ -230,7 +230,7 @@ export function createPriceDetermination({
       form = "";
     if(modal.kind==='direct-item'){
       title='Agregar insumo a Gastos Directos';form='price-direct-form';
-      body=`<label class="field"><span>Buscar insumo</span><input type="search" data-direct-search placeholder="Código o descripción"></label>${select('Insumo','directResource',[['','Seleccionar…'],...state.resources.filter(r=>r.active!==false).map(r=>[r.id,r.code+' · '+r.description+' ('+r.unit+')'])])}${field('Cantidad','directQuantity','1','type="number" min="0" step="any" required')}${field('Precio por unidad / mes '+currentEstimate()?.currency,'directPrice','0','type="number" min="0" step="any" required')}${select('Periodicidad','directPeriod',[['once','Puntual'],['monthly','Mensual']])}${field('Cantidad de meses (solo mensual)','directMonths','1','type="number" min="0.000001" max="1200" step="any" required disabled')}<p class="modal-help">Puntual: cantidad × precio. Mensual: cantidad × precio mensual × meses. Cada insumo conserva su propia duración.</p>`;
+      body=`<div class="component-row direct-cost-resource" data-resource-context="direct-costs">${resourcePicker(state.resources.filter(r=>r.active!==false),'',0)}${field('Cantidad','directQuantity','1','type="number" min="0" step="any" required')}${field('Precio por unidad / mes '+currentEstimate()?.currency,'unitPrice','0','type="number" min="0" step="any" required')}</div>${select('Periodicidad','directPeriod',[['once','Puntual'],['monthly','Mensual']])}${field('Cantidad de meses (solo mensual)','directMonths','1','type="number" min="0.000001" max="1200" step="any" required disabled')}<p class="modal-help">Puntual: cantidad × precio. Mensual: cantidad × precio mensual × meses. Cada insumo conserva su propia duración.</p>`;
     }
     if (modal.kind === "item") {
       title = item.group
@@ -493,10 +493,10 @@ export function createPriceDetermination({
       value = (k) => String(data.get(k) || "").trim();
     if(form.id==='price-direct-form'){
       if(!editable())throw Error('El presupuesto es de solo lectura');
-      const resource=state.resources.find(r=>r.id===value('directResource')&&r.active!==false);
+      const resource=state.resources.find(r=>r.id===value('resource')&&r.active!==false);
       if(!resource)throw Error('Seleccioná un insumo del catálogo');
       const definition=structuredClone(m.definition),row=definition.rows.find(r=>r.role==='direct_costs');
-      const item={id:m.modal.item.id,parent_id:null,group:false,description:resource.description,unit:resource.unit,resource_id:resource.id,resource_kind:resource.kind,months:value('directPeriod')==='monthly'?value('directMonths'):null,periodic:null,participation_percent:'100',quantity:value('directQuantity'),unit_price:value('directPrice')};
+      const item={id:m.modal.item.id,parent_id:null,group:false,description:resource.description,unit:resource.unit,resource_id:resource.id,resource_kind:resource.kind,months:value('directPeriod')==='monthly'?value('directMonths'):null,periodic:null,participation_percent:'100',quantity:value('directQuantity'),unit_price:value('unitPrice')};
       const index=row.items.findIndex(i=>i.id===item.id);if(index<0)row.items.push(item);else row.items[index]=item;
       const calc=await invoke('calculate_price_definition',{estimateId:state.estimateId,definition});
       m.definition=definition;m.calculation=calc;m.dirty=true;autosave.changed();await autosave.flush();m.modal=null;redraw();return;
@@ -578,10 +578,6 @@ export function createPriceDetermination({
     if (!active()) return;
     if (target.closest?.(".price-modal")) {
       m.modal.dirty = true;
-      if(target.matches?.('[data-direct-search]')){
-        const options=searchResources(state.resources,target.value);const list=document.querySelector('[name="directResource"]');
-        list.innerHTML='<option value="">Seleccionar…</option>'+options.map(r=>`<option value="${e(r.id)}">${e(r.code+' · '+r.description+' ('+r.unit+')')}</option>`).join('');
-      }
       return;
     }
     if (!editable()) return;
@@ -618,7 +614,6 @@ export function createPriceDetermination({
     if (target.closest?.(".price-modal")) {
       m.modal.dirty = true;
       if(target.name==='directPeriod'){const months=document.querySelector('[name="directMonths"]');if(months)months.disabled=target.value!=='monthly';}
-      if(target.name==='directResource'){const resource=state.resources.find(r=>r.id===target.value);const price=document.querySelector('[name="directPrice"]');if(price)price.value=currentEstimate()?.currency==='ARS'?(resource?.price??'0'):'0';}
       return;
     }
     if (target.name === "price-template") {
@@ -654,7 +649,9 @@ export function createPriceDetermination({
     }
   }
   function keyDown(evt) {
-    if (state.view !== "price-determination" || !m.modal) return false;
+    if(document.querySelector(".quick-resource-overlay"))return false;
+    if (!active() || !m.modal) return false;
+    if(evt.key === "Escape" && evt.target.closest?.(".resource-picker")?.querySelector(".resource-results:not([hidden])"))return false;
     if (evt.key === "Tab") {
       const controls = [
         ...document.querySelectorAll(

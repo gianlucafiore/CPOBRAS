@@ -85,7 +85,7 @@ const panels = {
   ],
   resources: [
     "Insumos del presupuesto",
-    "Esta lista reúne los insumos usados por las partidas y los Gastos Directos del presupuesto actual. Seleccioná una partida y pulsá Asignar para reutilizar uno. Con «Agregar insumo» podés buscar otros en la biblioteca. Ajustá su consumo por unidad y precio en el formulario.",
+    "Esta lista muestra las cantidades y precios totales de los insumos de todo el presupuesto. Para agregar o modificar insumos, usá el ACU de la partida correspondiente o la pestaña Gastos Directos.",
   ],
   takeoffs: [
     "Metrados",
