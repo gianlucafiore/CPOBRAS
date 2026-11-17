@@ -42,6 +42,12 @@ pub struct PriceItem {
     pub resource_kind: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub months: Option<D>,
+    #[serde(default)]
+    // Old monthly items remain explicit overrides unless linked by the user.
+    pub use_estimate_duration: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    // None is a monthly tariff; Some(12) is an annual tariff prorated by months.
+    pub months_per_payment: Option<D>,
     pub id: Uuid,
     pub parent_id: Option<Uuid>,
     pub group: bool,
@@ -132,7 +138,20 @@ impl PriceItem {
         }
         Ok(payments)
     }
+    pub fn total_for_duration(&self, estimated_months: D) -> Result<D, String> {
+        if !self.use_estimate_duration {
+            return self.total();
+        }
+        let mut effective = self.clone();
+        effective.months = Some(estimated_months);
+        effective.total()
+    }
     pub fn total(&self) -> Result<D, String> {
+        if let Some(interval) = self.months_per_payment {
+            if self.months.is_none() || interval <= D::ZERO || interval > D::from(1200) {
+                return Err("Frecuencia del gasto inválida".into());
+            }
+        }
         if let Some(months) = self.months {
             if months <= D::ZERO || months > D::from(1200) || self.periodic.is_some() || self.group
             {
@@ -144,7 +163,9 @@ impl PriceItem {
                     self.participation_percent,
                 )?,
                 months,
-            );
+            )?
+            .checked_div(self.months_per_payment.unwrap_or(D::ONE))
+            .ok_or_else(|| "Importe del gasto periódico fuera de rango".into());
         }
         if self.periodic.is_some() {
             self.payments()?
@@ -176,6 +197,8 @@ pub struct PriceRow {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(deny_unknown_fields)]
 pub struct PriceDefinition {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub estimated_months: Option<D>,
     pub rows: Vec<PriceRow>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -211,8 +234,29 @@ fn percent(a: D, p: D) -> Result<D, String> {
         .ok_or_else(|| "Porcentaje fuera de rango".into())
 }
 impl PriceDefinition {
+    pub fn duration_months(&self) -> D {
+        self.estimated_months.unwrap_or(D::from(6))
+    }
+    pub fn apply_duration(&mut self) {
+        let months = self.duration_months();
+        for row in &mut self.rows {
+            for item in &mut row.items {
+                if item.use_estimate_duration {
+                    item.months = Some(months);
+                }
+            }
+        }
+    }
+    fn validate_duration(&self) -> Result<(), String> {
+        let months = self.duration_months();
+        if months <= D::ZERO || months > D::from(1200) {
+            return Err("El plazo estimado de obra debe ser mayor que cero y de hasta 1200 meses".into());
+        }
+        Ok(())
+    }
     /// One shared composition, visible in the budget and the ordered price determination.
     pub fn ensure_direct_costs(&mut self) {
+        self.apply_duration();
         self.rows.retain(|r| !(r.role == PriceRole::Overhead && r.label == "Gastos generales"
             && r.items.is_empty() && r.percent == D::ZERO && r.amount == D::ZERO && r.reference_percent == D::ZERO));
         if !self.rows.iter().any(|r| r.role == PriceRole::DirectCosts) {
@@ -313,7 +357,10 @@ impl PriceDefinition {
                 },
             );
         }
-        let mut definition = Self { rows };
+        let mut definition = Self {
+            rows,
+            estimated_months: Some(D::from(6)),
+        };
         definition.ensure_direct_costs();
         definition
     }
@@ -330,6 +377,7 @@ impl PriceDefinition {
         copy
     }
     pub fn validate_template(&self) -> Result<(), String> {
+        self.validate_duration()?;
         if self
             .rows
             .iter()
@@ -353,11 +401,16 @@ impl PriceDefinition {
             if row.role == PriceRole::Discount {
                 row.role = PriceRole::Other;
             }
-            Self { rows: vec![row] }.calculate(D::ZERO)?;
+            Self {
+                rows: vec![row],
+                estimated_months: self.estimated_months,
+            }
+            .calculate(D::ZERO)?;
         }
         Ok(())
     }
     pub fn calculate(&self, direct: D) -> Result<PriceResult, String> {
+        self.validate_duration()?;
         if direct < D::ZERO
             || self
                 .rows
@@ -433,8 +486,8 @@ impl PriceDefinition {
                 }
             }
             for i in &row.items {
-                if i.months.is_some() {
-                    i.total()?;
+                if i.months.is_some() || i.use_estimate_duration || i.months_per_payment.is_some() {
+                    i.total_for_duration(self.duration_months())?;
                 }
                 if i.periodic.is_some() {
                     i.payments()?;
@@ -444,7 +497,7 @@ impl PriceDefinition {
             let mut detail = D::ZERO;
             for i in &row.items {
                 if !i.group {
-                    let value = i.total()?;
+                    let value = i.total_for_duration(self.duration_months())?;
                     item_totals.insert(i.id, value);
                     detail = add(detail, value)?;
                 }
@@ -580,6 +633,8 @@ mod tests {
         assert!(row.enabled);
         row.items = vec![
             PriceItem {
+                use_estimate_duration: false,
+                months_per_payment: None,
                 id: Uuid::new_v4(),
                 resource_id: Some(Uuid::new_v4()),
                 resource_kind: Some("equipment".into()),
@@ -594,6 +649,8 @@ mod tests {
                 participation_percent: d("100"),
             },
             PriceItem {
+                use_estimate_duration: false,
+                months_per_payment: None,
                 id: Uuid::new_v4(),
                 resource_id: Some(Uuid::new_v4()),
                 resource_kind: Some("labor".into()),
@@ -635,6 +692,7 @@ mod tests {
         let mut gg = row(PriceKind::Detailed, PriceRole::Overhead, "10");
         gg.detail_mode = DetailMode::Reference;
         let definition = PriceDefinition {
+            estimated_months: None,
             rows: vec![
                 gg,
                 row(PriceKind::PercentDirect, PriceRole::Profit, "15"),
@@ -672,7 +730,7 @@ mod tests {
             row(PriceKind::PercentProfit, PriceRole::Other, "50"),
             row(PriceKind::PercentSubtotal, PriceRole::Tax, "20"),
         ];
-        let result = PriceDefinition { rows: rows.clone() }
+        let result = PriceDefinition { estimated_months: None, rows: rows.clone() }
             .calculate(d("100"))
             .unwrap();
         assert_eq!(result.rows[0].amount, D::ZERO);
@@ -680,7 +738,7 @@ mod tests {
         assert_eq!(result.breakdown.total, d("138"));
         rows[1].enabled = false;
         assert_eq!(
-            PriceDefinition { rows: rows.clone() }
+            PriceDefinition { estimated_months: None, rows: rows.clone() }
                 .calculate(d("100"))
                 .unwrap()
                 .breakdown
@@ -690,7 +748,7 @@ mod tests {
         rows[1].enabled = true;
         rows.swap(2, 3);
         assert_eq!(
-            PriceDefinition { rows }
+            PriceDefinition { estimated_months: None, rows }
                 .calculate(d("100"))
                 .unwrap()
                 .breakdown
@@ -704,6 +762,8 @@ mod tests {
         let child = Uuid::new_v4();
         let leaf = Uuid::new_v4();
         let group = |id, parent_id| PriceItem {
+            use_estimate_duration: false,
+            months_per_payment: None,
             resource_id: None,
             resource_kind: None,
             months: None,
@@ -723,6 +783,8 @@ mod tests {
             group(root, None),
             group(child, Some(root)),
             PriceItem {
+                use_estimate_duration: false,
+                months_per_payment: None,
                 resource_id: None,
                 resource_kind: None,
                 months: None,
@@ -737,7 +799,7 @@ mod tests {
                 periodic: None,
             },
         ];
-        let mut definition = PriceDefinition { rows: vec![r] };
+        let mut definition = PriceDefinition { estimated_months: None, rows: vec![r] };
         let result = definition.calculate(d("100")).unwrap();
         assert_eq!(result.breakdown.total, d("150"));
         for id in [root, child, leaf] {
@@ -768,13 +830,14 @@ mod tests {
     fn invalid_deductions_duplicates_and_overflow_are_rejected() {
         let mut r = row(PriceKind::Fixed, PriceRole::Discount, "101");
         r.subtract = true;
-        let mut definition = PriceDefinition { rows: vec![r] };
+        let mut definition = PriceDefinition { estimated_months: None, rows: vec![r] };
         assert!(definition.calculate(d("100")).is_err());
         assert!(definition.validate_template().is_ok());
         definition.rows[0].amount = d("1");
         definition.rows.push(definition.rows[0].clone());
         assert!(definition.calculate(d("100")).is_err());
         let definition = PriceDefinition {
+            estimated_months: None,
             rows: vec![row(PriceKind::PercentDirect, PriceRole::Tax, "10000")],
         };
         assert!(definition.calculate(D::MAX).is_err());
@@ -782,6 +845,8 @@ mod tests {
     #[test]
     fn monthly_contracts_prorate_leap_february_and_clamp_due_dates() {
         let mut item = PriceItem {
+            use_estimate_duration: false,
+            months_per_payment: None,
             resource_id: None,
             resource_kind: None,
             months: None,

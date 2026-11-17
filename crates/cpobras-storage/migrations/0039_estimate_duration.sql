@@ -1,0 +1,1 @@
+-- Semantic compatibility: price definitions store an estimated duration and items linked to that duration. Older engines must not rewrite these definitions.

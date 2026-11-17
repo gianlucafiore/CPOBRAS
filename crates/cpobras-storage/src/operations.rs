@@ -2276,7 +2276,10 @@ impl LocalStore {
                     }
                     if let Some(id) = item.resource_id {
                         let quantity = mul(
-                            mul(item.quantity, item.months.unwrap_or(D::ONE))?,
+                            mul(
+                                item.quantity,
+                                div(item.months.unwrap_or(D::ONE), item.months_per_payment.unwrap_or(D::ONE))?,
+                            )?,
                             div(item.participation_percent, D::from(100))?,
                         )?;
                         let old = requirements.get(&id).copied().unwrap_or_default();

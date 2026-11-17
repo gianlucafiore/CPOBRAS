@@ -546,3 +546,5 @@ input[type=search]::-webkit-search-cancel-button{appearance:none}
 .price-modal .component-row.direct-cost-resource{display:block}
 
 .budget-memory{padding:12px}.budget-memory textarea{width:100%;min-height:260px;resize:vertical}.public-memory{white-space:pre-wrap}
+
+.estimate-duration{display:inline-flex;align-items:center;gap:6px;font-size:11px;flex-wrap:wrap}.direct-costs-panel .estimate-duration input[type=number]{width:64px}.duration-choice{display:flex;align-items:center;gap:4px;font-size:10px;white-space:nowrap}.direct-costs-panel td small{display:block;color:#567086}.direct-costs-panel .detail-heading{flex-wrap:wrap;gap:10px}

@@ -117,6 +117,11 @@ impl LocalStore {
         input: &PriceDefinition,
     ) -> Result<PriceDefinition> {
         let mut definition = input.clone();
+        if definition.estimated_months.is_none() {
+            definition.estimated_months = self.stored_price_definition(id)?
+                .and_then(|saved| saved.estimated_months)
+                .or(Some(rust_decimal::Decimal::from(6)));
+        }
         if !definition
             .rows
             .iter()
@@ -132,6 +137,7 @@ impl LocalStore {
                 definition.ensure_direct_costs();
             }
         }
+        definition.apply_duration();
         Ok(definition)
     }
     pub fn save_price_definition(

@@ -1,3 +1,4 @@
+import {estimateMonths,itemMonths} from "./price-duration.js";
 import {createPdf} from "./pdf-units.js";
 export function priceExportRows({
   definition,
@@ -9,6 +10,7 @@ export function priceExportRows({
   const rows = [
     ["Determinación de precio", title, "", "", ""],
     ["Moneda", currency, "", "", ""],
+    ["Plazo estimado de obra", "Meses", estimateMonths(definition), "", ""],
     ["Costo directo", "", "", "", calculation.breakdown.direct],
   ];
   for (const row of definition.rows.filter((r) => !rowId || r.id === rowId)) {
@@ -43,7 +45,7 @@ export function priceExportRows({
             item.group ? "" : item.unit_price,
             value?.item_totals[item.id] ?? "0",
           ]);
-          if(item.months!=null) rows.push(["Gasto mensual", "Meses", item.months, "", ""]);
+          if(item.months!=null||item.use_estimate_duration) rows.push([item.use_estimate_duration?"Usa plazo de obra":"Meses propios", "Meses", itemMonths(item,definition), "Meses por pago", item.months_per_payment??"1"]);
           if (item.periodic)
             rows.push([
               "Alquiler mensual",

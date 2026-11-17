@@ -1,3 +1,4 @@
+import {estimateMonths,monthFactor} from "./price-duration.js";
 import { budgetNumbering } from "./budget-numbering.js";
 import {
   sumDecimals,
@@ -146,8 +147,8 @@ export function normalizedAnalyses(
   }
   return result;
 }
-function periodicFactor(item) {
-  if(item.months!=null)return item.months;
+function periodicFactor(item,definition) {
+  if(item.months!=null||item.use_estimate_duration)return monthFactor(item,definition);
   if (!item.periodic) return "1";
   const p = item.periodic,
     start = new Date(p.start + "T00:00:00Z"),
@@ -352,10 +353,7 @@ export function buildBudgetWorkbook(
   ];
   const price = [
     banner("Determinación del precio", 8),
-    note(
-      "Celdas azules: datos editables. Los porcentajes y los importes fijos mantienen el orden de cálculo del presupuesto.",
-      8,
-    ),
+    [text("Plazo estimado de obra (meses)"),number(estimateMonths(doc.price_definition),decimal,true)],
     head([
       "Concepto",
       "Activo (1/0)",
@@ -409,7 +407,7 @@ export function buildBudgetWorkbook(
       const first = detail.length + 1;
       for (const item of source.items.filter((i) => !i.group)) {
         const r = detail.length + 1,
-          factor = periodicFactor(item);
+          factor = periodicFactor(item,doc.price_definition);
         const cache =
           result.item_totals?.[item.id] ??
           multiplyDecimals(
@@ -427,7 +425,9 @@ export function buildBudgetWorkbook(
           number(item.participation_percent, "0.00", true),
           number(item.quantity, decimal, true),
           number(item.unit_price, cash, true),
-          number(factor, decimal, true),
+          item.use_estimate_duration
+            ? formula(`${sq("Precio")}!$B$2/${item.months_per_payment??"1"}`,factor)
+            : number(factor, decimal, true),
           formula(`D${r}/100*E${r}*F${r}*G${r}`, cache),
           text(item.periodic?.start || ""),
           text(item.periodic?.end || ""),
@@ -655,7 +655,7 @@ export function buildBudgetWorkbook(
     ...paragraphs(memory ? "Memoria descriptiva\n" + memory : "", 6),
     ...paragraphs(notes ? "Condiciones comerciales\n" + notes : "", 6),
     ...paragraphs(
-      "Las celdas azules son editables. Modificá consumos o precios en ACU: Partidas, Precio e Insumos se recalculan. Las partidas sin ACU mantienen un precio declarado editable. Las fórmulas no están protegidas. Los valores numéricos usan la precisión de la hoja de cálculo. Este archivo es independiente de CPOBRAS.",
+      "Las celdas azules son editables. Modificá consumos o precios en ACU: Partidas, Precio e Insumos se recalculan. Las partidas sin ACU mantienen un precio declarado editable. El plazo de obra se edita en Precio!B2 y actualiza los gastos vinculados; los meses propios se conservan. Las fórmulas no están protegidas. Los valores numéricos usan la precisión de la hoja de cálculo. Este archivo es independiente de CPOBRAS.",
       6,
     ),
   ];

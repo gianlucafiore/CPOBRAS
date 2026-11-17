@@ -1,3 +1,4 @@
+import {estimateMonths,applyEstimateDuration,organizationCostAmount} from "../services/price-duration.js";
 import {createPriceAutosave} from "../services/price-autosave.js";
 import {resourcePicker} from "./resource-picker.js";
 import { e, field, select } from "./helpers.js";
@@ -62,6 +63,25 @@ export function createPriceDetermination({
   function saveLabel(){return ({pending:'Cambios pendientes de guardar…',saving:'Guardando…',saved:'Guardado automáticamente',error:'Error al guardar · se conserva un borrador local',conflict:'Conflicto: revisá el borrador recuperado'})[m.saveStatus]||'Guardado';}
   const directRow = () => m.definition.rows.find(r=>r.role==='direct_costs');
   function ensureDirect(){if(!directRow()){const r=newRow('detailed');Object.assign(r,{role:'direct_costs',label:'Gastos Directos'});m.definition.rows.unshift(r);}}
+  const duration = () => estimateMonths(m.definition);
+  function durationField(){return `<label class="estimate-duration"><span>Plazo estimado de obra</span><input type="number" name="estimated-months" data-estimated-months required min="0.000001" max="1200" step="any" value="${e(duration())}" ${lock()} aria-label="Plazo estimado de obra en meses"><span>meses</span></label>`;}
+  function monthsCell(item){
+    if(item.months==null)return '—';
+    const override=!item.use_estimate_duration;
+    return `<label class="duration-choice"><input type="checkbox" data-direct-override="${item.id}" ${override?'checked':''} ${lock()}> Usar meses distintos</label>${override?`<input name="direct-months-${item.id}" data-direct-item="${item.id}" data-direct-field="months" value="${e(item.months)}" type="number" min="0.000001" max="1200" step="any" ${lock()} aria-label="Meses propios ${e(item.description)}">`:`<small>Plazo de obra: ${numeric(duration())} meses</small>`}`;
+  }
+  function itemDurationEditor(item){
+    if(item.months==null&&!item.use_estimate_duration)return '';
+    const override=!item.use_estimate_duration;
+    return `<fieldset><legend>Duración del gasto · plazo de obra ${numeric(duration())} meses</legend><label><input type="checkbox" name="itemDurationOverride" ${override?'checked':''}> Usar meses distintos</label><div data-custom-item-months ${override?'':'hidden'}>${field('Meses propios','itemDurationMonths',item.months??duration(),`type="number" min="0.000001" max="1200" step="any" required ${override?'':'disabled'}`)}</div></fieldset>`;
+  }
+  function syncDirectDurationForm(){
+    const form=document.querySelector('#price-direct-form');if(!form)return;
+    const monthly=form.querySelector('[name="directPeriod"]').value==='monthly',override=form.querySelector('[name="directOverride"]').checked;
+    form.querySelector('[data-direct-duration-options]').hidden=!monthly;
+    form.querySelector('[data-direct-custom-months]').hidden=!monthly||!override;
+    form.querySelector('[name="directMonths"]').disabled=!monthly||!override;
+  }
   const selected = () => m.definition.rows.find((r) => r.id === m.selectedId);
   const result = (id) => m.calculation?.rows.find((r) => r.id === id);
   const lock = () => (!editable() ? "disabled" : "");
@@ -129,6 +149,7 @@ export function createPriceDetermination({
     }
   }
   async function preview() {
+    applyEstimateDuration(m.definition);
     if(m.dirty)autosave.changed();
     if (m.timer) {
       window.clearTimeout(m.timer);
@@ -181,7 +202,7 @@ export function createPriceDetermination({
       return '<div class="blank-state"><strong>Seleccioná una línea</strong><p>Podés agregar un concepto, porcentaje o subtotal desde la lista.</p></div>';
     if(row.role==='direct_costs')return directPane();
     const calculated = result(row.id);
-    return `${row.role==='overhead' && row.label==='Gastos generales'?'<p class="small-muted">Concepto anterior conservado: revisá si corresponde a Gastos Directos de la obra o a Gastos indirectos de la organización.</p>':''}<div class="price-detail-heading"><h2>${e(row.label)}</h2><strong>${m.calculation ? money(calculated?.amount) : "—"}</strong></div><fieldset class="price-properties" ${lock()}><div class="form-grid">${select("Tipo de cálculo", "price-kind", kinds, row.kind)}${select("Categoría del concepto", "price-role", roles, row.role)}${select(
+    return `${row.role==='overhead' && row.label==='Gastos generales'?'<p class="small-muted">Concepto anterior conservado: revisá si corresponde a Gastos Directos de la obra o a Gastos indirectos de la organización.</p>':''}<div class="price-detail-heading"><h2>${e(row.label)}</h2><strong>${m.calculation ? money(calculated?.amount) : "—"}</strong></div>${row.role==='overhead'?`<p class="small-muted">Plazo estimado de obra: ${numeric(duration())} meses. Los gastos vinculados se actualizan al cambiarlo desde Gastos Directos.</p>${row.label==='Gastos indirectos'&&row.items.some(i=>!i.group&&!i.periodic&&i.months==null&&['mes','año'].includes(i.unit))?`<button class="btn tiny" data-action="price-link-indirect-duration" ${lock()}>Vincular gastos recurrentes anteriores al plazo de obra</button>`:''}`:''}<fieldset class="price-properties" ${lock()}><div class="form-grid">${select("Tipo de cálculo", "price-kind", kinds, row.kind)}${select("Categoría del concepto", "price-role", roles, row.role)}${select(
       "Operación",
       "price-sign",
       [
@@ -199,7 +220,7 @@ export function createPriceDetermination({
         .filter((i) => i.parent_id === parent)
         .map(
           (item) =>
-            `<tr class="price-item-row ${item.group ? "price-group" : ""}" data-price-item="${item.id}"><td style="padding-left:${12 + depth * 18}px">${item.group ? "▾ " : ""}${e(item.description)}${item.periodic ? `<small class="muted"> · Alquiler mensual · ${e(item.periodic.start)} → ${e(item.periodic.end)}</small>` : ""}</td><td>${item.group ? "" : e(item.unit)}</td><td class="number">${item.group ? "" : numeric(item.participation_percent) + "%"}</td><td class="number">${item.group ? "" : numeric(item.quantity)}</td><td class="number">${item.group ? "" : money(item.unit_price)}</td><td class="number">${calculation ? money(calculation.item_totals[item.id] ?? "0") : "—"}</td><td><button class="btn tiny" data-action="price-edit-item" data-id="${item.id}" ${lock()}>Editar</button><button class="tiny-danger" data-action="price-delete-item" data-id="${item.id}" aria-label="Quitar ${e(item.description)}" ${lock()}>×</button></td></tr>${item.group ? renderChildren(item.id, depth + 1) : ""}`,
+            `<tr class="price-item-row ${item.group ? "price-group" : ""}" data-price-item="${item.id}"><td style="padding-left:${12 + depth * 18}px">${item.group ? "▾ " : ""}${e(item.description)}${item.months!=null?`<small class="muted"> · ${item.use_estimate_duration?'Plazo de obra':'Meses propios'}: ${numeric(item.months)} meses${item.months_per_payment==='12'?' · tarifa anual prorrateada':''}</small>`:''}${item.periodic ? `<small class="muted"> · Alquiler mensual · ${e(item.periodic.start)} → ${e(item.periodic.end)}</small>` : ""}</td><td>${item.group ? "" : e(item.unit)}</td><td class="number">${item.group ? "" : numeric(item.participation_percent) + "%"}</td><td class="number">${item.group ? "" : numeric(item.quantity)}</td><td class="number">${item.group ? "" : money(item.unit_price)}</td><td class="number">${calculation ? money(calculation.item_totals[item.id] ?? "0") : "—"}</td><td><button class="btn tiny" data-action="price-edit-item" data-id="${item.id}" ${lock()}>Editar</button><button class="tiny-danger" data-action="price-delete-item" data-id="${item.id}" aria-label="Quitar ${e(item.description)}" ${lock()}>×</button></td></tr>${item.group ? renderChildren(item.id, depth + 1) : ""}`,
         )
         .join("");
     };
@@ -230,7 +251,7 @@ export function createPriceDetermination({
       form = "";
     if(modal.kind==='direct-item'){
       title='Agregar insumo a Gastos Directos';form='price-direct-form';
-      body=`<div class="component-row direct-cost-resource" data-resource-context="direct-costs">${resourcePicker(state.resources.filter(r=>r.active!==false),'',0)}${field('Cantidad','directQuantity','1','type="number" min="0" step="any" required')}${field('Precio por unidad / mes '+currentEstimate()?.currency,'unitPrice','0','type="number" min="0" step="any" required')}</div>${select('Periodicidad','directPeriod',[['once','Puntual'],['monthly','Mensual']])}${field('Cantidad de meses (solo mensual)','directMonths','1','type="number" min="0.000001" max="1200" step="any" required disabled')}<p class="modal-help">Puntual: cantidad × precio. Mensual: cantidad × precio mensual × meses. Cada insumo conserva su propia duración.</p>`;
+      body=`<div class="component-row direct-cost-resource" data-resource-context="direct-costs">${resourcePicker(state.resources.filter(r=>r.active!==false),'',0)}${field('Cantidad','directQuantity','1','type="number" min="0" step="any" required')}${field('Precio por unidad / mes '+currentEstimate()?.currency,'unitPrice','0','type="number" min="0" step="any" required')}</div>${select('Periodicidad','directPeriod',[['once','Puntual'],['monthly','Mensual']])}<div data-direct-duration-options hidden><p>Plazo estimado de obra: <strong>${numeric(duration())} meses</strong></p><label><input name="directOverride" type="checkbox"> Usar meses distintos</label><div data-direct-custom-months hidden>${field('Meses propios','directMonths',duration(),'type="number" min="0.000001" max="1200" step="any" required disabled')}</div></div><p class="modal-help">Puntual: cantidad × precio. Mensual: cantidad × precio mensual × plazo estimado de obra. Marcá «Usar meses distintos» para indicar una duración propia.</p>`;
     }
     if (modal.kind === "item") {
       title = item.group
@@ -267,13 +288,13 @@ export function createPriceDetermination({
         ) +
         (item.group
           ? ""
-          : `<div class="form-grid">${field("Unidad", "unit", item.unit || "un", "required")}${field("Participación %", "participation", item.participation_percent ?? "100", 'type="number" min="0" max="100" step="any" required')}${field("Cantidad del detalle", "quantity", item.quantity ?? "1", 'type="number" min="0" step="any" required')}${field("Precio del detalle " + currentEstimate()?.currency, "unitPrice", item.unit_price ?? "0", 'type="number" min="0" step="any" required')}</div><fieldset><legend>Gasto mensual / alquiler</legend><label><input type="checkbox" name="periodic" ${item.periodic ? "checked" : ""}> Calcular por período (por ejemplo, baños químicos)</label><div class="form-grid">${field("Inicio del alquiler", "rentalStart", item.periodic?.start || "", 'type="date"')}${field("Fin del alquiler", "rentalEnd", item.periodic?.end || "", 'type="date"')}${field("Día de vencimiento mensual", "paymentDay", item.periodic?.payment_day || "5", 'type="number" min="1" max="31"')}</div><label><input type="checkbox" name="prorate" ${item.periodic?.prorate !== false ? "checked" : ""}> Prorratear meses incompletos por días calendario</label></fieldset><p class="modal-help">Para alquileres: cantidad de unidades × tarifa mensual × meses × participación. El día 31 vence el último día de los meses más cortos. Las fechas son inclusivas. Sin alquiler, se aplica cantidad × precio × participación / 100.</p>`);
+          : `<div class="form-grid">${field("Unidad", "unit", item.unit || "un", "required")}${field("Participación %", "participation", item.participation_percent ?? "100", 'type="number" min="0" max="100" step="any" required')}${field("Cantidad del detalle", "quantity", item.quantity ?? "1", 'type="number" min="0" step="any" required')}${field("Precio del detalle " + currentEstimate()?.currency, "unitPrice", item.unit_price ?? "0", 'type="number" min="0" step="any" required')}</div>${itemDurationEditor(item)}<fieldset ${item.months!=null||item.use_estimate_duration?'hidden':''}><legend>Gasto mensual / alquiler</legend><label><input type="checkbox" name="periodic" ${item.periodic ? "checked" : ""}> Calcular por período (por ejemplo, baños químicos)</label><div class="form-grid">${field("Inicio del alquiler", "rentalStart", item.periodic?.start || "", 'type="date"')}${field("Fin del alquiler", "rentalEnd", item.periodic?.end || "", 'type="date"')}${field("Día de vencimiento mensual", "paymentDay", item.periodic?.payment_day || "5", 'type="number" min="1" max="31"')}</div><label><input type="checkbox" name="prorate" ${item.periodic?.prorate !== false ? "checked" : ""}> Prorratear meses incompletos por días calendario</label></fieldset><p class="modal-help">Para alquileres: cantidad de unidades × tarifa mensual × meses × participación. El día 31 vence el último día de los meses más cortos. Las fechas son inclusivas. Sin alquiler, se aplica cantidad × precio × participación / 100.</p>`);
       form = "price-item-form";
     }
     if(modal.kind==='indirect'){
       title='Incluir gastos indirectos de la organización';form='price-indirect-form';
-      const base=sumDecimals(modal.plan.items.map(i=>multiplyDecimals(i.amount,i.periods)));
-      body=`<p>${e(modal.organizationName)} · Base de referencia ${e(currentEstimate().currency)} ${money(base)}</p><ul>${modal.plan.items.map(i=>`<li>${e(i.description)} · ${i.periodicity==='once'?'Pago único':`${numeric(i.periods)} ${i.periodicity==='monthly'?(numeric(i.periods)==='1'?'mes':'meses'):(numeric(i.periods)==='1'?'año':'años')} de referencia`} · ${money(multiplyDecimals(i.amount,i.periods))}</li>`).join('')}</ul>${field('Porcentaje de la base para este presupuesto','allocation','100','type="number" min="0" max="100" step="any" required')}<p>El porcentaje se aplica a la base de referencia mostrada. Se copia el detalle con esa participación y luego podés editarlo en este presupuesto. La frecuencia de pago del gasto en la organización se conserva.</p>`;
+      const base=sumDecimals(modal.plan.items.map(i=>organizationCostAmount(i,duration())));
+      body=`<p>${e(modal.organizationName)} · Plazo estimado de obra: <strong>${numeric(duration())} meses</strong></p><p>Base para este plazo: ${e(currentEstimate().currency)} ${money(base)}</p><ul>${modal.plan.items.map(i=>`<li>${e(i.description)} · ${e({once:'Pago único',monthly:'Mensual',yearly:'Anual prorrateado'}[i.periodicity])} · ${money(organizationCostAmount(i,duration()))}</li>`).join('')}</ul>${field('Porcentaje de participación para este presupuesto','allocation','100','type="number" min="0" max="100" step="any" required')}<p>Los gastos mensuales y anuales se vinculan al plazo estimado de obra. Los pagos puntuales se suman una vez. Cambiar el plazo actualiza este detalle; los importes de la organización se conservan como una copia del momento en que los incorporaste.</p>`;
     }
     if (modal.kind === "template") {
       title = "Guardar plantilla de Determinación de precio";
@@ -314,7 +335,7 @@ export function createPriceDetermination({
     const saved = await invoke("get_price_definition", {
       estimateId: state.estimateId,
     });
-    m.definition = saved.definition;
+    m.definition = applyEstimateDuration(saved.definition);
     ensureDirect();
     m.revision = saved.revision;
     m.direct = saved.direct;
@@ -392,6 +413,14 @@ export function createPriceDetermination({
       const currency=v=>['Usd','USD'].includes(v)?'USD':'ARS';
       if(currency(plan.data.currency)!==currency(currentEstimate().currency))throw Error('La moneda de los gastos de la organización debe coincidir con la del presupuesto');
       m.modal={kind:'indirect',dirty:false,plan:plan.data,organizationName:state.organizations.find(o=>o.id===orgId)?.name||'Organización'};redraw();return true;
+    }
+    if(action==='price-link-indirect-duration'){
+      const row=selected();
+      for(const item of row.items){
+        if(item.group||item.periodic||item.months!=null||!['mes','año'].includes(item.unit))continue;
+        item.quantity='1';item.months=duration();item.use_estimate_duration=true;item.months_per_payment=item.unit==='año'?'12':null;
+      }
+      m.dirty=true;await preview();return true;
     }
     if (action === "price-add-row") {
       const row = newRow(button.dataset.kind);
@@ -481,8 +510,9 @@ export function createPriceDetermination({
       )
         return true;
       if (template.scope === "definition") {
-        const composition=structuredClone(directRow());
+        const composition=structuredClone(directRow()),months=duration();
         m.definition = cloneDefinition(template.definition);
+        m.definition.estimated_months=months;applyEstimateDuration(m.definition);
         if(!m.definition.rows.some(r=>r.role==='direct_costs'))m.definition.rows.unshift(composition);
         m.selectedId = m.definition.rows[0]?.id || null;
       } else {
@@ -510,7 +540,7 @@ export function createPriceDetermination({
       const existing=m.definition.rows.find(r=>r.role==='overhead'&&r.label==='Gastos indirectos');
       if(existing&&!window.confirm('Ya hay Gastos indirectos. ¿Reemplazar ese detalle con esta nueva distribución?'))return;
       const definition=structuredClone(m.definition),row=newRow('detailed');
-      Object.assign(row,{role:'overhead',label:'Gastos indirectos',items:m.modal.plan.items.map(i=>({id:window.crypto.randomUUID(),parent_id:null,group:false,description:i.description,unit:{once:'un',monthly:'mes',yearly:'año'}[i.periodicity],quantity:i.periods,unit_price:i.amount,participation_percent:value('allocation'),periodic:null,months:null,resource_id:null,resource_kind:null}))});
+      Object.assign(row,{role:'overhead',label:'Gastos indirectos',items:m.modal.plan.items.map(i=>({id:window.crypto.randomUUID(),parent_id:null,group:false,description:i.description,unit:{once:'un',monthly:'mes',yearly:'año'}[i.periodicity],quantity:'1',unit_price:i.amount,participation_percent:value('allocation'),periodic:null,months:i.periodicity==='once'?null:duration(),use_estimate_duration:i.periodicity!=='once',months_per_payment:i.periodicity==='yearly'?'12':null,resource_id:null,resource_kind:null}))});
       if(existing)definition.rows.splice(definition.rows.findIndex(r=>r.id===existing.id),1,row);else definition.rows.unshift(row);
       const calc=await invoke('calculate_price_definition',{estimateId:state.estimateId,definition});
       m.definition=definition;m.calculation=calc;m.selectedId=row.id;m.dirty=true;autosave.changed();await autosave.flush();m.modal=null;redraw();return;
@@ -520,7 +550,7 @@ export function createPriceDetermination({
       const resource=state.resources.find(r=>r.id===value('resource')&&r.active!==false);
       if(!resource)throw Error('Seleccioná un insumo del catálogo');
       const definition=structuredClone(m.definition),row=definition.rows.find(r=>r.role==='direct_costs');
-      const item={id:m.modal.item.id,parent_id:null,group:false,description:resource.description,unit:resource.unit,resource_id:resource.id,resource_kind:resource.kind,months:value('directPeriod')==='monthly'?value('directMonths'):null,periodic:null,participation_percent:'100',quantity:value('directQuantity'),unit_price:value('unitPrice')};
+      const item={id:m.modal.item.id,parent_id:null,group:false,description:resource.description,unit:resource.unit,resource_id:resource.id,resource_kind:resource.kind,months:value('directPeriod')==='monthly'?(data.has('directOverride')?value('directMonths'):duration()):null,use_estimate_duration:value('directPeriod')==='monthly'&&!data.has('directOverride'),months_per_payment:null,periodic:null,participation_percent:'100',quantity:value('directQuantity'),unit_price:value('unitPrice')};
       const index=row.items.findIndex(i=>i.id===item.id);if(index<0)row.items.push(item);else row.items[index]=item;
       const calc=await invoke('calculate_price_definition',{estimateId:state.estimateId,definition});
       m.definition=definition;m.calculation=calc;m.dirty=true;autosave.changed();await autosave.flush();m.modal=null;redraw();return;
@@ -532,7 +562,9 @@ export function createPriceDetermination({
       const item = {
         resource_id: old.resource_id??null,
         resource_kind: old.resource_kind??null,
-        months: old.months??null,
+        months: old.months!=null||old.use_estimate_duration?(data.has('itemDurationOverride')?value('itemDurationMonths'):duration()):null,
+        use_estimate_duration: (old.months!=null||old.use_estimate_duration)&&!data.has('itemDurationOverride'),
+        months_per_payment: old.months_per_payment??null,
         id: old.id || window.crypto.randomUUID(),
         parent_id: value("parentId") || null,
         group: old.group,
@@ -606,6 +638,9 @@ export function createPriceDetermination({
     }
     if (!editable()) return;
     let changed = false;
+    if(target.name==='estimated-months'){
+      m.definition.estimated_months=target.value;applyEstimateDuration(m.definition);changed=true;
+    }
     if(target.dataset.directItem){const item=directRow().items.find(i=>i.id===target.dataset.directItem);item[target.dataset.directField]=target.value;changed=true;}
 
     for (const [attr, key] of [
@@ -637,7 +672,10 @@ export function createPriceDetermination({
     if (!active()) return;
     if (target.closest?.(".price-modal")) {
       m.modal.dirty = true;
-      if(target.name==='directPeriod'){const months=document.querySelector('[name="directMonths"]');if(months)months.disabled=target.value!=='monthly';}
+      if(['directPeriod','directOverride'].includes(target.name))syncDirectDurationForm();
+      if(target.name==='itemDurationOverride'){
+        const field=document.querySelector('[data-custom-item-months]');if(field){field.hidden=!target.checked;field.querySelector('input').disabled=!target.checked;}
+      }
       return;
     }
     if (target.name === "price-template") {
@@ -646,7 +684,9 @@ export function createPriceDetermination({
     }
     if (!editable()) return;
     const row = selected();
-    if(target.dataset.directPeriod){const item=directRow().items.find(i=>i.id===target.dataset.directPeriod);item.months=target.value==='monthly'?'1':null;m.dirty=true;await preview();return;}
+    if(target.name==='estimated-months'){m.definition.estimated_months=target.value;applyEstimateDuration(m.definition);m.dirty=true;await preview();return;}
+    if(target.dataset.directOverride){const item=directRow().items.find(i=>i.id===target.dataset.directOverride);item.use_estimate_duration=!target.checked;if(!target.checked)item.months=duration();m.dirty=true;await preview();return;}
+    if(target.dataset.directPeriod){const item=directRow().items.find(i=>i.id===target.dataset.directPeriod);item.months=target.value==='monthly'?duration():null;item.use_estimate_duration=target.value==='monthly';item.months_per_payment=null;m.dirty=true;await preview();return;}
     if(row?.role==='direct_costs' && ['price-kind','price-role','price-sign'].includes(target.name))return;
     if (target.dataset.priceEnabled) {
       m.definition.rows.find(
@@ -783,7 +823,7 @@ export function createPriceDetermination({
   }
   function directPane(){
     const row=directRow();if(!row)return '<p>Cargando Gastos Directos…</p>';
-    return `<section class="direct-costs-panel"><div class="detail-heading"><b>Gastos Directos del presupuesto</b><button class="btn tiny primary" data-action="price-add-direct" ${lock()}>＋ Agregar insumo</button></div><p role="status" data-price-save-status>${e(saveLabel())}</p>${errorMarkup()}<label><input type="checkbox" data-price-enabled="${row.id}" ${row.enabled?'checked':''} ${lock()}> Incluir Gastos Directos en el presupuesto</label><div class="table-scroll"><table class="mini-table"><thead><tr><th>Insumo</th><th>Unidad</th><th>Cantidad</th><th>Precio / período</th><th>Periodicidad</th><th>Meses</th><th>Total</th><th></th></tr></thead><tbody>${row.items.map(i=>`<tr><td>${e(i.description)}</td><td>${e(i.unit)}</td><td><input name="direct-quantity-${i.id}" data-direct-item="${i.id}" data-direct-field="quantity" value="${e(i.quantity)}" type="number" min="0" step="any" ${lock()} aria-label="Cantidad ${e(i.description)}"></td><td><input name="direct-price-${i.id}" data-direct-item="${i.id}" data-direct-field="unit_price" value="${e(i.unit_price)}" type="number" min="0" step="any" ${lock()} aria-label="Precio ${e(i.description)}"></td><td><select data-direct-period="${i.id}" ${lock()} aria-label="Periodicidad ${e(i.description)}"><option value="once" ${i.months==null?'selected':''}>Puntual</option><option value="monthly" ${i.months!=null?'selected':''}>Mensual</option></select></td><td>${i.months!=null?`<input name="direct-months-${i.id}" data-direct-item="${i.id}" data-direct-field="months" value="${e(i.months)}" type="number" min="0.000001" max="1200" step="any" ${lock()} aria-label="Meses ${e(i.description)}">`:'—'}</td><td class="number">${m.calculation?money(result(row.id)?.item_totals?.[i.id]??'0'):'—'}</td><td><button class="tiny-danger" data-action="price-delete-item" data-id="${i.id}" ${lock()} aria-label="Quitar ${e(i.description)}">×</button></td></tr>`).join('')||'<tr><td colspan="8">Agregá equipos, mano de obra, materiales o subcontratos de uso general.</td></tr>'}</tbody></table></div><p>Total del detalle: <strong>${m.calculation?money(result(row.id)?.detail_total??'0'):'—'}</strong> · Aplicado: <strong>${m.calculation?money(result(row.id)?.amount??'0'):'—'}</strong></p></section>`;
+    return `<section class="direct-costs-panel"><div class="detail-heading"><b>Gastos Directos del presupuesto</b>${durationField()}<button class="btn tiny primary" data-action="price-add-direct" ${lock()}>＋ Agregar insumo</button></div><p role="status" data-price-save-status>${e(saveLabel())}</p>${errorMarkup()}<label><input type="checkbox" data-price-enabled="${row.id}" ${row.enabled?'checked':''} ${lock()}> Incluir Gastos Directos en el presupuesto</label><div class="table-scroll"><table class="mini-table"><thead><tr><th>Insumo</th><th>Unidad</th><th>Cantidad</th><th>Precio / período</th><th>Periodicidad</th><th>Meses</th><th>Total</th><th></th></tr></thead><tbody>${row.items.map(i=>`<tr><td>${e(i.description)}</td><td>${e(i.unit)}</td><td><input name="direct-quantity-${i.id}" data-direct-item="${i.id}" data-direct-field="quantity" value="${e(i.quantity)}" type="number" min="0" step="any" ${lock()} aria-label="Cantidad ${e(i.description)}"></td><td><input name="direct-price-${i.id}" data-direct-item="${i.id}" data-direct-field="unit_price" value="${e(i.unit_price)}" type="number" min="0" step="any" ${lock()} aria-label="Precio ${e(i.description)}"></td><td><select data-direct-period="${i.id}" ${lock()} aria-label="Periodicidad ${e(i.description)}"><option value="once" ${i.months==null?'selected':''}>Puntual</option><option value="monthly" ${i.months!=null?'selected':''}>Mensual</option></select></td><td>${monthsCell(i)}</td><td class="number">${m.calculation?money(result(row.id)?.item_totals?.[i.id]??'0'):'—'}</td><td><button class="tiny-danger" data-action="price-delete-item" data-id="${i.id}" ${lock()} aria-label="Quitar ${e(i.description)}">×</button></td></tr>`).join('')||'<tr><td colspan="8">Agregá equipos, mano de obra, materiales o subcontratos de uso general.</td></tr>'}</tbody></table></div><p>Total del detalle: <strong>${m.calculation?money(result(row.id)?.detail_total??'0'):'—'}</strong> · Aplicado: <strong>${m.calculation?money(result(row.id)?.amount??'0'):'—'}</strong></p></section>`;
   }
   return {
     markup,

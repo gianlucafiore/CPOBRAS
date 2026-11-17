@@ -1360,7 +1360,7 @@ fn upgrades_populated_schema_fifteen_and_deletes_its_preexisting_linked_line() {
             .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| r
                 .get::<_, i64>(0))
             .unwrap(),
-        38
+        39
     );
     upgraded.delete_estimate_item(e.id, line.id).unwrap();
     assert!(upgraded.estimate_items(e.id).unwrap().is_empty());
@@ -2063,7 +2063,7 @@ fn custom_price_definition_revision_copy_export_and_issue_are_consistent() {
         Decimal::new(3025, 1)
     );
     let document = store.export_budget(estimate.id).unwrap();
-    assert_eq!(document.format_version, 8);
+    assert_eq!(document.format_version, 9);
     let json = serde_json::to_string(&document).unwrap();
     let imported = store
         .import_budget(project.id, &serde_json::from_str(&json).unwrap())
@@ -3110,6 +3110,8 @@ fn monthly_rentals_reconcile_partial_invoices_payments_and_cash_before_collectio
     let item_id = Uuid::new_v4();
     let row_id = row.id;
     row.items = vec![PriceItem {
+        use_estimate_duration: false,
+        months_per_payment: None,
         resource_id: None,
         resource_kind: None,
         months: None,
@@ -5873,7 +5875,7 @@ fn line_cost_exclusions_keep_prices_quantities_other_lines_and_survive_edit_copy
             .included
     );
     let document = s.export_budget(e.id).unwrap();
-    assert_eq!(document.format_version, 8);
+    assert_eq!(document.format_version, 9);
     let imported = s.import_budget(p.id, &document).unwrap();
     let imported_line = s.estimate_items(imported.id).unwrap()[0].clone();
     assert!(
@@ -5961,7 +5963,7 @@ fn direct_budget_costs_roundtrip_without_lines_and_preserve_requirements_when_no
     );
     let copied = s.duplicate_estimate(e.id, "Copia con gastos").unwrap();
     let doc = s.export_budget(copied.id).unwrap();
-    assert_eq!(doc.format_version, 8);
+    assert_eq!(doc.format_version, 9);
     let imported = s.import_budget(p.id, &doc).unwrap();
     let read = s.get_price_definition(imported.id).unwrap();
     let row = read
