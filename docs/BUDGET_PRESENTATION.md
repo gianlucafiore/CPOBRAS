@@ -4,7 +4,7 @@ Memoria descriptiva es la primera pestaña del grupo Presupuesto. Su texto es p�
 
 Imprimir presupuesto conserva título, fecha, referencia, condiciones, presentación, contenido, orientación y formato. Guarda al quitar el foco, al cambiar selectores, antes de generar y al salir. Una única cola serializa la memoria y las preferencias con revisión optimista. Los errores conservan un borrador local por base y presupuesto, muestran reintento y bloquean la salida normal hasta resolver el guardado. Si otra ventana cambia los datos, se presentan ambas versiones para elegir. Los respaldos de la base, las duplicaciones y el intercambio JSON completo conservan estos datos (esquema 38, formato 8; se aceptan versiones anteriores).
 
-Organizaciones → abrir una organización propia → Gastos indirectos permite definir gastos fuera de obra: importe por período, periodicidad puntual/mensual/anual y cantidad de períodos, en una moneda. La base es la suma de importe × períodos. Estos datos son privados de la organización y no forman parte de su identidad pública.
+Organizaciones → abrir una organización propia → Gastos indirectos permite definir gastos fuera de obra: importe de cada pago, frecuencia puntual/mensual/anual y meses o años de referencia, en una moneda. La base es la suma de importe × meses/años de referencia. Esta referencia es un horizonte de cálculo: un seguro o abono mensual puede seguir cargado indefinidamente. Por ejemplo, un seguro de 120.000 al mes forma una base mensual de 120.000 con referencia 1, o una base anual de 1.440.000 con referencia 12. Estos datos son privados de la organización y no forman parte de su identidad pública.
 
 En Determinación de precio, «Gastos indirectos de la organización» permite copiar esa base con un porcentaje de participación. La moneda debe coincidir. El detalle queda como un concepto normal editable, reordenable y desactivable. Cada partida del detalle conserva su participación; cambiar la organización no modifica copias previas. La importación ofrece reemplazar un concepto existente del mismo nombre para evitar duplicarlo. No se incluyen estos gastos administrativos en la provisión de insumos de obra.
 
@@ -13,3 +13,5 @@ El antiguo concepto vacío Gastos generales se omite. Cualquier configuración a
 Los PDF dibujan ² y ³ como dígitos elevados con la fuente activa. Esto conserva unidades como m² y m³ en presupuestos, ACU e informes, sin depender de la disponibilidad de esos glifos en las fuentes estándar del lector PDF.
 
 Para este cambio no se ejecutaron tests ni compilaciones, por indicación del usuario.
+
+El registro de auditoría utiliza una columna de clave que exista en cada tabla. En gastos indirectos corresponde `organization_id`; los disparadores se regeneran al abrir la base para corregir instalaciones anteriores, sin borrar datos ni cambiar el esquema.

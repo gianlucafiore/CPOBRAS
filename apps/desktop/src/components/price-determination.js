@@ -273,7 +273,7 @@ export function createPriceDetermination({
     if(modal.kind==='indirect'){
       title='Incluir gastos indirectos de la organización';form='price-indirect-form';
       const base=sumDecimals(modal.plan.items.map(i=>multiplyDecimals(i.amount,i.periods)));
-      body=`<p>${e(modal.organizationName)} · Base ${e(currentEstimate().currency)} ${money(base)}</p><ul>${modal.plan.items.map(i=>`<li>${e(i.description)} · ${e({once:'Puntual',monthly:'Mensual',yearly:'Anual'}[i.periodicity])} × ${numeric(i.periods)} · ${money(multiplyDecimals(i.amount,i.periods))}</li>`).join('')}</ul>${field('Porcentaje de la base para este presupuesto','allocation','100','type="number" min="0" max="100" step="any" required')}<p>Se copia el detalle con esta participación. Luego podés editarlo. Los cambios futuros de la organización no actualizan presupuestos anteriores.</p>`;
+      body=`<p>${e(modal.organizationName)} · Base de referencia ${e(currentEstimate().currency)} ${money(base)}</p><ul>${modal.plan.items.map(i=>`<li>${e(i.description)} · ${i.periodicity==='once'?'Pago único':`${numeric(i.periods)} ${i.periodicity==='monthly'?(numeric(i.periods)==='1'?'mes':'meses'):(numeric(i.periods)==='1'?'año':'años')} de referencia`} · ${money(multiplyDecimals(i.amount,i.periods))}</li>`).join('')}</ul>${field('Porcentaje de la base para este presupuesto','allocation','100','type="number" min="0" max="100" step="any" required')}<p>El porcentaje se aplica a la base de referencia mostrada. Se copia el detalle con esa participación y luego podés editarlo en este presupuesto. La frecuencia de pago del gasto en la organización se conserva.</p>`;
     }
     if (modal.kind === "template") {
       title = "Guardar plantilla de Determinación de precio";

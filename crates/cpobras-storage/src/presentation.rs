@@ -103,7 +103,7 @@ impl LocalStore {
             if !ids.insert(item.id) || item.description.trim().is_empty() || item.description.len() > 2000 || item.amount < Decimal::ZERO
                 || item.periods <= Decimal::ZERO || item.periods > Decimal::from(1200)
                 || !["once", "monthly", "yearly"].contains(&item.periodicity.as_str())
-                || (item.periodicity == "once" && item.periods != Decimal::ONE) { return Err(invalid("Revisá la descripción, importe y períodos de cada gasto indirecto")); }
+                || (item.periodicity == "once" && item.periods != Decimal::ONE) { return Err(invalid("Revisá la descripción, el importe y los meses o años de referencia de cada gasto indirecto")); }
             total = item.amount.checked_mul(item.periods).and_then(|v| total.checked_add(v)).ok_or_else(|| invalid("Importe de gastos indirectos fuera de rango"))?;
         }
         let next = revision.checked_add(1).ok_or_else(|| invalid("Revisión fuera de rango"))?;
