@@ -103,9 +103,9 @@ export function createWorkspaceService({ invoke,globalInvoke=invoke, state, curr
       if (current()) state.estimateResourcePrices = prices;
     }
     if (panel === "resources" && estimateId) {
-      const analyses = await loadBudgetAnalyses(invoke,state.lines);
+      const [analyses,pricing] = await Promise.all([loadBudgetAnalyses(invoke,state.lines),invoke("get_price_definition",{estimateId})]);
       if (current()) {
-        state.estimateResourceTotals = budgetResourceTotals(state.lines,analyses,state.resources,state.estimateResourcePrices);
+        state.estimateResourceTotals = budgetResourceTotals(state.lines,analyses,state.resources,state.estimateResourcePrices,pricing.definition);
         state.estimateRequiredResourceIds = state.estimateResourceTotals.map(r=>r.resource_id);
       }
     }

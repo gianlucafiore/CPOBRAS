@@ -42,6 +42,7 @@ export function priceExportRows({
             item.group ? "" : item.unit_price,
             value?.item_totals[item.id] ?? "0",
           ]);
+          if(item.months!=null) rows.push(["Gasto mensual", "Meses", item.months, "", ""]);
           if (item.periodic)
             rows.push([
               "Alquiler mensual",

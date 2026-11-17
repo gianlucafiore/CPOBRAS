@@ -14,7 +14,7 @@ const pages = {
   ],
   "price-determination": [
     "Determinación de precio",
-    "Activá y ordená conceptos para pasar del costo directo al precio final. Cada línea puede usar porcentaje, monto o detalle. Revisá la vista previa y guardá la determinación antes de salir.",
+    "Activá y ordená conceptos para pasar del costo directo al precio final. Cada línea puede usar porcentaje, monto o detalle. Los cambios se guardan automáticamente. Revisá el indicador de guardado y los errores antes de salir.",
   ],
   portfolio: [
     "Cartera global de obras",

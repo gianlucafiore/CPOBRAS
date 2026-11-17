@@ -35,7 +35,7 @@ pub(crate) fn calculate_price(conn: &rusqlite::Connection, id: Uuid) -> Result<P
             |r| r.get(0),
         )
         .optional()?;
-    let definition = if let Some(json) = custom {
+    let mut definition = if let Some(json) = custom {
         serde_json::from_str::<PriceDefinition>(&json)?
     } else {
         let row:Option<(String,String,String,String,String)>=conn.query_row("SELECT general_expenses_percent,financial_expenses_percent,profit_percent,discount_percent,tax_percent FROM estimate_pricing WHERE estimate_id=?1",[id.to_string()],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))).optional()?;
@@ -56,6 +56,7 @@ pub(crate) fn calculate_price(conn: &rusqlite::Connection, id: Uuid) -> Result<P
         };
         PriceDefinition::from_rates(rates)
     };
+    definition.ensure_direct_costs();
     definition
         .calculate(direct)
         .map_err(StorageError::InvalidValue)
@@ -70,15 +71,19 @@ impl LocalStore {
                 |r| r.get(0),
             )
             .optional()?;
-        json.map(|json| serde_json::from_str(&json).map_err(Into::into))
-            .transpose()
+        json.map(|json| {
+            let mut definition: PriceDefinition = serde_json::from_str(&json)?;
+            definition.ensure_direct_costs();
+            Ok(definition)
+        })
+        .transpose()
     }
     pub fn get_price_definition(&self, id: Uuid) -> Result<SavedPriceDefinition> {
         if self.get_estimate(id)?.is_none() {
             return Err(invalid("Presupuesto inexistente"));
         }
         let row:Option<(u32,String)>=self.conn.query_row("SELECT revision,definition_json FROM estimate_price_definitions WHERE estimate_id=?1",[id.to_string()],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
-        let (revision, custom, definition) = if let Some((revision, json)) = row {
+        let (revision, custom, mut definition) = if let Some((revision, json)) = row {
             (
                 revision,
                 true,
@@ -91,6 +96,7 @@ impl LocalStore {
                 PriceDefinition::from_rates(self.get_estimate_pricing(id)?),
             )
         };
+        definition.ensure_direct_costs();
         let direct = self.estimate_total(id)?;
         let (calculation, calculation_error) = match definition.calculate(direct) {
             Ok(value) => (Some(value), None),
@@ -105,12 +111,36 @@ impl LocalStore {
             calculation_error,
         })
     }
+    pub fn effective_price_definition(
+        &self,
+        id: Uuid,
+        input: &PriceDefinition,
+    ) -> Result<PriceDefinition> {
+        let mut definition = input.clone();
+        if !definition
+            .rows
+            .iter()
+            .any(|r| r.role == cpobras_core::price_determination::PriceRole::DirectCosts)
+        {
+            if let Some(row) = self.stored_price_definition(id)?.and_then(|d| {
+                d.rows
+                    .into_iter()
+                    .find(|r| r.role == cpobras_core::price_determination::PriceRole::DirectCosts)
+            }) {
+                definition.rows.insert(0, row);
+            } else {
+                definition.ensure_direct_costs();
+            }
+        }
+        Ok(definition)
+    }
     pub fn save_price_definition(
         &mut self,
         id: Uuid,
         revision: u32,
         definition: &PriceDefinition,
     ) -> Result<SavedPriceDefinition> {
+        let definition = self.effective_price_definition(id, definition)?;
         let tx = self
             .conn
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
@@ -138,7 +168,7 @@ impl LocalStore {
         let next = revision
             .checked_add(1)
             .ok_or_else(|| invalid("Revisión fuera de rango"))?;
-        tx.execute("INSERT INTO estimate_price_definitions(estimate_id,revision,definition_json) VALUES (?1,?2,?3) ON CONFLICT(estimate_id) DO UPDATE SET revision=excluded.revision,definition_json=excluded.definition_json",params![id.to_string(),next,serde_json::to_string(definition)?])?;
+        tx.execute("INSERT INTO estimate_price_definitions(estimate_id,revision,definition_json) VALUES (?1,?2,?3) ON CONFLICT(estimate_id) DO UPDATE SET revision=excluded.revision,definition_json=excluded.definition_json",params![id.to_string(),next,serde_json::to_string(&definition)?])?;
         tx.commit()?;
         Ok(SavedPriceDefinition {
             revision: next,
@@ -188,7 +218,7 @@ impl LocalStore {
             scope: scope.into(),
             definition: definition.clone(),
         };
-        self.conn.execute("INSERT INTO price_definition_templates(id,name,currency,scope,definition_json) VALUES (?1,?2,?3,?4,?5)",params![saved.id.to_string(),saved.name,saved.currency,saved.scope,serde_json::to_string(definition)?])?;
+        self.conn.execute("INSERT INTO price_definition_templates(id,name,currency,scope,definition_json) VALUES (?1,?2,?3,?4,?5)",params![saved.id.to_string(),saved.name,saved.currency,saved.scope,serde_json::to_string(&definition)?])?;
         Ok(saved)
     }
 }

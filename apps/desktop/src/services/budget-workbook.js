@@ -147,6 +147,7 @@ export function normalizedAnalyses(
   return result;
 }
 function periodicFactor(item) {
+  if(item.months!=null)return item.months;
   if (!item.periodic) return "1";
   const p = item.periodic,
     start = new Date(p.start + "T00:00:00Z"),
@@ -192,6 +193,7 @@ export function buildBudgetWorkbook(
     landscape = true,
   } = {},
 ) {
+  const directRefs=[];
   const doc = data.document,
     numbering = budgetNumbering(doc.sections,doc.lines,doc.assignments),
     normalized = normalizedAnalyses(data, analyses, resources, prices),
@@ -417,6 +419,7 @@ export function buildBudgetWorkbook(
             ),
             factor,
           );
+        if(source.role==='direct_costs' && item.resource_id)directRefs.push({resource_id:item.resource_id,description:item.description,kind:item.resource_kind||resources.find(r=>r.id===item.resource_id)?.kind||'material',unit:item.unit,quantity:multiplyDecimals(multiplyDecimals(item.quantity,factor),divideDecimals(item.participation_percent,'100')),amount:cache,qtyRef:`${sq("Detalle precio")}!D${r}/100*${sq("Detalle precio")}!E${r}*${sq("Detalle precio")}!G${r}`,amountRef:`${sq("Detalle precio")}!H${r}`});
         detail.push([
           text(source.label),
           text(item.description),
@@ -608,10 +611,11 @@ export function buildBudgetWorkbook(
     head(["Tipo", "Insumo", "Unidad", "Cantidad total", "Precio total"]),
   ];
   const grouped = new Map();
-  for (const c of componentRefs) {
+  for (const c of [...componentRefs,...directRefs]) {
     if (!grouped.has(c.resource_id))
-      grouped.set(c.resource_id, { ...c, quantity: "0", amount: "0" });
+      grouped.set(c.resource_id, { ...c, quantity: "0", amount: "0",qtyRefs:[],amountRefs:[] });
     const row = grouped.get(c.resource_id);
+    if(c.qtyRef)row.qtyRefs.push(c.qtyRef);if(c.amountRef)row.amountRefs.push(c.amountRef);
     row.quantity = sumDecimals([row.quantity, c.quantity]);
     row.amount = sumDecimals([row.amount, c.amount]);
   }
@@ -622,12 +626,12 @@ export function buildBudgetWorkbook(
       text(c.description),
       text(c.unit),
       formula(
-        `SUMIF(${sq("ACU")}!J4:J${lastAcu},${literal(c.resource_id)},${sq("ACU")}!H4:H${lastAcu})`,
+        `SUMIF(${sq("ACU")}!J4:J${lastAcu},${literal(c.resource_id)},${sq("ACU")}!H4:H${lastAcu})${c.qtyRefs.map(r=>'+('+r+')').join('')}`,
         c.quantity,
         decimal,
       ),
       formula(
-        `SUMIF(${sq("ACU")}!J4:J${lastAcu},${literal(c.resource_id)},${sq("ACU")}!L4:L${lastAcu})`,
+        `SUMIF(${sq("ACU")}!J4:J${lastAcu},${literal(c.resource_id)},${sq("ACU")}!L4:L${lastAcu})${c.amountRefs.map(r=>'+'+r).join('')}`,
         c.amount,
       ),
     ]);

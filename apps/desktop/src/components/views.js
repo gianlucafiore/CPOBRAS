@@ -26,6 +26,7 @@ export function createViews({
   costingMarkup = () => "",
   remindersMarkup = () => "",
   homeCashMarkup = () => "",
+  directCostsMarkup = () => "",
 }) {
   function chrome(content) {
     const work = Boolean(state.projectId);
@@ -232,18 +233,8 @@ export function createViews({
         <div class="grid-bottom"><span>${e(est?.title || "Sin presupuesto")}</span><span>DIRECTO <strong>${e(est?.currency || "")} ${money(state.totals?.direct)}</strong></span></div>
       </section>
       <section class="detail-pane">
-        <div class="detail-tabs" role="tablist" aria-label="Detalle de la partida">
-          ${[
-            ["acu", "ACU"],
-            ["takeoffs", "Metrados"],
-            ["resources", "Insumos"],
-            ["summary", "Resumen"],
-          ]
-            .map(
-              ([key, title]) =>
-                `<button role="tab" aria-selected="${state.panel === key}" data-action="panel" data-panel="${key}" class="tab ${state.panel === key ? "active" : ""}">${title}</button>`,
-            )
-            .join("")}
+        <div class="detail-tab-groups">
+        ${[['Partida seleccionada',[['acu','ACU'],['takeoffs','Metrados']]],['Presupuesto',[['resources','Insumos'],['direct-costs','Gastos Directos'],['summary','Resumen']]]].map(([label,tabs])=>`<div class="detail-tabs" role="tablist" aria-label="${label}"><span class="detail-tab-scope">${label}</span>${tabs.map(([key,title])=>`<button role="tab" aria-selected="${state.panel===key}" data-action="panel" data-panel="${key}" class="tab ${state.panel===key?'active':''}">${title}</button>`).join('')}</div>`).join('')}
         </div>
         <div class="detail-content">${helpBox(state.panel, true)}${rightPanel()}</div>
       </section>
@@ -253,6 +244,7 @@ export function createViews({
 
   function rightPanel() {
     const line = currentLine();
+    if (state.panel === "direct-costs") return directCostsMarkup();
     if (state.panel === "summary") return summaryPane();
     if (state.panel === "resources")
       return `<div class="detail-heading"><b>INSUMOS DEL PRESUPUESTO</b><span>${line ? e(line.description) : "Seleccioná una partida para asignar"}</span><button class="btn tiny primary" data-action="edit-line-resources" ${locked()} ${!line ? "disabled" : ""}>＋ Agregar insumo</button></div>

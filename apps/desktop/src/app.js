@@ -114,6 +114,7 @@ export function createWorkspaceApp({
     costingMarkup: costing.markup,
     remindersMarkup: reminders.markup,
     homeCashMarkup: homeCash.markup,
+    directCostsMarkup: pricing.directPane,
   });
   const { act, handleSubmit } = createActions(context);
   const interactions = createBudgetInteractions({ ...context, act });
@@ -189,7 +190,8 @@ export function createWorkspaceApp({
       root.innerHTML += patterns.markup();
       patterns.afterRender();
     }
-    if (state.view === "price-determination") pricing.afterRender();
+    if (state.view === "workspace" && state.panel === "direct-costs" && pricing.model.modal) root.innerHTML += pricing.modalMarkup();
+    if (state.view === "price-determination" || (state.view === "workspace" && state.panel === "direct-costs")) pricing.afterRender();
     if(state.view==='planning')planning.afterRender();
     if(state.view==='management')management.afterRender();
     for(const item of offsets){const el=root.querySelectorAll(item.selector)[item.index];if(el){el.scrollTop=item.top;el.scrollLeft=item.left;}}
@@ -264,7 +266,7 @@ export function createWorkspaceApp({
   async function protectContext() {
     if (state.busy || state.navigating) return false;
     if (state.modal && !closeModal()) return false;
-    if (state.view === "price-determination" && !pricing.leave()) return false;
+    if ((state.view === "price-determination" || (state.view === "workspace" && state.panel === "direct-costs")) && !(await pricing.leave())) return false;
     if (state.view === "operations" && !(await operations.protect())) return false;
     const pending =
       state.pageDirty || (state.view === "planning" && planning.model.dirty);
@@ -617,6 +619,10 @@ export function createWorkspaceApp({
       if(!remoteActionAllowed(state,button))return;
       if(button.dataset.action==='ai-resource-open'){await aiResourceImport.open(resourceLibraryBrief);return;}
       if(button.dataset.action==='acu-library-return'){await returnToAcu();return;}
+      if(button.dataset.action==='panel'){
+        if(button.dataset.panel==='direct-costs'){await pricing.openDirect();return;}
+        if(state.panel==='direct-costs'&&!(await pricing.leave()))return;
+      }
       if (await entityActions.act(button)) return;
       if (await route(button)) return;
       if (button.dataset.action.startsWith("resource-import-")) {await resourceImport.act(button);return;}
@@ -708,7 +714,7 @@ export function createWorkspaceApp({
       [homeCash, ["home-cash-form"]],
       [
         pricing,
-        ["price-item-form", "price-template-form", "price-export-form"],
+        ["price-item-form", "price-direct-form", "price-template-form", "price-export-form"],
       ],
       [operations, ["operation-form", "warehouse-form", "certificate-workflow-form", "quotation-request-form", "workflow-cash-form", "site-book-form","site-book-print-form","quotation-award-form","quotation-receive-form","quotation-payment-form","supplier-movement-form","certificate-payment-form"]],
       [
@@ -1013,5 +1019,9 @@ export function createWorkspaceApp({
     }
   })();
 
-  return { state, ready, render };
+  async function flushPending(){
+    try{await pricing.flush();if(pricing.hasUnsavedForm()){state.message='Terminá o cerrá la ventana de edición antes de salir.';render();return false;}return true;}
+    catch(error){state.message='No se pudo guardar antes de cerrar: '+String(error);render();return false;}
+  }
+  return { state, ready, render, flushPending };
 }

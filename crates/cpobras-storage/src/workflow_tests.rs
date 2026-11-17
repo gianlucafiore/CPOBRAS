@@ -1360,7 +1360,7 @@ fn upgrades_populated_schema_fifteen_and_deletes_its_preexisting_linked_line() {
             .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| r
                 .get::<_, i64>(0))
             .unwrap(),
-        36
+        37
     );
     upgraded.delete_estimate_item(e.id, line.id).unwrap();
     assert!(upgraded.estimate_items(e.id).unwrap().is_empty());
@@ -2036,9 +2036,9 @@ fn custom_price_definition_revision_copy_export_and_issue_are_consistent() {
     assert!(!original.custom);
     assert_eq!(original.revision, 0);
     let mut definition = PriceDefinition::from_rates(PricingRates::default());
-    definition.rows[0].reference_percent = Decimal::from(10);
-    definition.rows[2].kind = PriceKind::PercentDirect;
-    definition.rows[2].percent = Decimal::from(15);
+    definition.rows[1].reference_percent = Decimal::from(10);
+    definition.rows[3].kind = PriceKind::PercentDirect;
+    definition.rows[3].percent = Decimal::from(15);
     definition.rows.last_mut().unwrap().percent = Decimal::from(21);
     let saved = store
         .save_price_definition(estimate.id, 0, &definition)
@@ -2060,7 +2060,7 @@ fn custom_price_definition_revision_copy_export_and_issue_are_consistent() {
         Decimal::new(3025, 1)
     );
     let document = store.export_budget(estimate.id).unwrap();
-    assert_eq!(document.format_version, 6);
+    assert_eq!(document.format_version, 7);
     let json = serde_json::to_string(&document).unwrap();
     let imported = store
         .import_budget(project.id, &serde_json::from_str(&json).unwrap())
@@ -2088,10 +2088,10 @@ fn invalid_custom_price_can_be_repaired_after_direct_cost_change() {
     use cpobras_core::price_determination::{PriceDefinition, PriceKind, PriceRole};
     let (mut store, _, estimate, line) = fixture();
     let mut definition = PriceDefinition::from_rates(PricingRates::default());
-    definition.rows[0].kind = PriceKind::Fixed;
-    definition.rows[0].role = PriceRole::Discount;
-    definition.rows[0].subtract = true;
-    definition.rows[0].amount = Decimal::from(150);
+    definition.rows[1].kind = PriceKind::Fixed;
+    definition.rows[1].role = PriceRole::Discount;
+    definition.rows[1].subtract = true;
+    definition.rows[1].amount = Decimal::from(150);
     store
         .save_price_definition(estimate.id, 0, &definition)
         .unwrap();
@@ -2112,7 +2112,7 @@ fn invalid_custom_price_can_be_repaired_after_direct_cost_change() {
     assert!(saved.calculation.is_none());
     assert!(saved.calculation_error.is_some());
     assert!(store.issue_estimate(estimate.id).is_err());
-    definition.rows[0].amount = Decimal::from(10);
+    definition.rows[1].amount = Decimal::from(10);
     store
         .save_price_definition(estimate.id, 1, &definition)
         .unwrap();
@@ -2128,8 +2128,8 @@ fn certificates_prorate_custom_price_including_fixed_charges() {
     use cpobras_core::price_determination::{PriceDefinition, PriceKind};
     let (mut s, p, e, l) = fixture();
     let mut definition = PriceDefinition::from_rates(PricingRates::default());
-    definition.rows[0].kind = PriceKind::Fixed;
-    definition.rows[0].amount = 50.into();
+    definition.rows[1].kind = PriceKind::Fixed;
+    definition.rows[1].amount = 50.into();
     s.save_price_definition(e.id, 0, &definition).unwrap();
     s.issue_estimate(e.id).unwrap();
     let mut cert = operation(p.id, "certificate");
@@ -2173,8 +2173,8 @@ fn print_snapshots_reconcile_client_prices_and_incidence_without_mutating_costs(
         .unwrap();
     }
     let mut definition = PriceDefinition::from_rates(PricingRates::default());
-    definition.rows[0].kind = PriceKind::Fixed;
-    definition.rows[0].amount = 1.into();
+    definition.rows[1].kind = PriceKind::Fixed;
+    definition.rows[1].amount = 1.into();
     s.save_price_definition(e.id, 0, &definition).unwrap();
     let before = s.export_budget(e.id).unwrap();
     let data = s.budget_print_data(e.id).unwrap();
@@ -2246,8 +2246,8 @@ fn zero_direct_cost_prints_fixed_price_as_explicit_unallocated_amount() {
     )
     .unwrap();
     let mut definition = PriceDefinition::from_rates(PricingRates::default());
-    definition.rows[0].kind = PriceKind::Fixed;
-    definition.rows[0].amount = 50.into();
+    definition.rows[1].kind = PriceKind::Fixed;
+    definition.rows[1].amount = 50.into();
     s.save_price_definition(e.id, 0, &definition).unwrap();
     let data = s.budget_print_data(e.id).unwrap();
     assert_eq!(data.final_total, 50.into());
@@ -3099,12 +3099,15 @@ fn monthly_rentals_reconcile_partial_invoices_payments_and_cash_before_collectio
     for row in &mut definition.rows {
         row.enabled = false;
     }
-    let row = &mut definition.rows[0];
+    let row = &mut definition.rows[1];
     row.enabled = true;
     row.detail_mode = DetailMode::Items;
     let item_id = Uuid::new_v4();
     let row_id = row.id;
     row.items = vec![PriceItem {
+        resource_id: None,
+        resource_kind: None,
+        months: None,
         id: item_id,
         parent_id: None,
         group: false,
@@ -5865,7 +5868,7 @@ fn line_cost_exclusions_keep_prices_quantities_other_lines_and_survive_edit_copy
             .included
     );
     let document = s.export_budget(e.id).unwrap();
-    assert_eq!(document.format_version, 6);
+    assert_eq!(document.format_version, 7);
     let imported = s.import_budget(p.id, &document).unwrap();
     let imported_line = s.estimate_items(imported.id).unwrap()[0].clone();
     assert!(
@@ -5907,4 +5910,64 @@ fn legacy_components_default_to_included_and_exclusions_only_remove_the_cost() {
     assert_eq!(acu.cost_breakdown().unwrap().total, Decimal::ZERO);
     assert_eq!(acu.components[0].unit_price, Decimal::from(100));
     assert_eq!(acu.components[0].quantity_per_unit, Decimal::from(3));
+}
+
+#[test]
+fn direct_budget_costs_roundtrip_without_lines_and_preserve_requirements_when_not_charged() {
+    use cpobras_core::price_determination::{PriceDefinition, PriceRole};
+    let (mut s, p, e, _) = fixture();
+    let resource = Uuid::new_v4();
+    let mut definition = PriceDefinition::from_rates(PricingRates::default());
+    definition.rows[0].items=vec![serde_json::from_value(serde_json::json!({
+        "id":Uuid::new_v4(),"resource_id":resource,"resource_kind":"material","months":"3", "parent_id":null,"group":false,"description":"Protección de obra","unit":"un","quantity":"2","unit_price":"100","participation_percent":"100","periodic":null
+    })).unwrap()];
+    let before = s.estimate_items(e.id).unwrap().len();
+    s.save_price_definition(e.id, 0, &definition).unwrap();
+    assert_eq!(
+        s.priced_estimate_total(e.id).unwrap().total,
+        Decimal::from(800)
+    );
+    assert_eq!(s.estimate_items(e.id).unwrap().len(), before);
+    let mut recovered = s.get_price_definition(e.id).unwrap().definition;
+    assert_eq!(recovered.rows[0].items[0].months, Some(Decimal::from(3)));
+    recovered.rows[0].enabled = false;
+    s.save_price_definition(e.id, 1, &recovered).unwrap();
+    assert_eq!(
+        s.priced_estimate_total(e.id).unwrap().total,
+        Decimal::from(200)
+    );
+    let report = s.operations_report(p.id, Some(e.id), "2026-11-17").unwrap();
+    assert_eq!(
+        report
+            .needs
+            .iter()
+            .find(|n| n.resource_id == resource)
+            .unwrap()
+            .required,
+        Decimal::from(6)
+    );
+    // Omission by a legacy caller cannot erase the linked composition.
+    let mut omitted = recovered.clone();
+    omitted.rows.retain(|r| r.role != PriceRole::DirectCosts);
+    s.save_price_definition(e.id, 2, &omitted).unwrap();
+    assert_eq!(
+        s.get_price_definition(e.id).unwrap().definition.rows[0].items,
+        recovered.rows[0].items
+    );
+    let copied = s.duplicate_estimate(e.id, "Copia con gastos").unwrap();
+    let doc = s.export_budget(copied.id).unwrap();
+    assert_eq!(doc.format_version, 7);
+    let imported = s.import_budget(p.id, &doc).unwrap();
+    let read = s.get_price_definition(imported.id).unwrap();
+    let row = read
+        .definition
+        .rows
+        .iter()
+        .find(|r| r.role == PriceRole::DirectCosts)
+        .unwrap();
+    assert!(!row.enabled);
+    assert_eq!(row.items[0].months, Some(Decimal::from(3)));
+    assert_eq!(row.items[0].resource_id, Some(resource));
+    s.issue_estimate(e.id).unwrap();
+    assert!(s.save_price_definition(e.id, 3, &recovered).is_err());
 }

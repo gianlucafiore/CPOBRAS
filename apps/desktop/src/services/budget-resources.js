@@ -1,7 +1,7 @@
 import {sumDecimals,multiplyDecimals,compareDecimals} from '../decimal.js';
 
 /** Aggregate actual ACU consumption across every line, keeping decimal strings exact. */
-export function budgetResourceTotals(lines, analyses, resources=[], prices={}) {
+export function budgetResourceTotals(lines, analyses, resources=[], prices={}, definition=null) {
  const catalog=new Map(resources.map(r=>[r.id,r])), totals=new Map();
  for(const line of lines){
   const analysis=analyses.get(line.analysis_id);
@@ -14,6 +14,15 @@ export function budgetResourceTotals(lines, analyses, resources=[], prices={}) {
    current.quantity=sumDecimals([current.quantity,quantity]);
    current.total=price==null||current.total==null?null:sumDecimals([current.total,multiplyDecimals(quantity,price)]);
    totals.set(c.resource_id,current);
+  }
+ }
+ for(const row of definition?.rows||[]){
+  if(row.role!=='direct_costs')continue;
+  for(const i of row.items||[]){
+   if(i.group||!i.resource_id)continue;
+   const r=catalog.get(i.resource_id),quantity=multiplyDecimals(multiplyDecimals(i.quantity,i.months??'1'),multiplyDecimals(i.participation_percent??'100','0.01'));
+   const current=totals.get(i.resource_id)||{resource_id:i.resource_id,description:r?.description||i.description,kind:r?.kind||i.resource_kind||'material',unit:r?.unit||i.unit,quantity:'0',total:'0'};
+   current.quantity=sumDecimals([current.quantity,quantity]);current.total=current.total==null?null:sumDecimals([current.total,multiplyDecimals(quantity,i.unit_price)]);totals.set(i.resource_id,current);
   }
  }
  return [...totals.values()];

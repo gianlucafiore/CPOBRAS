@@ -1,3 +1,5 @@
+import {createPriceAutosave} from "../services/price-autosave.js";
+import {searchResources} from "./resource-picker.js";
 import { e, field, select } from "./helpers.js";
 import { money, numeric } from "../decimal.js";
 import { exportPriceDetermination } from "../services/price-export.js";
@@ -46,6 +48,20 @@ export function createPriceDetermination({
     timer: null,
     lastExport: "",
   };
+  const active = () => state.view === "price-determination" || (state.view === "workspace" && state.panel === "direct-costs");
+  const autosave = createPriceAutosave({state,model:m,invoke,window,onStatus:()=>{
+    for(const node of document.querySelectorAll?.('[data-price-save-status]')||[])node.textContent=saveLabel();
+    for(const node of document.querySelectorAll?.('[data-price-error-message]')||[]){node.textContent=m.error||'';node.parentElement.hidden=!m.error;}
+    for(const node of document.querySelectorAll?.('[data-price-retry]')||[])node.hidden=!['error','conflict'].includes(m.saveStatus);
+    if(!m.dirty && m.calculation && state.estimateId===autosave.contextId()){
+      state.totals=m.calculation.breakdown;
+      const total=document.querySelector('.total-head strong');if(total)total.textContent=money(m.calculation.breakdown.total);
+    }
+    previewState();
+  }});
+  function saveLabel(){return ({pending:'Cambios pendientes de guardar…',saving:'Guardando…',saved:'Guardado automáticamente',error:'Error al guardar · se conserva un borrador local',conflict:'Conflicto: revisá el borrador recuperado'})[m.saveStatus]||'Guardado';}
+  const directRow = () => m.definition.rows.find(r=>r.role==='direct_costs');
+  function ensureDirect(){if(!directRow()){const r=newRow('detailed');Object.assign(r,{role:'direct_costs',label:'Gastos Directos'});m.definition.rows.unshift(r);}}
   const selected = () => m.definition.rows.find((r) => r.id === m.selectedId);
   const result = (id) => m.calculation?.rows.find((r) => r.id === id);
   const lock = () => (!editable() ? "disabled" : "");
@@ -94,11 +110,12 @@ export function createPriceDetermination({
   }
   function capture() {
     const active = document.activeElement;
-    if (active?.name && active.closest?.(".price-workspace"))
+    if (active?.name && active.closest?.(".price-workspace,.direct-costs-panel"))
       m.focus = { name: active.name, start: active.selectionStart };
   }
   function redraw() {
     capture();
+    if(m.dirty)autosave.changed();
     previewState();
     render();
   }
@@ -112,6 +129,7 @@ export function createPriceDetermination({
     }
   }
   async function preview() {
+    if(m.dirty)autosave.changed();
     if (m.timer) {
       window.clearTimeout(m.timer);
       m.timer = null;
@@ -131,29 +149,18 @@ export function createPriceDetermination({
       m.calculation = null;
       m.error = String(error);
     }
-    if (!m.modal && state.view === "price-determination") redraw();
+    if (!m.modal && active()) redraw();
   }
   function schedule() {
+    autosave.changed();
     if (m.timer) window.clearTimeout(m.timer);
     m.timer = window.setTimeout(() => preview(), 250);
   }
-  function leave() {
-    if (m.busy || state.busy) return false;
-    if (m.modal) {
-      if (!closeModal()) return false;
-    }
-    if (
-      m.dirty &&
-      !window.confirm(
-        "Tenés cambios sin guardar en Determinación de precio. ¿Descartarlos?",
-      )
-    )
-      return false;
-    if (m.timer) window.clearTimeout(m.timer);
-    m.sequence++;
-    m.dirty = false;
-    state.pricePreview = null;
-    return true;
+  async function leave() {
+    if(m.busy || state.busy)return false;
+    if(m.modal && !closeModal())return false;
+    try{await autosave.flush();}catch{redraw();return false;}
+    if(m.timer)window.clearTimeout(m.timer);m.sequence++;state.pricePreview=null;return true;
   }
   function closeModal() {
     if (state.busy || m.busy) return false;
@@ -172,6 +179,7 @@ export function createPriceDetermination({
     const row = selected();
     if (!row)
       return '<div class="blank-state"><strong>Seleccioná una línea</strong><p>Podés agregar un concepto, porcentaje o subtotal desde la lista.</p></div>';
+    if(row.role==='direct_costs')return directPane();
     const calculated = result(row.id);
     return `<div class="price-detail-heading"><h2>${e(row.label)}</h2><strong>${m.calculation ? money(calculated?.amount) : "—"}</strong></div><fieldset class="price-properties" ${lock()}><div class="form-grid">${select("Tipo de cálculo", "price-kind", kinds, row.kind)}${select("Categoría del concepto", "price-role", roles, row.role)}${select(
       "Operación",
@@ -197,9 +205,10 @@ export function createPriceDetermination({
     };
     return `<div class="price-detail-table"><table class="mini-table"><thead><tr><th>Descripción</th><th>Unidad</th><th>% participación</th><th>Cantidad</th><th>Precio</th><th>Total</th><th></th></tr></thead><tbody>${renderChildren(null) || '<tr><td colspan="7">Agregá grupos e ítems para detallar este concepto.</td></tr>'}</tbody></table></div>`;
   }
+  function errorMarkup(){return `<div class="price-error" role="alert" ${m.error?'':'hidden'}><span data-price-error-message>${e(m.error||'')}</span><button class="btn tiny" data-action="price-save" data-price-retry ${['error','conflict'].includes(m.saveStatus)?'':'hidden'}>Reintentar guardado</button>${m.recoveryDraft?'<button class="btn" data-action="price-restore-draft">Recuperar borrador</button><button class="btn" data-action="price-reload">Descartar borrador y recargar</button>':''}</div>`;}
   function markup() {
     const calc = m.calculation;
-    return `<main class="price-workspace"><div class="work-toolbar"><h1>Determinación de precio</h1><span class="grow"></span><button class="btn" data-action="price-back">← Presupuesto</button><button class="btn" data-action="agreement-open">Acuerdo de ajuste del presupuesto</button><button class="btn" data-action="price-reload">Recargar</button><button class="btn primary" data-action="price-save" ${lock()}>Guardar determinación</button></div><div class="price-status" role="status">${m.dirty ? "Cambios sin guardar · vista previa" : "Valores guardados"}${!editable() ? " · Presupuesto emitido" : ""}</div>${m.error ? `<p class="price-error" role="alert">${e(m.error)}</p>` : ""}<div class="price-columns"><aside class="price-left"><section class="price-card"><h2>Resumen de costos</h2><div class="summary-row"><strong>COSTO DIRECTO</strong><strong>${money(m.direct)}</strong></div>${(
+    return `<main class="price-workspace"><div class="work-toolbar"><h1>Determinación de precio</h1><span class="grow"></span><button class="btn" data-action="price-back">← Presupuesto</button><button class="btn" data-action="agreement-open">Acuerdo de ajuste del presupuesto</button><button class="btn" data-action="price-reload">Recargar</button><button class="btn primary" data-action="price-save" ${lock()}>Guardar determinación</button></div><div class="price-status" role="status" data-price-save-status>${saveLabel()}${!editable() ? " · Presupuesto emitido" : ""}</div>${errorMarkup()}<div class="price-columns"><aside class="price-left"><section class="price-card"><h2>Resumen de costos</h2><div class="summary-row"><strong>COSTO DIRECTO</strong><strong>${money(m.direct)}</strong></div>${(
       calc?.rows || []
     )
       .filter((r) => r.enabled)
@@ -209,7 +218,7 @@ export function createPriceDetermination({
       )
       .join(
         "",
-      )}<div class="summary-final"><span>PRESUPUESTO TOTAL</span><strong>${e(currentEstimate()?.currency)} ${calc ? money(calc.breakdown.total) : "—"}</strong></div></section><section class="price-card"><h2>Conceptos y orden de cálculo</h2><p class="small-muted">Arrastrá el asa para reordenar. Las flechas permiten mover cada línea.</p><div class="price-row-list">${m.definition.rows.map((row, index) => `<div class="price-row ${row.id === m.selectedId ? "selected" : ""}" data-price-row="${row.id}"><button type="button" class="price-drag" draggable="${editable()}" data-price-drag="${row.id}" aria-label="Arrastrar ${e(row.label)}" ${lock()}>⋮⋮</button><input type="checkbox" aria-label="Activar ${e(row.label)}" data-price-enabled="${row.id}" ${row.enabled ? "checked" : ""} ${lock()}><input class="price-label" name="price-label-${row.id}" data-price-label="${row.id}" aria-label="Nombre de línea ${index + 1}" value="${e(row.label)}" ${lock()}><button type="button" class="btn tiny" data-action="price-select" data-id="${row.id}">${e(row.kind === "detailed" ? { items: "Con detalle", manual: "Monto manual", reference: "% CD ref." }[row.detail_mode] : kinds.find(([kind]) => kind === row.kind)?.[1])}</button>${row.kind.startsWith("percent_") ? `<input class="price-number" name="price-percent-${row.id}" data-price-percent="${row.id}" aria-label="Porcentaje ${e(row.label)}" type="number" min="0" step="any" value="${e(row.percent)}" ${lock()}>` : row.kind === "fixed" ? `<input class="price-number" name="price-amount-${row.id}" data-price-amount="${row.id}" aria-label="Monto ${e(row.label)}" type="number" min="0" step="any" value="${e(row.amount)}" ${lock()}>` : ""}<button class="price-move" data-action="price-up" data-id="${row.id}" aria-label="Subir ${e(row.label)}" ${lock()}>↑</button><button class="price-move" data-action="price-down" data-id="${row.id}" aria-label="Bajar ${e(row.label)}" ${lock()}>↓</button><button class="tiny-danger" data-action="price-delete-row" data-id="${row.id}" aria-label="Quitar línea ${e(row.label)}" ${lock()}>×</button></div>`).join("")}</div><div class="price-add"><small>Agregar línea:</small>${kinds.map(([kind, label]) => `<button class="btn tiny" data-action="price-add-row" data-kind="${kind}" ${lock()}>${e(label)}</button>`).join("")}</div></section><section class="price-card"><h2>Plantillas y exportación</h2>${select("Plantilla de determinación o detalle", "price-template", [["", "Elegir plantilla"], ...m.templates.filter((t) => t.currency === currentEstimate()?.currency).map((t) => [t.id, (t.scope === "detail" ? "Detalle" : "Determinación") + " · " + t.name])], m.templateId)}<div class="price-add"><button class="btn" data-action="price-load-template" ${lock()}>Cargar plantilla</button><button class="btn" data-action="price-template">Guardar plantilla</button><button class="btn" data-action="price-export">Exportar</button></div>${m.lastExport ? `<p role="status">Archivo guardado en ${e(m.lastExport)}</p>` : ""}</section></aside><section class="price-right">${rowEditor()}</section></div>${modalMarkup()}</main>`;
+      )}<div class="summary-final"><span>PRESUPUESTO TOTAL</span><strong>${e(currentEstimate()?.currency)} ${calc ? money(calc.breakdown.total) : "—"}</strong></div></section><section class="price-card"><h2>Conceptos y orden de cálculo</h2><p class="small-muted">Arrastrá el asa para reordenar. Las flechas permiten mover cada línea.</p><div class="price-row-list">${m.definition.rows.map((row, index) => `<div class="price-row ${row.id === m.selectedId ? "selected" : ""}" data-price-row="${row.id}"><button type="button" class="price-drag" draggable="${editable()}" data-price-drag="${row.id}" aria-label="Arrastrar ${e(row.label)}" ${lock()}>⋮⋮</button><input type="checkbox" aria-label="Activar ${e(row.label)}" data-price-enabled="${row.id}" ${row.enabled ? "checked" : ""} ${lock()}><input class="price-label" name="price-label-${row.id}" data-price-label="${row.id}" aria-label="Nombre de línea ${index + 1}" value="${e(row.label)}" ${lock()}><button type="button" class="btn tiny" data-action="price-select" data-id="${row.id}">${e(row.kind === "detailed" ? { items: "Con detalle", manual: "Monto manual", reference: "% CD ref." }[row.detail_mode] : kinds.find(([kind]) => kind === row.kind)?.[1])}</button>${row.kind.startsWith("percent_") ? `<input class="price-number" name="price-percent-${row.id}" data-price-percent="${row.id}" aria-label="Porcentaje ${e(row.label)}" type="number" min="0" step="any" value="${e(row.percent)}" ${lock()}>` : row.kind === "fixed" ? `<input class="price-number" name="price-amount-${row.id}" data-price-amount="${row.id}" aria-label="Monto ${e(row.label)}" type="number" min="0" step="any" value="${e(row.amount)}" ${lock()}>` : ""}<button class="price-move" data-action="price-up" data-id="${row.id}" aria-label="Subir ${e(row.label)}" ${lock()}>↑</button><button class="price-move" data-action="price-down" data-id="${row.id}" aria-label="Bajar ${e(row.label)}" ${lock()}>↓</button><button class="tiny-danger" data-action="price-delete-row" data-id="${row.id}" aria-label="${row.role==='direct_costs'?'Desactivar':'Quitar línea'} ${e(row.label)}" ${lock()}>×</button></div>`).join("")}</div><div class="price-add"><small>Agregar línea:</small>${kinds.map(([kind, label]) => `<button class="btn tiny" data-action="price-add-row" data-kind="${kind}" ${lock()}>${e(label)}</button>`).join("")}</div></section><section class="price-card"><h2>Plantillas y exportación</h2>${select("Plantilla de determinación o detalle", "price-template", [["", "Elegir plantilla"], ...m.templates.filter((t) => t.currency === currentEstimate()?.currency).map((t) => [t.id, (t.scope === "detail" ? "Detalle" : "Determinación") + " · " + t.name])], m.templateId)}<div class="price-add"><button class="btn" data-action="price-load-template" ${lock()}>Cargar plantilla</button><button class="btn" data-action="price-template">Guardar plantilla</button><button class="btn" data-action="price-export">Exportar</button></div>${m.lastExport ? `<p role="status">Archivo guardado en ${e(m.lastExport)}</p>` : ""}</section></aside><section class="price-right">${rowEditor()}</section></div>${modalMarkup()}</main>`;
   }
   function modalMarkup() {
     if (!m.modal) return "";
@@ -219,6 +228,10 @@ export function createPriceDetermination({
     let title = "",
       body = "",
       form = "";
+    if(modal.kind==='direct-item'){
+      title='Agregar insumo a Gastos Directos';form='price-direct-form';
+      body=`<label class="field"><span>Buscar insumo</span><input type="search" data-direct-search placeholder="Código o descripción"></label>${select('Insumo','directResource',[['','Seleccionar…'],...state.resources.filter(r=>r.active!==false).map(r=>[r.id,r.code+' · '+r.description+' ('+r.unit+')'])])}${field('Cantidad','directQuantity','1','type="number" min="0" step="any" required')}${field('Precio por unidad / mes '+currentEstimate()?.currency,'directPrice','0','type="number" min="0" step="any" required')}${select('Periodicidad','directPeriod',[['once','Puntual'],['monthly','Mensual']])}${field('Cantidad de meses (solo mensual)','directMonths','1','type="number" min="0.000001" max="1200" step="any" required')}<p class="modal-help">Puntual: cantidad × precio. Mensual: cantidad × precio mensual × meses. Cada insumo conserva su propia duración.</p>`;
+    }
     if (modal.kind === "item") {
       title = item.group
         ? item.id
@@ -297,15 +310,18 @@ export function createPriceDetermination({
       estimateId: state.estimateId,
     });
     m.definition = saved.definition;
+    ensureDirect();
     m.revision = saved.revision;
     m.direct = saved.direct;
     m.calculation = saved.calculation;
     m.error = saved.calculation_error || "";
     m.selectedId =
-      m.definition.rows.find((r) => r.kind === "detailed")?.id ||
+      m.definition.rows.find((r) => r.kind === "detailed" && r.role!=="direct_costs")?.id ||
       m.definition.rows[0]?.id ||
       null;
     m.dirty = false;
+    autosave.bind(saved,state.estimateId,editable());
+    if(!m.definition.rows.some(r=>r.id===m.selectedId))m.selectedId=m.definition.rows.find(r=>r.role==='overhead')?.id||m.definition.rows[0]?.id;
     m.modal = null;
     m.templates = await invoke("list_price_templates");
     state.view = "price-determination";
@@ -322,7 +338,7 @@ export function createPriceDetermination({
     if (!action.startsWith("price-")) return false;
     if (m.busy) return true;
     if (action === "price-back") {
-      if (leave()) {
+      if (await leave()) {
         state.view = "workspace";
         await loadEstimate();
       }
@@ -333,8 +349,15 @@ export function createPriceDetermination({
       return true;
     }
     if (action === "price-reload") {
-      if (leave()) await open();
+      if(m.dirty && ['error','conflict'].includes(m.saveStatus)){
+        if(window.confirm('¿Descartar el borrador local y recargar los valores guardados?')){autosave.discard();await open();}
+        return true;
+      }
+      if (await leave()) await open();
       return true;
+    }
+    if(action==='price-restore-draft'){
+      if(window.confirm('¿Usar el borrador recuperado en lugar de los valores actuales?')){autosave.restore();await preview();await autosave.flush();redraw();}return true;
     }
     if (action === "price-select") {
       m.selectedId = button.dataset.id;
@@ -351,28 +374,7 @@ export function createPriceDetermination({
     }
     if (action === "price-save") {
       if (!editable()) return true;
-      m.busy = true;
-      const workspace = document.querySelector(".price-workspace");
-      if (workspace) workspace.inert = true;
-      try {
-        const saved = await invoke("save_price_definition", {
-          estimateId: state.estimateId,
-          revision: m.revision,
-          definition: m.definition,
-        });
-        m.revision = saved.revision;
-        m.calculation = saved.calculation;
-        m.direct = saved.direct;
-        m.dirty = false;
-        m.error = "";
-        await loadEstimate();
-        state.message = "Determinación de precio guardada";
-      } catch (error) {
-        m.error = String(error);
-      } finally {
-        m.busy = false;
-        redraw();
-      }
+      try{await autosave.flush();await loadEstimate();redraw();}catch{redraw();}
       return true;
     }
     if (!editable()) return true;
@@ -384,8 +386,12 @@ export function createPriceDetermination({
       m.dirty = true;
       await preview();
     }
+    if(action==='price-add-direct'){
+      m.selectedId=directRow().id;m.modal={kind:'direct-item',item:{id:window.crypto.randomUUID()},dirty:false};redraw();return true;
+    }
     if (action === "price-delete-row") {
       const row = m.definition.rows.find((r) => r.id === button.dataset.id);
+      if(row.role==='direct_costs'){row.enabled=false;m.dirty=true;await preview();return true;}
       if (
         !window.confirm(
           `¿Quitar la línea «${row.label}» y su detalle de esta determinación?`,
@@ -410,6 +416,7 @@ export function createPriceDetermination({
       }
     }
     if (action === "price-mode") {
+      if(row.role==='direct_costs')return true;
       row.detail_mode = button.dataset.mode;
       m.dirty = true;
       await preview();
@@ -453,17 +460,19 @@ export function createPriceDetermination({
         return true;
       }
       if (
-        m.dirty &&
+        (m.dirty || directRow()?.items.length) &&
         !window.confirm(
           "Cargar la plantilla reemplaza la determinación o el detalle seleccionado. ¿Continuar?",
         )
       )
         return true;
       if (template.scope === "definition") {
+        const composition=structuredClone(directRow());
         m.definition = cloneDefinition(template.definition);
+        if(!m.definition.rows.some(r=>r.role==='direct_costs'))m.definition.rows.unshift(composition);
         m.selectedId = m.definition.rows[0]?.id || null;
       } else {
-        if (row?.kind !== "detailed") {
+        if (row?.kind !== "detailed" || row.role==='direct_costs') {
           m.error = "Seleccioná un concepto con detalle";
           redraw();
           return true;
@@ -482,11 +491,24 @@ export function createPriceDetermination({
   async function submit(form) {
     const data = new FormData(form),
       value = (k) => String(data.get(k) || "").trim();
+    if(form.id==='price-direct-form'){
+      if(!editable())throw Error('El presupuesto es de solo lectura');
+      const resource=state.resources.find(r=>r.id===value('directResource')&&r.active!==false);
+      if(!resource)throw Error('Seleccioná un insumo del catálogo');
+      const definition=structuredClone(m.definition),row=definition.rows.find(r=>r.role==='direct_costs');
+      const item={id:m.modal.item.id,parent_id:null,group:false,description:resource.description,unit:resource.unit,resource_id:resource.id,resource_kind:resource.kind,months:value('directPeriod')==='monthly'?value('directMonths'):null,periodic:null,participation_percent:'100',quantity:value('directQuantity'),unit_price:value('directPrice')};
+      const index=row.items.findIndex(i=>i.id===item.id);if(index<0)row.items.push(item);else row.items[index]=item;
+      const calc=await invoke('calculate_price_definition',{estimateId:state.estimateId,definition});
+      m.definition=definition;m.calculation=calc;m.dirty=true;autosave.changed();await autosave.flush();m.modal=null;redraw();return;
+    }
     if (form.id === "price-item-form") {
       const definition = structuredClone(m.definition),
         row = definition.rows.find((r) => r.id === m.selectedId),
         old = m.modal.item;
       const item = {
+        resource_id: old.resource_id??null,
+        resource_kind: old.resource_kind??null,
+        months: old.months??null,
         id: old.id || window.crypto.randomUUID(),
         parent_id: value("parentId") || null,
         group: old.group,
@@ -553,13 +575,19 @@ export function createPriceDetermination({
     }
   }
   function input(target) {
-    if (state.view !== "price-determination") return;
+    if (!active()) return;
     if (target.closest?.(".price-modal")) {
       m.modal.dirty = true;
+      if(target.matches?.('[data-direct-search]')){
+        const options=searchResources(state.resources,target.value);const list=document.querySelector('[name="directResource"]');
+        list.innerHTML='<option value="">Seleccionar…</option>'+options.map(r=>`<option value="${e(r.id)}">${e(r.code+' · '+r.description+' ('+r.unit+')')}</option>`).join('');
+      }
       return;
     }
     if (!editable()) return;
     let changed = false;
+    if(target.dataset.directItem){const item=directRow().items.find(i=>i.id===target.dataset.directItem);item[target.dataset.directField]=target.value;changed=true;}
+
     for (const [attr, key] of [
       ["priceLabel", "label"],
       ["pricePercent", "percent"],
@@ -586,9 +614,10 @@ export function createPriceDetermination({
     }
   }
   async function change(target) {
-    if (state.view !== "price-determination") return;
+    if (!active()) return;
     if (target.closest?.(".price-modal")) {
       m.modal.dirty = true;
+      if(target.name==='directResource'){const resource=state.resources.find(r=>r.id===target.value);const price=document.querySelector('[name="directPrice"]');if(price)price.value=currentEstimate()?.currency==='ARS'?(resource?.price??'0'):'0';}
       return;
     }
     if (target.name === "price-template") {
@@ -597,6 +626,8 @@ export function createPriceDetermination({
     }
     if (!editable()) return;
     const row = selected();
+    if(target.dataset.directPeriod){const item=directRow().items.find(i=>i.id===target.dataset.directPeriod);item.months=target.value==='monthly'?'1':null;m.dirty=true;await preview();return;}
+    if(row?.role==='direct_costs' && ['price-kind','price-role','price-sign'].includes(target.name))return;
     if (target.dataset.priceEnabled) {
       m.definition.rows.find(
         (r) => r.id === target.dataset.priceEnabled,
@@ -724,8 +755,21 @@ export function createPriceDetermination({
     }
     return true;
   }
+  async function openDirect(){
+    if(autosave.active()&&m.dirty)await autosave.flush();
+    const view=state.view;await open();state.view=view;state.panel='direct-costs';m.selectedId=directRow().id;render();
+  }
+  function directPane(){
+    const row=directRow();if(!row)return '<p>Cargando Gastos Directos…</p>';
+    return `<section class="direct-costs-panel"><div class="detail-heading"><b>Gastos Directos del presupuesto</b><button class="btn tiny primary" data-action="price-add-direct" ${lock()}>＋ Agregar insumo</button></div><p class="context-help">Composición propia del presupuesto, fuera de la lista de partidas. Se suma una sola vez mediante el concepto Gastos Directos de Determinación de precio.</p><p role="status" data-price-save-status>${e(saveLabel())}</p>${errorMarkup()}<label><input type="checkbox" data-price-enabled="${row.id}" ${row.enabled?'checked':''} ${lock()}> Incluir Gastos Directos en el presupuesto</label><div class="table-scroll"><table class="mini-table"><thead><tr><th>Insumo</th><th>Unidad</th><th>Cantidad</th><th>Precio / período</th><th>Periodicidad</th><th>Meses</th><th>Total</th><th></th></tr></thead><tbody>${row.items.map(i=>`<tr><td>${e(i.description)}</td><td>${e(i.unit)}</td><td><input name="direct-quantity-${i.id}" data-direct-item="${i.id}" data-direct-field="quantity" value="${e(i.quantity)}" type="number" min="0" step="any" ${lock()} aria-label="Cantidad ${e(i.description)}"></td><td><input name="direct-price-${i.id}" data-direct-item="${i.id}" data-direct-field="unit_price" value="${e(i.unit_price)}" type="number" min="0" step="any" ${lock()} aria-label="Precio ${e(i.description)}"></td><td><select data-direct-period="${i.id}" ${lock()} aria-label="Periodicidad ${e(i.description)}"><option value="once" ${i.months==null?'selected':''}>Puntual</option><option value="monthly" ${i.months!=null?'selected':''}>Mensual</option></select></td><td>${i.months!=null?`<input name="direct-months-${i.id}" data-direct-item="${i.id}" data-direct-field="months" value="${e(i.months)}" type="number" min="0.000001" max="1200" step="any" ${lock()} aria-label="Meses ${e(i.description)}">`:'—'}</td><td class="number">${m.calculation?money(result(row.id)?.item_totals?.[i.id]??'0'):'—'}</td><td><button class="tiny-danger" data-action="price-delete-item" data-id="${i.id}" ${lock()} aria-label="Quitar ${e(i.description)}">×</button></td></tr>`).join('')||'<tr><td colspan="8">Agregá equipos, mano de obra, materiales o subcontratos de uso general.</td></tr>'}</tbody></table></div><p>Total del detalle: <strong>${m.calculation?money(result(row.id)?.detail_total??'0'):'—'}</strong> · Aplicado: <strong>${m.calculation?money(result(row.id)?.amount??'0'):'—'}</strong></p></section>`;
+  }
   return {
     markup,
+    directPane,
+    modalMarkup,
+    openDirect,
+    flush: autosave.flush,
+    hasUnsavedForm:()=>Boolean(m.modal?.dirty),
     act,
     submit,
     input,

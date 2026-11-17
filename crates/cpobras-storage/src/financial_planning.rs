@@ -162,7 +162,8 @@ impl LocalStore {
                 && !r.subtract
                 && matches!(
                     r.role,
-                    cpobras_core::price_determination::PriceRole::Overhead
+                    cpobras_core::price_determination::PriceRole::DirectCosts
+                        | cpobras_core::price_determination::PriceRole::Overhead
                         | cpobras_core::price_determination::PriceRole::Finance
                         | cpobras_core::price_determination::PriceRole::Other
                 )

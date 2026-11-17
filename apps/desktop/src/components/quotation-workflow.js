@@ -498,8 +498,8 @@ export function createQuotationWorkflow({
     v.materialNeeds=null;
     if(v.kind!=='material'||!model.estimateId)return;
     const lines=await invoke('list_estimate_lines',{estimateId:model.estimateId});
-    const analyses=await loadBudgetAnalyses(invoke,lines);
-    v.materialNeeds=materialNeedsFromTotals(budgetResourceTotals(lines,analyses,state.resources),model.report?.needs||[]);
+    const [analyses,pricing]=await Promise.all([loadBudgetAnalyses(invoke,lines),invoke("get_price_definition",{estimateId:model.estimateId})]);
+    v.materialNeeds=materialNeedsFromTotals(budgetResourceTotals(lines,analyses,state.resources,{},pricing.definition),model.report?.needs||[]);
   }
   async function act(b) {
     rememberExpandedOrders();
