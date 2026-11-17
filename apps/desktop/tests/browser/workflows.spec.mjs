@@ -141,7 +141,7 @@ async function bridge(page, options={}) {
    if(command==='operations_report')return {...operationReport(),...fixture.financialReport,project_id:args.projectId,name:args.projectId===sourceProject.id?sourceProject.name:project.name,estimate_id:args.estimateId};
    if(command==='operations_portfolio')return [operationReport()];
    if(command==='post_operation'||command==='material_payment_with_proof'){const o={...args.operation,calculated:{}};operations.push(o);return o;}
-   if (command === "list_analyses") return [];
+   if (command === "list_analyses") return fixture.acuPicker ? [{id:"library-acu",code:"ACU-0001",description:"Estructura de prueba",unit:"m³",unit_cost:"350"},{id:"empty-acu",code:"ACU-0002",description:"Vacío",unit:"m²",unit_cost:"0"}] : [];
    if (command === "list_project_estimates") return args.projectId==='source-project'?[{id:'source-estimate',title:'Modelo de cómputo',currency:'ARS',issued:true}]:fixture.context?[estimate,{...estimate,id:'estimate-2',title:'Alternativa emitida',issued:true}]:[estimate];
    if(command==='get_estimate_resource_prices')return resourcePrices;
    if(command==='list_budget_templates')return templates;
@@ -187,7 +187,8 @@ async function bridge(page, options={}) {
    if(command==='add_project_attachment'||command==='open_project_attachment'||command==='remove_project_attachment')return null;
    if (command === "list_budget_sections") return sections;
    if (command === "list_line_sections") return assignments;
-   if (command === "get_analysis_details") return lineDetails[args.analysisId];
+   if (command === "get_analysis_details") { if(fixture.acuPicker && args.analysisId==='library-acu')return {description:'Estructura de prueba',unit_cost:'350',components:[{resource_id:'resource-1',description:'Acero',unit:'kg',quantity:'3.5',unit_price:'100',total:'350'}]};if(args.analysisId==='empty-acu')return {description:'Vacío',unit_cost:'0',components:[]};return lineDetails[args.analysisId]; }
+   if(command==='add_line_from_analysis'){const created={...line,id:'inserted-acu',description:'Estructura de prueba',analysis_id:'library-acu',quantity:args.quantity};lines.push(created);return created;}
    if(command==='move_budget_section'){
     if(estimate.issued)throw Error('Presupuesto emitido');
     const source=sections.find(s=>s.id===args.sectionId),siblings=sections.filter(s=>(s.parent_id||null)===(source.parent_id||null)&&s.id!==source.id).sort((a,b)=>a.position-b.position);
@@ -578,7 +579,7 @@ test('new contact suggests reusing a similar opposite-role person and preserves 
 
 test('project quick creation and importing contacts preserve the project form and select the saved persons',async({page})=>{
  await bridge(page,{people:true});await page.getByRole('button',{name:'＋ Nueva obra',exact:true}).click();await page.getByLabel('Nombre de la obra',{exact:true}).fill('Obra con contactos nuevos');await page.getByRole('button',{name:'＋ Crear cliente',exact:true}).click();const child=page.getByRole('dialog',{name:'Nuevo cliente',exact:true});await child.getByLabel('Nombre / razón social',{exact:true}).fill('Cliente de obra nuevo');await child.getByLabel('CUIT / identificación',{exact:true}).fill('20-11111111-1');await child.getByRole('button',{name:'Crear cliente',exact:true}).click();await expect(page.getByLabel('Nombre de la obra',{exact:true})).toHaveValue('Obra con contactos nuevos');await expect(page.getByRole('combobox',{name:'Cliente / comitente',exact:true})).toHaveValue(/.+/);
- await page.getByRole('button',{name:'Importar desde Clientes',exact:true}).click();await page.getByLabel('Buscar contacto para incorporar',{exact:true}).fill('Cliente de obra nuevo');await page.getByRole('button',{name:'Incorporar como proveedor',exact:true}).click();await expect(page.getByRole('checkbox',{name:'Cliente de obra nuevo',exact:false})).toBeChecked();await expect(page.getByLabel('Nombre de la obra',{exact:true})).toHaveValue('Obra con contactos nuevos');await page.getByRole('button',{name:'Guardar',exact:true}).click();const saved=await page.evaluate(()=>window.__calls.filter(c=>c.command==='create_project').at(-1).args);expect(saved.clientId).toBe(saved.supplierIds[0]);expect(saved.projectName).toBe('Obra con contactos nuevos');
+ await expect(page.locator('.project-suppliers')).toHaveCount(0);await page.getByRole('button',{name:'Guardar',exact:true}).click();const saved=await page.evaluate(()=>window.__calls.filter(c=>c.command==='create_project').at(-1).args);expect(saved.supplierIds).toEqual([]);expect(saved.clientId).toBeTruthy();expect(saved.projectName).toBe('Obra con contactos nuevos');
 });
 
 test('editing a project can create and select a supplier while retaining its client and organization',async({page})=>{
@@ -1257,12 +1258,12 @@ test('backup restoration asks inside the app even when browser confirmation is u
 test('opening a database displays native errors inside the app without browser alerts',async({page})=>{
  await bridge(page);
  await page.evaluate(()=>{window.alert=()=>{throw new Error('window.alert no está disponible');};});
- await page.locator('.database-menu summary').click();
+ await page.getByRole('button',{name:'Opciones',exact:true}).click();
  await page.getByRole('button',{name:'Abrir base de datos…',exact:true}).click();
  await expect(page.getByRole('alert')).toContainText('os error 5');
  await expect(page.locator('.database-menu-path')).toContainText('Prueba');
  await expect(page.locator('body')).not.toHaveAttribute('inert','');
- await page.locator('.database-menu summary').click();
+ await page.getByRole('button',{name:'Opciones',exact:true}).click();
  await page.getByRole('button',{name:'Abrir base de datos…',exact:true}).click();
  await expect.poll(()=>page.evaluate(()=>window.__calls.filter(x=>x.command==='switch_database').length)).toBe(2);
  await expect(page.getByRole('alert')).toContainText('os error 5');
@@ -1510,6 +1511,14 @@ test('ACU bulbs exclude only the charged cost, show gray rows and a red warning 
  await page.getByRole('tab',{name:'Insumos',exact:true}).click();
  const candidates=page.locator('table tbody tr').filter({hasText:'Acero'});await expect(candidates.first()).toContainText('1.200,00');
  await page.getByRole('tab',{name:'ACU',exact:true}).click();
- await page.getByRole('button',{name:'Incluir grupo Materiales del costo',exact:true}).click();await expect(line.getByRole('img',{name:'Hay insumos sin sumar',exact:true})).toHaveCount(0);await expect(line.locator('td').nth(4)).toHaveText('400,00');
- await page.getByRole('button',{name:'Excluir grupo Materiales del costo',exact:true}).click();await expect(page.locator('.line-resource-row.component-excluded')).toHaveCount(2);await expect(line.locator('td').nth(4)).toHaveText('50,00');
+ await page.locator('.group-row').filter({hasText:'MATERIALES'}).hover();await page.getByRole('button',{name:'Incluir grupo Materiales del costo',exact:true}).click();await expect(line.getByRole('img',{name:'Hay insumos sin sumar',exact:true})).toHaveCount(0);await expect(line.locator('td').nth(4)).toHaveText('400,00');
+ await page.locator('.group-row').filter({hasText:'MATERIALES'}).hover();await page.getByRole('button',{name:'Excluir grupo Materiales del costo',exact:true}).click();await expect(page.locator('.line-resource-row.component-excluded')).toHaveCount(2);await expect(line.locator('td').nth(4)).toHaveText('50,00');
+});
+
+test('home options contain database and about, while work views hide file controls',async({page})=>{
+ await bridge(page);await page.getByRole('button',{name:'Opciones',exact:true}).click();await expect(page.getByRole('heading',{name:'Acerca de…',exact:true})).toBeVisible();await expect(page.getByText('Autor: Gianluca Fiore',{exact:true})).toBeVisible();await page.getByRole('button',{name:'Volver a Inicio',exact:true}).click();await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await expect(page.getByRole('button',{name:'Opciones',exact:true})).toHaveCount(0);await expect(page.getByRole('button',{name:'Abrir base de datos…',exact:true})).toHaveCount(0);await page.locator('[data-action=manage-dashboard-budget]').first().click();await expect(page.locator('.database-menu')).toHaveCount(0);
+});
+
+test('ACU insertion previews selected resources, rejects empty recipes and starts quantity at zero',async({page})=>{
+ await bridge(page,{acuPicker:true});await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.locator('[data-action=manage-dashboard-budget]').first().click();await page.locator('[data-action=modal-from-acu]').click();const dialog=page.getByRole('dialog',{name:'Insertar partida desde ACU',exact:true});await expect(dialog.locator('tbody')).toContainText('Acero');await expect(dialog.locator('tbody')).toContainText('350,00');await page.screenshot({path:test.info().outputPath('acu-picker.png'),fullPage:true});await expect(dialog.getByLabel('Cantidad',{exact:true})).toHaveCount(0);await dialog.locator('[data-id=empty-acu]').click();await expect(dialog.getByRole('button',{name:'Agregar',exact:true})).toBeDisabled();await dialog.getByRole('searchbox',{name:'Buscar ACU',exact:true}).fill('estructura');await expect(dialog.locator('[data-id=empty-acu]')).toBeHidden();await dialog.locator('[data-id=library-acu]').click();await expect(dialog.getByRole('button',{name:'Agregar',exact:true})).toBeEnabled();await dialog.getByRole('button',{name:'Agregar',exact:true}).click();await expect.poll(()=>page.evaluate(()=>window.__calls.find(c=>c.command==='add_line_from_analysis')?.args)).toMatchObject({analysisId:'library-acu',quantity:'0'});
 });

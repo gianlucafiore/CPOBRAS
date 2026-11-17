@@ -68,12 +68,7 @@ export function createViews({
             }</b>`
       }</div>
       <div class="header-right">
-      ${state.database ? `<details class="database-menu"><summary>Archivo</summary>
-        <div class="database-menu-panel">
-          <span class="database-menu-path" title="${e(state.database.path)}">Base activa · ${e(state.database.name)}</span>
-          <button type="button" class="btn" data-action="database-new">Nueva base de datos…</button>
-          <button type="button" class="btn" data-action="database-open">Abrir base de datos…</button>
-        </div></details>` : ""}
+      ${!work && ["projects","app-options"].includes(state.view) ? `<button class="btn" data-action="app-options-open">Opciones</button>` : ""}
       ${
         work && currentEstimate()
           ? `${state.remoteProject ? `<span class="status-pill">${currentEstimate().issued ? "● Emitido" : "● En elaboración"} · Solo lectura</span>` : `<select class="status-pill ${currentEstimate().issued ? "issued" : ""}" name="estimate-status" aria-label="Estado del presupuesto"><option value="draft" ${!currentEstimate().issued ? "selected" : ""}>● En elaboración</option><option value="issued" ${currentEstimate().issued ? "selected" : ""}>● Emitido</option></select>`}

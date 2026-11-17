@@ -1,3 +1,5 @@
+import {createAcuInsertPicker} from "./components/acu-insert-picker.js";
+import {optionsMarkup} from "./components/app-options.js";
 import {createReminders} from "./components/reminders.js";
 import {createClearSearch} from "./components/clear-search.js";
 import { createAiAssistant } from "./components/ai-assistant.js";
@@ -83,7 +85,8 @@ export function createWorkspaceApp({
   const resourcePicker = createResourcePicker(context);
   const resourceImport = createResourceImport(context);
   const entityActions = createEntityActions({...context,onArchived:async kind=>{if(kind==="nested_analysis")await costing.refresh();}});
-  const modalMarkup = createModalRenderer(context);
+  const acuInsertPicker = createAcuInsertPicker({state, invoke: nativeInvoke, render, document});
+  const modalMarkup = createModalRenderer({...context, acuPickerMarkup:acuInsertPicker.markup});
   const operations = createOperationsWorkspace(context);
   const management = createManagementWorkspace(context);
   const planning = createPlanningWorkspace(context);
@@ -152,6 +155,7 @@ export function createWorkspaceApp({
     const position = top?.scrollTop || 0;
     root.innerHTML = ["clients", "suppliers"].includes(state.view)
       ? chrome(people.markup())
+      : state.view === "app-options" ? chrome(optionsMarkup(state))
       : state.view === "system-settings" ? chrome(systemSettings.markup() + costing.markup("system-settings"))
       : state.view === "sharing" ? chrome(sharing.markup())
       : state.view === "organizations"
@@ -218,6 +222,7 @@ export function createWorkspaceApp({
     state.comparison = null;
     state.costComparison = null;
     render();
+    if (kind === "from-acu") void acuInsertPicker.select(state.analyses[0]?.id);
   }
   function closeModal() {
     if (state.busy) return false;
@@ -269,7 +274,7 @@ export function createWorkspaceApp({
     return true;
   }
   async function switchDatabase(create) {
-    if (!databaseSwitching || switchingDatabase) return;
+    if (!databaseSwitching || switchingDatabase || state.projectId || state.view !== "app-options") return;
     if (pendingCommands || aiAssistant.isBusy() || resourceImport.model.busy ||
         aiResourceImport.isBusy() || operations.isSaving()) {
       state.databaseError="Esperá a que termine la operación en curso antes de cambiar de base.";
@@ -533,6 +538,11 @@ export function createWorkspaceApp({
     if (evt.target.matches?.(".resource-search"))
       resourcePicker.toggle(evt.target);
     if (!button || button.disabled || switchingDatabase || state.busy || state.navigating) return;
+    if (button.dataset.action === "app-options-open") {
+      if (!state.projectId && await protectContext()) { state.view="app-options"; render(); }
+      return;
+    }
+    if (button.dataset.action === "acu-insert-select") { await acuInsertPicker.select(button.dataset.id); return; }
     if (button.dataset.action === "open-recent-export") {
       evt.preventDefault();
       try {
@@ -755,7 +765,7 @@ export function createWorkspaceApp({
     if (submit) submit.disabled = true;
     try {
       if (group) await group[0].submit(form);
-      else await handleSubmit(form);
+      else { if (form.dataset.kind === "from-acu" && !state.modal?.pickerReady) throw new Error("Seleccioná un ACU con insumos disponibles."); await handleSubmit(form); }
       if (
         [
           "organization-create-form",
@@ -821,7 +831,7 @@ export function createWorkspaceApp({
       if(evt.target.name!=="calendar-month")state.pageDirty = true;
     agreement.change(evt.target);
     if(state.view === "system-settings") systemSettings.change(evt.target);
-    if (state.modal && evt.target.closest?.("#dialog-form"))
+    if (state.modal && state.modal.kind !== "from-acu" && evt.target.closest?.("#dialog-form"))
       state.modalDirty = true;
     if (evt.target.name === "library-trade") {
       const trade = state.trades.find((row) => row.id === evt.target.value),
@@ -832,6 +842,7 @@ export function createWorkspaceApp({
       }
     }
     try {
+      if (state.modal?.kind === "from-acu" && evt.target.name === "sectionId") state.modal.sectionId=evt.target.value;
       reminders.change(evt.target);
       await people.change(evt.target);
       await resourceImport.change(evt.target);
@@ -883,6 +894,7 @@ export function createWorkspaceApp({
       )
     )
       if(evt.target.name!=="calendar-month")state.pageDirty = true;
+    acuInsertPicker.input(evt.target);
     reminders.input(evt.target);
     people.input(evt.target);
     printing.input(evt.target);
@@ -892,7 +904,7 @@ export function createWorkspaceApp({
     unitPicker.input(evt);
     resourcePicker.input(evt);
     operations.input(evt.target);
-    if (state.modal && evt.target.closest?.("#dialog-form"))
+    if (state.modal && state.modal.kind !== "from-acu" && evt.target.closest?.("#dialog-form"))
       state.modalDirty = true;
     if (!evt.target.matches("[data-search]")) return;
     state.search = evt.target.value;

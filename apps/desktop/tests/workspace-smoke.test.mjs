@@ -209,6 +209,7 @@ test("database menu protects a draft and keeps the current view on picker cancel
     },
   });
   await app.ready;
+  await app.click("app-options-open");
   assert.match(app.root.innerHTML, /Base activa · estudio.sqlite/);
   app.state.pageDirty = true;
   await app.click("database-open");

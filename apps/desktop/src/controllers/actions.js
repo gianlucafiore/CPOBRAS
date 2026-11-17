@@ -33,7 +33,7 @@ async function handleSubmit(form) {
     state.selectedSectionId=v("sectionId")||null;
     state.selectedLineId = line.id;
   } else if (kind === "from-acu") {
-    const line = await invoke("add_line_from_analysis", { estimateId, analysisId: v("analysisId"), quantity: v("quantity") });
+    const line = await invoke("add_line_from_analysis", { estimateId, analysisId: v("analysisId"), quantity: "0" });
     if (v("sectionId")) await invoke("assign_line_section", { estimateId, lineId: line.id, sectionId: v("sectionId") });
     state.selectedLineId = line.id; state.panel = "acu";
   } else if (kind === "resource") {
