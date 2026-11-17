@@ -544,3 +544,5 @@ input[type=search]::-webkit-search-cancel-button{appearance:none}
 .direct-costs-panel input[data-direct-field="quantity"],.direct-costs-panel input[data-direct-field="months"]{width:65px}
 
 .price-modal .component-row.direct-cost-resource{display:block}
+
+.budget-memory{padding:12px}.budget-memory textarea{width:100%;min-height:260px;resize:vertical}.public-memory{white-space:pre-wrap}

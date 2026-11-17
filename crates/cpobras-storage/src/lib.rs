@@ -27,6 +27,7 @@ pub mod organizations;
 pub mod persons;
 pub mod planning;
 pub mod price_determination;
+pub mod presentation;
 pub mod printing;
 pub mod procurement;
 pub mod quotation_edits;
@@ -165,6 +166,7 @@ impl LocalStore {
             include_str!("../migrations/0035_reminders.sql"),
             include_str!("../migrations/0036_component_cost_inclusion.sql"),
             include_str!("../migrations/0037_direct_costs.sql"),
+            include_str!("../migrations/0038_budget_presentation.sql"),
         ];
         let latest: i64 = tx.query_row(
             "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",

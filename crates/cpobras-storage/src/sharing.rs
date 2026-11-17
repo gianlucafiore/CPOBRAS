@@ -371,6 +371,7 @@ pub fn restrict_shared_document(mut data: Value, p: &SharingPermissions) -> Valu
                 budget["print_data"] = Value::Null;
             }
             if !p.budget {
+                budget["document"]["presentation"] = Value::Null;
                 budget["metadata"] = Value::Null;
                 budget["measured_line_ids"] = json!([]);
                 for field in [

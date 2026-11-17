@@ -1,3 +1,4 @@
+import {createPdf} from "./pdf-units.js";
 export function priceExportRows({
   definition,
   calculation,
@@ -143,7 +144,7 @@ export async function exportPriceDetermination({
     );
   else {
     const { jsPDF } = await import("jspdf");
-    const pdf = new jsPDF({ orientation: "landscape" });
+    const pdf = createPdf(jsPDF, { orientation: "landscape" });
     const width = pdf.internal.pageSize.getWidth(),
       height = pdf.internal.pageSize.getHeight();
     let y = 25;

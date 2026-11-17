@@ -421,6 +421,7 @@ impl LocalStore {
         )?;
         transaction.execute("INSERT INTO estimate_adjustment_agreements(estimate_id,revision,definition_json,terms_json) SELECT ?1,1,definition_json,terms_json FROM estimate_adjustment_agreements WHERE estimate_id=?2",params![copy.id.to_string(),source_id.to_string()])?;
         transaction.execute("INSERT INTO estimate_price_definitions(estimate_id,revision,definition_json) SELECT ?1,1,definition_json FROM estimate_price_definitions WHERE estimate_id=?2",params![copy.id.to_string(),source_id.to_string()])?;
+        transaction.execute("INSERT INTO budget_presentations(estimate_id,revision,data_json) SELECT ?1,1,data_json FROM budget_presentations WHERE estimate_id=?2",params![copy.id.to_string(),source_id.to_string()])?;
         crate::estimate_resource_prices::synchronize(&transaction, copy.id, &BTreeMap::new())?;
         transaction.commit()?;
         Ok(copy)

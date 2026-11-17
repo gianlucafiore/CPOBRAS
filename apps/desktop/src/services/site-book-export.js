@@ -1,6 +1,7 @@
+import {createPdf} from "./pdf-units.js";
 export async function exportSiteBook(invoke, model, entries) {
   const { jsPDF } = await import("jspdf");
-  const pdf = new jsPDF(),
+  const pdf = createPdf(jsPDF),
     height = pdf.internal.pageSize.getHeight();
   let y = 20;
   const heading = () => {

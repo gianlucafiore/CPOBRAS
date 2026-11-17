@@ -19,6 +19,7 @@ export function createBudgetTools({
   document,
   window,
   FormData,
+  presentation,
   loadEstimates,
   loadEstimate,
 }) {
@@ -75,7 +76,7 @@ export function createBudgetTools({
     ${field("Título", "title", o.title, "required")}
     ${field("Fecha", "date", o.date, 'type="date"')}${field("Referencia", "reference", o.reference)}
     <div ${o.kind === "client" ? "" : "hidden"}>${select("Contenido para el cliente", "layout", Object.entries(clientLayouts), o.layout)}</div>
-    </div><label class="field" ${o.kind === "incidences" || (o.kind === "client" && !hasMemory(o.layout)) ? "hidden" : ""}><span>Memoria descriptiva inicial</span><textarea name="memory" rows="7" ${o.kind === "client" && hasMemory(o.layout) ? "required" : ""}>${e(o.memory)}</textarea></label>
+    </div><label class="field" ${o.kind === "incidences" || (o.kind === "client" && !hasMemory(o.layout)) ? "hidden" : ""}><span>Memoria descriptiva inicial</span><textarea name="memory" rows="7" maxlength="25000" ${current()?.issued || state.remoteProject ? "readonly" : ""} ${o.kind === "client" && hasMemory(o.layout) ? "required" : ""}>${e(o.memory)}</textarea></label>
     <label class="field"><span>Condiciones comerciales y observaciones</span><textarea name="notes" rows="5" placeholder="Validez de la oferta, forma de pago, plazo de entrega, alcance y exclusiones…">${e(o.notes)}</textarea></label>
     ${select(
       "Hoja PDF",
@@ -87,7 +88,7 @@ export function createBudgetTools({
       o.orientation,
     )}
     <p>${o.kind === "client" ? "Incluye únicamente precios de venta, subtotal, IVA / impuestos y total final. La planilla muestra la incidencia de cada partida." : o.kind === "incidences" ? "Importes e incidencia de cada partida y rubro sobre el total final." : "Excel: hojas Partidas, ACU, Precio, Insumos, Metrados, Detalle precio y Memoria. Los precios con ACU se recalculan desde su composición; las demás partidas conservan su precio declarado. PDF: presupuesto, formación del precio y anexos."}</p>
-    <button class="btn primary" type="submit">Generar archivo</button><p class="feature-error" role="alert"></p>
+    ${presentation.feedback()}<button class="btn primary" type="submit">Generar archivo</button><p class="feature-error" role="alert"></p>
     ${model.lastExport ? `<p role="status">Archivo guardado en:<br><code>${e(model.lastExport)}</code></p>` : ""}</form>`;
   }
   async function refresh() {
@@ -194,6 +195,11 @@ export function createBudgetTools({
         orientation: "portrait",
         ...saved,
       };
+      await presentation.open();
+      if(presentation.model.revision===0 && !presentation.model.data.memory && saved.memory && !state.remoteProject && !current()?.issued){
+        presentation.update({memory:saved.memory});await presentation.flush();
+      }
+      model.options.memory=presentation.model.data.memory;
       await refresh();
     }
     if (action === "budget-tools-back") {
@@ -320,6 +326,7 @@ export function createBudgetTools({
     }
     if (form.id === "budget-export-form") {
       saveOptions();
+      if(!state.remoteProject){presentation.update({memory:model.options.memory});await presentation.flush();}
       const options = {
         ...model.options,
         landscape: value("orientation") === "landscape",
@@ -403,7 +410,7 @@ export function createBudgetTools({
     render();
   }
   function input(target) {
-    if (target.closest?.("#budget-export-form")) saveOptions();
+    if (target.closest?.("#budget-export-form")){saveOptions();if(target.name==="memory"&&!state.remoteProject)presentation.update({memory:target.value});}
   }
   async function change(target) {
     if (target.closest?.("#budget-export-form")) {

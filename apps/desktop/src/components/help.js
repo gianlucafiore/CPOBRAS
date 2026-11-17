@@ -10,7 +10,7 @@ const pages = {
   ],
   "budget-printing": [
     "Imprimir presupuesto",
-    "Elegí presentación para cliente, interna o planilla de incidencias. El PDF se guarda y se solicita abrirlo en el lector predeterminado del sistema. Revisá condiciones públicas y versión antes de generar.",
+    "Elegí presentación para cliente, interna o planilla de incidencias. Los campos se guardan al salir de ellos y antes de generar. Elegí si incluís la memoria descriptiva del presupuesto. El PDF se guarda y se abre en el lector predeterminado del sistema.",
   ],
   "price-determination": [
     "Determinación de precio",
@@ -75,6 +75,7 @@ const pages = {
   ],
 };
 const panels = {
+  memory: ["Memoria descriptiva", "Texto público de este presupuesto. Se guarda automáticamente. Para incluirlo en el documento elegí una presentación con memoria en Imprimir presupuesto o Herramientas / exportar."],
   "direct-costs": [
     "Gastos Directos del presupuesto",
     "Cargá recursos puntuales o mensuales, cada uno con sus propios meses. El concepto Gastos Directos de Determinación de precio toma este detalle y se guarda automáticamente.",

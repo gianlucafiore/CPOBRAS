@@ -286,7 +286,7 @@ mod tests {
         );
         let legacy = rusqlite::Connection::open(&path).unwrap();
         legacy
-            .execute_batch("DROP TABLE reminders;DELETE FROM schema_migrations WHERE version>=35;")
+            .execute_batch("DROP TABLE budget_presentations;DROP TABLE organization_indirect_costs;DROP TABLE reminders;DELETE FROM schema_migrations WHERE version>=35;")
             .unwrap();
         drop(legacy);
         let upgraded = LocalStore::open_existing(&path).unwrap();

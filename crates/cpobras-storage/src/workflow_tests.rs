@@ -1351,7 +1351,7 @@ fn upgrades_populated_schema_fifteen_and_deletes_its_preexisting_linked_line() {
     old.execute_batch("DROP TABLE reminders;").unwrap();
     undo_people_migration_for_fixture(&old);
     old.execute_batch("DROP TRIGGER assisted_batches_no_update; DROP TRIGGER assisted_batches_no_delete; DROP TABLE assisted_budget_batches; DROP TRIGGER inactive_client_new_project; DROP TRIGGER inactive_client_change_project; DROP TRIGGER IF EXISTS inactive_supplier_new_offer; DROP TABLE advance_agreement_links; DROP TABLE entity_archives; DROP TABLE supplier_movements; DROP TABLE operation_files; ALTER TABLE operation_links DROP COLUMN archived_line_id; DROP TABLE deleted_estimate_lines; DROP TABLE line_analysis_sources; DROP TABLE estimate_resource_prices; DROP TABLE quotation_request_revisions;DROP TABLE quotation_response_files;DROP TABLE quotation_awards;DROP TABLE quotation_responses;DROP TABLE site_book_entries;DROP TABLE certificate_drafts;DROP TABLE certificate_sheets;DROP TABLE certified_sources;DROP TABLE quotation_requests;DROP TABLE estimate_adjustment_agreements;DROP TABLE index_points;DROP TABLE system_calendar;DROP TABLE estimate_price_definitions; DROP TABLE price_definition_templates;
-             DROP TABLE print_profiles; DROP TRIGGER new_project_organization; DROP TRIGGER external_company_readonly_update; DROP TRIGGER external_company_readonly_delete; DROP TRIGGER clear_measured_quantity; DROP TABLE automatic_codes; DROP TABLE measured_lines; DROP TABLE project_attachments; DROP TABLE project_organizations; DROP TABLE organization_preferences; DROP TABLE organizations; DELETE FROM schema_migrations WHERE version>=16; CREATE TRIGGER operation_links_no_update BEFORE UPDATE ON operation_links BEGIN SELECT RAISE(ABORT,'operation links are immutable'); END;").unwrap();
+             DROP TABLE budget_presentations; DROP TABLE organization_indirect_costs; DROP TABLE print_profiles; DROP TRIGGER new_project_organization; DROP TRIGGER external_company_readonly_update; DROP TRIGGER external_company_readonly_delete; DROP TRIGGER clear_measured_quantity; DROP TABLE automatic_codes; DROP TABLE measured_lines; DROP TABLE project_attachments; DROP TABLE project_organizations; DROP TABLE organization_preferences; DROP TABLE organizations; DELETE FROM schema_migrations WHERE version>=16; CREATE TRIGGER operation_links_no_update BEFORE UPDATE ON operation_links BEGIN SELECT RAISE(ABORT,'operation links are immutable'); END;").unwrap();
     drop(old);
     let mut upgraded = LocalStore::open(&path).unwrap();
     assert_eq!(
@@ -1360,7 +1360,7 @@ fn upgrades_populated_schema_fifteen_and_deletes_its_preexisting_linked_line() {
             .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| r
                 .get::<_, i64>(0))
             .unwrap(),
-        37
+        38
     );
     upgraded.delete_estimate_item(e.id, line.id).unwrap();
     assert!(upgraded.estimate_items(e.id).unwrap().is_empty());
@@ -2035,7 +2035,10 @@ fn custom_price_definition_revision_copy_export_and_issue_are_consistent() {
     let original = store.get_price_definition(estimate.id).unwrap();
     assert!(!original.custom);
     assert_eq!(original.revision, 0);
-    let mut definition = PriceDefinition::from_rates(PricingRates::default());
+    let mut definition = PriceDefinition::from_rates(PricingRates {
+        general_expenses_percent: Decimal::ONE,
+        ..PricingRates::default()
+    });
     definition.rows[1].reference_percent = Decimal::from(10);
     definition.rows[3].kind = PriceKind::PercentDirect;
     definition.rows[3].percent = Decimal::from(15);
@@ -2060,7 +2063,7 @@ fn custom_price_definition_revision_copy_export_and_issue_are_consistent() {
         Decimal::new(3025, 1)
     );
     let document = store.export_budget(estimate.id).unwrap();
-    assert_eq!(document.format_version, 7);
+    assert_eq!(document.format_version, 8);
     let json = serde_json::to_string(&document).unwrap();
     let imported = store
         .import_budget(project.id, &serde_json::from_str(&json).unwrap())
@@ -2355,7 +2358,7 @@ fn schema_nineteen_migration_keeps_legacy_logo_and_project_owner_after_reopening
             [serde_json::to_string(&profile).unwrap()],
         )
         .unwrap();
-    s.conn.execute_batch("DROP TRIGGER new_project_organization; DROP TRIGGER external_company_readonly_update; DROP TRIGGER external_company_readonly_delete; DROP TABLE project_organizations; DROP TABLE organization_preferences; DROP TABLE organizations; DELETE FROM schema_migrations WHERE version=20;").unwrap();
+    s.conn.execute_batch("DROP TABLE budget_presentations; DROP TABLE organization_indirect_costs; DELETE FROM schema_migrations WHERE version=38; DROP TRIGGER new_project_organization; DROP TRIGGER external_company_readonly_update; DROP TRIGGER external_company_readonly_delete; DROP TABLE project_organizations; DROP TABLE organization_preferences; DROP TABLE organizations; DELETE FROM schema_migrations WHERE version=20;").unwrap();
     s.conn
         .backup(rusqlite::DatabaseName::Main, &path, None)
         .unwrap();
@@ -3100,6 +3103,8 @@ fn monthly_rentals_reconcile_partial_invoices_payments_and_cash_before_collectio
         row.enabled = false;
     }
     let row = &mut definition.rows[1];
+    row.kind = cpobras_core::price_determination::PriceKind::Detailed;
+    row.role = cpobras_core::price_determination::PriceRole::Overhead;
     row.enabled = true;
     row.detail_mode = DetailMode::Items;
     let item_id = Uuid::new_v4();
@@ -5868,7 +5873,7 @@ fn line_cost_exclusions_keep_prices_quantities_other_lines_and_survive_edit_copy
             .included
     );
     let document = s.export_budget(e.id).unwrap();
-    assert_eq!(document.format_version, 7);
+    assert_eq!(document.format_version, 8);
     let imported = s.import_budget(p.id, &document).unwrap();
     let imported_line = s.estimate_items(imported.id).unwrap()[0].clone();
     assert!(
@@ -5956,7 +5961,7 @@ fn direct_budget_costs_roundtrip_without_lines_and_preserve_requirements_when_no
     );
     let copied = s.duplicate_estimate(e.id, "Copia con gastos").unwrap();
     let doc = s.export_budget(copied.id).unwrap();
-    assert_eq!(doc.format_version, 7);
+    assert_eq!(doc.format_version, 8);
     let imported = s.import_budget(p.id, &doc).unwrap();
     let read = s.get_price_definition(imported.id).unwrap();
     let row = read

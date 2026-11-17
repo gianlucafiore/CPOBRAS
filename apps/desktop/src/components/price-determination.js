@@ -1,7 +1,7 @@
 import {createPriceAutosave} from "../services/price-autosave.js";
 import {resourcePicker} from "./resource-picker.js";
 import { e, field, select } from "./helpers.js";
-import { money, numeric } from "../decimal.js";
+import { money, numeric, multiplyDecimals, sumDecimals } from "../decimal.js";
 import { exportPriceDetermination } from "../services/price-export.js";
 const kinds = [
   ["detailed", "Con detalle"],
@@ -12,7 +12,7 @@ const kinds = [
   ["subtotal", "Separador / subtotal"],
 ];
 const roles = [
-  ["overhead", "Gastos generales"],
+  ["overhead", "Gastos indirectos"],
   ["finance", "Gastos financieros"],
   ["profit", "Beneficio / utilidad"],
   ["discount", "Descuento"],
@@ -181,7 +181,7 @@ export function createPriceDetermination({
       return '<div class="blank-state"><strong>Seleccioná una línea</strong><p>Podés agregar un concepto, porcentaje o subtotal desde la lista.</p></div>';
     if(row.role==='direct_costs')return directPane();
     const calculated = result(row.id);
-    return `<div class="price-detail-heading"><h2>${e(row.label)}</h2><strong>${m.calculation ? money(calculated?.amount) : "—"}</strong></div><fieldset class="price-properties" ${lock()}><div class="form-grid">${select("Tipo de cálculo", "price-kind", kinds, row.kind)}${select("Categoría del concepto", "price-role", roles, row.role)}${select(
+    return `${row.role==='overhead' && row.label==='Gastos generales'?'<p class="small-muted">Concepto anterior conservado: revisá si corresponde a Gastos Directos de la obra o a Gastos indirectos de la organización.</p>':''}<div class="price-detail-heading"><h2>${e(row.label)}</h2><strong>${m.calculation ? money(calculated?.amount) : "—"}</strong></div><fieldset class="price-properties" ${lock()}><div class="form-grid">${select("Tipo de cálculo", "price-kind", kinds, row.kind)}${select("Categoría del concepto", "price-role", roles, row.role)}${select(
       "Operación",
       "price-sign",
       [
@@ -218,7 +218,7 @@ export function createPriceDetermination({
       )
       .join(
         "",
-      )}<div class="summary-final"><span>PRESUPUESTO TOTAL</span><strong>${e(currentEstimate()?.currency)} ${calc ? money(calc.breakdown.total) : "—"}</strong></div></section><section class="price-card"><h2>Conceptos y orden de cálculo</h2><p class="small-muted">Arrastrá el asa para reordenar. Las flechas permiten mover cada línea.</p><div class="price-row-list">${m.definition.rows.map((row, index) => `<div class="price-row ${row.id === m.selectedId ? "selected" : ""}" data-price-row="${row.id}"><button type="button" class="price-drag" draggable="${editable()}" data-price-drag="${row.id}" aria-label="Arrastrar ${e(row.label)}" ${lock()}>⋮⋮</button><input type="checkbox" aria-label="Activar ${e(row.label)}" data-price-enabled="${row.id}" ${row.enabled ? "checked" : ""} ${lock()}><input class="price-label" name="price-label-${row.id}" data-price-label="${row.id}" aria-label="Nombre de línea ${index + 1}" value="${e(row.label)}" ${lock()}><button type="button" class="btn tiny" data-action="price-select" data-id="${row.id}">${e(row.kind === "detailed" ? { items: "Con detalle", manual: "Monto manual", reference: "% CD ref." }[row.detail_mode] : kinds.find(([kind]) => kind === row.kind)?.[1])}</button>${row.kind.startsWith("percent_") ? `<input class="price-number" name="price-percent-${row.id}" data-price-percent="${row.id}" aria-label="Porcentaje ${e(row.label)}" type="number" min="0" step="any" value="${e(row.percent)}" ${lock()}>` : row.kind === "fixed" ? `<input class="price-number" name="price-amount-${row.id}" data-price-amount="${row.id}" aria-label="Monto ${e(row.label)}" type="number" min="0" step="any" value="${e(row.amount)}" ${lock()}>` : ""}<button class="price-move" data-action="price-up" data-id="${row.id}" aria-label="Subir ${e(row.label)}" ${lock()}>↑</button><button class="price-move" data-action="price-down" data-id="${row.id}" aria-label="Bajar ${e(row.label)}" ${lock()}>↓</button><button class="tiny-danger" data-action="price-delete-row" data-id="${row.id}" aria-label="${row.role==='direct_costs'?'Desactivar':'Quitar línea'} ${e(row.label)}" ${lock()}>×</button></div>`).join("")}</div><div class="price-add"><small>Agregar línea:</small>${kinds.map(([kind, label]) => `<button class="btn tiny" data-action="price-add-row" data-kind="${kind}" ${lock()}>${e(label)}</button>`).join("")}</div></section><section class="price-card"><h2>Plantillas y exportación</h2>${select("Plantilla de determinación o detalle", "price-template", [["", "Elegir plantilla"], ...m.templates.filter((t) => t.currency === currentEstimate()?.currency).map((t) => [t.id, (t.scope === "detail" ? "Detalle" : "Determinación") + " · " + t.name])], m.templateId)}<div class="price-add"><button class="btn" data-action="price-load-template" ${lock()}>Cargar plantilla</button><button class="btn" data-action="price-template">Guardar plantilla</button><button class="btn" data-action="price-export">Exportar</button></div>${m.lastExport ? `<p role="status">Archivo guardado en ${e(m.lastExport)}</p>` : ""}</section></aside><section class="price-right">${rowEditor()}</section></div>${modalMarkup()}</main>`;
+      )}<div class="summary-final"><span>PRESUPUESTO TOTAL</span><strong>${e(currentEstimate()?.currency)} ${calc ? money(calc.breakdown.total) : "—"}</strong></div></section><section class="price-card"><h2>Conceptos y orden de cálculo</h2><p class="small-muted">Arrastrá el asa para reordenar. Las flechas permiten mover cada línea.</p><div class="price-row-list">${m.definition.rows.map((row, index) => `<div class="price-row ${row.id === m.selectedId ? "selected" : ""}" data-price-row="${row.id}"><button type="button" class="price-drag" draggable="${editable()}" data-price-drag="${row.id}" aria-label="Arrastrar ${e(row.label)}" ${lock()}>⋮⋮</button><input type="checkbox" aria-label="Activar ${e(row.label)}" data-price-enabled="${row.id}" ${row.enabled ? "checked" : ""} ${lock()}><input class="price-label" name="price-label-${row.id}" data-price-label="${row.id}" aria-label="Nombre de línea ${index + 1}" value="${e(row.label)}" ${lock()}><button type="button" class="btn tiny" data-action="price-select" data-id="${row.id}">${e(row.kind === "detailed" ? { items: "Con detalle", manual: "Monto manual", reference: "% CD ref." }[row.detail_mode] : kinds.find(([kind]) => kind === row.kind)?.[1])}</button>${row.kind.startsWith("percent_") ? `<input class="price-number" name="price-percent-${row.id}" data-price-percent="${row.id}" aria-label="Porcentaje ${e(row.label)}" type="number" min="0" step="any" value="${e(row.percent)}" ${lock()}>` : row.kind === "fixed" ? `<input class="price-number" name="price-amount-${row.id}" data-price-amount="${row.id}" aria-label="Monto ${e(row.label)}" type="number" min="0" step="any" value="${e(row.amount)}" ${lock()}>` : ""}<button class="price-move" data-action="price-up" data-id="${row.id}" aria-label="Subir ${e(row.label)}" ${lock()}>↑</button><button class="price-move" data-action="price-down" data-id="${row.id}" aria-label="Bajar ${e(row.label)}" ${lock()}>↓</button><button class="tiny-danger" data-action="price-delete-row" data-id="${row.id}" aria-label="${row.role==='direct_costs'?'Desactivar':'Quitar línea'} ${e(row.label)}" ${lock()}>×</button></div>`).join("")}</div><div class="price-add"><small>Agregar línea:</small><button class="btn tiny" data-action="price-add-indirect" ${lock()}>Gastos indirectos de la organización</button>${kinds.map(([kind, label]) => `<button class="btn tiny" data-action="price-add-row" data-kind="${kind}" ${lock()}>${e(label)}</button>`).join("")}</div></section><section class="price-card"><h2>Plantillas y exportación</h2>${select("Plantilla de determinación o detalle", "price-template", [["", "Elegir plantilla"], ...m.templates.filter((t) => t.currency === currentEstimate()?.currency).map((t) => [t.id, (t.scope === "detail" ? "Detalle" : "Determinación") + " · " + t.name])], m.templateId)}<div class="price-add"><button class="btn" data-action="price-load-template" ${lock()}>Cargar plantilla</button><button class="btn" data-action="price-template">Guardar plantilla</button><button class="btn" data-action="price-export">Exportar</button></div>${m.lastExport ? `<p role="status">Archivo guardado en ${e(m.lastExport)}</p>` : ""}</section></aside><section class="price-right">${rowEditor()}</section></div>${modalMarkup()}</main>`;
   }
   function modalMarkup() {
     if (!m.modal) return "";
@@ -269,6 +269,11 @@ export function createPriceDetermination({
           ? ""
           : `<div class="form-grid">${field("Unidad", "unit", item.unit || "un", "required")}${field("Participación %", "participation", item.participation_percent ?? "100", 'type="number" min="0" max="100" step="any" required')}${field("Cantidad del detalle", "quantity", item.quantity ?? "1", 'type="number" min="0" step="any" required')}${field("Precio del detalle " + currentEstimate()?.currency, "unitPrice", item.unit_price ?? "0", 'type="number" min="0" step="any" required')}</div><fieldset><legend>Gasto mensual / alquiler</legend><label><input type="checkbox" name="periodic" ${item.periodic ? "checked" : ""}> Calcular por período (por ejemplo, baños químicos)</label><div class="form-grid">${field("Inicio del alquiler", "rentalStart", item.periodic?.start || "", 'type="date"')}${field("Fin del alquiler", "rentalEnd", item.periodic?.end || "", 'type="date"')}${field("Día de vencimiento mensual", "paymentDay", item.periodic?.payment_day || "5", 'type="number" min="1" max="31"')}</div><label><input type="checkbox" name="prorate" ${item.periodic?.prorate !== false ? "checked" : ""}> Prorratear meses incompletos por días calendario</label></fieldset><p class="modal-help">Para alquileres: cantidad de unidades × tarifa mensual × meses × participación. El día 31 vence el último día de los meses más cortos. Las fechas son inclusivas. Sin alquiler, se aplica cantidad × precio × participación / 100.</p>`);
       form = "price-item-form";
+    }
+    if(modal.kind==='indirect'){
+      title='Incluir gastos indirectos de la organización';form='price-indirect-form';
+      const base=sumDecimals(modal.plan.items.map(i=>multiplyDecimals(i.amount,i.periods)));
+      body=`<p>${e(modal.organizationName)} · Base ${e(currentEstimate().currency)} ${money(base)}</p><ul>${modal.plan.items.map(i=>`<li>${e(i.description)} · ${e({once:'Puntual',monthly:'Mensual',yearly:'Anual'}[i.periodicity])} × ${numeric(i.periods)} · ${money(multiplyDecimals(i.amount,i.periods))}</li>`).join('')}</ul>${field('Porcentaje de la base para este presupuesto','allocation','100','type="number" min="0" max="100" step="any" required')}<p>Se copia el detalle con esta participación. Luego podés editarlo. Los cambios futuros de la organización no actualizan presupuestos anteriores.</p>`;
     }
     if (modal.kind === "template") {
       title = "Guardar plantilla de Determinación de precio";
@@ -379,6 +384,15 @@ export function createPriceDetermination({
     }
     if (!editable()) return true;
     const row = selected();
+    if(action==='price-add-indirect'){
+      const orgId=state.projects.find(p=>p.id===state.projectId)?.organization_id;
+      if(!orgId)throw Error('La obra no tiene organización asignada');
+      const plan=await invoke('get_organization_indirect_costs',{organizationId:orgId});
+      if(!plan.data.items.length)throw Error('Cargá primero los gastos en Inicio → Organizaciones → Gastos indirectos');
+      const currency=v=>['Usd','USD'].includes(v)?'USD':'ARS';
+      if(currency(plan.data.currency)!==currency(currentEstimate().currency))throw Error('La moneda de los gastos de la organización debe coincidir con la del presupuesto');
+      m.modal={kind:'indirect',dirty:false,plan:plan.data,organizationName:state.organizations.find(o=>o.id===orgId)?.name||'Organización'};redraw();return true;
+    }
     if (action === "price-add-row") {
       const row = newRow(button.dataset.kind);
       m.definition.rows.push(row);
@@ -491,6 +505,16 @@ export function createPriceDetermination({
   async function submit(form) {
     const data = new FormData(form),
       value = (k) => String(data.get(k) || "").trim();
+    if(form.id==='price-indirect-form'){
+      if(!editable())throw Error('El presupuesto es de solo lectura');
+      const existing=m.definition.rows.find(r=>r.role==='overhead'&&r.label==='Gastos indirectos');
+      if(existing&&!window.confirm('Ya hay Gastos indirectos. ¿Reemplazar ese detalle con esta nueva distribución?'))return;
+      const definition=structuredClone(m.definition),row=newRow('detailed');
+      Object.assign(row,{role:'overhead',label:'Gastos indirectos',items:m.modal.plan.items.map(i=>({id:window.crypto.randomUUID(),parent_id:null,group:false,description:i.description,unit:{once:'un',monthly:'mes',yearly:'año'}[i.periodicity],quantity:i.periods,unit_price:i.amount,participation_percent:value('allocation'),periodic:null,months:null,resource_id:null,resource_kind:null}))});
+      if(existing)definition.rows.splice(definition.rows.findIndex(r=>r.id===existing.id),1,row);else definition.rows.unshift(row);
+      const calc=await invoke('calculate_price_definition',{estimateId:state.estimateId,definition});
+      m.definition=definition;m.calculation=calc;m.selectedId=row.id;m.dirty=true;autosave.changed();await autosave.flush();m.modal=null;redraw();return;
+    }
     if(form.id==='price-direct-form'){
       if(!editable())throw Error('El presupuesto es de solo lectura');
       const resource=state.resources.find(r=>r.id===value('resource')&&r.active!==false);

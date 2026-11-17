@@ -186,7 +186,7 @@ export function buildBudgetWorkbook(
     resources = [],
     prices = {},
     title = data.document.title,
-    memory = "",
+    memory = data.document.presentation?.memory || "",
     notes = "",
     date = "",
     reference = "",
@@ -688,7 +688,7 @@ export function buildClientWorkbook(
   data,
   {
     title = data.document.title,
-    memory = "",
+    memory = data.document.presentation?.memory || "",
     notes = "",
     layout = "sheet_price",
     date = "",

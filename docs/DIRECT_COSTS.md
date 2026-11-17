@@ -1,6 +1,6 @@
 # Gastos Directos y autoguardado
 
-Las pestañas del presupuesto distinguen la partida seleccionada (ACU y Metrados) del presupuesto completo (Insumos, Gastos Directos y Resumen).
+Las pestañas del presupuesto distinguen la partida seleccionada (ACU y Metrados) del presupuesto completo (Memoria descriptiva, Insumos, Gastos Directos y Resumen).
 
 Gastos Directos contiene insumos del catálogo que no pertenecen a una partida: equipos, sereno, protecciones, servicios u otros recursos. Cada fila conserva descripción, unidad, precio y cantidad. Puede ser puntual o mensual; en ese último caso tiene su propia cantidad de meses, incluso fraccionaria. El importe es cantidad × precio × meses; para un gasto puntual se usa un solo período. El número de meses calcula el costo total; las fechas efectivas de pago se administran en Finanzas.
 
@@ -10,4 +10,4 @@ Los cambios de Determinación de precio y de los campos de Gastos Directos se gu
 
 El guardado se serializa con revisión optimista para conservar las ediciones realizadas durante una escritura. Un borrador local por base y presupuesto permite recuperar cambios tras una interrupción; un conflicto con otra revisión requiere revisión explícita. El cierre de la ventana espera el guardado y se bloquea ante un error.
 
-El esquema de base pasa a 37 para impedir que motores anteriores reescriban estos datos. El intercambio completo de presupuestos usa formato 7 y acepta los formatos anteriores. Copias, exportaciones JSON y Excel conservan la composición y los meses. En Excel, Detalle precio alimenta Precio e Insumos mediante fórmulas editables.
+El esquema de base pasa a 38 para impedir que motores anteriores reescriban estos datos. El intercambio completo de presupuestos usa formato 8 y acepta los formatos anteriores. Copias, exportaciones JSON y Excel conservan la composición y los meses. En Excel, Detalle precio alimenta Precio e Insumos mediante fórmulas editables.

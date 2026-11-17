@@ -1,3 +1,4 @@
+import {createPdf} from "./pdf-units.js";
 import { multiplyDecimals, sumDecimals } from "../decimal.js";
 export async function exportOperationalReport({
   invoke,
@@ -403,7 +404,7 @@ export async function exportOperationalReport({
     bytes = new Uint8Array(await blob.arrayBuffer());
   } else {
     const { jsPDF } = await import("jspdf");
-    const pdf = new jsPDF({ orientation: "landscape" }),
+    const pdf = createPdf(jsPDF, { orientation: "landscape" }),
       width = pdf.internal.pageSize.getWidth(),
       height = pdf.internal.pageSize.getHeight();
     let y = 16;

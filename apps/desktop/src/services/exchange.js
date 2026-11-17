@@ -1,3 +1,4 @@
+import {createPdf} from "./pdf-units.js";
 import { money, numeric, multiplyDecimals } from "../decimal.js";
 const headers = ["Descripción", "Unidad", "Cantidad", "Precio unitario", "Rubro", "Código", "Importe"];
 const safeText = value => /^[=+@\t\r-]/.test(String(value)) ? "'" + value : String(value ?? "");
@@ -69,7 +70,7 @@ export async function parseExcel(buffer) {
  return rows.map(row=>row.map(value=>String(value??"")));
 }
 export async function exportPdf(document, { title = document.title, landscape = false, mode = "budget", analyses = [], totals = null } = {}) {
- const { jsPDF } = await import("jspdf"); const pdf = new jsPDF({ orientation: landscape ? "landscape" : "portrait" });
+ const { jsPDF } = await import("jspdf"); const pdf = createPdf(jsPDF, { orientation: landscape ? "landscape" : "portrait" });
  const width = pdf.internal.pageSize.getWidth(), bottom = pdf.internal.pageSize.getHeight() - 18; let y = 20;
  const heading = () => { pdf.setFontSize(15); pdf.text(title, 14, 15); pdf.setFontSize(9); pdf.text("CPOBRAS · " + ({Ars:"ARS",Usd:"USD"}[document.currency] || document.currency), 14, 23); y = 33; };
  const line = (text, bold = false) => { const lines = pdf.splitTextToSize(String(text), width - 28); for (const value of lines) { if (y > bottom) { pdf.addPage(); heading(); } pdf.setFont("helvetica", bold ? "bold" : "normal"); pdf.setFontSize(9); pdf.text(value, 14, y); y += 5; } };

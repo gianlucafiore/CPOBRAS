@@ -13,6 +13,8 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BudgetDocument {
     #[serde(default)]
+    pub presentation: Option<crate::presentation::BudgetPresentation>,
+    #[serde(default)]
     pub certificate_terms: Option<crate::construction_workflow::CertificateTerms>,
     #[serde(default)]
     pub adjustment_agreement: Option<cpobras_core::adjustments::AdjustmentAgreement>,
@@ -113,6 +115,7 @@ impl LocalStore {
             }
         }
         Ok(BudgetDocument {
+            presentation: Some(self.budget_presentation(id)?.data),
             certificate_terms: Some(crate::construction_workflow::terms(&self.conn, id)?),
             adjustment_agreement: self.adjustment_agreement(id)?.definition,
             measured_line_ids: self.measured_lines(id)?,
@@ -120,7 +123,7 @@ impl LocalStore {
             price_definition: self.stored_price_definition(id)?,
             line_analyses,
             formulas,
-            format_version: 7,
+            format_version: 8,
             currency: estimate.currency,
             title: estimate.title,
             sections: self.list_budget_sections(id)?,
@@ -170,7 +173,7 @@ impl LocalStore {
         project_id: Uuid,
         document: &BudgetDocument,
     ) -> Result<Estimate> {
-        if ![1, 2, 3, 4, 5, 6, 7].contains(&document.format_version)
+        if ![1, 2, 3, 4, 5, 6, 7, 8].contains(&document.format_version)
             || document.title.trim().is_empty()
             || document.lines.len() > 10_000
             || document.sections.len() > 5000
@@ -374,6 +377,10 @@ impl LocalStore {
             )?;
         }
         crate::estimate_resource_prices::synchronize(&tx, estimate.id, &BTreeMap::new())?;
+        if let Some(p) = &document.presentation {
+            p.validate()?;
+            tx.execute("INSERT INTO budget_presentations(estimate_id,revision,data_json) VALUES(?1,1,?2)",params![estimate.id.to_string(),serde_json::to_string(p)?])?;
+        }
         if let Some(t) = &document.certificate_terms {
             t.validate()?;
         }

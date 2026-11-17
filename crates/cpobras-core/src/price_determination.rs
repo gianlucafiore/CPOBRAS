@@ -213,6 +213,8 @@ fn percent(a: D, p: D) -> Result<D, String> {
 impl PriceDefinition {
     /// One shared composition, visible in the budget and the ordered price determination.
     pub fn ensure_direct_costs(&mut self) {
+        self.rows.retain(|r| !(r.role == PriceRole::Overhead && r.label == "Gastos generales"
+            && r.items.is_empty() && r.percent == D::ZERO && r.amount == D::ZERO && r.reference_percent == D::ZERO));
         if !self.rows.iter().any(|r| r.role == PriceRole::DirectCosts) {
             self.rows.insert(
                 0,
