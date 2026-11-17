@@ -6,8 +6,9 @@ export const cashKinds = {
   expense: ['payment', 'advance_paid', 'direct_payment', 'fund_reimbursement'],
   income: ['collection', 'advance_received', 'fund_contribution'],
 };
+// The ledger arrives in date/creation order. Stable sorting keeps the newest entry first within a day.
 export function recentCash(rows, side, limit=8) {
-  return rows.filter(o=>cashKinds[side].includes(o.kind)).sort((a,b)=>b.date.localeCompare(a.date)||String(b.number).localeCompare(String(a.number),undefined,{numeric:true})||b.id.localeCompare(a.id)).slice(0,limit);
+  return rows.filter(o=>cashKinds[side].includes(o.kind)).reverse().sort((a,b)=>b.date.localeCompare(a.date)).slice(0,limit);
 }
 export function cashReferences(rows, target, kind) {
   const allowed=kind==='payment'?['payable','subcertificate','retention_payable']:kind==='collection'?['receivable','certificate','retention_receivable']:[];

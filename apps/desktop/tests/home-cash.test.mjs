@@ -6,6 +6,7 @@ test('recent cash excludes invoices and separates actual inflows from outflows w
  const rows=Array.from({length:12},(_,i)=>({id:String(i),date:`2026-11-${String(i+1).padStart(2,'0')}`,number:String(i),kind:'direct_payment',currency:i%2?'USD':'ARS',amount:'12.34'}));
  rows.push({id:'invoice',date:'2099-01-01',kind:'payable'},{id:'income',date:'2026-11-10',kind:'collection',amount:'99'});
  assert.equal(recentCash(rows,'expense').length,8);assert.equal(recentCash(rows,'expense')[0].id,'11');assert.deepEqual(recentCash(rows,'income').map(r=>r.id),['income']);
+ const sameDay=[{id:'old',date:'2026-11-17',number:'PAG-999',kind:'payment'},{id:'new',date:'2026-11-17',number:'GAS-001',kind:'direct_payment'}];assert.deepEqual(recentCash(sameDay,'expense').map(r=>r.id),['new','old']);
 });
 test('origin documents match project, budget and currency and exclude invoices already substituted by billing',()=>{
  const target={id:'budget',projectId:'project',currency:'ARS'},base={project_id:'project',estimate_id:'budget',currency:'ARS',kind:'certificate',amount:'10'};
