@@ -2,6 +2,9 @@
 identifier = "workspace"
 description = "Local workspace operations, granted only to the main window."
 commands.allow = [
+  "list_reminders",
+  "save_reminder",
+  "delete_reminder",
   "active_database",
   "switch_database",
   "ai_configure",
@@ -99,7 +102,9 @@ commands.allow = [
   "list_budget_templates",
   "edit_budget_lines",
   "move_budget_line",
+  "set_line_components_included",
   "save_line_resources",
+  "remove_line_resource",
   "duplicate_budget_line",
   "set_line_formula",
   "list_price_lists",
@@ -187,6 +192,7 @@ commands.allow = [
   "register_resource_price",
   "reprice_analysis",
   "save_budget_section",
+  "move_budget_section",
   "apply_reviewed_section_batch",
   "apply_budget_section_edits",
   "list_budget_sections",

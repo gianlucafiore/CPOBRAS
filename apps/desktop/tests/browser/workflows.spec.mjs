@@ -9,10 +9,11 @@ async function bridge(page, options={}) {
   const line = { id: "10000000-0000-4000-8000-000000000002", description: "Hormigón", unit: "m³", quantity: fixture.lineQuantity || "2", unit_cost: "100", total: "200", analysis_id: null };
   const lines=[line]; if(fixture.twoLines)lines.push({...line,id:"10000000-0000-4000-8000-000000000003",description:"Revoque"});
   const sections=fixture.twoLines?[{id:"10000000-0000-4000-8000-000000000004",code:"01",title:"Preliminares",parent_id:null,position:0}]:[];
+  if(fixture.sectionDrag){sections.push({id:'20000000-0000-4000-8000-000000000001',code:'REG-002',title:'Estructura',parent_id:null,position:1},{id:'20000000-0000-4000-8000-000000000002',code:'REG-003',title:'Cubierta',parent_id:null,position:2},{id:'20000000-0000-4000-8000-000000000003',code:'SUB-1',title:'Zapatas',parent_id:'10000000-0000-4000-8000-000000000004',position:0});}
   const sharedStatus={enabled:false,peer_id:'owner-key',shares:[],subscriptions:[],network_error:null};
   const sharedDoc={version:1,project:{...project,name:'Obra remota de María'},organization:{id:'remote-org',name:'Estudio de María',profile:{company_name:'Estudio de María',logo_png:[],email:'maria@example.test'}},client:{name:'Cliente remoto'},suppliers:[],budgets:[{estimate:{id:'remote-estimate',title:'Presupuesto remoto',currency:'ARS',issued:Boolean(fixture.remoteIssued)},document:{lines:[{...line,unit_cost_snapshot:'100'}],sections:[],assignments:[],line_analyses:[],takeoffs:[]},resource_prices:{},pricing:{direct:'200',definition:{rows:[]},calculation:{rows:[],breakdown:{direct:'200',total:'242',general_expenses:'0',financial_expenses:'0',profit:'0',discount:'0',taxable_subtotal:'200',taxes:'42'}}}}],planning:{revision:1,plan:{calendar:{start_date:'2026-11-07',nonworking_weekdays:[5,6],holidays:[]},tasks:[{id:'remote-task',name:'Replanteo remoto',duration_days:3,actual_progress:'25',parent_id:null,estimate_line_id:null,predecessors:[],assignments:[],budget:'0',not_before:null,finish_by:null}]}},schedule:{Ok:{tasks:[{id:'remote-task',start:'2026-11-07',finish:'2026-11-10'}]}},baselines:[],operations:[],records:[],stock:[],warehouses:[],parties:[],resources:[]};
   sharedDoc.permissions={budget:true,price:true,resources:true,operations:true,accounting:true,planning:true,project_data:true,...(fixture.remotePermissions||{})};
-  const assignments=[];const lineDetails={};
+  const assignments=fixture.sectionDrag?[{line_id:line.id,section_id:'20000000-0000-4000-8000-000000000003'}]:[];const lineDetails={};
   let backupSettings={directory:'/data/CPOBRAS/backups',enabled:false,interval_minutes:60,last_success:null,last_file:null,last_error:null};const backupCopies=[];
 
   const estimate = { id: "estimate-1", title: "Presupuesto inicial", currency: "ARS", issued: Boolean(fixture.issued) };
@@ -24,6 +25,21 @@ async function bridge(page, options={}) {
   const takeoffRows=fixture.restorableTakeoff?[{id:"takeoff-1",line_id:line.id,estimate_id:estimate.id,note:"Medición de prueba",factor:"1",length:"3",width:"2",height:"1",sign:1,quantity:"6"}]:[];
   if(fixture.restorableTakeoff){line.quantity="6";line.total="600";totals.direct="600";totals.total="600";}
   const resources=[{ id: "resource-1", code: "MAT-1", description: "Acero", unit: "kg", kind: "material", price: "100" }];
+  if(fixture.composition){
+   resources.push({id:'resource-sand',code:'MAT-2',description:'Arena',unit:'m³',kind:'material',price:'25'},
+    {id:'resource-labor',code:'MO-1',description:'Oficial',unit:'h',kind:'labor',price:'50'});
+   lineDetails['composition']={is_line_owned:true,code:'PART',description:'Hormigón',unit:'m³',unit_cost:'400',components:[
+    {resource_id:'resource-1',description:'Acero',kind:'material',quantity:'3',unit_price:'100',total:'300'},
+    {resource_id:'resource-sand',description:'Arena',kind:'material',quantity:'2',unit_price:'25',total:'50'},
+    {resource_id:'resource-labor',description:'Oficial',kind:'labor',quantity:'1',unit_price:'50',total:'50'}]};
+   for(const l of lines)l.analysis_id='composition';
+  }
+  if(fixture.materialRequirement){
+   line.analysis_id='material-requirement';
+   lineDetails[line.analysis_id]={is_line_owned:true,code:'PART',description:line.description,unit:line.unit,unit_cost:'100',components:[
+    {resource_id:'resource-1',description:'Acero',kind:'material',quantity:fixture.materialRequirement,unit_price:'100',total:String(Number(fixture.materialRequirement)*100)}]};
+  }
+  if(fixture.inclusion){for(const l of lines){l.unit_cost='400';l.total=String(Number(l.quantity)*400);}totals.direct=String(lines.reduce((n,l)=>n+Number(l.total),0));totals.total=totals.direct;}
   const resourcePrices={};const templates=[];
   const sourceProject={...project,id:'source-project',name:'Obra modelo'};
   const sourceDocument={format_version:1,currency:'Ars',title:'Modelo de cómputo',rates:{},line_analyses:[],sections:[{id:'src-parent',parent_id:null,code:'01',title:'Estructura modelo',position:0},{id:'src-child',parent_id:'src-parent',code:'01.01',title:'Terminaciones modelo',position:1},{id:'src-other',parent_id:null,code:'02',title:'Otros modelo',position:2},{id:'src-empty',parent_id:null,code:'03',title:'Rubro vacío',position:3}],lines:[{id:'src-a',description:'Columna modelo',unit:'m³',quantity:'2',unit_cost_snapshot:'10',analysis_id:null},{id:'src-b',description:'Muro modelo',unit:'m²',quantity:'6',unit_cost_snapshot:'20',analysis_id:null},{id:'src-c',description:'Pintura modelo',unit:'m²',quantity:'3',unit_cost_snapshot:'30',analysis_id:null}],assignments:[['src-a','src-parent'],['src-b','src-child'],['src-c','src-other']],formulas:[{line_id:'src-a',expression:'x',variables:{x:'2'}}],takeoffs:[{line_id:'src-b',factor:'2',length:'3',width:'1',height:'1',sign:1,position:0,note:'Pared'}]};
@@ -66,6 +82,22 @@ async function bridge(page, options={}) {
    if (command === "list_resources") return resources;
    if(command==='import_resources'){const imported=args.rows.map(row=>({id:crypto.randomUUID(),...row,code:row.code||"INS-"+String(resources.length+1).padStart(4,"0"),active:true}));resources.push(...imported);return {created:imported.length,resource_ids:imported.map(r=>r.id)};}
    if(command==='create_resource'){const r={id:'resource-'+(resources.length+1),...args,code:args.code||'INS-'+String(resources.length+1).padStart(4,'0')};resources.push(r);return r;}
+   if(command==='list_reminders'){
+    window.__reminders ||= JSON.parse(localStorage.getItem('test-reminders')||'null')||structuredClone(fixture.reminders||[]);
+    const group=r=>r.completed?2:r.due_date<args.today?1:0;
+    const all=window.__reminders.slice().sort((a,b)=>group(a)-group(b)||(group(a)===0?a.due_date.localeCompare(b.due_date):b.due_date.localeCompare(a.due_date))||a.id.localeCompare(b.id));
+    const page=Math.min(args.page,Math.max(0,Math.ceil(all.length/20)-1));
+    return {items:structuredClone(all.slice(page*20,page*20+20)),page,total:all.length,page_size:20};
+   }
+   if(command==='save_reminder'){
+    if(fixture.reminderSaveFails)throw new Error('No se pudo guardar el recordatorio');
+    window.__reminders ||= [];const input=args.reminder,old=window.__reminders.find(r=>r.id===input.id);
+    if(old&&old.revision!==input.revision)throw new Error('Actualizá la lista');
+    const saved={...input,id:input.id||crypto.randomUUID(),revision:(old?.revision||0)+1,project_name:projectList.find(p=>p.id===input.project_id)?.name||'',person_name:persons.find(p=>p.id===input.person_id)?.name||''};
+    if(old)window.__reminders.splice(window.__reminders.indexOf(old),1,saved);else window.__reminders.push(saved);
+    localStorage.setItem('test-reminders',JSON.stringify(window.__reminders));return structuredClone(saved);
+   }
+   if(command==='delete_reminder'){window.__reminders=window.__reminders.filter(r=>r.id!==args.id);localStorage.setItem('test-reminders',JSON.stringify(window.__reminders));return null;}
    if(command==='get_general_calendar')return structuredClone(generalCalendar);
    if(command==='save_general_calendar'){if(args.calendar.revision!==generalCalendar.revision)throw new Error('Recargá');generalCalendar={...structuredClone(args.calendar),revision:generalCalendar.revision+1};return structuredClone(generalCalendar);}
    if(command==='list_index_points')return structuredClone(indexPoints);
@@ -109,7 +141,7 @@ async function bridge(page, options={}) {
    if(command==='operations_report')return {...operationReport(),...fixture.financialReport,project_id:args.projectId,name:args.projectId===sourceProject.id?sourceProject.name:project.name,estimate_id:args.estimateId};
    if(command==='operations_portfolio')return [operationReport()];
    if(command==='post_operation'||command==='material_payment_with_proof'){const o={...args.operation,calculated:{}};operations.push(o);return o;}
-   if (command === "list_analyses") return [];
+   if (command === "list_analyses") return fixture.acuPicker ? [{id:"library-acu",code:"ACU-0001",description:"Estructura de prueba",unit:"m³",unit_cost:"350"},{id:"empty-acu",code:"ACU-0002",description:"Vacío",unit:"m²",unit_cost:"0"}] : [];
    if (command === "list_project_estimates") return args.projectId==='source-project'?[{id:'source-estimate',title:'Modelo de cómputo',currency:'ARS',issued:true}]:fixture.context?[estimate,{...estimate,id:'estimate-2',title:'Alternativa emitida',issued:true}]:[estimate];
    if(command==='get_estimate_resource_prices')return resourcePrices;
    if(command==='list_budget_templates')return templates;
@@ -155,18 +187,38 @@ async function bridge(page, options={}) {
    if(command==='add_project_attachment'||command==='open_project_attachment'||command==='remove_project_attachment')return null;
    if (command === "list_budget_sections") return sections;
    if (command === "list_line_sections") return assignments;
-   if (command === "get_analysis_details") return lineDetails[args.analysisId];
+   if (command === "get_analysis_details") { if(fixture.acuPicker && args.analysisId==='library-acu')return {description:'Estructura de prueba',unit_cost:'350',components:[{resource_id:'resource-1',description:'Acero',unit:'kg',quantity:'3.5',unit_price:'100',total:'350'}]};if(args.analysisId==='empty-acu')return {description:'Vacío',unit_cost:'0',components:[]};return lineDetails[args.analysisId]; }
+   if(command==='add_line_from_analysis'){const created={...line,id:'inserted-acu',description:'Estructura de prueba',analysis_id:'library-acu',quantity:args.quantity};lines.push(created);return created;}
+   if(command==='move_budget_section'){
+    if(estimate.issued)throw Error('Presupuesto emitido');
+    const source=sections.find(s=>s.id===args.sectionId),siblings=sections.filter(s=>(s.parent_id||null)===(source.parent_id||null)&&s.id!==source.id).sort((a,b)=>a.position-b.position);
+    const index=args.beforeId?siblings.findIndex(s=>s.id===args.beforeId):siblings.length;if(index<0)throw Error('Destino inválido');siblings.splice(index,0,source);siblings.forEach((s,i)=>s.position=i);return null;
+   }
    if (command === "move_budget_line"){
     const index=lines.findIndex(row=>row.id===args.lineId),[moving]=lines.splice(index,1);const before=args.beforeId?lines.findIndex(row=>row.id===args.beforeId):lines.length;lines.splice(before,0,moving);
     const assigned=assignments.findIndex(row=>row.line_id===args.lineId);if(assigned>=0)assignments.splice(assigned,1);if(args.sectionId)assignments.push({line_id:args.lineId,section_id:args.sectionId});return null;
    }
    if(command === "delete_estimate_line"){const index=lines.findIndex(row=>row.id===args.lineId);lines.splice(index,1);return null;}
+   if(command==='set_line_components_included'){
+    if(estimate.issued)throw Error('Presupuesto emitido');
+    const l=lines.find(l=>l.id===args.lineId);if(l.analysis_id!==args.analysisId)throw Error('El ACU cambió');
+    const original=lineDetails[l.analysis_id],copy=structuredClone(original);copy.components.forEach((c,i)=>{if(args.indices.includes(i))c.included=args.included;c.total=c.included===false?'0':String(Number(c.quantity)*Number(c.unit_price));});copy.unit_cost=String(copy.components.reduce((n,c)=>n+Number(c.total),0));
+    l.analysis_id='inclusion-'+calls.length;lineDetails[l.analysis_id]=copy;l.unit_cost=copy.unit_cost;l.total=String(Number(l.quantity)*Number(l.unit_cost));l.has_excluded_components=copy.components.some(c=>c.included===false);totals.direct=String(lines.reduce((n,r)=>n+Number(r.total),0));totals.total=totals.direct;return null;
+   }
+   if(command==='remove_line_resource'){
+    const l=lines.find(l=>l.id===args.lineId),original=lineDetails[l.analysis_id];
+    if(original.components[args.componentIndex]?.resource_id!==args.resourceId)throw Error('La composición cambió');
+    const components=original.components.filter((_,i)=>i!==args.componentIndex);
+    if(components.length){l.analysis_id='removed-'+calls.length;lineDetails[l.analysis_id]={...structuredClone(original),components};}
+    else l.analysis_id=null;
+    l.unit_cost=String(components.reduce((n,c)=>n+Number(c.total),0));l.total=String(Number(l.quantity)*Number(l.unit_cost));return null;
+   }
    if(command === "save_line_resources"){
-    const selected=lines.find(row=>row.id===args.lineId);const id="private-"+calls.length;const cost=args.components.reduce((sum,row)=>sum+Number(row.quantity)*Number(row.unitPrice),0);
+    const selected=lines.find(row=>row.id===args.lineId);const id="private-"+calls.length;const cost=args.components.reduce((sum,row)=>sum+(row.included===false?0:Number(row.quantity)*Number(row.unitPrice)),0);
     selected.analysis_id=id;selected.unit_cost=String(cost);selected.total=String(cost*Number(selected.quantity));
     for(const row of args.components)resourcePrices[row.resourceId]=row.unitPrice;
-    lineDetails[id]={is_line_owned:true,code:"PART",description:selected.description,unit:selected.unit,unit_cost:String(cost),components:args.components.map(row=>({resource_id:row.resourceId,description:resources.find(r=>r.id===row.resourceId)?.description,kind:"material",quantity:row.quantity,unit_price:row.unitPrice,total:String(Number(row.quantity)*Number(row.unitPrice))}))};
-    for(const l of lines){const detail=lineDetails[l.analysis_id];if(!detail)continue;for(const c of detail.components){c.unit_price=resourcePrices[c.resource_id];c.total=String(Number(c.quantity)*Number(c.unit_price));}detail.unit_cost=String(detail.components.reduce((n,c)=>n+Number(c.total),0));l.unit_cost=detail.unit_cost;l.total=String(Number(l.quantity)*Number(l.unit_cost));}
+    lineDetails[id]={is_line_owned:true,code:"PART",description:selected.description,unit:selected.unit,unit_cost:String(cost),components:args.components.map(row=>({resource_id:row.resourceId,description:resources.find(r=>r.id===row.resourceId)?.description,kind:"material",quantity:row.quantity,unit_price:row.unitPrice,included:row.included!==false,total:row.included===false?"0":String(Number(row.quantity)*Number(row.unitPrice))}))};
+    for(const l of lines){const detail=lineDetails[l.analysis_id];if(!detail)continue;for(const c of detail.components){c.unit_price=resourcePrices[c.resource_id];c.total=c.included===false?"0":String(Number(c.quantity)*Number(c.unit_price));}detail.unit_cost=String(detail.components.reduce((n,c)=>n+Number(c.total),0));l.unit_cost=detail.unit_cost;l.total=String(Number(l.quantity)*Number(l.unit_cost));}
     return id;
    }
    if (command === "list_budget_sections" || command === "list_line_sections" || command === "list_backups" || command === "list_budget_templates" || command === "list_plan_revisions" || command === "list_plan_baselines" || command === "list_fx_quotes" || command === "scoped_price_history") return [];
@@ -249,6 +301,7 @@ test("budget tools submit an atomic bulk edit and generate a PDF", async ({ page
  await bridge(page); await page.getByRole("button", { name: "Abrir ›", exact: true }).first().click();await page.locator('[data-action=manage-dashboard-budget]').first().click();
  await page.getByRole("button", { name: "Herramientas / exportar", exact: true }).click();
  await expect(page.getByRole("navigation",{name:"Navegación principal"}).getByRole("button",{name:"Presupuesto",exact:true})).toHaveAttribute("aria-current","page");
+ await page.getByText("Edición avanzada, intercambio y plantillas",{exact:true}).click();
  const form = page.locator("#budget-bulk-form"); await form.locator('input[name^="description-"]').fill("Hormigón actualizado");
  await form.locator('input[name^="quantity-"]').fill("3.25");
  await page.getByRole("button", { name: "Guardar edición masiva", exact: true }).click();
@@ -274,6 +327,9 @@ test("line handles reorder and move into a section",async({page})=>{
  await second.locator('.line-drag-handle').dragTo(page.locator('[data-drop-section]'));
  await expect.poll(()=>page.evaluate(()=>window.__calls.filter(row=>row.command==='move_budget_line').at(-1)?.args.sectionId)).toBe('10000000-0000-4000-8000-000000000004');
  await expect(page.getByRole('status')).toContainText('Preliminares');
+ await expect(page.locator('.section-row:not(.unassigned) .col-code')).toContainText('1');
+ await expect(page.locator('.line-row').filter({hasText:'Revoque'}).locator('.col-code')).toContainText('1.1');
+ await expect(page.locator('.line-row').filter({hasText:'Hormigón'}).locator('.col-code')).toContainText('2');
 });
 
 test("double click edits a different line and right click opens software actions",async({page})=>{
@@ -294,7 +350,7 @@ test("assigning a catalog resource directly recalculates the selected line",asyn
  await page.getByLabel('Rendimiento / unidad',{exact:true}).fill('2.5');await page.getByRole('button',{name:'Guardar',exact:true}).click();
  await expect(page.locator('.detail-content')).toContainText('Precio calculado por insumos');
  await expect(page.locator('.line-row .partial')).toHaveText('500,00');
- const saved=await page.evaluate(()=>window.__calls.find(row=>row.command==='save_line_resources').args);expect(saved.components[0]).toEqual({resourceId:'resource-1',quantity:'2.5',unitPrice:'100'});
+ const saved=await page.evaluate(()=>window.__calls.find(row=>row.command==='save_line_resources').args);expect(saved.components[0]).toEqual({resourceId:'resource-1',quantity:'2.5',unitPrice:'100',included:true});
 });
 
 test("issued budgets disable editing, assignment and drag handles",async({page})=>{
@@ -514,7 +570,7 @@ test('new own organizations can be edited and default changes do not replace the
 test('clients and suppliers stay separate and importing adds a role without duplicating a person',async({page})=>{
  await bridge(page,{people:true});await page.getByRole('button',{name:'Clientes',exact:true}).click();await expect(page.getByRole('cell',{name:'Corralón García',exact:true})).toHaveCount(0);await page.getByRole('button',{name:'Importar desde proveedores',exact:true}).click();await page.getByRole('button',{name:'Incorporar como cliente',exact:true}).click();await expect(page.getByRole('cell').filter({hasText:'Corralón García'})).toBeVisible();
  expect(await page.evaluate(()=>window.__calls.filter(c=>c.command==='save_person').length)).toBe(0);expect(await page.evaluate(()=>window.__calls.filter(c=>c.command==='add_person_role').at(-1).args)).toMatchObject({id:'supplier-1',role:'client'});
- await page.getByRole('row').filter({hasText:'Corralón García'}).getByRole('button',{name:'Editar cliente',exact:true}).click();await page.getByLabel('Teléfono del contacto',{exact:true}).fill('1144556677');await page.getByRole('button',{name:'Guardar contacto',exact:true}).click();await page.getByRole('button',{name:'Proveedores',exact:true}).click();await expect(page.getByRole('row').filter({hasText:'Corralón García'})).toContainText('1144556677');await expect(page.getByRole('cell',{name:'Comitente',exact:true})).toHaveCount(0);
+ await page.getByRole('row').filter({hasText:'Corralón García'}).getByRole('combobox',{name:'Acciones de Corralón García',exact:true}).selectOption('person-edit');await page.getByLabel('Teléfono del contacto',{exact:true}).fill('1144556677');await page.getByRole('button',{name:'Guardar contacto',exact:true}).click();await page.getByRole('button',{name:'Proveedores',exact:true}).click();await expect(page.getByRole('row').filter({hasText:'Corralón García'})).toContainText('1144556677');await expect(page.getByRole('cell',{name:'Comitente',exact:true})).toHaveCount(0);
 });
 
 test('new contact suggests reusing a similar opposite-role person and preserves drafts on outside click',async({page})=>{
@@ -523,7 +579,7 @@ test('new contact suggests reusing a similar opposite-role person and preserves 
 
 test('project quick creation and importing contacts preserve the project form and select the saved persons',async({page})=>{
  await bridge(page,{people:true});await page.getByRole('button',{name:'＋ Nueva obra',exact:true}).click();await page.getByLabel('Nombre de la obra',{exact:true}).fill('Obra con contactos nuevos');await page.getByRole('button',{name:'＋ Crear cliente',exact:true}).click();const child=page.getByRole('dialog',{name:'Nuevo cliente',exact:true});await child.getByLabel('Nombre / razón social',{exact:true}).fill('Cliente de obra nuevo');await child.getByLabel('CUIT / identificación',{exact:true}).fill('20-11111111-1');await child.getByRole('button',{name:'Crear cliente',exact:true}).click();await expect(page.getByLabel('Nombre de la obra',{exact:true})).toHaveValue('Obra con contactos nuevos');await expect(page.getByRole('combobox',{name:'Cliente / comitente',exact:true})).toHaveValue(/.+/);
- await page.getByRole('button',{name:'Importar desde Clientes',exact:true}).click();await page.getByLabel('Buscar contacto para incorporar',{exact:true}).fill('Cliente de obra nuevo');await page.getByRole('button',{name:'Incorporar como proveedor',exact:true}).click();await expect(page.getByRole('checkbox',{name:'Cliente de obra nuevo',exact:false})).toBeChecked();await expect(page.getByLabel('Nombre de la obra',{exact:true})).toHaveValue('Obra con contactos nuevos');await page.getByRole('button',{name:'Guardar',exact:true}).click();const saved=await page.evaluate(()=>window.__calls.filter(c=>c.command==='create_project').at(-1).args);expect(saved.clientId).toBe(saved.supplierIds[0]);expect(saved.projectName).toBe('Obra con contactos nuevos');
+ await expect(page.locator('.project-suppliers')).toHaveCount(0);await page.getByRole('button',{name:'Guardar',exact:true}).click();const saved=await page.evaluate(()=>window.__calls.filter(c=>c.command==='create_project').at(-1).args);expect(saved.supplierIds).toEqual([]);expect(saved.clientId).toBeTruthy();expect(saved.projectName).toBe('Obra con contactos nuevos');
 });
 
 test('editing a project can create and select a supplier while retaining its client and organization',async({page})=>{
@@ -815,7 +871,7 @@ test('site book keeps editable drafts, confirms with consent, locks entries and 
  await page.evaluate(()=>{const base=window.__siteEntries[0];window.__siteEntries=Array.from({length:31},(_,i)=>({...base,id:'entry-'+i,number:'PAR-'+String(i+1).padStart(4,'0'),description:'Parte '+i}));});await page.getByRole('button',{name:'Materiales y Acopio',exact:true}).click();await page.getByRole('button',{name:'Libro de obra',exact:true}).click();await expect(page.locator('.site-book tbody tr')).toHaveCount(30);await expect(page.locator('.site-book tbody tr').first()).toContainText('PAR-0031');await page.getByRole('button',{name:'Siguiente',exact:true}).click();await expect(page.locator('.site-book tbody tr')).toHaveCount(1);await expect(page.locator('.site-book tbody tr')).toContainText('PAR-0001');await page.setViewportSize({width:1600,height:1000});await page.screenshot({path:test.info().outputPath('cpobras-site-book.png'),fullPage:true});
 });
 test('quotation prices are edited in the comparison grid, attachments stay with supplier and distribution creates an order',async({page})=>{
- await bridge(page,{financialReport:{needs:[{resource_id:'resource-1',required:'20',stock:'2',ordered:'5',received:'0',shortage:'18'}]}});await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.locator('[data-action=manage-dashboard-budget]').first().click();await page.getByRole('button',{name:'Gestión de obra',exact:true}).click();await page.getByRole('button',{name:'+ Nueva',exact:true}).click();await expect(page.locator('.required-material')).toContainText('Acero');await page.locator('[data-request-source] input[type=checkbox]').check();await expect(page.locator('[data-request-source] input[type=number]')).toHaveValue('13');await page.getByLabel('Nombre de la solicitud',{exact:true}).fill('Corralón');await page.getByRole('button',{name:'Guardar solicitud',exact:true}).click();await addQuoteSupplier(page,'supplier-1');const cell=page.locator('[data-quote-cell]');await cell.fill('100');await expect(page.locator('[data-quote-total]')).toContainText('1.300,00');await page.getByRole('button',{name:'Guardar precios',exact:true}).click();await page.locator('[data-action=ops-rfq-provider-menu]').first().click();await page.locator('[data-quote-attachment]').setInputFiles({name:'Oferta.pdf',mimeType:'application/pdf',buffer:Buffer.from('%PDF-1.4\nOferta')});await expect(page.locator('.quote-provider-actions')).toHaveCount(0);await page.locator('[data-action=ops-rfq-provider-menu]').first().click();await expect(page.getByRole('button',{name:'Oferta.pdf',exact:true})).toBeVisible();await page.getByRole('button',{name:'Distribuir pedido',exact:true}).click();await expect(page.getByRole('dialog',{name:'Distribuir pedido',exact:true})).toContainText('Menor precio');await page.getByRole('button',{name:'Confirmar adjudicación',exact:true}).click();await expect(page.locator('.workflow-card').filter({hasText:'Pedidos a proveedores'})).toContainText('PED-0001');const award=await page.evaluate(()=>window.__calls.filter(c=>c.command==='award_quotation').at(-1).args);expect(award.choices).toHaveLength(1);expect(award.choices[0].quantity).toBe('13');await page.getByRole('button',{name:'Registrar entrega',exact:true}).click();await page.getByLabel('Acero · Pendiente 13',{exact:true}).fill('5');await page.getByRole('button',{name:'Confirmar recepción',exact:true}).click();await expect(page.locator('.workflow-card').filter({hasText:'Pedidos a proveedores'})).toContainText('Parcial');await page.setViewportSize({width:1800,height:1100});await page.screenshot({path:test.info().outputPath('cpobras-material-quotes.png'),fullPage:true});
+ await bridge(page,{materialRequirement:'10',financialReport:{needs:[{resource_id:'resource-1',required:'20',stock:'2',ordered:'5',received:'0',shortage:'18'}]}});await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.locator('[data-action=manage-dashboard-budget]').first().click();await page.getByRole('button',{name:'Gestión de obra',exact:true}).click();await page.getByRole('button',{name:'+ Nueva',exact:true}).click();await expect(page.locator('.required-material')).toContainText('Acero');await page.locator('[data-request-source] input[type=checkbox]').check();await expect(page.locator('[data-request-source] input[type=number]')).toHaveValue('13');await page.getByLabel('Nombre de la solicitud',{exact:true}).fill('Corralón');await page.getByRole('button',{name:'Guardar solicitud',exact:true}).click();await addQuoteSupplier(page,'supplier-1');const cell=page.locator('[data-quote-cell]');await cell.fill('100');await expect(page.locator('[data-quote-total]')).toContainText('1.300,00');await page.getByRole('button',{name:'Guardar precios',exact:true}).click();await page.locator('[data-action=ops-rfq-provider-menu]').first().click();await page.locator('[data-quote-attachment]').setInputFiles({name:'Oferta.pdf',mimeType:'application/pdf',buffer:Buffer.from('%PDF-1.4\nOferta')});await expect(page.locator('.quote-provider-actions')).toHaveCount(0);await page.locator('[data-action=ops-rfq-provider-menu]').first().click();await expect(page.getByRole('button',{name:'Oferta.pdf',exact:true})).toBeVisible();await page.getByRole('button',{name:'Distribuir pedido',exact:true}).click();await expect(page.getByRole('dialog',{name:'Distribuir pedido',exact:true})).toContainText('Menor precio');await page.getByRole('button',{name:'Confirmar adjudicación',exact:true}).click();await expect(page.locator('.workflow-card').filter({hasText:'Pedidos a proveedores'})).toContainText('PED-0001');const award=await page.evaluate(()=>window.__calls.filter(c=>c.command==='award_quotation').at(-1).args);expect(award.choices).toHaveLength(1);expect(award.choices[0].quantity).toBe('13');await page.getByRole('button',{name:'Registrar entrega',exact:true}).click();await page.getByLabel('Acero · Pendiente 13',{exact:true}).fill('5');await page.getByRole('button',{name:'Confirmar recepción',exact:true}).click();await expect(page.locator('.workflow-card').filter({hasText:'Pedidos a proveedores'})).toContainText('Parcial');await page.setViewportSize({width:1800,height:1100});await page.screenshot({path:test.info().outputPath('cpobras-material-quotes.png'),fullPage:true});
 });
 test('only the open client certificate is editable in one chronological table',async({page})=>{
  await bridge(page,{issued:true});await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.locator('[data-action=manage-dashboard-budget]').first().click();await page.getByRole('button',{name:'Gestión de obra',exact:true}).click();await page.getByRole('button',{name:'Certificaciones',exact:true}).click();await expect(page.getByRole('button',{name:'Modificar avances',exact:true})).toHaveCount(1);await expect(page.getByText('Certificados de avance',{exact:true})).toHaveCount(0);await expect(page.locator('.operations-page .data-grid')).toHaveCount(1);await expect(page.getByLabel('Inicio del período',{exact:true})).toHaveCount(0);await expect(page.locator('.data-grid')).toContainText('Pendiente');await page.getByRole('button',{name:'Modificar avances',exact:true}).click();await expect(page.getByLabel('Desde',{exact:true})).not.toBeEditable();await expect(page.getByLabel('Hasta',{exact:true})).not.toBeEditable();
@@ -1079,13 +1135,13 @@ test('resource library downloads an Excel template and imports materials and lab
  const headers=['Código','Descripción','Tipo','Unidad','Precio ARS'];
  const buffer=await resourceImportWorkbook([headers,['MAT-NUEVO','Cemento para prueba','MAT','bolsa','1234.56'],['','Oficial para prueba','MO','h','']]);
  await bridge(page);await page.getByRole('button',{name:'Insumos',exact:true}).first().click();
- await page.getByRole('button',{name:'Descargar plantilla Excel',exact:true}).click();
+ await page.getByRole('button',{name:'Descargar listado',exact:true}).click();
  const {parseExcel}=await import('../../src/services/exchange.js');
  await expect.poll(()=>page.evaluate(()=>window.__calls.filter(c=>c.command==='save_export_file').length)).toBe(1);
  const template=await page.evaluate(()=>window.__calls.find(c=>c.command==='save_export_file').args);
- expect(template.name).toBe('Plantilla_insumos_CPOBRAS.xlsx');
+ expect(template.name).toBe('Listado_insumos_CPOBRAS.xlsx');
  expect(template.openAfter).toBe(false);
- expect(await parseExcel(Uint8Array.from(template.bytes))).toEqual([headers]);
+ expect(await parseExcel(Uint8Array.from(template.bytes))).toEqual([headers,['MAT-1','Acero','Material','kg','100']]);
  await page.getByRole('button',{name:'Importar Excel',exact:true}).click();
  const dialog=page.getByRole('dialog',{name:'Importar biblioteca de insumos',exact:true});
  await dialog.getByLabel('Fecha de los precios',{exact:true}).fill('2026-11-09');
@@ -1202,13 +1258,268 @@ test('backup restoration asks inside the app even when browser confirmation is u
 test('opening a database displays native errors inside the app without browser alerts',async({page})=>{
  await bridge(page);
  await page.evaluate(()=>{window.alert=()=>{throw new Error('window.alert no está disponible');};});
- await page.locator('.database-menu summary').click();
+ await page.getByRole('button',{name:'Opciones',exact:true}).click();
  await page.getByRole('button',{name:'Abrir base de datos…',exact:true}).click();
  await expect(page.getByRole('alert')).toContainText('os error 5');
  await expect(page.locator('.database-menu-path')).toContainText('Prueba');
  await expect(page.locator('body')).not.toHaveAttribute('inert','');
- await page.locator('.database-menu summary').click();
+ await page.getByRole('button',{name:'Opciones',exact:true}).click();
  await page.getByRole('button',{name:'Abrir base de datos…',exact:true}).click();
  await expect.poll(()=>page.evaluate(()=>window.__calls.filter(x=>x.command==='switch_database').length)).toBe(2);
  await expect(page.getByRole('alert')).toContainText('os error 5');
+});
+
+async function openCompositionBudget(page,options={}){
+ await bridge(page,{composition:true,twoLines:true,...options});
+ await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();
+ await page.locator('[data-action=manage-dashboard-budget]').first().click();
+}
+test('budget resource totals include every line and group headings show their composition subtotals',async({page})=>{
+ await openCompositionBudget(page);
+ await expect(page.locator('.group-row').filter({hasText:'MATERIALES'})).toContainText('350,00');
+ await expect(page.locator('.group-row').filter({hasText:'MANO DE OBRA'})).toContainText('50,00');
+ await page.getByRole('tab',{name:'Insumos',exact:true}).click();
+ const steel=page.locator('.mini-table tbody tr').filter({hasText:'Acero'});
+ await expect(steel.locator('td').nth(3)).toHaveText('12');await expect(steel.locator('td').nth(4)).toHaveText('1.200,00');
+ await page.screenshot({path:test.info().outputPath('budget-resources.png'),fullPage:true});
+ await expect(page.getByRole('columnheader',{name:'CANT. TOTAL',exact:true})).toBeVisible();
+});
+test('resource actions appear on hover or keyboard focus and remove only that line, including its last resource',async({page})=>{
+ await openCompositionBudget(page);
+ const row=page.locator('.line-resource-row').filter({hasText:'Acero'});
+ await expect(row.locator('[data-action=remove-line-resource]')).toHaveCSS('opacity','0');
+ await row.hover();await expect(row.locator('[data-action=remove-line-resource]')).toHaveCSS('opacity','1');
+ await row.locator('[data-action=remove-line-resource]').click();
+ await expect(page.locator('.line-resource-row')).toHaveCount(2);
+ const remaining=page.locator('.line-resource-row').first();await remaining.focus();
+ await expect(remaining.locator('[data-action=remove-line-resource]')).toHaveCSS('opacity','1');
+ await remaining.locator('[data-action=remove-line-resource]').click();
+ await page.locator('.line-resource-row').first().hover();await page.locator('[data-action=remove-line-resource]').click();
+ await expect(page.locator('.line-resource-row')).toHaveCount(0);
+ await page.getByRole('tab',{name:'Insumos',exact:true}).click();
+ await expect(page.locator('.mini-table')).toContainText('Acero');
+ await expect(page.locator('.mini-table tbody tr').filter({hasText:'Acero'}).locator('td').nth(3)).toHaveText('6');
+ expect(await page.evaluate(()=>window.__calls.filter(c=>c.command==='remove_line_resource').length)).toBe(3);
+});
+test('clear buttons reset list filters and the actual resource and unit picker selections',async({page})=>{
+ await openCompositionBudget(page);
+ const search=page.locator('[data-search]').first();
+ expect((await search.boundingBox()).width).toBeGreaterThan(130);
+ await search.fill('No existe');
+ await search.locator('..').getByRole('button',{name:/Limpiar/}).click();
+ await expect(search).toHaveValue('');await expect(page.locator('.line-row').first()).toBeVisible();
+ await page.getByRole('button',{name:'＋ Agregar insumo',exact:true}).click();
+ const picker=page.getByRole('combobox',{name:'Buscar insumo 1'});await picker.fill('Arena');
+ await page.getByRole('option',{name:'MAT-2 · Arena (m³)',exact:true}).click();
+ await picker.locator('..').getByRole('button',{name:/Limpiar/}).click();
+ await expect(picker).toHaveValue('');await expect(page.locator('select[name=resource]')).toHaveValue('');
+ await expect(page.locator('[data-resource-unit]')).toBeHidden();
+ await page.getByRole('button',{name:'Guardar',exact:true}).click();
+ await expect(page.locator('.modal-error')).toContainText('Seleccioná un insumo');
+});
+test('quotation highlights all actual budget materials even when the management report omits one',async({page})=>{
+ await openCompositionBudget(page,{financialReport:{needs:[{resource_id:'resource-1',required:'1',stock:'2',ordered:'5',received:'1',consumed:'0',shortage:'0'}]}});
+ await page.getByRole('button',{name:'Gestión de obra',exact:true}).click();
+ await page.getByRole('button',{name:'+ Nueva',exact:true}).click();
+ await expect(page.locator('.required-material')).toHaveCount(2);
+ const steel=page.locator('.required-material').filter({hasText:'Acero'}),sand=page.locator('.required-material').filter({hasText:'Arena'});
+ await expect(steel).toContainText('Necesario: 12');await expect(steel).toContainText('Sugerido a pedir: 6');
+ await expect(sand).toContainText('Necesario: 8');await expect(sand.locator('input[type=number]')).toHaveValue('8');
+ await sand.locator('input[type=checkbox]').check();
+ await page.getByLabel('Buscar materiales / tareas',{exact:true}).fill('Acero');await page.getByRole('button',{name:'Buscar',exact:true}).click();
+ await expect(page.locator('.required-material')).toHaveCount(1);
+ await page.getByLabel('Buscar materiales / tareas',{exact:true}).locator('..').getByRole('button',{name:/Limpiar/}).click();
+ await expect(page.locator('.required-material')).toHaveCount(2);
+ await expect(page.getByLabel('Buscar materiales / tareas',{exact:true})).toBeFocused();
+ await expect(page.locator('.required-material').filter({hasText:'Arena'}).locator('input[type=checkbox]')).toBeChecked();
+});
+test('client row uses a compact native actions select and preserves existing actions',async({page})=>{
+ await bridge(page);await page.getByRole('button',{name:'Clientes',exact:true}).click();
+ const row=page.locator('.persons-page tbody tr').filter({hasText:'Comitente'}).first();
+ const actions=row.getByRole('combobox',{name:'Acciones de Comitente',exact:true});
+ await expect(actions).toHaveValue('');
+ expect(await actions.locator('option').allTextContents()).toEqual(['Acciones','Editar cliente','Dar de baja','Eliminar si no fue usado']);
+ const box=await actions.boundingBox();expect(box.height).toBeLessThanOrEqual(28);expect(box.width).toBeLessThanOrEqual(120);
+ await actions.selectOption('person-edit');
+ await expect(page.getByRole('dialog',{name:'Editar cliente',exact:true})).toBeVisible();
+});
+
+test('clearing a selected unit keeps its accessible label and allows selecting another unit',async({page})=>{
+ await bridge(page);await page.getByRole('button',{name:'Insumos',exact:true}).click();
+ await page.getByRole('button',{name:'＋ Nuevo insumo',exact:true}).click();
+ const unit=page.getByRole('combobox',{name:'Unidad',exact:true});
+ await unit.fill('kilo');await page.getByRole('option',{name:'kg · Kilogramo',exact:true}).click();
+ await expect(unit).toHaveValue('kg');
+ await unit.locator('..').getByRole('button',{name:'Limpiar',exact:true}).click();
+ await expect(unit).toHaveValue('');await unit.fill('metro');
+ await page.getByRole('option',{name:'m · Metro',exact:true}).click();
+ await expect(unit).toHaveValue('m');
+});
+
+test('export center creates an editable full workbook and keeps bulk editing collapsed',async({page})=>{
+ await bridge(page);await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.locator('[data-action=manage-dashboard-budget]').first().click();
+ await page.getByRole('button',{name:'Herramientas / exportar',exact:true}).click();
+ await expect(page.locator('#budget-bulk-form')).not.toBeVisible();
+ const form=page.locator('#budget-export-form');
+ await expect(form.getByRole('combobox',{name:'Presentación',exact:true})).toHaveValue('full');
+ await form.getByRole('button',{name:'Generar archivo',exact:true}).click();
+ await expect(form.getByRole('status')).toContainText('presupuesto.xlsx');
+ const bytes=await page.evaluate(()=>window.__calls.filter(c=>c.command==='write_export').at(-1).args.bytes);
+ const {unzipSync,strFromU8}=await import('fflate');const files=unzipSync(new Uint8Array(bytes)),book=strFromU8(files['xl/workbook.xml']);
+ for(const name of ['Partidas','ACU','Precio','Insumos','Metrados','Detalle precio','Memoria'])expect(book).toContain('name="'+name+'"');
+ expect(strFromU8(files['xl/worksheets/sheet1.xml'])).toContain('<f>');
+ await page.locator('.feature-page').evaluate(el=>el.scrollTo(0,0));
+ await page.screenshot({path:test.info().outputPath('export-center.png'),fullPage:true});
+});
+
+test('client exports support all three layouts, preserve the draft and omit private data',async({page})=>{
+ await bridge(page);await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.locator('[data-action=manage-dashboard-budget]').first().click();
+ await page.getByRole('button',{name:'Herramientas / exportar',exact:true}).click();
+ const form=page.locator('#budget-export-form');
+ await form.getByRole('combobox',{name:'Presentación',exact:true}).selectOption('client');
+ await form.getByRole('combobox',{name:'Formato',exact:true}).selectOption('pdf');
+ await form.getByRole('combobox',{name:'Contenido para el cliente',exact:true}).selectOption('memory_sheet_price');
+ await form.locator('[name=memory]').fill('ALCANCE PUBLICO: estructura y terminaciones.');
+ await form.locator('[name=notes]').fill('Validez: 15 días. Entrega: 30 días.');
+ for(const layout of ['memory_sheet_price','memory_price','sheet_price']){
+  await form.getByRole('combobox',{name:'Contenido para el cliente',exact:true}).selectOption(layout);
+  const before=await page.evaluate(()=>window.__calls.filter(c=>c.command==='write_export').length);
+  await form.getByRole('button',{name:'Generar archivo',exact:true}).click();
+  await expect.poll(()=>page.evaluate(()=>window.__calls.filter(c=>c.command==='write_export').length)).toBe(before+1);
+  const pdf=await page.evaluate(()=>new TextDecoder().decode(new Uint8Array(window.__calls.filter(c=>c.command==='write_export').at(-1).args.bytes)));
+  expect(pdf).toContain('Validez: 15');expect(pdf).not.toMatch(/Costo directo|Gastos generales|Beneficio/);
+  if(layout==='memory_price')expect(pdf).not.toContain('Hormig');else expect(pdf).toContain('Hormig');
+  if(layout==='sheet_price')expect(pdf).not.toContain('ALCANCE PUBLICO');else expect(pdf).toContain('ALCANCE PUBLICO');
+ }
+ await page.getByRole('button',{name:'Volver a la grilla',exact:true}).click();
+ await page.getByRole('button',{name:'Herramientas / exportar',exact:true}).click();
+ await form.getByRole('combobox',{name:'Contenido para el cliente',exact:true}).selectOption('memory_price');
+ await expect(form.locator('[name=memory]')).toHaveValue('ALCANCE PUBLICO: estructura y terminaciones.');
+ await expect(form.locator('[name=notes]')).toHaveValue('Validez: 15 días. Entrega: 30 días.');
+});
+
+test('home reserves a quarter of its width for manual reminders and preserves a client quote after reopening',async({page})=>{
+ await page.setViewportSize({width:1600,height:1000});
+ await bridge(page,{now:'2026-11-16T12:00:00Z'});
+ const panel=page.getByRole('complementary',{name:'Recordatorios',exact:true});
+ const area=await page.locator('.home-project-columns').boundingBox(),box=await panel.boundingBox();expect(box.width/area.width).toBeGreaterThan(.24);expect(box.width/area.width).toBeLessThan(.26);
+ await panel.getByRole('button',{name:'＋ Nuevo',exact:true}).click();
+ await panel.getByLabel('Recordatorio',{exact:true}).fill('Enviar presupuesto de ampliación');
+ await panel.getByLabel('Fecha de vencimiento',{exact:true}).fill('2026-11-18');
+ await panel.getByRole('combobox',{name:'Tipo de recordatorio',exact:true}).selectOption('client_quote');
+ await panel.getByRole('combobox',{name:'Obra (opcional)',exact:true}).selectOption('10000000-0000-4000-8000-000000000001');
+ await expect(panel.getByRole('combobox',{name:'Cliente / contratista (opcional)',exact:true})).toHaveValue('client-1');
+ await panel.getByLabel('Notas',{exact:true}).fill('Enviar alternativas antes de las 18 h.');
+ await panel.getByRole('button',{name:'Guardar recordatorio',exact:true}).click();
+ const row=panel.locator('tbody tr').filter({hasText:'Enviar presupuesto de ampliación'});await expect(row).toContainText('18/11/2026');await expect(row).toContainText('Obra de prueba');await expect(row).toContainText('Comitente');
+ await page.reload();await expect(panel.locator('tbody')).toContainText('Enviar presupuesto de ampliación');
+ await panel.locator('tr').filter({hasText:'Enviar presupuesto de ampliación'}).hover();
+ await panel.getByRole('button',{name:'Editar recordatorio Enviar presupuesto de ampliación',exact:true}).click();
+ await panel.getByLabel('Recordatorio',{exact:true}).fill('Enviar presupuesto revisado');
+ await panel.getByRole('button',{name:'Guardar recordatorio',exact:true}).click();
+ await expect(panel.locator('tbody')).toContainText('Enviar presupuesto revisado');
+ await page.screenshot({path:test.info().outputPath('home-reminders.png'),fullPage:true});
+});
+
+test('reminders paginate at twenty and put expired and completed history after current reminders',async({page})=>{
+ const reminders=Array.from({length:22},(_,i)=>({id:'10000000-0000-4000-8000-'+String(100+i).padStart(12,'0'),revision:1,title:'Comprar material '+String(i+1).padStart(2,'0'),due_date:'2026-11-20',kind:'materials',project_id:null,person_id:null,project_name:'',person_name:'',notes:'',completed:false}));
+ reminders.push({...reminders[0],id:'20000000-0000-4000-8000-000000000001',title:'Certificado vencido',due_date:'2026-11-15',kind:'client_certificate'});
+ await bridge(page,{now:'2026-11-16T12:00:00Z',reminders});
+ const panel=page.getByRole('complementary',{name:'Recordatorios',exact:true});await expect(panel.locator('[data-reminder-id]')).toHaveCount(20);await expect(panel).not.toContainText('Certificado vencido');
+ await panel.getByRole('button',{name:'Recordatorios: página siguiente',exact:true}).click();
+ await expect(panel.locator('[data-reminder-id]')).toHaveCount(3);
+ const old=panel.locator('tr').filter({hasText:'Certificado vencido'});await expect(old).toHaveClass('reminder-history');await expect(old).toContainText('Vencido');await expect(panel.getByRole('button',{name:'Recordatorios: página siguiente',exact:true})).toBeDisabled();
+ await old.hover();page.once('dialog',d=>d.dismiss());await panel.getByRole('button',{name:'Eliminar recordatorio Certificado vencido',exact:true}).click();await expect(old).toBeVisible();
+ await panel.getByRole('button',{name:'Recordatorios: página anterior',exact:true}).click();
+ await panel.locator('tr').filter({hasText:'Comprar material 01'}).hover();
+ await panel.getByRole('button',{name:'Resolver recordatorio Comprar material 01',exact:true}).click();
+ await expect(panel.locator('[data-reminder-id]')).toHaveCount(20);await expect(panel.locator('tbody')).not.toContainText('Comprar material 01');
+ await panel.getByRole('button',{name:'Recordatorios: página siguiente',exact:true}).click();await expect(panel.locator('tbody tr').last()).toContainText('Resuelto');
+});
+
+test('failed reminder saves retain the draft',async({page})=>{
+ await bridge(page,{now:'2026-11-16T12:00:00Z',reminderSaveFails:true});
+ const panel=page.getByRole('complementary',{name:'Recordatorios',exact:true});await panel.getByRole('button',{name:'＋ Nuevo',exact:true}).click();
+ await panel.getByLabel('Recordatorio',{exact:true}).fill('Certificar al contratista');await panel.getByRole('combobox',{name:'Tipo de recordatorio',exact:true}).selectOption('contractor_certificate');await panel.getByRole('button',{name:'Guardar recordatorio',exact:true}).click();
+ await expect(panel.getByRole('alert')).toContainText('No se pudo guardar');await expect(panel.getByLabel('Recordatorio',{exact:true})).toHaveValue('Certificar al contratista');
+});
+
+test('reminders become gray history after midnight without restarting the app',async({page})=>{
+ const one={id:'10000000-0000-4000-8000-000000000100',revision:1,title:'Certificado de hoy',due_date:'2026-11-16',kind:'client_certificate',project_id:null,person_id:null,project_name:'',person_name:'',notes:'',completed:false};
+ await bridge(page,{now:'2026-11-16T23:59:50Z',reminders:[one,{...one,id:'10000000-0000-4000-8000-000000000101',title:'Compra de mañana',due_date:'2026-11-17',kind:'materials'}]});
+ const panel=page.getByRole('complementary',{name:'Recordatorios',exact:true});await expect(panel.locator('[data-reminder-id]').first()).toContainText('Certificado de hoy');
+ await page.clock.fastForward(20000);await page.evaluate(()=>window.dispatchEvent(new Event('focus')));
+ await expect(panel.locator('[data-reminder-id]').first()).toContainText('Compra de mañana');await expect(panel.locator('[data-reminder-id]').last()).toHaveClass('reminder-history');await expect(panel.locator('[data-reminder-id]').last()).toContainText('Vencido');
+});
+
+test('overnight reminder refresh does not overwrite an unfinished project dialog',async({page})=>{
+ const reminder={id:'10000000-0000-4000-8000-000000000100',revision:1,title:'Compra pendiente',due_date:'2026-11-16',kind:'materials',project_id:null,person_id:null,project_name:'',person_name:'',notes:'',completed:false};
+ await bridge(page,{now:'2026-11-16T23:59:50Z',reminders:[reminder]});
+ await page.getByRole('button',{name:'＋ Nueva obra',exact:true}).click();
+ const dialog=page.getByRole('dialog',{name:'Nueva obra',exact:true});await dialog.getByLabel('Nombre de la obra',{exact:true}).fill('Obra sin guardar');
+ const before=await page.evaluate(()=>window.__calls.filter(c=>c.command==='list_reminders').length);
+ await page.clock.fastForward(20000);await page.evaluate(()=>window.dispatchEvent(new Event('focus')));
+ expect(await page.evaluate(()=>window.__calls.filter(c=>c.command==='list_reminders').length)).toBe(before);
+ await expect(dialog.getByLabel('Nombre de la obra',{exact:true})).toHaveValue('Obra sin guardar');
+ page.once('dialog',d=>d.accept());await dialog.getByRole('button',{name:'Cerrar',exact:true}).last().click();
+ await page.evaluate(()=>window.dispatchEvent(new Event('focus')));
+ await expect(page.locator('[data-reminder-id]')).toContainText('Vencido');
+});
+
+test('reminder actions stay compact and horizontal, reveal on hover or keyboard focus and remain available on touch',async({page,browser})=>{
+ const reminder={id:'10000000-0000-4000-8000-000000000100',revision:1,title:'Cotizar ampliación',due_date:'2026-11-20',kind:'client_quote',project_id:null,person_id:null,project_name:'',person_name:'',notes:'',completed:false};
+ await bridge(page,{reminders:[reminder]});
+ const row=page.locator('[data-reminder-id]'),group=row.getByRole('group',{name:'Acciones de recordatorio Cotizar ampliación',exact:true});
+ await page.getByRole('heading',{name:'Obras',exact:true}).hover();await expect(group).toHaveCSS('opacity','0');
+ const before=await row.boundingBox();await row.hover();await expect(group).toHaveCSS('opacity','1');
+ const boxes=await group.getByRole('button').evaluateAll(buttons=>buttons.map(b=>{const r=b.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height};}));
+ expect(boxes).toHaveLength(3);for(const box of boxes){expect(box.y).toBe(boxes[0].y);expect(box.width).toBeLessThanOrEqual(24);expect(box.height).toBeLessThanOrEqual(24);}expect(boxes[2].x).toBeGreaterThan(boxes[1].x);
+ expect((await row.boundingBox()).height).toBe(before.height);
+ await page.getByRole('heading',{name:'Obras',exact:true}).hover();await group.getByRole('button',{name:'Editar recordatorio Cotizar ampliación',exact:true}).focus();await expect(group).toHaveCSS('opacity','1');
+ await page.keyboard.press('Enter');await expect(page.getByRole('heading',{name:'Editar recordatorio',exact:true})).toBeVisible();
+ const context=await browser.newContext({hasTouch:true,viewport:{width:1280,height:800}});
+ try{const touch=await context.newPage();await bridge(touch,{reminders:[reminder]});const actions=touch.locator('.reminder-actions');await expect(actions).toHaveCSS('opacity','1');await actions.getByRole('button',{name:'Resolver recordatorio Cotizar ampliación',exact:true}).tap();await expect(touch.locator('[data-reminder-id]')).toContainText('Resuelto');}finally{await context.close();}
+});
+
+test('section dragging moves whole blocks, renumbers items and supports keyboard and end placement',async({page})=>{
+ await bridge(page,{twoLines:true,sectionDrag:true});await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.locator('[data-action=manage-dashboard-budget]').first().click();
+ const section=title=>page.locator('.section-row[data-id]').filter({has:page.locator('.col-desc').filter({hasText:title})});
+ const first=section('Preliminares'),cover=section('Cubierta');
+ await cover.locator('.section-drag-handle').dragTo(first,{targetPosition:{x:130,y:2}});
+ await expect(page.locator('.section-row[data-id] .col-desc')).toHaveText([/Cubierta/,/Preliminares/,/Zapatas/,/Estructura/]);
+ await expect(cover.locator('.col-code')).toContainText('1');await expect(first.locator('.col-code')).toContainText('2');await expect(page.locator('.line-row').filter({hasText:'Hormigón'}).locator('.col-code')).toContainText('2.1.1');
+ await cover.locator('.section-drag-handle').focus();await page.keyboard.press('Alt+ArrowDown');await expect(page.locator('.section-row[data-id] .col-desc').first()).toContainText('Preliminares');
+ await cover.locator('.section-drag-handle').dragTo(section('Estructura'),{targetPosition:{x:130,y:25}});
+ await expect(page.locator('.section-row[data-id] .col-desc')).toHaveText([/Preliminares/,/Zapatas/,/Estructura/,/Cubierta/]);
+ await first.locator('.section-drag-handle').dragTo(page.locator('[data-drop-unassigned]'));
+ await expect(page.locator('.section-row[data-id] .col-desc')).toHaveText([/Estructura/,/Cubierta/,/Preliminares/,/Zapatas/]);
+ const moved=await page.evaluate(()=>window.__calls.filter(c=>c.command==='move_budget_section').map(c=>c.args));expect(moved).toHaveLength(4);expect(moved.at(-1).beforeId).toBeNull();
+ expect(await page.evaluate(()=>window.__calls.filter(c=>c.command==='move_budget_line').length)).toBe(0);
+});
+
+test('issued section drag handles are disabled',async({page})=>{
+ await bridge(page,{twoLines:true,sectionDrag:true,issued:true});await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.locator('[data-action=manage-dashboard-budget]').first().click();
+ for(const handle of await page.locator('.section-drag-handle').all()){await expect(handle).toBeDisabled();await expect(handle).toHaveAttribute('draggable','false');}
+});
+
+test('ACU bulbs exclude only the charged cost, show gray rows and a red warning while supply totals stay complete',async({page})=>{
+ await bridge(page,{twoLines:true,composition:true,inclusion:true});await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.locator('[data-action=manage-dashboard-budget]').first().click();
+ const group=page.locator('.group-row').filter({hasText:'MATERIALES'}),bulb=group.locator('.inclusion-bulb');await page.locator('.brand').hover();await expect(bulb).toHaveCSS('opacity','0');await group.hover();await expect(bulb).toHaveCSS('opacity','1');await page.locator('.brand').hover();await bulb.focus();await expect(bulb).toHaveCSS('opacity','1');
+ const line=page.locator('.line-row').filter({hasText:'Hormigón'}),other=page.locator('.line-row').filter({hasText:'Revoque'});
+ const acero=page.locator('.line-resource-row').filter({hasText:'Acero'});await acero.hover();await acero.getByRole('button',{name:'Excluir Acero del costo',exact:true}).click();
+ await expect(line.getByRole('img',{name:'Hay insumos sin sumar',exact:true})).toBeVisible();await expect(other.getByRole('img',{name:'Hay insumos sin sumar',exact:true})).toHaveCount(0);
+ await expect(acero).toHaveClass(/component-excluded/);await expect(acero).toContainText('100,00');await expect(acero.locator('td').nth(5)).toHaveText('0,00');await expect(line.locator('td').nth(4)).toHaveText('100,00');await expect(other.locator('td').nth(4)).toHaveText('400,00');
+ await page.getByRole('tab',{name:'Insumos',exact:true}).click();
+ const candidates=page.locator('table tbody tr').filter({hasText:'Acero'});await expect(candidates.first()).toContainText('1.200,00');
+ await page.getByRole('tab',{name:'ACU',exact:true}).click();
+ await page.locator('.group-row').filter({hasText:'MATERIALES'}).hover();await page.getByRole('button',{name:'Incluir grupo Materiales del costo',exact:true}).click();await expect(line.getByRole('img',{name:'Hay insumos sin sumar',exact:true})).toHaveCount(0);await expect(line.locator('td').nth(4)).toHaveText('400,00');
+ await page.locator('.group-row').filter({hasText:'MATERIALES'}).hover();await page.getByRole('button',{name:'Excluir grupo Materiales del costo',exact:true}).click();await expect(page.locator('.line-resource-row.component-excluded')).toHaveCount(2);await expect(line.locator('td').nth(4)).toHaveText('50,00');
+});
+
+test('home options contain database and about, while work views hide file controls',async({page})=>{
+ await bridge(page);await page.getByRole('button',{name:'Opciones',exact:true}).click();await expect(page.getByRole('heading',{name:'Acerca de…',exact:true})).toBeVisible();await expect(page.getByText('Autor: Gianluca Fiore',{exact:true})).toBeVisible();await page.getByRole('button',{name:'Volver a Inicio',exact:true}).click();await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await expect(page.getByRole('button',{name:'Opciones',exact:true})).toHaveCount(0);await expect(page.getByRole('button',{name:'Abrir base de datos…',exact:true})).toHaveCount(0);await page.locator('[data-action=manage-dashboard-budget]').first().click();await expect(page.locator('.database-menu')).toHaveCount(0);
+});
+
+test('ACU insertion previews selected resources, rejects empty recipes and starts quantity at zero',async({page})=>{
+ await bridge(page,{acuPicker:true});await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.locator('[data-action=manage-dashboard-budget]').first().click();await page.locator('[data-action=modal-from-acu]').click();const dialog=page.getByRole('dialog',{name:'Insertar partida desde ACU',exact:true});await expect(dialog.locator('tbody')).toContainText('Acero');await expect(dialog.locator('tbody')).toContainText('350,00');await page.screenshot({path:test.info().outputPath('acu-picker.png'),fullPage:true});await expect(dialog.getByLabel('Cantidad',{exact:true})).toHaveCount(0);await dialog.locator('[data-id=empty-acu]').click();await expect(dialog.getByRole('button',{name:'Agregar',exact:true})).toBeDisabled();await dialog.getByRole('searchbox',{name:'Buscar ACU',exact:true}).fill('estructura');await expect(dialog.locator('[data-id=empty-acu]')).toBeHidden();await dialog.locator('[data-id=library-acu]').click();await expect(dialog.getByRole('button',{name:'Agregar',exact:true})).toBeEnabled();await dialog.getByRole('button',{name:'Agregar',exact:true}).click();await expect.poll(()=>page.evaluate(()=>window.__calls.find(c=>c.command==='add_line_from_analysis')?.args)).toMatchObject({analysisId:'library-acu',quantity:'0'});
 });

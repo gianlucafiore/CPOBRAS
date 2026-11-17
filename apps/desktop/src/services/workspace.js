@@ -1,3 +1,5 @@
+import {dateToday} from "../components/helpers.js";
+import {budgetResourceTotals,loadBudgetAnalyses} from "./budget-resources.js";
 import { sumDecimals } from "../decimal.js";
 export function createWorkspaceService({ invoke,globalInvoke=invoke, state, currentLine, render, window = globalThis.window }) {
   async function loadCollections() {
@@ -9,6 +11,8 @@ export function createWorkspaceService({ invoke,globalInvoke=invoke, state, curr
       state.resources=await invoke('list_resources');state.analyses=await invoke('list_analyses');
       state.units=(d.records||[]).filter(r=>r.kind==='unit');state.trades=(d.records||[]).filter(r=>r.kind==='trade');return;
     }
+    const reminderScope=state.database?.scope||"local",reminderToday=dateToday();
+    if(state.remindersScope!==reminderScope){state.remindersData=null;state.remindersScope=reminderScope;}
     [
       state.clients,
       state.projects,
@@ -20,6 +24,7 @@ export function createWorkspaceService({ invoke,globalInvoke=invoke, state, curr
       state.personClients,
       state.personSuppliers,
       state.externalProjects,
+      state.remindersData,
     ] = await Promise.all([
       globalInvoke("list_clients"),
       globalInvoke("list_projects"),
@@ -31,6 +36,7 @@ export function createWorkspaceService({ invoke,globalInvoke=invoke, state, curr
       globalInvoke("list_persons", { role: "client" }),
       globalInvoke("list_persons", { role: "supplier" }),
       globalInvoke("p2p_projects").catch(error=>{state.externalProjectError=String(error);return [];}),
+      globalInvoke("list_reminders",{today:reminderToday,page:state.remindersData?.page||0}).then(result=>{if(!result?.items)throw new Error("Respuesta inválida");state.remindersError="";state.remindersToday=reminderToday;return result;}).catch(error=>{state.remindersError=String(error);return state.remindersData||{items:[],page:0,total:0,page_size:20};}),
     ]);
   }
   async function loadEstimates() {
@@ -65,6 +71,7 @@ export function createWorkspaceService({ invoke,globalInvoke=invoke, state, curr
     if (state.estimateId !== id) return;
     state.lines = lines;
     state.estimateRequiredResourceIds = [];
+    state.estimateResourceTotals = [];
     state.measuredLineIds=measured;
     state.sections = sections;
     state.assignments = Object.fromEntries(
@@ -96,9 +103,11 @@ export function createWorkspaceService({ invoke,globalInvoke=invoke, state, curr
       if (current()) state.estimateResourcePrices = prices;
     }
     if (panel === "resources" && estimateId) {
-      const analysisIds = [...new Set(state.lines.map(row => row.analysis_id).filter(Boolean))];
-      const analyses = await Promise.all(analysisIds.map(analysisId => invoke("get_analysis_details", {analysisId})));
-      if (current()) state.estimateRequiredResourceIds = [...new Set(analyses.flatMap(analysis => analysis.components.map(component => component.resource_id)))];
+      const analyses = await loadBudgetAnalyses(invoke,state.lines);
+      if (current()) {
+        state.estimateResourceTotals = budgetResourceTotals(state.lines,analyses,state.resources,state.estimateResourcePrices);
+        state.estimateRequiredResourceIds = state.estimateResourceTotals.map(r=>r.resource_id);
+      }
     }
     if (["acu", "resources"].includes(state.panel) && line?.analysis_id) {
       try {

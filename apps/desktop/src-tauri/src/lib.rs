@@ -53,6 +53,9 @@ pub(crate) fn configure<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri:
         .manage(commands::maintenance::RecentExports::default())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
+            commands::reminders::list_reminders,
+            commands::reminders::save_reminder,
+            commands::reminders::delete_reminder,
             commands::database::active_database,
             commands::database::switch_database,
             commands::ai::ai_configure,
@@ -150,7 +153,9 @@ pub(crate) fn configure<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri:
             commands::budget_tools::list_budget_templates,
             commands::budget_tools::edit_budget_lines,
             commands::budget_tools::move_budget_line,
+            commands::budget_tools::set_line_components_included,
             commands::budget_tools::save_line_resources,
+            commands::budget_tools::remove_line_resource,
             commands::budget_tools::duplicate_budget_line,
             commands::budget_tools::set_line_formula,
             commands::costing::list_price_lists,
@@ -230,6 +235,7 @@ pub(crate) fn configure<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri:
             commands::resources::register_resource_price,
             commands::analyses::reprice_analysis,
             commands::sections::save_budget_section,
+            commands::sections::move_budget_section,
             commands::sections::apply_reviewed_section_batch,
             commands::sections::apply_budget_section_edits,
             commands::sections::list_budget_sections,

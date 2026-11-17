@@ -26,7 +26,7 @@ const pages = {
   ],
   projects: [
     "Obras y presupuestos",
-    "Inicio reúne los datos base y las obras. Abrí una obra para trabajar con sus presupuestos. Elegí su cliente al crearla, o creá uno desde esa misma ventana. Clientes y Proveedores se administran desde Inicio.",
+    "Inicio reúne los datos base y las obras. Abrí una obra para trabajar con sus presupuestos. Elegí su cliente al crearla, o creá uno desde esa misma ventana. Clientes y Proveedores se administran desde Inicio. A la derecha podés cargar recordatorios manuales de compras, certificados y solicitudes de presupuesto.",
   ],
   suppliers: [
     "Proveedores",
@@ -46,11 +46,11 @@ const pages = {
   ],
   workspace: [
     "Trabajar con el presupuesto",
-    "Seleccioná un rubro antes de agregar partidas. Arrastrá el asa ⋮⋮ para ordenarlas o moverlas a otro rubro. Doble clic o clic derecho para editar; en Insumos podés construir su precio.",
+    "Seleccioná un rubro antes de agregar partidas. Arrastrá el asa ⋮⋮ para ordenarlas o moverlas a otro rubro. Los rubros también tienen un asa para reordenar su bloque completo (Alt + ↑/↓ con teclado). Doble clic o clic derecho para editar; en Insumos podés construir su precio.",
   ],
   "budget-tools": [
     "Herramientas del presupuesto",
-    "Editá varias partidas, creá plantillas o importá y exportá archivos. Guardar edición masiva aplica todos los cambios juntos; importar crea un presupuesto nuevo.",
+    "Exportá el presupuesto para el cliente o un respaldo completo con ACU, insumos y metrados en Excel o PDF. En edición avanzada podés modificar partidas, importar y crear plantillas.",
   ],
   costing: [
     "Costos y precios",

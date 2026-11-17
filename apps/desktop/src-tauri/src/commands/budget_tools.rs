@@ -124,6 +124,25 @@ pub(crate) fn move_budget_line(
         .map_err(|e| e.to_string())
 }
 #[tauri::command]
+pub(crate) fn remove_line_resource(
+    db: tauri::State<'_, Db>,
+    estimate_id: String,
+    line_id: String,
+    component_index: usize,
+    resource_id: String,
+) -> Result<(), String> {
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .remove_line_resource(
+            Uuid::parse_str(&estimate_id).map_err(|e| e.to_string())?,
+            Uuid::parse_str(&line_id).map_err(|e| e.to_string())?,
+            component_index,
+            Uuid::parse_str(&resource_id).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub(crate) fn save_line_resources(
     db: tauri::State<'_, Db>,
     estimate_id: String,
@@ -193,5 +212,20 @@ pub(crate) fn get_estimate_resource_prices(
     db.lock()
         .map_err(|e| e.to_string())?
         .estimate_resource_prices(estimate_id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub(crate) fn set_line_components_included(
+    db: tauri::State<'_, crate::Db>,
+    estimate_id: uuid::Uuid,
+    line_id: uuid::Uuid,
+    analysis_id: uuid::Uuid,
+    indices: Vec<usize>,
+    included: bool,
+) -> Result<(), String> {
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .set_line_components_included(estimate_id, line_id, analysis_id, &indices, included)
         .map_err(|e| e.to_string())
 }

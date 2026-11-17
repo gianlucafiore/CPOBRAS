@@ -1,3 +1,4 @@
+import {budgetResourceTotals,loadBudgetAnalyses,materialNeedsFromTotals} from "../services/budget-resources.js";
 import { askUnsavedPrices } from "./unsaved-prices.js";
 import { e, field, select, dateToday } from "./helpers.js";
 import {
@@ -23,6 +24,7 @@ export function createQuotationWorkflow({
 }) {
   const v = {
     requests: [],
+    materialNeeds: null,
     request: null,
     selected: null,
     kind: "material",
@@ -95,6 +97,7 @@ export function createQuotationWorkflow({
       (o) =>
         v.kind === "material" || o.document.estimate_id === model.estimateId,
     );
+    v.materialNeeds = null;
     v.request = null;
     v.editRevision = null;
     v.award = null;
@@ -258,15 +261,9 @@ export function createQuotationWorkflow({
   function sourceRows(rows, selected, needed = false) {
     return rows
       .map((s) => {
-        const need = model.report?.needs?.find((n) => n.resource_id === s.id);
+        const need = (v.materialNeeds??model.report?.needs)?.find((n) => n.resource_id === s.id);
         const suggested = needed
-          ? String(
-              Math.max(
-                0,
-                (Number(need.shortage) || 0) -
-                  Math.max(0, Number(need.ordered) - Number(need.received)),
-              ),
-            )
+          ? need.suggested??String(Math.max(0,(Number(need.shortage)||0)-Math.max(0,Number(need.ordered)-Number(need.received))))
           : s.quantity || "1";
         return `<label class="rfq-select ${needed ? "required-material" : ""}" data-request-source="${s.id}"><input type="checkbox" ${selected.has(s.id) ? "checked" : ""}><span>${e(s.code || "")} · ${e(s.description || s.name)} · ${e(s.unit)}${needed ? `<small>Necesario: ${numeric(need.required)} · Acopio: ${numeric(need.stock)} · Comprado: ${numeric(need.ordered)} · Sugerido a pedir: ${numeric(suggested)}</small>` : ""}</span><input aria-label="Cantidad ${e(s.description || s.name)}" type="number" min="0" ${v.kind === "work" ? `max="${s.quantity}"` : ""} step="any" value="${e(selected.get(s.id)?.quantity || suggested)}"></label>`;
       })
@@ -282,7 +279,7 @@ export function createQuotationWorkflow({
           .includes(v.query.toLowerCase()),
       ),
       needed = rows.filter((s) =>
-        model.report?.needs?.some(
+        (v.materialNeeds??model.report?.needs)?.some(
           (n) => n.resource_id === s.id && Number(n.required) > 0,
         ),
       );
@@ -497,6 +494,13 @@ export function createQuotationWorkflow({
       content: [...new Uint8Array(await file.arrayBuffer())],
     };
   }
+  async function refreshMaterialNeeds(){
+    v.materialNeeds=null;
+    if(v.kind!=='material'||!model.estimateId)return;
+    const lines=await invoke('list_estimate_lines',{estimateId:model.estimateId});
+    const analyses=await loadBudgetAnalyses(invoke,lines);
+    v.materialNeeds=materialNeedsFromTotals(budgetResourceTotals(lines,analyses,state.resources),model.report?.needs||[]);
+  }
   async function act(b) {
     rememberExpandedOrders();
     const a = b.dataset.action;
@@ -556,6 +560,7 @@ export function createQuotationWorkflow({
     if (a === "ops-rfq-new") {
       if (!(await protect())) return true;
       v.kind = kind();
+      await refreshMaterialNeeds();
       v.editRevision = null;
       v.query = "";
       v.request = {
@@ -592,6 +597,7 @@ export function createQuotationWorkflow({
       });
       v.request = structuredClone(saved.request);
       v.kind = v.request.kind;
+      await refreshMaterialNeeds();
       v.editRevision = saved.revision;
       v.query = "";
       v.dirty = false;
@@ -985,6 +991,9 @@ export function createQuotationWorkflow({
     protect,
     isSaving: () => pendingPriceSaves > 0,
     input: (t) => {
+      if(t.name==='rfq-query'&&t.value===''){
+        readRequest();v.query='';render();document.querySelector('[name="rfq-query"]')?.focus();return;
+      }
       if (t.matches?.("[data-quote-provider-query]")) {
         const list = document.querySelector("#quote-provider-options");
         if(list)list.innerHTML = providerOptions(t.value);

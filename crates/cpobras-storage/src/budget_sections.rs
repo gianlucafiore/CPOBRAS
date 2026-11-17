@@ -261,6 +261,61 @@ impl LocalStore {
         Ok(())
     }
 
+    /// Reorder siblings atomically; membership and descendant structure stay intact.
+    pub fn move_budget_section(
+        &mut self,
+        estimate_id: Uuid,
+        section_id: Uuid,
+        before_id: Option<Uuid>,
+    ) -> Result<()> {
+        let invalid = |message: &str| StorageError::InvalidValue(message.into());
+        let tx = self
+            .conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let status: Option<String> = tx
+            .query_row(
+                "SELECT status FROM estimates WHERE id=?1",
+                [estimate_id.to_string()],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if status.as_deref() != Some("draft") {
+            return Err(invalid(
+                "Solo se reordenan rubros de presupuestos en borrador",
+            ));
+        }
+        let parent: Option<Option<String>> = tx
+            .query_row(
+                "SELECT parent_id FROM budget_sections WHERE id=?1 AND estimate_id=?2",
+                params![section_id.to_string(), estimate_id.to_string()],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let parent = parent.ok_or_else(|| invalid("El rubro no pertenece al presupuesto"))?;
+        let mut order: Vec<String> = tx.prepare("SELECT id FROM budget_sections WHERE estimate_id=?1 AND parent_id IS ?2 ORDER BY position,code,id")?.query_map(params![estimate_id.to_string(),parent],|r|r.get(0))?.collect::<std::result::Result<_,_>>()?;
+        if before_id == Some(section_id) {
+            return Ok(());
+        }
+        order.retain(|id| id != &section_id.to_string());
+        let index = if let Some(before) = before_id {
+            order
+                .iter()
+                .position(|id| id == &before.to_string())
+                .ok_or_else(|| invalid("El destino no es un rubro del mismo nivel"))?
+        } else {
+            order.len()
+        };
+        order.insert(index, section_id.to_string());
+        for (position, id) in order.iter().enumerate() {
+            tx.execute(
+                "UPDATE budget_sections SET position=?1 WHERE id=?2 AND estimate_id=?3",
+                params![position as i64, id, estimate_id.to_string()],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     pub fn list_budget_sections(&self, estimate_id: Uuid) -> Result<Vec<BudgetSection>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, parent_id, code, title, position
@@ -562,6 +617,131 @@ mod tests {
         store.issue_estimate(estimate.id).unwrap();
         assert!(store
             .apply_budget_section_edits(estimate.id, &edits[..1])
+            .is_err());
+    }
+    #[test]
+    fn reorder_keeps_membership_and_rejects_foreign_levels_and_issued_budgets() {
+        let mut store = LocalStore::in_memory().unwrap();
+        let client = Client {
+            id: Uuid::new_v4(),
+            name: "Cliente".into(),
+            cuit: None,
+        };
+        store.save_client(&client).unwrap();
+        let project = Project {
+            id: Uuid::new_v4(),
+            client_id: client.id,
+            name: "Obra".into(),
+            currency: Currency::Ars,
+        };
+        store.save_project(&project).unwrap();
+        let estimate = Estimate {
+            id: Uuid::new_v4(),
+            project_id: project.id,
+            title: "Presupuesto".into(),
+            currency: Currency::Ars,
+            issued: false,
+        };
+        store.create_estimate(&estimate).unwrap();
+        let first = BudgetSection {
+            id: Uuid::new_v4(),
+            estimate_id: estimate.id,
+            parent_id: None,
+            code: "A".into(),
+            title: "Primero".into(),
+            position: 0,
+        };
+        let second = BudgetSection {
+            id: Uuid::new_v4(),
+            code: "B".into(),
+            title: "Segundo".into(),
+            position: 1,
+            ..first.clone()
+        };
+        let child = BudgetSection {
+            id: Uuid::new_v4(),
+            code: "A.1".into(),
+            title: "Hijo".into(),
+            parent_id: Some(first.id),
+            position: 5,
+            ..first.clone()
+        };
+        for section in [&first, &second, &child] {
+            store.save_budget_section(section).unwrap();
+        }
+        let line = EstimateItem {
+            id: Uuid::new_v4(),
+            estimate_id: estimate.id,
+            position: 0,
+            analysis_id: None,
+            description: "Partida".into(),
+            unit: "un".into(),
+            quantity: Decimal::ONE,
+            unit_cost_snapshot: Decimal::from(12),
+        };
+        store.add_estimate_item(&line).unwrap();
+        store
+            .assign_line_section(estimate.id, line.id, child.id)
+            .unwrap();
+        store
+            .move_budget_section(estimate.id, second.id, Some(first.id))
+            .unwrap();
+        let roots = store
+            .list_budget_sections(estimate.id)
+            .unwrap()
+            .into_iter()
+            .filter(|s| s.parent_id.is_none())
+            .map(|s| s.id)
+            .collect::<Vec<_>>();
+        assert_eq!(roots, vec![second.id, first.id]);
+        assert_eq!(
+            store.list_line_sections(estimate.id).unwrap(),
+            vec![(line.id, child.id)]
+        );
+        assert_eq!(
+            store.estimate_items(estimate.id).unwrap()[0].unit_cost_snapshot,
+            line.unit_cost_snapshot
+        );
+        let snapshot = store.list_budget_sections(estimate.id).unwrap();
+        assert_eq!(snapshot.iter().find(|s| s.id == child.id).unwrap(), &child);
+        assert!(store
+            .move_budget_section(estimate.id, first.id, Some(child.id))
+            .is_err());
+        assert_eq!(store.list_budget_sections(estimate.id).unwrap(), snapshot);
+        let foreign = Estimate {
+            id: Uuid::new_v4(),
+            title: "Otro".into(),
+            ..estimate.clone()
+        };
+        store.create_estimate(&foreign).unwrap();
+        let foreign_section = BudgetSection {
+            id: Uuid::new_v4(),
+            estimate_id: foreign.id,
+            ..first.clone()
+        };
+        store.save_budget_section(&foreign_section).unwrap();
+        assert!(store
+            .move_budget_section(estimate.id, foreign_section.id, None)
+            .is_err());
+        assert!(store
+            .move_budget_section(estimate.id, first.id, Some(foreign_section.id))
+            .is_err());
+        store
+            .move_budget_section(estimate.id, second.id, None)
+            .unwrap();
+        assert_eq!(
+            store
+                .list_budget_sections(estimate.id)
+                .unwrap()
+                .into_iter()
+                .filter(|s| s.parent_id.is_none())
+                .map(|s| s.id)
+                .collect::<Vec<_>>(),
+            vec![first.id, second.id]
+        );
+        store.issue_estimate(estimate.id).unwrap();
+        assert!(store
+            .move_budget_section(estimate.id, second.id, Some(first.id))
             .is_err());
     }
 }

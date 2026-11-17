@@ -59,26 +59,11 @@ export async function readResourceWorkbook(file, existing=[]) {
  if(!/\.xlsx$/i.test(file.name))throw new Error("Seleccioná un archivo Excel .xlsx");
  return parseResourceRows(await parseExcel(await file.arrayBuffer()),existing);
 }
-export async function resourceTemplateBytes() {
+export async function resourceTemplateBytes(resources=[]) {
  const {default:writeExcelFile}=await import("write-excel-file/universal");
- const instructions=[
-  ["Cómo completar la plantilla"],
-  ["Completá la primera hoja, Insumos. Una fila por insumo. No cambies los encabezados."],
-  ["Descripción, Tipo y Unidad son obligatorios. Código y Precio ARS son opcionales."],
-  ["Tipos: MAT o Material; MO o Mano de obra; EQ o Equipo; SC, SUB o Subcontrato. Se aceptan mayúsculas y minúsculas."],
-  ["Código vacío: CPOBRAS asigna un código automático. No repitas insumos ni códigos existentes."],
-  ["Precio vacío: se crea sin precio. El número 0 es un precio válido. Los precios son por unidad, en ARS."],
-  ["Los precios se registran con la fecha que elijas al importar. No se modifican presupuestos ni precios anteriores."],
-  ["No se importan estas instrucciones ni los ejemplos de abajo. Los precios de ejemplo se dejan vacíos."],
-  ["Ejemplos: Descripción", "Tipo", "Unidad", "Precio ARS"],
-  ["Cemento bolsa 50 kg", "Material", "bolsa", ""],
-  ["Oficial albañil", "Mano de obra", "h", ""],
-  ["Arena", "Material", "m³", ""],
- ];
  const cell=value=>({value:String(value),type:String});
  const blob=await writeExcelFile([
-  {sheet:"Insumos",columns:[20,55,22,15,22].map(width=>({width})),data:[resourceHeaders.map(value=>({...cell(value),fontWeight:"bold",backgroundColor:"#DCEAF2"}))]},
-  {sheet:"Instrucciones",columns:[{width:115},{width:22},{width:15},{width:22}],data:instructions.map(row=>row.map(cell))},
+  {sheet:"Insumos",columns:[20,55,22,15,22].map(width=>({width})),data:[resourceHeaders.map(value=>({...cell(value),fontWeight:"bold",backgroundColor:"#DCEAF2"})),...resources.map(r=>[r.code,r.description,resourceKindLabels[r.kind]||r.kind,r.unit,r.price??""].map(cell))]},
  ]).toBlob();
  return new Uint8Array(await blob.arrayBuffer());
 }

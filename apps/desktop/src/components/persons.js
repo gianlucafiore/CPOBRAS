@@ -36,7 +36,7 @@ export function createPersons({
         .filter(p=>p[r+"_active"]!==false)
         .map(
           (p) =>
-            `<tr data-searchable="${e((p.name + " " + (p.cuit || "") + " " + p.email).toLowerCase())}"><td><strong>${e(p.name)}</strong>${p.role === "both" ? ` <span class="person-both">También ${labels[opposite(r)]}</span>` : ""}</td><td>${e(p.cuit || "—")}</td><td>${e(p.phone || "—")}</td><td>${e(p.email || "—")}</td><td><button class="btn" data-action="person-edit" data-id="${p.id}">Editar ${labels[r]}</button><details class="entity-menu"><summary data-action="entity-menu" title="Opciones de ${e(p.name)}" aria-label="Opciones de ${e(p.name)}">⋯</summary><div><button class="btn tiny" data-action="person-deactivate" data-id="${p.id}" data-role="${r}">Dar de baja</button><button class="btn tiny" data-action="person-delete" data-id="${p.id}">Eliminar si no fue usado</button></div></details></td></tr>`,
+            `<tr data-searchable="${e((p.name + " " + (p.cuit || "") + " " + p.email).toLowerCase())}"><td><strong>${e(p.name)}</strong>${p.role === "both" ? ` <span class="person-both">También ${labels[opposite(r)]}</span>` : ""}</td><td>${e(p.cuit || "—")}</td><td>${e(p.phone || "—")}</td><td>${e(p.email || "—")}</td><td><select class="person-actions" aria-label="Acciones de ${e(p.name)}" data-person-actions data-id="${e(p.id)}" data-role="${r}"><option value="">Acciones</option><option value="person-edit">Editar ${labels[r]}</option><option value="person-deactivate">Dar de baja</option><option value="person-delete">Eliminar si no fue usado</option></select></td></tr>`,
         )
         .join("") ||
       '<tr><td colspan="5">Sin contactos en este apartado.</td></tr>'
@@ -329,7 +329,13 @@ export function createPersons({
     }
     return false;
   }
+  async function change(target) {
+    if(!target.matches?.("[data-person-actions]")||!target.value)return;
+    const action=target.value;target.value="";
+    await act({dataset:{action,id:target.dataset.id,role:target.dataset.role}});
+  }
   return {
+    change,
     markup,
     act,
     input,

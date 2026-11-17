@@ -766,6 +766,7 @@ mod tests {
             description: "Acero montado".into(),
             unit: "kg".into(),
             components: vec![ResourcePriceSnapshot {
+                included: true,
                 resource_id: Uuid::new_v4(),
                 description: "Acero".into(),
                 kind: ResourceKind::Material,

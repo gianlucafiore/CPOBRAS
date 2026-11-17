@@ -33,7 +33,7 @@ async function handleSubmit(form) {
     state.selectedSectionId=v("sectionId")||null;
     state.selectedLineId = line.id;
   } else if (kind === "from-acu") {
-    const line = await invoke("add_line_from_analysis", { estimateId, analysisId: v("analysisId"), quantity: v("quantity") });
+    const line = await invoke("add_line_from_analysis", { estimateId, analysisId: v("analysisId"), quantity: "0" });
     if (v("sectionId")) await invoke("assign_line_section", { estimateId, lineId: line.id, sectionId: v("sectionId") });
     state.selectedLineId = line.id; state.panel = "acu";
   } else if (kind === "resource") {
@@ -57,8 +57,8 @@ async function handleSubmit(form) {
     const components=[...form.querySelectorAll(".component-row")].map(row=>({resourceId:row.querySelector('select[name="resource"]')?.value,quantity:row.querySelector('input[name="quantity"]')?.value,unitPrice:row.querySelector('input[name="unitPrice"]')?.value}));
     if(!components.length)throw new Error("Agregá al menos un insumo");
     if(components.some(row=>!row.resourceId))throw new Error("Seleccioná un insumo del catálogo en cada fila");
-    const all=(item.allComponents||[]).map(row=>({resourceId:row.resource_id,quantity:row.quantity,unitPrice:row.unit_price}));
-    if(item.componentIndex>=0)all[item.componentIndex]=components[0];else all.push(components[0]);
+    const all=(item.allComponents||[]).map(row=>({resourceId:row.resource_id,quantity:row.quantity,unitPrice:row.unit_price,included:row.included!==false}));
+    if(item.componentIndex>=0)all[item.componentIndex]={...components[0],included:all[item.componentIndex]?.included!==false};else all.push({...components[0],included:true});
     for(const row of all)if(row.resourceId===components[0].resourceId)row.unitPrice=components[0].unitPrice;
     await invoke("save_line_resources",{estimateId,lineId:item.id,components:all});state.panel="acu";
   } else if (kind === "analysis") {
@@ -184,6 +184,27 @@ async function act(button) {
   }
   if (action === "select-analysis") {
     state.selectedAnalysisId = button.dataset.id; await refreshAnalysis(); render(); return;
+  }
+  if (["toggle-line-resource","toggle-line-resource-group"].includes(action)) {
+    const line=currentLine();if(!editable()||!line?.analysis_id)return;
+    const rows=state.detail?.components||[];
+    const indices=action==="toggle-line-resource-group"?rows.map((row,index)=>row.kind===button.dataset.kind?index:-1).filter(i=>i>=0):[Number(button.dataset.index)];
+    if(!indices.length||indices.some(i=>!Number.isInteger(i)||!rows[i]))throw Error("El insumo ya no está en esta composición");
+    const included=!indices.every(i=>rows[i].included!==false);
+    state.busy=true;
+    try{
+      await invoke("set_line_components_included",{estimateId:state.estimateId,lineId:line.id,analysisId:line.analysis_id,indices,included});
+      await loadEstimate();state.message=included?"Insumos incluidos en el costo":"Insumos sin sumar. Se conservan cantidades y precios.";render();
+    }finally{state.busy=false;}
+    return;
+  }
+  if (action === "remove-line-resource") {
+    const line=currentLine(),index=Number(button.dataset.index);
+    if(!editable()||!line||!Number.isInteger(index)||index<0)return;
+    const component=state.detail?.components?.[index];
+    if(!component)throw new Error("El insumo ya no está en esta partida. Actualizá la vista.");
+    await invoke("remove_line_resource",{estimateId:state.estimateId,lineId:line.id,componentIndex:index,resourceId:component.resource_id});
+    await loadEstimate();state.message="Insumo quitado de la partida. Se conserva en el catálogo.";render();return;
   }
   if (["edit-line-resources","assign-resource","edit-line-resource"].includes(action)) {
     const line=currentLine();if(!editable()||!line)return;

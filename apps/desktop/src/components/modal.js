@@ -19,6 +19,7 @@ export function createModalRenderer({
   projectName,
   clientName,
   locked,
+  acuPickerMarkup,
 }) {
   function modalMarkup() {
     const modal = state.modal;
@@ -85,7 +86,7 @@ export function createModalRenderer({
           projectOptions,
           item.client_id,
         ) +
-        `<div class="project-person-actions"><button type="button" class="btn" data-action="person-project-new" data-role="client">＋ Crear cliente</button><button type="button" class="btn" data-action="person-project-import" data-role="client">Importar desde Proveedores</button></div><fieldset class="project-suppliers"><legend>Proveedores vinculados a la obra</legend><input name="project-supplier-search" placeholder="Buscar proveedor" autocomplete="off"><div class="project-supplier-options">${(state.personSuppliers || []).filter(p=>p.supplier_active!==false || item.supplier_ids?.includes(p.id)).map((p) => `<label class="project-supplier-choice" data-supplier-search="${e((p.name + " " + (p.cuit || "")).toLowerCase())}"><input type="checkbox" name="supplierIds" value="${p.id}" ${item.supplier_ids?.includes(p.id) ? "checked" : ""}>${e(p.name)}${p.cuit ? " · " + e(p.cuit) : ""}</label>`).join("") || "<p>Sin proveedores vinculados todavía.</p>"}</div><div class="project-person-actions"><button type="button" class="btn" data-action="person-project-new" data-role="supplier">＋ Crear proveedor</button><button type="button" class="btn" data-action="person-project-import" data-role="supplier">Importar desde Clientes</button></div></fieldset>` +
+        `<div class="project-person-actions"><button type="button" class="btn" data-action="person-project-new" data-role="client">＋ Crear cliente</button><button type="button" class="btn" data-action="person-project-import" data-role="client">Importar desde Proveedores</button></div>${item.id ? `<fieldset class="project-suppliers"><legend>Proveedores vinculados a la obra</legend><input name="project-supplier-search" placeholder="Buscar proveedor" autocomplete="off"><div class="project-supplier-options">${(state.personSuppliers || []).filter(p=>p.supplier_active!==false || item.supplier_ids?.includes(p.id)).map((p) => `<label class="project-supplier-choice" data-supplier-search="${e((p.name + " " + (p.cuit || "")).toLowerCase())}"><input type="checkbox" name="supplierIds" value="${p.id}" ${item.supplier_ids?.includes(p.id) ? "checked" : ""}>${e(p.name)}${p.cuit ? " · " + e(p.cuit) : ""}</label>`).join("") || "<p>Sin proveedores vinculados todavía.</p>"}</div><div class="project-person-actions"><button type="button" class="btn" data-action="person-project-new" data-role="supplier">＋ Crear proveedor</button><button type="button" class="btn" data-action="person-project-import" data-role="supplier">Importar desde Clientes</button></div></fieldset>` : ""}` +
         select(
           "Moneda base",
           "currency",
@@ -148,25 +149,8 @@ export function createModalRenderer({
           : "");
     } else if (kind === "from-acu") {
       title = "Insertar partida desde ACU";
-      body =
-        (!state.analyses.length
-          ? `<p class="modal-help">Todavía no hay ACU guardados. Creá uno en la pestaña ACU, o cerrá esta ventana y asigná insumos directamente a una partida existente.</p>`
-          : "") +
-        select(
-          "Análisis de costos",
-          "analysisId",
-          state.analyses.map((a) => [
-            a.id,
-            a.code + " · " + a.description + " — ARS " + money(a.unit_cost),
-          ]),
-        ) +
-        field(
-          "Cantidad",
-          "quantity",
-          1,
-          'type="number" min="0" step="any" required',
-        ) +
-        select("Rubro", "sectionId", sectionOptions);
+      wide = true;
+      body = acuPickerMarkup() + select("Rubro", "sectionId", sectionOptions, state.modal.sectionId ?? state.selectedSectionId ?? "") + `<p class="modal-help">La partida se agrega con cantidad cero. Asignale la cantidad editando la partida.</p>`;
     } else if (kind === "resource") {
       const editing = Boolean(item.id);
       title = editing ? "Editar insumo" : "Agregar insumo";
@@ -355,7 +339,7 @@ export function createModalRenderer({
     }
     const result = kind === "backups" || kind.endsWith("-result"),
       save =
-        kind === "comparison"
+        kind === "from-acu" ? "Agregar" : kind === "comparison"
           ? "Comparar"
           : kind === "contracting"
             ? "Calcular"
@@ -366,7 +350,7 @@ export function createModalRenderer({
     <div class="dialog-header"><h2>${e(title)}</h2><button type="button" class="close-dialog" data-action="close-modal" aria-label="Cerrar">×</button></div>
     <form id="dialog-form" class="dialog-body" data-kind="${kind}">
       ${body}${error}
-      <div class="dialog-actions"><button type="button" class="btn" data-action="close-modal">Cerrar</button>${!result ? `<button type="submit" class="btn primary" ${kind === "from-acu" && !state.analyses.length ? "disabled" : ""}>${save}</button>` : ""}</div>
+      <div class="dialog-actions"><button type="button" class="btn" data-action="close-modal">Cerrar</button>${!result ? `<button type="submit" class="btn primary" ${kind === "from-acu" && !state.modal.pickerReady ? "disabled" : ""}>${save}</button>` : ""}</div>
     </form></div></div>`;
   }
 

@@ -141,3 +141,16 @@ pub(crate) fn apply_reviewed_section_batch(
         .apply_reviewed_section_batch(&batch)
         .map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub(crate) fn move_budget_section(
+    db: tauri::State<'_, Db>,
+    estimate_id: Uuid,
+    section_id: Uuid,
+    before_id: Option<Uuid>,
+) -> Result<(), String> {
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .move_budget_section(estimate_id, section_id, before_id)
+        .map_err(|e| e.to_string())
+}

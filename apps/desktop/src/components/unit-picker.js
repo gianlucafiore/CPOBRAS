@@ -70,7 +70,7 @@ export function createUnitPicker({
   function open(input) {
     hide();
     const query = normalize(input.value),
-      box = input.parentElement.querySelector(".unit-results");
+      box = input.closest(".unit-picker").querySelector(".unit-results");
     box.innerHTML =
       options()
         .filter((u) => normalize(u.symbol + " " + u.name).includes(query))
@@ -214,7 +214,7 @@ export function createUnitPicker({
       .closest?.(".unit-picker")
       ?.querySelector(".unit-search");
     if (!input) return false;
-    const box = input.parentElement.querySelector(".unit-results");
+    const box = input.closest(".unit-picker").querySelector(".unit-results");
     if (evt.key === "Escape" && !box.hidden) {
       evt.preventDefault();
       hide();

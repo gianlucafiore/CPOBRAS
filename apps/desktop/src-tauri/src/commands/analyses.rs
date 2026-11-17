@@ -6,6 +6,7 @@ use uuid::Uuid;
 
 #[derive(serde::Serialize)]
 pub(crate) struct AnalysisComponentView {
+    included: bool,
     resource_id: String,
     description: String,
     kind: String,
@@ -40,6 +41,7 @@ pub(crate) fn get_analysis_details(
         .components
         .into_iter()
         .map(|component| AnalysisComponentView {
+            included: component.included,
             resource_id: component.resource_id.to_string(),
             description: component.description,
             kind: match component.kind {
@@ -49,7 +51,11 @@ pub(crate) fn get_analysis_details(
                 ResourceKind::Subcontract => "subcontract",
             }
             .to_owned(),
-            total: (component.quantity_per_unit * component.unit_price).to_string(),
+            total: if component.included {
+                (component.quantity_per_unit * component.unit_price).to_string()
+            } else {
+                "0".into()
+            },
             quantity: component.quantity_per_unit.to_string(),
             unit_price: component.unit_price.to_string(),
         })
@@ -110,6 +116,7 @@ pub(crate) fn compare_contracting(
             .map_err(|err| err.to_string())?
             .ok_or("Falta precio ARS del insumo")?;
         components.push(ResourcePriceSnapshot {
+            included: true,
             resource_id,
             description: resource.description,
             kind: resource.kind,
@@ -253,6 +260,7 @@ pub(crate) fn create_analysis(
                 .amount
         };
         snapshots.push(ResourcePriceSnapshot {
+            included: true,
             resource_id: id,
             description: resource.description,
             kind: resource.kind,
@@ -359,6 +367,12 @@ pub(crate) fn update_analysis(
             return Err("Los rendimientos y precios deben ser positivos o cero".into());
         }
         snapshots.push(ResourcePriceSnapshot {
+            included: previous
+                .components
+                .iter()
+                .find(|c| c.resource_id == resource_id)
+                .map(|c| c.included)
+                .unwrap_or(true),
             resource_id,
             description: resource.description,
             kind: resource.kind,
