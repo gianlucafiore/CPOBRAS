@@ -75,13 +75,17 @@ const pages = {
   ],
 };
 const panels = {
+  "direct-costs": [
+    "Gastos Directos del presupuesto",
+    "Cargá recursos puntuales o mensuales, cada uno con sus propios meses. El concepto Gastos Directos de Determinación de precio toma este detalle y se guarda automáticamente.",
+  ],
   acu: [
     "Composición de la partida",
     "Acá ves los insumos por unidad y el precio calculado. «Agregar insumo» abre un formulario individual. Doble clic o Editar para cambiar un insumo. Su precio se comparte en este presupuesto; cada partida conserva su rendimiento.",
   ],
   resources: [
     "Insumos del presupuesto",
-    "Esta lista reúne solo los insumos usados por las partidas del presupuesto actual. Seleccioná una partida y pulsá Asignar para reutilizar uno. Con «Agregar insumo» podés buscar otros en la biblioteca. Ajustá su consumo por unidad y precio en el formulario.",
+    "Esta lista reúne los insumos usados por las partidas y los Gastos Directos del presupuesto actual. Seleccioná una partida y pulsá Asignar para reutilizar uno. Con «Agregar insumo» podés buscar otros en la biblioteca. Ajustá su consumo por unidad y precio en el formulario.",
   ],
   takeoffs: [
     "Metrados",
