@@ -1504,6 +1504,7 @@ test('issued section drag handles are disabled',async({page})=>{
 
 test('ACU bulbs exclude only the charged cost, show gray rows and a red warning while supply totals stay complete',async({page})=>{
  await bridge(page,{twoLines:true,composition:true,inclusion:true});await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.locator('[data-action=manage-dashboard-budget]').first().click();
+ const group=page.locator('.group-row').filter({hasText:'MATERIALES'}),bulb=group.locator('.inclusion-bulb');await page.locator('.brand').hover();await expect(bulb).toHaveCSS('opacity','0');await group.hover();await expect(bulb).toHaveCSS('opacity','1');await page.locator('.brand').hover();await bulb.focus();await expect(bulb).toHaveCSS('opacity','1');
  const line=page.locator('.line-row').filter({hasText:'Hormigón'}),other=page.locator('.line-row').filter({hasText:'Revoque'});
  const acero=page.locator('.line-resource-row').filter({hasText:'Acero'});await acero.hover();await acero.getByRole('button',{name:'Excluir Acero del costo',exact:true}).click();
  await expect(line.getByRole('img',{name:'Hay insumos sin sumar',exact:true})).toBeVisible();await expect(other.getByRole('img',{name:'Hay insumos sin sumar',exact:true})).toHaveCount(0);

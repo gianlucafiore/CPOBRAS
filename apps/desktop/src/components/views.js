@@ -60,6 +60,7 @@ export function createViews({
                 sharing: "Vinculación P2P",
                 "budget-printing": "Imprimir presupuesto",
                 projects: "Obras y presupuestos",
+                "app-options": "Opciones",
                 clients: "Directorio de clientes",
                 suppliers: "Directorio de proveedores",
                 resources: "Catálogo de insumos",
