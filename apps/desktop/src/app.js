@@ -648,7 +648,7 @@ export function createWorkspaceApp({
         );
         return;
       }
-      if(button.dataset.action.startsWith("home-cash-")){await homeCash.act(button);return;}
+      if(button.dataset.action.startsWith("home-cash-")){if(button.dataset.action==="home-cash-new" && !(await protectContext()))return;await homeCash.act(button);return;}
       if(button.dataset.action.startsWith("reminder-")){await reminders.act(button);return;}
       if(button.dataset.action.startsWith("agreement-")){await agreement.act(button);return;}
       if (button.dataset.action === "open-system-settings" || button.dataset.action.startsWith("system-") || (state.view==="system-settings" && button.dataset.action.startsWith("plan-calendar-"))) {await systemSettings.act(button);return;}
