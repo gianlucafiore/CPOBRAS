@@ -345,7 +345,12 @@ fn ipc_creates_budget_and_preserves_issued_snapshot() {
     )
     .unwrap();
     let mut definition = initial["definition"].clone();
-    definition["rows"][0]["reference_percent"] = json!("10");
+    definition["rows"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|r| r["role"] == "overhead")
+        .unwrap()["reference_percent"] = json!("10");
     let preview = call(
         "calculate_price_definition",
         json!({"estimateId":price_estimate["id"],"definition":definition}),
