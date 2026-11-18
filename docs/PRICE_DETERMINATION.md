@@ -132,3 +132,13 @@ base pública visible. El respaldo completo conserva la formación interna del p
 La preferencia viaja en las copias y plantillas de determinación y en el JSON
 completo. Esquema SQLite 41 y formato de intercambio 11: versiones anteriores
 rechazan estos datos para evitar perder la preferencia al guardarlos.
+
+La aplicación 0.1.11 admite hasta el esquema 40. La rama de desarrollo que
+incorpora estos conceptos se identifica como 0.1.12-dev.1 y admite el 41.
+En 0.1.11, la lectura de la determinación rechaza campos desconocidos; por eso
+no alcanza con quitar la comprobación de esquema para abrir una base actualizada.
+Las migraciones de bases anteriores siguen siendo automáticas al abrirlas con
+la aplicación nueva. La apertura con aplicaciones anteriores queda bloqueada:
+por ahora no hay un modo de solo lectura para esquemas futuros. Un cambio
+compatible debe evaluarse tanto en la estructura SQL como en los documentos JSON
+y en el cálculo; compartir el sistema operativo no determina la compatibilidad.

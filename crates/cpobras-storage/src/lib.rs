@@ -183,9 +183,13 @@ impl LocalStore {
             ));
         }
         if latest > migrations.len() as i64 {
-            return Err(StorageError::InvalidValue(
-                "La base pertenece a una versión más nueva de CPOBRAS".into(),
-            ));
+            return Err(StorageError::InvalidValue(format!(
+                "La base usa el formato {latest}; esta aplicación admite hasta el {}. \
+                 Actualizá CPOBRAS en este equipo a una versión que admita ese formato. \
+                 Si usás la base en varios equipos o sistemas operativos, actualizalos también. \
+                 La apertura se canceló para proteger los datos.",
+                migrations.len()
+            )));
         }
         for (index, sql) in migrations.iter().enumerate() {
             let version = index as i64 + 1;
