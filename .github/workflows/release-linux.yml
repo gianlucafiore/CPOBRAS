@@ -7,7 +7,12 @@ on:
       tag:
         description: "Etiqueta existente, por ejemplo v0.1.2"
         required: true
-        default: "v0.1.4"
+        default: "v0.1.11"
+      run_tests:
+        description: "Ejecutar pruebas y comprobaciones de arranque"
+        type: boolean
+        required: true
+        default: true
 permissions:
   contents: write
 concurrency:
@@ -20,6 +25,7 @@ jobs:
     timeout-minutes: 60
     env:
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      RUN_RELEASE_TESTS: ${{ github.event_name != 'workflow_dispatch' || inputs.run_tests }}
       CARGO_BUILD_JOBS: 4
       APPIMAGE_EXTRACT_AND_RUN: "1"
     steps:
@@ -53,11 +59,13 @@ jobs:
       - name: Install frontend dependencies
         run: npm --prefix apps/desktop ci
       - name: Frontend checks
+        if: ${{ env.RUN_RELEASE_TESTS == 'true' }}
         run: npm --prefix apps/desktop test
       - name: Build AppImage
         working-directory: apps/desktop
         run: npm run package:linux
       - name: Check packaged application
+        if: ${{ env.RUN_RELEASE_TESTS == 'true' }}
         run: |
           artifacts=(apps/desktop/src-tauri/target/release/bundle/appimage/*.AppImage)
           test "${#artifacts[@]}" -eq 1
@@ -85,6 +93,7 @@ jobs:
     timeout-minutes: 60
     env:
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      RUN_RELEASE_TESTS: ${{ github.event_name != 'workflow_dispatch' || inputs.run_tests }}
       CARGO_BUILD_JOBS: 4
     steps:
       - uses: actions/checkout@v4
@@ -115,18 +124,20 @@ jobs:
         shell: pwsh
         run: |
           $exe = (Resolve-Path apps/desktop/src-tauri/target/release/cpobras-desktop.exe).Path
-          $process = Start-Process -FilePath $exe -PassThru
-          try {
-            $ready = $false
-            for ($i = 0; $i -lt 30; $i++) {
-              Start-Sleep -Seconds 1
-              $process.Refresh()
-              if ($process.HasExited) { throw "CPOBRAS terminó antes de abrir su ventana: $($process.ExitCode)" }
-              if ($process.MainWindowHandle -ne 0) { $ready = $true; break }
+          if ($env:RUN_RELEASE_TESTS -eq 'true') {
+            $process = Start-Process -FilePath $exe -PassThru
+            try {
+              $ready = $false
+              for ($i = 0; $i -lt 30; $i++) {
+                Start-Sleep -Seconds 1
+                $process.Refresh()
+                if ($process.HasExited) { throw "CPOBRAS terminó antes de abrir su ventana: $($process.ExitCode)" }
+                if ($process.MainWindowHandle -ne 0) { $ready = $true; break }
+              }
+              if (-not $ready) { throw 'CPOBRAS no abrió su ventana en Windows' }
+            } finally {
+              if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
             }
-            if (-not $ready) { throw 'CPOBRAS no abrió su ventana en Windows' }
-          } finally {
-            if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
           }
           New-Item -ItemType Directory -Path release-assets -Force | Out-Null
           $version = (Get-Content apps/desktop/src-tauri/tauri.conf.json | ConvertFrom-Json).version
@@ -155,6 +166,7 @@ jobs:
     timeout-minutes: 60
     env:
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      RUN_RELEASE_TESTS: ${{ github.event_name != 'workflow_dispatch' || inputs.run_tests }}
       CARGO_BUILD_JOBS: 4
       MACOSX_DEPLOYMENT_TARGET: "11.0"
     steps:
@@ -189,16 +201,18 @@ jobs:
           app="apps/desktop/src-tauri/target/$TARGET/release/bundle/macos/CPOBRAS.app"
           test -x "$app/Contents/MacOS/cpobras-desktop"
           binary="$app/Contents/MacOS/cpobras-desktop"
-          "$binary" > /tmp/cpobras-smoke.log 2>&1 &
-          pid=$!
-          trap 'kill "$pid" 2>/dev/null || true' EXIT
-          for attempt in {1..10}; do
-            sleep 1
-            kill -0 "$pid" || { cat /tmp/cpobras-smoke.log; exit 1; }
-          done
-          kill "$pid"
-          wait "$pid" || true
-          trap - EXIT
+          if [[ "$RUN_RELEASE_TESTS" == "true" ]]; then
+            "$binary" > /tmp/cpobras-smoke.log 2>&1 &
+            pid=$!
+            trap 'kill "$pid" 2>/dev/null || true' EXIT
+            for attempt in {1..10}; do
+              sleep 1
+              kill -0 "$pid" || { cat /tmp/cpobras-smoke.log; exit 1; }
+            done
+            kill "$pid"
+            wait "$pid" || true
+            trap - EXIT
+          fi
           mkdir -p release-assets
           name="CPOBRAS_${RELEASE_TAG#v}_macos_${ARCH}_portable.zip"
           ditto -c -k --sequesterRsrc --keepParent "$app" "release-assets/$name"

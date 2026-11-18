@@ -4,7 +4,7 @@ Sistema local de cómputos, presupuestos y gestión de obras para Argentina.
 Rust concentra las reglas de negocio; SQLite guarda los datos en el equipo y
 Tauri 2 presenta la interfaz. Los importes se calculan con precisión decimal.
 
-Validación de la versión actual: [suite 0.1.10](docs/releases/v0.1.10-validation.md).
+Validación de la versión 0.1.10: [suite 0.1.10](docs/releases/v0.1.10-validation.md).
 
 ## Descargar y abrir en otra computadora Linux
 
@@ -15,7 +15,7 @@ Es un único archivo para Linux x86-64: no necesitás instalar Rust, Node ni Git
 2. Clic derecho → **Propiedades → Permisos → Permitir ejecutar como programa**.
 3. Abrilo con doble clic.
 
-La versión 0.1.10 está preparada para Linux Mint 21/22 y Ubuntu 22.04/24.04.
+La versión 0.1.11 está preparada para Linux Mint 21/22 y Ubuntu 22.04/24.04.
 Los datos se guardan por usuario fuera del AppImage; no se transfieren con el
 programa. Para consultar una obra de otro equipo, usá **Inicio → Vinculación P2P**.
 Guía y solución para sistemas sin FUSE: [docs/APPIMAGE.md](docs/APPIMAGE.md).
@@ -23,7 +23,7 @@ Guía y solución para sistemas sin FUSE: [docs/APPIMAGE.md](docs/APPIMAGE.md).
 ## Descargar y abrir en Windows
 
 En [Releases de GitHub](https://github.com/gianlucafiore/CPOBRAS/releases), descargá el
-archivo `CPOBRAS_0.1.10_windows_x86_64_portable.exe` y abrilo directamente. Requiere
+archivo `CPOBRAS_0.1.11_windows_x86_64_portable.exe` y abrilo directamente. Requiere
 Windows 10/11 y Microsoft Edge WebView2 Runtime. Los datos se guardan en el perfil
 del usuario; copiar el ejecutable no traslada la base de datos.
 
