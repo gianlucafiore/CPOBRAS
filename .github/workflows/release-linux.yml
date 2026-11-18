@@ -7,7 +7,7 @@ on:
       tag:
         description: "Etiqueta existente, por ejemplo v0.1.2"
         required: true
-        default: "v0.1.11"
+        default: "v0.1.12"
       run_tests:
         description: "Ejecutar pruebas y comprobaciones de arranque"
         type: boolean

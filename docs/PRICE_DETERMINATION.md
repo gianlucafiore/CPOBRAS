@@ -133,8 +133,8 @@ La preferencia viaja en las copias y plantillas de determinación y en el JSON
 completo. Esquema SQLite 41 y formato de intercambio 11: versiones anteriores
 rechazan estos datos para evitar perder la preferencia al guardarlos.
 
-La aplicación 0.1.11 admite hasta el esquema 40. La rama de desarrollo que
-incorpora estos conceptos se identifica como 0.1.12-dev.1 y admite el 41.
+La aplicación 0.1.11 admite hasta el esquema 40. La versión 0.1.12
+admite el esquema 41 en Windows, Linux y macOS.
 En 0.1.11, la lectura de la determinación rechaza campos desconocidos; por eso
 no alcanza con quitar la comprobación de esquema para abrir una base actualizada.
 Las migraciones de bases anteriores siguen siendo automáticas al abrirlas con
