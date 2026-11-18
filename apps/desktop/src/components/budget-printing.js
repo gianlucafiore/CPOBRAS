@@ -3,6 +3,7 @@ import { money, numeric } from "../decimal.js";
 import {clientLayouts,hasMemory} from "../services/budget-public.js";
 import {publicPriceSummary} from "../services/budget-public.js";
 import { logoUrl } from "../services/print-logo.js";
+import {memoryHtml} from "../services/memory-markdown.js";
 import {
   reportNames,
   printRows,
@@ -22,7 +23,7 @@ export function createBudgetPrinting({
   const model = {
     data: null,
     mode: "client",
-    layout: "sheet_price",
+    layout: "memory_sheet_price",
     format: "pdf",
     title: "",
     reference: "",
@@ -55,7 +56,7 @@ export function createBudgetPrinting({
         ["xlsx", "Excel (.xlsx)"],
       ],
       model.format,
-    )}</div><label class="field"><span>Condiciones y observaciones públicas</span><textarea aria-label="Condiciones y observaciones públicas" name="print-notes" maxlength="5000">${e(model.notes)}</textarea></label>${presentation.feedback()}<button type="submit" class="btn primary">Generar documento</button><p class="feature-error" role="alert"></p></form>${model.lastExport ? `<div class="print-export-result" role="status">Guardado en ${e(model.lastExport)}${model.lastExport.endsWith(".pdf") ? '<button class="btn" data-action="printing-open-pdf">Abrir PDF</button>' : ""}${model.openError ? `<p role="alert">${e(model.openError)}</p>` : ""}</div>` : ""}<section class="print-preview"><div class="print-preview-heading">${p.logo_png.length ? `<img src="${logoUrl(p.logo_png)}" alt="Logotipo del emisor">` : ""}<div><h2>${e(p.trade_name || p.company_name || p.professional_name || "CPOBRAS")}</h2><strong>${e(reportNames[model.mode])}</strong><p>${e(data.project.name)} · ${e(data.client.name)} · ${e(data.document.title)}</p></div><strong>${e(["USD", "Usd"].includes(data.estimate.currency) ? "USD" : "ARS")} ${money(data.final_total)}</strong></div>${model.mode === "internal" ? '<p class="print-internal-label">USO INTERNO · incluye costos y formación del precio</p>' : model.mode === "client" ? "<p>Precios de venta sin IVA por partida. El total final incluye los impuestos indicados.</p>" : "<p>Incidencias sobre el total final. Los rubros muestran subtotales, sin duplicarlos en el total.</p>"}${model.mode === "client" && hasMemory(model.layout) ? `<h3>Memoria descriptiva</h3><p class="public-memory">${e(presentation.model.data.memory||"Sin memoria descriptiva. Cargala desde Presupuesto → Memoria descriptiva.")}</p>` : ""}<div class="print-preview-table" ${model.mode === "client" && model.layout === "memory_price" ? "hidden" : ""}><table class="data-grid"><thead><tr>${headers.map((h) => `<th>${e(h)}</th>`).join("")}</tr></thead><tbody>${rows
+    )}</div><label class="field"><span>Condiciones y observaciones públicas</span><textarea aria-label="Condiciones y observaciones públicas" name="print-notes" maxlength="5000">${e(model.notes)}</textarea></label>${presentation.feedback()}<button type="submit" class="btn primary">Generar documento</button><p class="feature-error" role="alert"></p></form>${model.lastExport ? `<div class="print-export-result" role="status">Guardado en ${e(model.lastExport)}${model.lastExport.endsWith(".pdf") ? '<button class="btn" data-action="printing-open-pdf">Abrir PDF</button>' : ""}${model.openError ? `<p role="alert">${e(model.openError)}</p>` : ""}</div>` : ""}<section class="print-preview"><div class="print-preview-heading">${p.logo_png.length ? `<img src="${logoUrl(p.logo_png)}" alt="Logotipo del emisor">` : ""}<div><h2>${e(p.trade_name || p.company_name || p.professional_name || "CPOBRAS")}</h2><strong>${e(reportNames[model.mode])}</strong><p>${e(data.project.name)} · ${e(data.client.name)} · ${e(data.document.title)}</p></div><strong>${e(["USD", "Usd"].includes(data.estimate.currency) ? "USD" : "ARS")} ${money(data.final_total)}</strong></div>${model.mode === "internal" ? '<p class="print-internal-label">USO INTERNO · incluye costos y formación del precio</p>' : model.mode === "client" ? "<p>Precios de venta sin IVA por partida. El total final incluye los impuestos indicados.</p>" : "<p>Incidencias sobre el total final. Los rubros muestran subtotales, sin duplicarlos en el total.</p>"}${model.mode === "client" && hasMemory(model.layout) ? `<section class="print-memory-cover"><h3>Memoria descriptiva</h3><div class="memory-formatted">${memoryHtml(presentation.model.data.memory||"Sin memoria descriptiva. Cargala desde Presupuesto → Memoria descriptiva.")}</div></section>${model.layout==="memory_sheet_price"?'<div class="print-quotation-break"><h3>Cotización</h3><p class="small-muted">La tabla comienza en una página nueva del PDF, después de la memoria.</p></div>':''}` : ""}<div class="print-preview-table" ${model.mode === "client" && model.layout === "memory_price" ? "hidden" : ""}><table class="data-grid"><thead><tr>${headers.map((h) => `<th>${e(h)}</th>`).join("")}</tr></thead><tbody>${rows
       .slice(0, 200)
       .map(
         (r) =>
@@ -93,7 +94,7 @@ export function createBudgetPrinting({
       model.mode = "client";
       model.reference = "";
       model.notes = "";
-      model.layout = "sheet_price";
+      model.layout = "memory_sheet_price";
       model.format = "pdf";
       model.landscape = false;
       for(const [key,value] of Object.entries(presentation.model.data.print_options||{}))
@@ -118,7 +119,7 @@ export function createBudgetPrinting({
     return false;
   }
   function restore(){
-    Object.assign(model,{mode:"client",layout:"sheet_price",format:"pdf",title:model.data?.document.title||"Presupuesto",date:dateToday(),reference:"",notes:"",landscape:false});
+    Object.assign(model,{mode:"client",layout:"memory_sheet_price",format:"pdf",title:model.data?.document.title||"Presupuesto",date:dateToday(),reference:"",notes:"",landscape:false});
     for(const [key,value] of Object.entries(presentation.model.data.print_options||{}))if(value!=="" && key in model)model[key]=value;
   }
   function remember(){

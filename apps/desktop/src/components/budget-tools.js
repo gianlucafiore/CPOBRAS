@@ -2,6 +2,7 @@ import { exportBudget } from "../services/budget-export.js";
 import { clientLayouts, hasMemory } from "../services/budget-public.js";
 import { dateToday } from "./helpers.js";
 import { budgetReportPdf } from "../services/budget-print.js";
+import {memoryEditor} from "./memory-editor.js";
 import { e, field, select } from "./helpers.js";
 import {
   exportCsv,
@@ -76,7 +77,7 @@ export function createBudgetTools({
     ${field("Título", "title", o.title, "required")}
     ${field("Fecha", "date", o.date, 'type="date"')}${field("Referencia", "reference", o.reference)}
     <div ${o.kind === "client" ? "" : "hidden"}>${select("Contenido para el cliente", "layout", Object.entries(clientLayouts), o.layout)}</div>
-    </div><label class="field" ${o.kind === "incidences" || (o.kind === "client" && !hasMemory(o.layout)) ? "hidden" : ""}><span>Memoria descriptiva inicial</span><textarea name="memory" rows="7" maxlength="25000" ${current()?.issued || state.remoteProject ? "readonly" : ""} ${o.kind === "client" && hasMemory(o.layout) ? "required" : ""}>${e(o.memory)}</textarea></label>
+    </div><div ${o.kind === "incidences" || (o.kind === "client" && !hasMemory(o.layout)) ? "hidden" : ""}>${memoryEditor(o.memory,{name:"memory",label:"Memoria descriptiva inicial",rows:7,readonly:Boolean(current()?.issued || state.remoteProject),required:o.kind==="client"&&hasMemory(o.layout)})}</div>
     <label class="field"><span>Condiciones comerciales y observaciones</span><textarea name="notes" rows="5" placeholder="Validez de la oferta, forma de pago, plazo de entrega, alcance y exclusiones…">${e(o.notes)}</textarea></label>
     ${select(
       "Hoja PDF",
@@ -186,7 +187,7 @@ export function createBudgetTools({
       model.options = {
         kind: "full",
         format: "xlsx",
-        layout: "sheet_price",
+        layout: "memory_sheet_price",
         title: current()?.title || "Presupuesto",
         date: dateToday(),
         reference: "",

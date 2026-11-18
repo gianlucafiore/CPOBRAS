@@ -5,8 +5,8 @@ import {
   compareDecimals,
 } from "../decimal.js";
 export const clientLayouts = {
-  sheet_price: "Planilla de presupuesto y precio",
   memory_sheet_price: "Memoria descriptiva, planilla y precio",
+  sheet_price: "Planilla de presupuesto y precio",
   memory_price: "Memoria descriptiva y precio",
 };
 export const hasMemory = (layout) =>

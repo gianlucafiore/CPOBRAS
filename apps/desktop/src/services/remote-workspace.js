@@ -228,7 +228,7 @@ export function createRemoteInvoke(nativeInvoke, state) {
     return clone(projected());
   };
 }
-const viewActions = new Set([
+const viewActions = new Set(["memory-preview",
   "agreement-open", "agreement-close", "plan-overview-refresh", "plan-finance-conditions",
   "go-home",
   "open-workspace",

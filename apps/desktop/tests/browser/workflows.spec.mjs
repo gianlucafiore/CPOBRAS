@@ -544,7 +544,7 @@ test('public print identity and logo persist independently and appear in client 
  await page.locator('[name=print-logo]').setInputFiles({name:'logo.png',mimeType:'image/png',buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP43qH1HwAGzAKpX36DZQAAAABJRU5ErkJggg==','base64')});await expect(page.getByRole('img',{name:'Logotipo público',exact:true})).toBeVisible();await page.getByRole('button',{name:'Guardar organización',exact:true}).click();
  const saved=await page.evaluate(()=>window.__calls.filter(c=>c.command==='save_organization').at(-1).args);expect(saved.profile.logo_png.length).toBeGreaterThan(30);expect(saved.profile.company_name).toBe('Constructora Sur');
  await page.getByRole('button',{name:'Inicio / Obras',exact:true}).click();await page.getByRole('button',{name:'Abrir ›',exact:true}).click();await page.locator('[data-action=manage-dashboard-budget]').first().click();await page.getByRole('button',{name:'Imprimir presupuesto',exact:true}).click();await expect(page.locator('.print-preview-heading')).toContainText('Constructora Sur');await expect(page.getByRole('img',{name:'Logotipo del emisor',exact:true})).toBeVisible();await expect(page.getByRole('columnheader',{name:'Costo directo',exact:true})).toHaveCount(0);
- await page.getByRole('textbox',{name:'Condiciones y observaciones públicas',exact:true}).fill('Validez: 15 días');await page.getByRole('button',{name:'Generar documento',exact:true}).click();await expect(page.locator('.print-export-result')).toContainText('presupuesto.pdf');expect(await page.evaluate(()=>window.__calls.filter(c=>c.command==='open_export_pdf').at(-1).args.path)).toContain('.pdf');
+ await page.getByRole('combobox',{name:'Contenido para el cliente',exact:true}).selectOption('sheet_price');await page.getByRole('textbox',{name:'Condiciones y observaciones públicas',exact:true}).fill('Validez: 15 días');await page.getByRole('button',{name:'Generar documento',exact:true}).click();await expect(page.locator('.print-export-result')).toContainText('presupuesto.pdf');expect(await page.evaluate(()=>window.__calls.filter(c=>c.command==='open_export_pdf').at(-1).args.path)).toContain('.pdf');
 });
 
 test('internal and incidence printing preserve entered conditions and can export Excel',async({page})=>{
@@ -553,7 +553,7 @@ test('internal and incidence printing preserve entered conditions and can export
 });
 
 test('reader failures keep the generated PDF available to reopen',async({page})=>{
- await bridge(page,{readerFails:true});await page.getByRole('button',{name:'Abrir ›',exact:true}).click();await page.locator('[data-action=manage-dashboard-budget]').first().click();await page.getByRole('button',{name:'Imprimir presupuesto',exact:true}).click();await page.getByRole('button',{name:'Generar documento',exact:true}).click();await expect(page.locator('.print-export-result')).toContainText('No hay lector PDF asociado');await expect(page.getByRole('button',{name:'Abrir PDF',exact:true})).toBeVisible();await expect(page.locator('.print-export-result')).toContainText('.pdf');
+ await bridge(page,{readerFails:true});await page.getByRole('button',{name:'Abrir ›',exact:true}).click();await page.locator('[data-action=manage-dashboard-budget]').first().click();await page.getByRole('button',{name:'Imprimir presupuesto',exact:true}).click();await page.getByRole('combobox',{name:'Contenido para el cliente',exact:true}).selectOption('sheet_price');await page.getByRole('button',{name:'Generar documento',exact:true}).click();await expect(page.locator('.print-export-result')).toContainText('No hay lector PDF asociado');await expect(page.getByRole('button',{name:'Abrir PDF',exact:true})).toBeVisible();await expect(page.locator('.print-export-result')).toContainText('.pdf');
 });
 
 test('organization default preselects only new projects and external identity is readonly',async({page})=>{
@@ -1570,4 +1570,47 @@ test('an interrupted price edit recovers its local draft after restarting the pa
 
 test('autosave failures remain visible, preserve edited amounts and block navigation until resolved',async({page})=>{
  await bridge(page,{priceSaveFails:true});await page.getByRole('button',{name:'Abrir ›',exact:true}).click();await page.locator('[data-action=manage-dashboard-budget]').first().click();await page.getByRole('button',{name:'Determinación de precio',exact:true}).click();await page.getByRole('button',{name:'Monto manual',exact:true}).click();await page.getByRole('spinbutton',{name:'Monto manual del concepto',exact:true}).fill('333');await expect(page.locator('.price-status')).toContainText('Error al guardar');await expect(page.locator('[data-price-error-message]')).toContainText('Disco no disponible');await page.getByRole('button',{name:'← Presupuesto',exact:true}).click();await expect(page.getByRole('spinbutton',{name:'Monto manual del concepto',exact:true})).toHaveValue('333');expect(await page.evaluate(()=>Object.keys(localStorage).some(k=>k.startsWith('cpobras.price-draft.v1:')))).toBe(true);
+});
+
+test('memory editor formats and autosaves a public cover before the quotation page',async({page})=>{
+ await bridge(page);await page.getByRole('button',{name:'Abrir ›',exact:true}).click();await page.locator('[data-action=manage-dashboard-budget]').first().click();
+ await page.getByRole('tab',{name:'Memoria descriptiva',exact:true}).click();
+ const editor=page.locator('[data-memory-editor]'),text=editor.getByRole('textbox',{name:'Memoria descriptiva',exact:true});
+ await text.fill('Propuesta de obra\n\nAlcance y condiciones.');
+ await text.evaluate(el=>el.setSelectionRange(0,9));await editor.getByRole('button',{name:'Negrita (Ctrl+B)',exact:true}).click();
+ await editor.getByRole('button',{name:'Título',exact:true}).click();
+ await text.evaluate(el=>{const start=el.value.indexOf('obra');el.focus();el.setSelectionRange(start,start+4);});await page.keyboard.press('Control+i');
+ await editor.getByRole('button',{name:'Vista previa',exact:true}).click();
+ const preview=editor.getByRole('region',{name:'Vista previa de la memoria descriptiva',exact:true});
+ await expect(preview.getByRole('heading',{name:'Propuesta de obra',exact:true})).toBeVisible();await expect(preview.locator('strong')).toHaveText('Propuesta');await expect(preview.locator('em')).toHaveText('obra');await expect(editor.getByRole('button',{name:'Negrita (Ctrl+B)',exact:true})).toBeDisabled();await page.screenshot({path:test.info().outputPath('memory-editor.png')});await editor.getByRole('button',{name:'Ver texto',exact:true}).click();await expect(text).toHaveValue('## **Propuesta** de *obra*\n\nAlcance y condiciones.');
+ await expect.poll(()=>page.evaluate(()=>window.__calls.filter(c=>c.command==='save_budget_presentation').at(-1)?.args.data.memory)).toBe('## **Propuesta** de *obra*\n\nAlcance y condiciones.');
+ await page.getByRole('button',{name:'Imprimir presupuesto',exact:true}).click();
+ await expect(page.getByRole('combobox',{name:'Contenido para el cliente',exact:true})).toHaveValue('memory_sheet_price');
+ await expect(page.locator('.print-memory-cover strong')).toHaveText('Propuesta');await expect(page.locator('.print-quotation-break')).toContainText('página nueva');
+ await page.getByRole('button',{name:'Generar documento',exact:true}).click();await expect(page.locator('.print-export-result')).toContainText('.pdf');
+ const bytes=await page.evaluate(()=>window.__calls.filter(c=>c.command==='write_export').at(-1).args.bytes),pdf=Buffer.from(bytes).toString('latin1');
+ const streams=[...pdf.matchAll(/\nstream\n([\s\S]*?)\nendstream/g)].map(m=>m[1]);
+ expect(streams).toHaveLength(2);expect(streams[0]).toContain('(Propuesta de )');expect(streams[0]).not.toContain('Hormig');expect(streams[0]).not.toContain('TOTAL ARS');expect(streams[1]).toContain('Hormig');expect(streams[1]).toContain('TOTAL ARS');
+ await page.getByRole('button',{name:'Volver al presupuesto',exact:true}).click();await page.getByRole('tab',{name:'Memoria descriptiva',exact:true}).click();await expect(text).toHaveValue('## **Propuesta** de *obra*\n\nAlcance y condiciones.');
+});
+
+test('issued budget memory keeps formatting controls read-only',async({page})=>{
+ await bridge(page,{issued:true});await page.getByRole('button',{name:'Abrir ›',exact:true}).click();await page.locator('[data-action=manage-dashboard-budget]').first().click();await page.getByRole('tab',{name:'Memoria descriptiva',exact:true}).click();
+ const editor=page.locator('[data-memory-editor]');await expect(editor.locator('textarea')).toHaveAttribute('readonly','');await expect(editor.getByRole('button',{name:'Negrita (Ctrl+B)',exact:true})).toBeDisabled();
+ await editor.getByRole('button',{name:'Vista previa',exact:true}).click();await expect(editor.getByRole('region',{name:'Vista previa de la memoria descriptiva',exact:true})).toBeVisible();
+ expect(await page.evaluate(()=>window.__calls.filter(c=>c.command==='save_budget_presentation').length)).toBe(0);
+});
+
+test('memory formatting combines emphasis and handles a list at the first empty line',async({page})=>{
+ await bridge(page);await page.getByRole('button',{name:'Abrir ›',exact:true}).click();await page.locator('[data-action=manage-dashboard-budget]').first().click();await page.getByRole('tab',{name:'Memoria descriptiva',exact:true}).click();
+ const editor=page.locator('[data-memory-editor]'),text=editor.locator('textarea');await text.fill('\nAlcance');await text.evaluate(el=>el.setSelectionRange(0,0));await editor.getByRole('button',{name:'Lista con viñetas',exact:true}).click();await expect(text).toHaveValue('- Texto\nAlcance');
+ await text.fill('Oferta');await text.evaluate(el=>{el.focus();el.setSelectionRange(0,el.value.length);});await editor.getByRole('button',{name:'Negrita (Ctrl+B)',exact:true}).click();await expect(text).toHaveValue('**Oferta**');
+ await page.keyboard.press('Control+i');await expect(text).toHaveValue('***Oferta***');await page.keyboard.press('Control+i');await expect(text).toHaveValue('**Oferta**');await page.keyboard.press('Control+b');await expect(text).toHaveValue('Oferta');
+});
+
+test('client printing defaults to memory and quotation and remembers a later explicit choice',async({page})=>{
+ await bridge(page);await page.getByRole('button',{name:'Abrir ›',exact:true}).click();await page.locator('[data-action=manage-dashboard-budget]').first().click();await page.getByRole('button',{name:'Imprimir presupuesto',exact:true}).click();
+ const layout=page.getByRole('combobox',{name:'Contenido para el cliente',exact:true});await expect(layout).toHaveValue('memory_sheet_price');await layout.selectOption('sheet_price');
+ await page.getByRole('button',{name:'Volver al presupuesto',exact:true}).click();await page.getByRole('button',{name:'Imprimir presupuesto',exact:true}).click();await expect(layout).toHaveValue('sheet_price');
+ await page.getByRole('button',{name:'Volver al presupuesto',exact:true}).click();await page.getByRole('button',{name:'Herramientas / exportar',exact:true}).click();await page.getByRole('combobox',{name:'Presentación',exact:true}).selectOption('client');await expect(layout).toHaveValue('memory_sheet_price');
 });

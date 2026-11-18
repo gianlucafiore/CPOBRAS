@@ -1,4 +1,5 @@
 import {e} from "../components/helpers.js";
+import {memoryEditor} from "../components/memory-editor.js";
 // One serialized writer for the shared memory and the print preferences of a budget.
 export function createBudgetPresentation({invoke,state,document,window,editable}) {
   const model={id:null,scope:null,revision:0,data:{memory:"",print_options:{}},saved:"",error:"",status:"",conflict:false};
@@ -79,7 +80,7 @@ export function createBudgetPresentation({invoke,state,document,window,editable}
   }
   function feedback(){return `<p role="status" data-presentation-status>${e(model.error||model.status)}</p><button type="button" class="btn tiny" data-action="presentation-save" data-presentation-retry ${model.error&&!model.conflict?'':'hidden'}>Reintentar guardado</button><div data-presentation-conflict ${model.conflict?'':'hidden'}>${recoveryMarkup()}</div>`;}
 
-  function markup(){return `<section class="budget-memory"><div class="detail-heading"><b>Memoria descriptiva del presupuesto</b></div><p class="small-muted">Texto público que se puede incluir al generar el presupuesto para el cliente.</p><label class="field"><span>Memoria descriptiva</span><textarea name="budget-memory" rows="18" maxlength="25000" ${editable()?'':'readonly'}>${e(model.data.memory||'')}</textarea></label>${feedback()}</section>`;}
+  function markup(){return `<section class="budget-memory"><div class="detail-heading"><b>Memoria descriptiva del presupuesto</b></div><p class="small-muted">Presentación pública del presupuesto. En el PDF con memoria, la cotización comienza en una página nueva.</p>${memoryEditor(model.data.memory,{readonly:!editable()})}${feedback()}</section>`;}
   function input(target){if(target.name!=='budget-memory'||!editable())return;update({memory:target.value});clearTimer(timer);timer=setTimer(()=>flush().catch(()=>{}),400);}
   window.addEventListener?.('beforeunload',()=>{if(model.id)journal();});
   return {model,open,update,flush,feedback,markup,input,resolve};
