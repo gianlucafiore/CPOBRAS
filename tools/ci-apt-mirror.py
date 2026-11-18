@@ -4,7 +4,12 @@ from pathlib import Path
 import re
 
 sources = Path('/etc/apt/sources.list.d')
-paths = [Path('/etc/apt/sources.list'), *sources.glob('*.list'), *sources.glob('*.sources')]
+paths = [
+    Path('/etc/apt/sources.list'),
+    *sources.glob('*.list'),
+    *sources.glob('*.sources'),
+    *Path('/etc/apt').glob('apt-mirrors*.txt'),
+]
 for path in paths:
     if not path.is_file():
         continue
