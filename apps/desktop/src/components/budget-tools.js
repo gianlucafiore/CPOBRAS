@@ -187,7 +187,7 @@ export function createBudgetTools({
       model.options = {
         kind: "full",
         format: "xlsx",
-        layout: "sheet_price",
+        layout: "memory_sheet_price",
         title: current()?.title || "Presupuesto",
         date: dateToday(),
         reference: "",
@@ -201,7 +201,6 @@ export function createBudgetTools({
         presentation.update({memory:saved.memory});await presentation.flush();
       }
       model.options.memory=presentation.model.data.memory;
-      if(!saved.layout && model.options.memory.trim())model.options.layout="memory_sheet_price";
       await refresh();
     }
     if (action === "budget-tools-back") {

@@ -23,7 +23,7 @@ export function createBudgetPrinting({
   const model = {
     data: null,
     mode: "client",
-    layout: "sheet_price",
+    layout: "memory_sheet_price",
     format: "pdf",
     title: "",
     reference: "",
@@ -94,7 +94,7 @@ export function createBudgetPrinting({
       model.mode = "client";
       model.reference = "";
       model.notes = "";
-      model.layout = presentation.model.data.memory.trim()?"memory_sheet_price":"sheet_price";
+      model.layout = "memory_sheet_price";
       model.format = "pdf";
       model.landscape = false;
       for(const [key,value] of Object.entries(presentation.model.data.print_options||{}))
@@ -119,7 +119,7 @@ export function createBudgetPrinting({
     return false;
   }
   function restore(){
-    Object.assign(model,{mode:"client",layout:presentation.model.data.memory.trim()?"memory_sheet_price":"sheet_price",format:"pdf",title:model.data?.document.title||"Presupuesto",date:dateToday(),reference:"",notes:"",landscape:false});
+    Object.assign(model,{mode:"client",layout:"memory_sheet_price",format:"pdf",title:model.data?.document.title||"Presupuesto",date:dateToday(),reference:"",notes:"",landscape:false});
     for(const [key,value] of Object.entries(presentation.model.data.print_options||{}))if(value!=="" && key in model)model[key]=value;
   }
   function remember(){

@@ -201,7 +201,7 @@ export async function budgetReportPdf(
     notes = "",
     landscape = false,
     memory = data.document.presentation?.memory || "",
-    layout = memory.trim()?"memory_sheet_price":"sheet_price",
+    layout = "memory_sheet_price",
     appendices = [],
   } = {},
 ) {

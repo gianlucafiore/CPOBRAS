@@ -31,6 +31,6 @@ En «Memoria descriptiva, planilla y precio», la memoria abre la propuesta con
 los datos públicos del emisor, la obra y el cliente. La cotización comienza
 en una página nueva, después de toda la memoria. Un texto extenso continúa
 en las hojas necesarias sin mezclarse con la tabla ni cortarse. Las opciones
-«Planilla y precio» y «Memoria y precio» siguen disponibles. Si todavía no se
-eligió una presentación y hay memoria, se propone la presentación completa;
-una elección de impresión ya guardada se conserva.
+«Planilla y precio» y «Memoria y precio» siguen disponibles. La opción predeterminada es «Memoria descriptiva, planilla y precio», también
+para presupuestos nuevos que todavía no tienen texto. Una elección de
+impresión ya guardada se conserva.

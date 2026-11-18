@@ -692,7 +692,7 @@ export function buildClientWorkbook(
     title = data.document.title,
     memory = data.document.presentation?.memory || "",
     notes = "",
-    layout = "sheet_price",
+    layout = "memory_sheet_price",
     date = "",
     reference = "",
     landscape = false,
