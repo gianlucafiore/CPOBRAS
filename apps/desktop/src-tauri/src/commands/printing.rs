@@ -29,20 +29,48 @@ pub(crate) fn get_budget_print_data(
         .map_err(|e| e.to_string())
 }
 #[tauri::command]
-pub(crate) fn get_budget_presentation(db: tauri::State<'_, Db>, estimate_id: uuid::Uuid) -> Result<cpobras_storage::presentation::SavedPresentation, String> {
-    db.lock().map_err(|e| e.to_string())?.budget_presentation(estimate_id).map_err(|e| e.to_string())
+pub(crate) fn get_budget_presentation(
+    db: tauri::State<'_, Db>,
+    estimate_id: uuid::Uuid,
+) -> Result<cpobras_storage::presentation::SavedPresentation, String> {
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .budget_presentation(estimate_id)
+        .map_err(|e| e.to_string())
 }
 #[tauri::command]
-pub(crate) fn save_budget_presentation(db: tauri::State<'_, Db>, estimate_id: uuid::Uuid, revision: u32, data: cpobras_storage::presentation::BudgetPresentation) -> Result<cpobras_storage::presentation::SavedPresentation, String> {
-    db.lock().map_err(|e| e.to_string())?.save_budget_presentation(estimate_id, revision, &data).map_err(|e| e.to_string())
+pub(crate) fn save_budget_presentation(
+    db: tauri::State<'_, Db>,
+    estimate_id: uuid::Uuid,
+    revision: u32,
+    data: cpobras_storage::presentation::BudgetPresentation,
+) -> Result<cpobras_storage::presentation::SavedPresentation, String> {
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .save_budget_presentation(estimate_id, revision, &data)
+        .map_err(|e| e.to_string())
 }
 #[tauri::command]
-pub(crate) fn get_organization_indirect_costs(db: tauri::State<'_, Db>, organization_id: uuid::Uuid) -> Result<cpobras_storage::presentation::SavedIndirectCosts, String> {
-    db.lock().map_err(|e| e.to_string())?.organization_indirect_costs(organization_id).map_err(|e| e.to_string())
+pub(crate) fn get_organization_indirect_costs(
+    db: tauri::State<'_, Db>,
+    organization_id: uuid::Uuid,
+) -> Result<cpobras_storage::presentation::SavedIndirectCosts, String> {
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .organization_indirect_costs(organization_id)
+        .map_err(|e| e.to_string())
 }
 #[tauri::command]
-pub(crate) fn save_organization_indirect_costs(db: tauri::State<'_, Db>, organization_id: uuid::Uuid, revision: u32, data: cpobras_storage::presentation::IndirectCostPlan) -> Result<cpobras_storage::presentation::SavedIndirectCosts, String> {
-    db.lock().map_err(|e| e.to_string())?.save_organization_indirect_costs(organization_id, revision, &data).map_err(|e| e.to_string())
+pub(crate) fn save_organization_indirect_costs(
+    db: tauri::State<'_, Db>,
+    organization_id: uuid::Uuid,
+    revision: u32,
+    data: cpobras_storage::presentation::IndirectCostPlan,
+) -> Result<cpobras_storage::presentation::SavedIndirectCosts, String> {
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .save_organization_indirect_costs(organization_id, revision, &data)
+        .map_err(|e| e.to_string())
 }
 fn owned_pdf(
     exports: &std::path::Path,

@@ -379,7 +379,10 @@ impl LocalStore {
         crate::estimate_resource_prices::synchronize(&tx, estimate.id, &BTreeMap::new())?;
         if let Some(p) = &document.presentation {
             p.validate()?;
-            tx.execute("INSERT INTO budget_presentations(estimate_id,revision,data_json) VALUES(?1,1,?2)",params![estimate.id.to_string(),serde_json::to_string(p)?])?;
+            tx.execute(
+                "INSERT INTO budget_presentations(estimate_id,revision,data_json) VALUES(?1,1,?2)",
+                params![estimate.id.to_string(), serde_json::to_string(p)?],
+            )?;
         }
         if let Some(t) = &document.certificate_terms {
             t.validate()?;

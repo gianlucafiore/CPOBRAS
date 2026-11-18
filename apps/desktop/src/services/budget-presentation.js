@@ -3,6 +3,8 @@ import {e} from "../components/helpers.js";
 export function createBudgetPresentation({invoke,state,document,window,editable}) {
   const model={id:null,scope:null,revision:0,data:{memory:"",print_options:{}},saved:"",error:"",status:"",conflict:false};
   let pending=null,timer=null;
+  const setTimer=window.setTimeout?.bind(window)??globalThis.setTimeout;
+  const clearTimer=window.clearTimeout?.bind(window)??globalThis.clearTimeout;
   const scope=()=>String(state.database?.path||state.database?.scope||"local");
   const key=()=>`cpobras.presentation.v1:${encodeURIComponent(model.scope)}:${model.id}`;
   const dirty=()=>JSON.stringify(model.data)!==model.saved;
@@ -22,7 +24,7 @@ export function createBudgetPresentation({invoke,state,document,window,editable}
     const id=state.estimateId,s=scope(),saved=await invoke('get_budget_presentation',{estimateId:id});
     Object.assign(model,{id,scope:s,revision:saved.revision,data:saved.data,saved:JSON.stringify(saved.data),error:"",status:"Guardado",conflict:false});
     try{
-      const draft=JSON.parse(window.localStorage.getItem(key())||'null');
+      const draft=JSON.parse(window.localStorage?.getItem(key())||'null');
       if(draft){
         if(draft.revision===saved.revision){model.data=draft.data;model.status="Borrador recuperado · pendiente de guardar";}
         else {model.error="Hay un borrador de otra revisión. Copialo y comparalo antes de reemplazar los datos guardados.";model.conflict=true;model.data=draft.data;}
@@ -36,7 +38,7 @@ export function createBudgetPresentation({invoke,state,document,window,editable}
     model.data=next;model.status="Cambios pendientes de guardar…";journal();status();
   }
   async function flush(){
-    window.clearTimeout(timer);
+    clearTimer(timer);
     if(pending){await pending;if(dirty())return flush();return;}
     if(!model.id||!dirty())return;
     if(state.remoteProject){model.saved=JSON.stringify(model.data);model.status="Copia de solo lectura";status();return;}
@@ -78,7 +80,7 @@ export function createBudgetPresentation({invoke,state,document,window,editable}
   function feedback(){return `<p role="status" data-presentation-status>${e(model.error||model.status)}</p><button type="button" class="btn tiny" data-action="presentation-save" data-presentation-retry ${model.error&&!model.conflict?'':'hidden'}>Reintentar guardado</button><div data-presentation-conflict ${model.conflict?'':'hidden'}>${recoveryMarkup()}</div>`;}
 
   function markup(){return `<section class="budget-memory"><div class="detail-heading"><b>Memoria descriptiva del presupuesto</b></div><p class="small-muted">Texto público que se puede incluir al generar el presupuesto para el cliente.</p><label class="field"><span>Memoria descriptiva</span><textarea name="budget-memory" rows="18" maxlength="25000" ${editable()?'':'readonly'}>${e(model.data.memory||'')}</textarea></label>${feedback()}</section>`;}
-  function input(target){if(target.name!=='budget-memory'||!editable())return;update({memory:target.value});window.clearTimeout(timer);timer=window.setTimeout(()=>flush().catch(()=>{}),400);}
+  function input(target){if(target.name!=='budget-memory'||!editable())return;update({memory:target.value});clearTimer(timer);timer=setTimer(()=>flush().catch(()=>{}),400);}
   window.addEventListener?.('beforeunload',()=>{if(model.id)journal();});
   return {model,open,update,flush,feedback,markup,input,resolve};
 }

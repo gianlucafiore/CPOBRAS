@@ -423,7 +423,9 @@ impl LocalStore {
                     "line_id"
                 } else if fields.iter().any(|field| field == "analysis_id") {
                     "analysis_id"
-                } else if fields.iter().any(|field| field == "resource_id") && !fields.iter().any(|field| field == "estimate_id") {
+                } else if fields.iter().any(|field| field == "resource_id")
+                    && !fields.iter().any(|field| field == "estimate_id")
+                {
                     "resource_id"
                 } else if fields.iter().any(|field| field == "organization_id") {
                     // Organization-level records have no estimate_id.

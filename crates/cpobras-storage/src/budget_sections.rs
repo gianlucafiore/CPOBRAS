@@ -42,41 +42,93 @@ pub struct SectionEditResult {
 impl LocalStore {
     /// Destructive deletion is separate from AI rubro edits, which preserve lines.
     pub fn delete_budget_section_contents(
-        &mut self, estimate_id: Uuid, section_id: Uuid, expected_title: &str,
-        expected_sections: &[Uuid], expected_lines: &[Uuid],
+        &mut self,
+        estimate_id: Uuid,
+        section_id: Uuid,
+        expected_title: &str,
+        expected_sections: &[Uuid],
+        expected_lines: &[Uuid],
     ) -> Result<usize> {
         use std::collections::BTreeSet;
         let invalid = |message: &str| StorageError::InvalidValue(message.into());
-        let tx = self.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        let status: Option<String> = tx.query_row("SELECT status FROM estimates WHERE id=?1",[estimate_id.to_string()],|r|r.get(0)).optional()?;
-        if status.as_deref() != Some("draft") { return Err(invalid("Solo se eliminan rubros de un presupuesto en elaboración")); }
-        let sections: Vec<(Uuid,Option<Uuid>,String)> = {
-            let rows: Vec<(String,Option<String>,String)> = tx.prepare("SELECT id,parent_id,title FROM budget_sections WHERE estimate_id=?1")?
-                .query_map([estimate_id.to_string()],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?.collect::<std::result::Result<_,_>>()?;
-            rows.into_iter().map(|(id,parent,title)|Ok((Uuid::parse_str(&id)?,parent.map(|p|Uuid::parse_str(&p)).transpose()?,title))).collect::<Result<_>>()?
+        let tx = self
+            .conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let status: Option<String> = tx
+            .query_row(
+                "SELECT status FROM estimates WHERE id=?1",
+                [estimate_id.to_string()],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if status.as_deref() != Some("draft") {
+            return Err(invalid(
+                "Solo se eliminan rubros de un presupuesto en elaboración",
+            ));
+        }
+        let sections: Vec<(Uuid, Option<Uuid>, String)> = {
+            let rows: Vec<(String, Option<String>, String)> = tx
+                .prepare("SELECT id,parent_id,title FROM budget_sections WHERE estimate_id=?1")?
+                .query_map([estimate_id.to_string()], |r| {
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+                })?
+                .collect::<std::result::Result<_, _>>()?;
+            rows.into_iter()
+                .map(|(id, parent, title)| {
+                    Ok((
+                        Uuid::parse_str(&id)?,
+                        parent.map(|p| Uuid::parse_str(&p)).transpose()?,
+                        title,
+                    ))
+                })
+                .collect::<Result<_>>()?
         };
-        let root = sections.iter().find(|s| s.0 == section_id).ok_or_else(||invalid("El rubro ya no existe"))?;
-        if root.2 != expected_title { return Err(invalid("El rubro cambió. Volvé a abrir el menú antes de eliminarlo.")); }
+        let root = sections
+            .iter()
+            .find(|s| s.0 == section_id)
+            .ok_or_else(|| invalid("El rubro ya no existe"))?;
+        if root.2 != expected_title {
+            return Err(invalid(
+                "El rubro cambió. Volvé a abrir el menú antes de eliminarlo.",
+            ));
+        }
         let mut ids = BTreeSet::from([section_id]);
         let mut order = vec![section_id];
         let mut cursor = 0;
         while cursor < order.len() {
             let parent = order[cursor];
             for section in &sections {
-                if section.1 == Some(parent) && ids.insert(section.0) { order.push(section.0); }
+                if section.1 == Some(parent) && ids.insert(section.0) {
+                    order.push(section.0);
+                }
             }
             cursor += 1;
         }
         let assigned: Vec<(String,String)> = tx.prepare("SELECT l.id,s.section_id FROM estimate_lines l JOIN estimate_line_sections s ON s.line_id=l.id WHERE l.estimate_id=?1")?
             .query_map([estimate_id.to_string()],|r|Ok((r.get(0)?,r.get(1)?)))?.collect::<std::result::Result<_,_>>()?;
         let mut lines = BTreeSet::new();
-        for (line,section) in assigned { if ids.contains(&Uuid::parse_str(&section)?) { lines.insert(Uuid::parse_str(&line)?); } }
-        if ids != expected_sections.iter().copied().collect::<BTreeSet<_>>() || lines != expected_lines.iter().copied().collect::<BTreeSet<_>>() {
-            return Err(invalid("El contenido del rubro cambió. Revisá y confirmá nuevamente la eliminación."));
+        for (line, section) in assigned {
+            if ids.contains(&Uuid::parse_str(&section)?) {
+                lines.insert(Uuid::parse_str(&line)?);
+            }
         }
-        for line in &lines { crate::estimates::delete_line_in(&tx,estimate_id,*line)?; }
-        for id in order.into_iter().rev() { tx.execute("DELETE FROM budget_sections WHERE id=?1 AND estimate_id=?2",params![id.to_string(),estimate_id.to_string()])?; }
-        crate::estimates::checked_budget_total(&tx,estimate_id)?;
+        if ids != expected_sections.iter().copied().collect::<BTreeSet<_>>()
+            || lines != expected_lines.iter().copied().collect::<BTreeSet<_>>()
+        {
+            return Err(invalid(
+                "El contenido del rubro cambió. Revisá y confirmá nuevamente la eliminación.",
+            ));
+        }
+        for line in &lines {
+            crate::estimates::delete_line_in(&tx, estimate_id, *line)?;
+        }
+        for id in order.into_iter().rev() {
+            tx.execute(
+                "DELETE FROM budget_sections WHERE id=?1 AND estimate_id=?2",
+                params![id.to_string(), estimate_id.to_string()],
+            )?;
+        }
+        crate::estimates::checked_budget_total(&tx, estimate_id)?;
         tx.commit()?;
         Ok(lines.len())
     }

@@ -2278,7 +2278,10 @@ impl LocalStore {
                         let quantity = mul(
                             mul(
                                 item.quantity,
-                                div(item.months.unwrap_or(D::ONE), item.months_per_payment.unwrap_or(D::ONE))?,
+                                div(
+                                    item.months.unwrap_or(D::ONE),
+                                    item.months_per_payment.unwrap_or(D::ONE),
+                                )?,
                             )?,
                             div(item.participation_percent, D::from(100))?,
                         )?;

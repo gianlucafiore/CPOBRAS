@@ -128,8 +128,11 @@ pub(crate) fn list_resources(db: tauri::State<'_, Db>) -> Result<Vec<ResourceVie
             .resource_price_as_of(resource.id, Currency::Ars, "9999-12-31")
             .map_err(|e| e.to_string())?
             .map(|p| p.amount.to_string());
-        let daily=store.resource_daily_output(resource.id).map_err(|e|e.to_string())?;
-        let mut view=resource_view(resource,price);view.daily_output=daily.map(|v|v.to_string());
+        let daily = store
+            .resource_daily_output(resource.id)
+            .map_err(|e| e.to_string())?;
+        let mut view = resource_view(resource, price);
+        view.daily_output = daily.map(|v| v.to_string());
         result.push(view);
     }
     Ok(result)
@@ -137,21 +140,63 @@ pub(crate) fn list_resources(db: tauri::State<'_, Db>) -> Result<Vec<ResourceVie
 
 #[tauri::command]
 pub(crate) fn create_resource(
-    db: tauri::State<'_, Db>, code: String, description: String, unit: String,
-    kind: String, price: String, effective_date: String, source: Option<String>,
+    db: tauri::State<'_, Db>,
+    code: String,
+    description: String,
+    unit: String,
+    kind: String,
+    price: String,
+    effective_date: String,
+    source: Option<String>,
     daily_output: Option<String>,
 ) -> Result<ResourceView, String> {
     let kind = resource_kind(&kind)?;
-    let amount = if price.trim().is_empty(){None}else{Some(Decimal::from_str(&price.replace(',', ".")).map_err(|e|e.to_string())?)};
-    if amount.is_some_and(|v|v<Decimal::ZERO){return Err("El precio no puede ser negativo".into());}
-    let daily=daily_output.as_deref().map(cpobras_storage::resource_productivity::parse_daily_output).transpose().map_err(|e|e.to_string())?;
-    let mut store=db.lock().map_err(|e|e.to_string())?;
-    let code=if code.trim().is_empty(){store.automatic_code("resource").map_err(|e|e.to_string())?}else{code};
-    let resource=Resource {id:Uuid::new_v4(),code:code.trim().into(),description:description.trim().into(),unit:unit.trim().into(),kind,active:true};
-    let entry=amount.map(|amount|ResourcePrice {id:Uuid::new_v4(),resource_id:resource.id,amount,currency:Currency::Ars,effective_date,source});
-    store.save_resource_with_productivity(&resource,entry.as_ref(),daily).map_err(|e|e.to_string())?;
-    let daily=store.resource_daily_output(resource.id).map_err(|e|e.to_string())?;
-    let mut view=resource_view(resource,amount.map(|v|v.to_string()));view.daily_output=daily.map(|v|v.to_string());Ok(view)
+    let amount = if price.trim().is_empty() {
+        None
+    } else {
+        Some(Decimal::from_str(&price.replace(',', ".")).map_err(|e| e.to_string())?)
+    };
+    if amount.is_some_and(|v| v < Decimal::ZERO) {
+        return Err("El precio no puede ser negativo".into());
+    }
+    let daily = daily_output
+        .as_deref()
+        .map(cpobras_storage::resource_productivity::parse_daily_output)
+        .transpose()
+        .map_err(|e| e.to_string())?;
+    let mut store = db.lock().map_err(|e| e.to_string())?;
+    let code = if code.trim().is_empty() {
+        store
+            .automatic_code("resource")
+            .map_err(|e| e.to_string())?
+    } else {
+        code
+    };
+    let resource = Resource {
+        id: Uuid::new_v4(),
+        code: code.trim().into(),
+        description: description.trim().into(),
+        unit: unit.trim().into(),
+        kind,
+        active: true,
+    };
+    let entry = amount.map(|amount| ResourcePrice {
+        id: Uuid::new_v4(),
+        resource_id: resource.id,
+        amount,
+        currency: Currency::Ars,
+        effective_date,
+        source,
+    });
+    store
+        .save_resource_with_productivity(&resource, entry.as_ref(), daily)
+        .map_err(|e| e.to_string())?;
+    let daily = store
+        .resource_daily_output(resource.id)
+        .map_err(|e| e.to_string())?;
+    let mut view = resource_view(resource, amount.map(|v| v.to_string()));
+    view.daily_output = daily.map(|v| v.to_string());
+    Ok(view)
 }
 
 #[tauri::command]
@@ -176,14 +221,24 @@ pub(crate) fn update_resource(
     resource.unit = unit.trim().into();
     resource.kind = resource_kind(&kind)?;
     resource.active = active;
-    let daily=daily_output.as_deref().map(cpobras_storage::resource_productivity::parse_daily_output).transpose().map_err(|e|e.to_string())?;
-    store.save_resource_with_productivity(&resource,None,daily).map_err(|e|e.to_string())?;
+    let daily = daily_output
+        .as_deref()
+        .map(cpobras_storage::resource_productivity::parse_daily_output)
+        .transpose()
+        .map_err(|e| e.to_string())?;
+    store
+        .save_resource_with_productivity(&resource, None, daily)
+        .map_err(|e| e.to_string())?;
     let price = store
         .resource_price_as_of(id, Currency::Ars, "9999-12-31")
         .map_err(|e| e.to_string())?
         .map(|price| price.amount.to_string());
-    let daily=store.resource_daily_output(resource.id).map_err(|e|e.to_string())?;
-    let mut view=resource_view(resource,price);view.daily_output=daily.map(|v|v.to_string());Ok(view)
+    let daily = store
+        .resource_daily_output(resource.id)
+        .map_err(|e| e.to_string())?;
+    let mut view = resource_view(resource, price);
+    view.daily_output = daily.map(|v| v.to_string());
+    Ok(view)
 }
 
 #[tauri::command]

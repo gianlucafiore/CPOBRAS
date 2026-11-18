@@ -250,15 +250,23 @@ impl PriceDefinition {
     fn validate_duration(&self) -> Result<(), String> {
         let months = self.duration_months();
         if months <= D::ZERO || months > D::from(1200) {
-            return Err("El plazo estimado de obra debe ser mayor que cero y de hasta 1200 meses".into());
+            return Err(
+                "El plazo estimado de obra debe ser mayor que cero y de hasta 1200 meses".into(),
+            );
         }
         Ok(())
     }
     /// One shared composition, visible in the budget and the ordered price determination.
     pub fn ensure_direct_costs(&mut self) {
         self.apply_duration();
-        self.rows.retain(|r| !(r.role == PriceRole::Overhead && r.label == "Gastos generales"
-            && r.items.is_empty() && r.percent == D::ZERO && r.amount == D::ZERO && r.reference_percent == D::ZERO));
+        self.rows.retain(|r| {
+            !(r.role == PriceRole::Overhead
+                && r.label == "Gastos generales"
+                && r.items.is_empty()
+                && r.percent == D::ZERO
+                && r.amount == D::ZERO
+                && r.reference_percent == D::ZERO)
+        });
         if !self.rows.iter().any(|r| r.role == PriceRole::DirectCosts) {
             self.rows.insert(
                 0,
@@ -286,10 +294,18 @@ impl PriceDefinition {
             tax_percent: D::from(21),
             ..PricingRates::default()
         });
-        definition.rows.retain(|row| matches!(row.role,
-            PriceRole::DirectCosts | PriceRole::Finance | PriceRole::Profit | PriceRole::Tax)
-            || row.kind == PriceKind::Subtotal);
-        let mut indirect = definition.rows.iter().find(|row| row.role == PriceRole::DirectCosts).unwrap().clone();
+        definition.rows.retain(|row| {
+            matches!(
+                row.role,
+                PriceRole::DirectCosts | PriceRole::Finance | PriceRole::Profit | PriceRole::Tax
+            ) || row.kind == PriceKind::Subtotal
+        });
+        let mut indirect = definition
+            .rows
+            .iter()
+            .find(|row| row.role == PriceRole::DirectCosts)
+            .unwrap()
+            .clone();
         indirect.id = Uuid::from_u128(0xf100);
         indirect.label = "Gastos indirectos".into();
         indirect.role = PriceRole::Overhead;
@@ -754,29 +770,38 @@ mod tests {
             row(PriceKind::PercentProfit, PriceRole::Other, "50"),
             row(PriceKind::PercentSubtotal, PriceRole::Tax, "20"),
         ];
-        let result = PriceDefinition { estimated_months: None, rows: rows.clone() }
-            .calculate(d("100"))
-            .unwrap();
+        let result = PriceDefinition {
+            estimated_months: None,
+            rows: rows.clone(),
+        }
+        .calculate(d("100"))
+        .unwrap();
         assert_eq!(result.rows[0].amount, D::ZERO);
         assert_eq!(result.rows[2].amount, d("5"));
         assert_eq!(result.breakdown.total, d("138"));
         rows[1].enabled = false;
         assert_eq!(
-            PriceDefinition { estimated_months: None, rows: rows.clone() }
-                .calculate(d("100"))
-                .unwrap()
-                .breakdown
-                .total,
+            PriceDefinition {
+                estimated_months: None,
+                rows: rows.clone()
+            }
+            .calculate(d("100"))
+            .unwrap()
+            .breakdown
+            .total,
             d("120")
         );
         rows[1].enabled = true;
         rows.swap(2, 3);
         assert_eq!(
-            PriceDefinition { estimated_months: None, rows }
-                .calculate(d("100"))
-                .unwrap()
-                .breakdown
-                .total,
+            PriceDefinition {
+                estimated_months: None,
+                rows
+            }
+            .calculate(d("100"))
+            .unwrap()
+            .breakdown
+            .total,
             d("137")
         );
     }
@@ -823,7 +848,10 @@ mod tests {
                 periodic: None,
             },
         ];
-        let mut definition = PriceDefinition { estimated_months: None, rows: vec![r] };
+        let mut definition = PriceDefinition {
+            estimated_months: None,
+            rows: vec![r],
+        };
         let result = definition.calculate(d("100")).unwrap();
         assert_eq!(result.breakdown.total, d("150"));
         for id in [root, child, leaf] {
@@ -854,7 +882,10 @@ mod tests {
     fn invalid_deductions_duplicates_and_overflow_are_rejected() {
         let mut r = row(PriceKind::Fixed, PriceRole::Discount, "101");
         r.subtract = true;
-        let mut definition = PriceDefinition { estimated_months: None, rows: vec![r] };
+        let mut definition = PriceDefinition {
+            estimated_months: None,
+            rows: vec![r],
+        };
         assert!(definition.calculate(d("100")).is_err());
         assert!(definition.validate_template().is_ok());
         definition.rows[0].amount = d("1");

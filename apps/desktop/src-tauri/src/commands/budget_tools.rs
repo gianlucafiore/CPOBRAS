@@ -232,8 +232,21 @@ pub(crate) fn set_line_components_included(
 
 #[tauri::command]
 pub(crate) fn delete_budget_section_contents(
-    db: tauri::State<'_, Db>, estimate_id: Uuid, section_id: Uuid, expected_title: String,
-    expected_sections: Vec<Uuid>, expected_lines: Vec<Uuid>,
+    db: tauri::State<'_, Db>,
+    estimate_id: Uuid,
+    section_id: Uuid,
+    expected_title: String,
+    expected_sections: Vec<Uuid>,
+    expected_lines: Vec<Uuid>,
 ) -> Result<usize, String> {
-    db.lock().map_err(|e|e.to_string())?.delete_budget_section_contents(estimate_id,section_id,&expected_title,&expected_sections,&expected_lines).map_err(|e|e.to_string())
+    db.lock()
+        .map_err(|e| e.to_string())?
+        .delete_budget_section_contents(
+            estimate_id,
+            section_id,
+            &expected_title,
+            &expected_sections,
+            &expected_lines,
+        )
+        .map_err(|e| e.to_string())
 }

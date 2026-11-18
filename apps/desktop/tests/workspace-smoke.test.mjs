@@ -34,6 +34,17 @@ function setup({ databaseSwitching = false, switchDatabase, confirm = () => true
     list_line_sections: () => [{ line_id: "line-1", section_id: "section-1" }],
     get_estimate_pricing: () => ({ general_expenses_percent: "10", profit_percent: "15", discount_percent: "0", tax_percent: "21" }),
     priced_estimate_total: () => ({ direct: "240000", general_expenses: "24000", profit: "39600", discount: "0", taxable_subtotal: "303600", taxes: "63756", total: "367356" }),
+    get_price_definition: () => ({revision:1,custom:true,definition:{rows:[
+      {id:'overhead',label:'Gastos generales',kind:'detailed',role:'overhead',enabled:true,detail_mode:'reference',reference_percent:'10',items:[]},
+      {id:'profit',label:'Beneficio',kind:'percent_subtotal',role:'profit',enabled:true,percent:'15',items:[]},
+      {id:'subtotal',label:'Subtotal',kind:'subtotal',role:'other',enabled:true,items:[]},
+      {id:'tax',label:'Impuestos',kind:'percent_subtotal',role:'tax',enabled:true,percent:'21',items:[]},
+    ]},calculation:{breakdown:responses.priced_estimate_total(),rows:[
+      {id:'overhead',label:'Gastos generales',kind:'detailed',enabled:true,amount:'24000'},
+      {id:'profit',label:'Beneficio',kind:'percent_subtotal',enabled:true,amount:'39600'},
+      {id:'subtotal',label:'Subtotal',kind:'subtotal',enabled:true,amount:'303600'},
+      {id:'tax',label:'Impuestos',kind:'percent_subtotal',enabled:true,amount:'63756'},
+    ]}}),
     get_analysis_details: () => ({ code: "ACU-01", description: "Montaje", unit: "kg", unit_cost: "2000", components: [
       { resource_id: "resource-1", description: "Acero", kind: "material", quantity: "1", unit_price: "2000", total: "2000" },
     ] }),

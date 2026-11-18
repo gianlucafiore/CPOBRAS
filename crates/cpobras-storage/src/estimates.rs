@@ -129,7 +129,8 @@ impl LocalStore {
         };
         let rates = if use_defaults {
             cpobras_core::PricingRates {
-                profit_percent: Decimal::from(20), tax_percent: Decimal::from(21),
+                profit_percent: Decimal::from(20),
+                tax_percent: Decimal::from(21),
                 ..cpobras_core::PricingRates::default()
             }
         } else {

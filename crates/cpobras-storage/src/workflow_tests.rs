@@ -5999,3 +5999,270 @@ fn direct_budget_costs_roundtrip_without_lines_and_preserve_requirements_when_no
     s.issue_estimate(e.id).unwrap();
     assert!(s.save_price_definition(e.id, 3, &recovered).is_err());
 }
+
+#[test]
+fn daily_productivity_seeds_once_keeps_budget_snapshots_and_rolls_back_failed_saves() {
+    use crate::{line_workflows::LineResourceInput, resource_catalog::Resource};
+    let (mut s, p, e, l) = fixture();
+    let r = Resource {
+        id: Uuid::new_v4(),
+        code: "RATE-1".into(),
+        description: "Subcontrato".into(),
+        unit: "m".into(),
+        kind: cpobras_core::ResourceKind::Subcontract,
+        active: true,
+    };
+    s.save_resource(&r).unwrap();
+    let input = |rate: &str, price: Decimal| LineResourceInput {
+        daily_output: Some(rate.into()),
+        included: Some(true),
+        resource_id: r.id,
+        quantity: Decimal::ONE,
+        unit_price: price,
+    };
+    let a = s
+        .save_line_resources(e.id, l.id, &[input("100", 100.into())])
+        .unwrap();
+    assert_eq!(s.resource_daily_output(r.id).unwrap(), Some(100.into()));
+    let copy = s.duplicate_estimate(e.id, "Otro presupuesto").unwrap();
+    let second = s.estimate_items(copy.id).unwrap()[0].id;
+    let b = s
+        .save_line_resources(copy.id, second, &[input("200", 100.into())])
+        .unwrap();
+    assert_eq!(s.resource_daily_output(r.id).unwrap(), Some(100.into()));
+    s.save_resource_with_productivity(&r, None, Some(Some(300.into())))
+        .unwrap();
+    assert_eq!(
+        s.get_analysis(a).unwrap().unwrap().components[0].daily_output,
+        Some(100.into())
+    );
+    assert_eq!(
+        s.get_analysis(b).unwrap().unwrap().components[0].daily_output,
+        Some(200.into())
+    );
+    let document = s.export_budget(copy.id).unwrap();
+    let imported = s.import_budget(p.id, &document).unwrap();
+    let imported_analysis = s.estimate_items(imported.id).unwrap()[0]
+        .analysis_id
+        .unwrap();
+    assert_eq!(
+        s.get_analysis(imported_analysis)
+            .unwrap()
+            .unwrap()
+            .components[0]
+            .daily_output,
+        Some(200.into())
+    );
+    let failed = Resource {
+        id: Uuid::new_v4(),
+        code: "RATE-FAIL".into(),
+        ..r.clone()
+    };
+    s.save_resource(&failed).unwrap();
+    let line = EstimateItem {
+        id: Uuid::new_v4(),
+        position: 1,
+        analysis_id: None,
+        quantity: Decimal::MAX,
+        unit_cost_snapshot: Decimal::ZERO,
+        ..l
+    };
+    s.add_estimate_item(&line).unwrap();
+    assert!(s
+        .save_line_resources(
+            e.id,
+            line.id,
+            &[LineResourceInput {
+                daily_output: Some("50".into()),
+                included: Some(true),
+                resource_id: failed.id,
+                quantity: Decimal::ONE,
+                unit_price: 2.into()
+            }]
+        )
+        .is_err());
+    assert_eq!(s.resource_daily_output(failed.id).unwrap(), None);
+    assert_eq!(
+        s.estimate_items(e.id)
+            .unwrap()
+            .iter()
+            .find(|row| row.id == line.id)
+            .unwrap()
+            .unit_cost_snapshot,
+        Decimal::ZERO
+    );
+}
+
+#[test]
+fn destructive_rubro_delete_checks_confirmation_and_preserves_other_lines() {
+    use crate::budget_sections::BudgetSection;
+    let (mut s, _, e, l) = fixture();
+    let root = BudgetSection {
+        id: Uuid::new_v4(),
+        estimate_id: e.id,
+        parent_id: None,
+        code: "R1".into(),
+        title: "Eliminar".into(),
+        position: 0,
+    };
+    let child = BudgetSection {
+        id: Uuid::new_v4(),
+        parent_id: Some(root.id),
+        code: "R1.1".into(),
+        title: "Hijo".into(),
+        position: 1,
+        ..root.clone()
+    };
+    s.save_budget_section(&root).unwrap();
+    s.save_budget_section(&child).unwrap();
+    s.assign_line_section(e.id, l.id, child.id).unwrap();
+    let other = EstimateItem {
+        id: Uuid::new_v4(),
+        position: 1,
+        ..l.clone()
+    };
+    s.add_estimate_item(&other).unwrap();
+    assert!(s
+        .delete_budget_section_contents(e.id, root.id, &root.title, &[root.id], &[l.id])
+        .is_err());
+    assert_eq!(s.estimate_items(e.id).unwrap().len(), 2);
+    assert_eq!(
+        s.delete_budget_section_contents(e.id, root.id, &root.title, &[root.id, child.id], &[l.id])
+            .unwrap(),
+        1
+    );
+    assert_eq!(s.estimate_items(e.id).unwrap()[0].id, other.id);
+    assert!(s.list_budget_sections(e.id).unwrap().is_empty());
+    let count: i64 = s
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM deleted_estimate_lines WHERE id=?1",
+            [l.id.to_string()],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 1);
+}
+
+#[test]
+fn new_user_budgets_have_requested_price_rows_without_changing_existing_budgets() {
+    let (mut s, _, old, l) = fixture();
+    let new = Estimate {
+        id: Uuid::new_v4(),
+        title: "Nuevo".into(),
+        ..old.clone()
+    };
+    s.create_estimate_with_defaults(&new).unwrap();
+    s.add_estimate_item(&EstimateItem {
+        id: Uuid::new_v4(),
+        estimate_id: new.id,
+        ..l
+    })
+    .unwrap();
+    let saved = s.get_price_definition(new.id).unwrap();
+    assert_eq!(
+        saved
+            .definition
+            .rows
+            .iter()
+            .map(|r| r.label.as_str())
+            .collect::<Vec<_>>(),
+        vec![
+            "Gastos indirectos",
+            "Gastos Directos",
+            "Gastos financieros",
+            "Beneficio",
+            "Subtotal",
+            "Honorarios profesionales",
+            "Impuestos"
+        ]
+    );
+    assert!(!saved.definition.rows[5].enabled);
+    assert_eq!(saved.definition.rows[3].percent, 20.into());
+    assert_eq!(saved.definition.rows[6].percent, 21.into());
+    assert_eq!(
+        saved.calculation.unwrap().breakdown.total,
+        Decimal::new(2904, 1)
+    );
+    assert_eq!(
+        s.priced_estimate_total(old.id).unwrap().total,
+        Decimal::from(200)
+    );
+}
+
+#[test]
+fn shared_work_duration_updates_monthly_and_annual_costs_but_not_overrides() {
+    use cpobras_core::price_determination::{PriceDefinition, PriceItem, PriceRole};
+    let mut definition = PriceDefinition::for_new_budget();
+    definition.estimated_months = Some(7.into());
+    let item = |annual: bool, linked: bool| -> PriceItem {
+        serde_json::from_value(serde_json::json!({"id":Uuid::new_v4(),"parent_id":null,"group":false,"description":"Seguro","unit":"mes","quantity":"1","unit_price":"120000","participation_percent":"20","periodic":null,"months":"3","use_estimate_duration":linked,"months_per_payment":if annual{Some("12")}else{None}})).unwrap()
+    };
+    let monthly = item(false, true);
+    let annual = item(true, true);
+    let fixed = item(false, false);
+    let ids = [monthly.id, annual.id, fixed.id];
+    let row = definition
+        .rows
+        .iter_mut()
+        .find(|r| r.role == PriceRole::Overhead)
+        .unwrap();
+    let row_id = row.id;
+    row.items = vec![monthly, annual, fixed];
+    let first = definition.calculate(Decimal::ZERO).unwrap();
+    let totals = &first
+        .rows
+        .iter()
+        .find(|r| r.id == row_id)
+        .unwrap()
+        .item_totals;
+    assert_eq!(totals[&ids[0]], 168000.into());
+    assert_eq!(totals[&ids[1]], 14000.into());
+    assert_eq!(totals[&ids[2]], 72000.into());
+    definition.estimated_months = Some(10.into());
+    let next = definition.calculate(Decimal::ZERO).unwrap();
+    let totals = &next
+        .rows
+        .iter()
+        .find(|r| r.id == row_id)
+        .unwrap()
+        .item_totals;
+    assert_eq!(totals[&ids[0]], 240000.into());
+    assert_eq!(totals[&ids[1]], 20000.into());
+    assert_eq!(totals[&ids[2]], 72000.into());
+}
+
+#[test]
+fn organization_indirect_cost_audit_uses_organization_id_on_insert_and_update() {
+    use crate::presentation::{IndirectCost, IndirectCostPlan};
+    let (mut s, _, _, _) = fixture();
+    let org = s.default_organization().unwrap();
+    let mut data = IndirectCostPlan {
+        currency: Currency::Ars,
+        items: vec![IndirectCost {
+            id: Uuid::new_v4(),
+            description: "Seguro".into(),
+            amount: 120000.into(),
+            periodicity: "monthly".into(),
+            periods: Decimal::ONE,
+        }],
+    };
+    let saved = s
+        .save_organization_indirect_costs(org.id, 0, &data)
+        .unwrap();
+    data.items[0].amount = 130000.into();
+    s.save_organization_indirect_costs(org.id, saved.revision, &data)
+        .unwrap();
+    let events = s
+        .change_events(0)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.entity_type == "organization_indirect_costs")
+        .collect::<Vec<_>>();
+    assert_eq!(events.len(), 2);
+    assert!(events.iter().all(|e| e.entity_id == org.id.to_string()));
+    assert_eq!(
+        s.organization_indirect_costs(org.id).unwrap().data.items[0].amount,
+        130000.into()
+    );
+}

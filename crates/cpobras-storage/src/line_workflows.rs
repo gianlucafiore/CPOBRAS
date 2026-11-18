@@ -62,7 +62,7 @@ impl LocalStore {
             .enumerate()
             .filter(|(index, _)| *index != component_index)
             .map(|(_, c)| LineResourceInput {
-                daily_output: Some(c.daily_output.map(|v|v.to_string()).unwrap_or_default()),
+                daily_output: Some(c.daily_output.map(|v| v.to_string()).unwrap_or_default()),
                 included: Some(c.included),
                 resource_id: c.resource_id,
                 quantity: c.quantity_per_unit,
@@ -129,7 +129,7 @@ impl LocalStore {
             .iter()
             .enumerate()
             .map(|(i, c)| LineResourceInput {
-                daily_output: Some(c.daily_output.map(|v|v.to_string()).unwrap_or_default()),
+                daily_output: Some(c.daily_output.map(|v| v.to_string()).unwrap_or_default()),
                 included: Some(if selected.contains(&i) {
                     included
                 } else {
@@ -179,12 +179,25 @@ impl LocalStore {
             if !resource.active && expected.is_none() {
                 return Err(invalid("No se pueden asignar insumos inactivos"));
             }
-            let old_component = previous.as_ref().and_then(|a|a.components.get(index).filter(|c|c.resource_id==input.resource_id).or_else(||a.components.iter().find(|c|c.resource_id==input.resource_id)));
-            let daily_output = if let Some(value)=&input.daily_output {
+            let old_component = previous.as_ref().and_then(|a| {
+                a.components
+                    .get(index)
+                    .filter(|c| c.resource_id == input.resource_id)
+                    .or_else(|| {
+                        a.components
+                            .iter()
+                            .find(|c| c.resource_id == input.resource_id)
+                    })
+            });
+            let daily_output = if let Some(value) = &input.daily_output {
                 crate::resource_productivity::parse_daily_output(value)?
-            } else if let Some(old)=old_component { old.daily_output }
-            else { self.resource_daily_output(input.resource_id)? };
-            components.push(ResourcePriceSnapshot {daily_output,
+            } else if let Some(old) = old_component {
+                old.daily_output
+            } else {
+                self.resource_daily_output(input.resource_id)?
+            };
+            components.push(ResourcePriceSnapshot {
+                daily_output,
                 included: input.included.unwrap_or_else(|| {
                     previous
                         .as_ref()
@@ -262,9 +275,15 @@ impl LocalStore {
             }
         }
         crate::estimate_resource_prices::synchronize(&tx, estimate_id, &prices)?;
-        for (input,component) in inputs.iter().zip(&analysis.components) {
+        for (input, component) in inputs.iter().zip(&analysis.components) {
             if input.daily_output.is_some() {
-                if let Some(value)=component.daily_output {crate::resource_productivity::seed_daily_output(&tx,component.resource_id,value)?;}
+                if let Some(value) = component.daily_output {
+                    crate::resource_productivity::seed_daily_output(
+                        &tx,
+                        component.resource_id,
+                        value,
+                    )?;
+                }
             }
         }
         checked_budget_total(&tx, estimate_id)?;
