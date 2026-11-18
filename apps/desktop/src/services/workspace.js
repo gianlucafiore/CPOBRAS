@@ -57,7 +57,7 @@ export function createWorkspaceService({ invoke,globalInvoke=invoke, state, curr
       return;
     }
     const id = state.estimateId;
-    const [lines, sections, assignments, rates, totals, measured] = await Promise.all([
+    const [lines, sections, assignments, rates, totals, measured, pricing] = await Promise.all([
       invoke("list_estimate_lines", { estimateId: id }),
       invoke("list_budget_sections", { estimateId: id }),
       invoke("list_line_sections", { estimateId: id }),
@@ -67,6 +67,7 @@ export function createWorkspaceService({ invoke,globalInvoke=invoke, state, curr
         total: null,
       })),
       invoke("list_measured_lines",{estimateId:id}),
+      invoke("get_price_definition",{estimateId:id}).then(value=>value||{}).catch(error=>({calculation_error:String(error)})),
     ]);
     if (state.estimateId !== id) return;
     state.lines = lines;
@@ -80,7 +81,10 @@ export function createWorkspaceService({ invoke,globalInvoke=invoke, state, curr
     if (totals.pricing_error)
       totals.direct = sumDecimals(lines.map((l) => l.total));
     state.rates = rates;
-    state.totals = totals;
+    state.priceDefinition = pricing.definition || null;
+    state.totals = pricing.calculation
+      ? {...pricing.calculation.breakdown,rows:pricing.calculation.rows}
+      : {...totals,...(pricing.calculation_error && !state.remoteProject ? {pricing_error:pricing.calculation_error} : {})};
     if (!state.lines.some((line) => line.id === state.selectedLineId))
       state.selectedLineId = state.lines[0]?.id || null;
     await loadPanel();
@@ -140,6 +144,7 @@ export function createWorkspaceService({ invoke,globalInvoke=invoke, state, curr
       selectedLineId: null,
       selectedSectionId: null,
       pricePreview: null,
+      priceDefinition: null,
       estimateResourcePrices: {},
       comparison: null,
       costComparison: null,

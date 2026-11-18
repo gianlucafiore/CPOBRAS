@@ -35,6 +35,7 @@ pub mod quotation_workflow;
 pub mod reminders;
 pub mod resource_catalog;
 pub mod resource_import;
+pub mod resource_productivity;
 pub mod section_batches;
 pub mod sharing;
 pub mod site_book;
@@ -168,6 +169,7 @@ impl LocalStore {
             include_str!("../migrations/0037_direct_costs.sql"),
             include_str!("../migrations/0038_budget_presentation.sql"),
             include_str!("../migrations/0039_estimate_duration.sql"),
+            include_str!("../migrations/0040_resource_productivity.sql"),
         ];
         let latest: i64 = tx.query_row(
             "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
@@ -448,6 +450,7 @@ mod tests {
             description: "Hormigón".into(),
             unit: "m3".into(),
             components: vec![ResourcePriceSnapshot {
+                daily_output: None,
                 included: true,
                 resource_id: Uuid::new_v4(),
                 description: "Cemento".into(),
@@ -496,6 +499,7 @@ mod tests {
             description: "Estructura".into(),
             unit: "kg".into(),
             components: vec![ResourcePriceSnapshot {
+                daily_output: None,
                 included: true,
                 resource_id: resource.id,
                 description: resource.description.clone(),

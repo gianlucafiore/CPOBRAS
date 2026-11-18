@@ -10,6 +10,6 @@ Los cambios de Determinación de precio y de los campos de Gastos Directos se gu
 
 El guardado se serializa con revisión optimista para conservar las ediciones realizadas durante una escritura. Un borrador local por base y presupuesto permite recuperar cambios tras una interrupción; un conflicto con otra revisión requiere revisión explícita. El cierre de la ventana espera el guardado y se bloquea ante un error.
 
-El esquema de base pasa a 39 para impedir que motores anteriores reescriban estos datos. El intercambio completo de presupuestos usa formato 9 y acepta los formatos anteriores. Copias, exportaciones JSON y Excel conservan la composición y los meses. En Excel, Detalle precio alimenta Precio e Insumos mediante fórmulas editables.
+El esquema de base pasa a 40 para impedir que motores anteriores reescriban estos datos. El intercambio completo de presupuestos usa formato 10 y acepta los formatos anteriores. Copias, exportaciones JSON y Excel conservan la composición y los meses. En Excel, Detalle precio alimenta Precio e Insumos mediante fórmulas editables.
 
 El plazo se comparte con los gastos indirectos recurrentes incorporados desde la organización. Los gastos mensuales se multiplican por los meses de obra; los anuales se prorratean por meses/12, y los puntuales se suman una vez. Las copias de presupuestos mantienen plazo y excepciones. Las plantillas de detalle se adaptan al plazo del presupuesto de destino. En el Excel completo, Precio!B2 es editable y alimenta los factores de los gastos vinculados.

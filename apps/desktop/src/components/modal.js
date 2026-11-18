@@ -1,3 +1,4 @@
+import {dailyOutputField} from "./resource-productivity.js";
 import { resourcePicker } from "./resource-picker.js";
 import { money, numeric, sumDecimals, absoluteDecimal } from "../decimal.js";
 import {
@@ -173,7 +174,7 @@ export function createModalRenderer({
           ["subcontract", "Subcontrato"],
         ],
         item.kind,
-      )}</div>` +
+      )}</div>` + dailyOutputField(item.unit,item.daily_output) +
         (editing
           ? select(
               "Estado",
@@ -225,7 +226,7 @@ export function createModalRenderer({
           ? "Editar insumo de la partida"
           : "Agregar insumo a la partida";
       const row = state.acuComponents[0] || {};
-      body = `<p class="modal-help"><strong>${e(item.description)}</strong> · Consumo por ${e(item.unit)}. El precio de este insumo se usa en todas las partidas de este presupuesto. Al guardar se recalculan las que lo usan y se conservan sus rendimientos.</p><div class="component-row single-component">${resourcePicker(state.resources, row.resourceId, 0)}<div class="form-grid">${field("Rendimiento / unidad", "quantity", row.quantity ?? 1, 'type="number" min="0" step="any" required')}${field("Precio unitario " + (currentEstimate()?.currency || "ARS"), "unitPrice", row.unitPrice ?? "", 'type="number" min="0" step="any" required')}</div></div><p class="modal-help">La composición completa se ve en el panel de la partida. Podés abrir cada insumo con doble clic o con Editar.</p>`;
+      body = `<p class="modal-help"><strong>${e(item.description)}</strong> · Consumo por ${e(item.unit)}. El precio de este insumo se usa en todas las partidas de este presupuesto. Al guardar se recalculan las que lo usan y se conservan sus rendimientos.</p><div class="component-row single-component">${resourcePicker(state.resources, row.resourceId, 0)}<div class="form-grid">${field("Consumo por unidad de partida", "quantity", row.quantity ?? 1, 'type="number" min="0" step="any" required')}${field("Precio unitario " + (currentEstimate()?.currency || "ARS"), "unitPrice", row.unitPrice ?? "", 'type="number" min="0" step="any" required')}${dailyOutputField(state.resources.find(r=>r.id===row.resourceId)?.unit,item.componentIndex>=0?(row.dailyOutput??''):(row.dailyOutput??state.resources.find(r=>r.id===row.resourceId)?.daily_output))}</div><p class="modal-help">El rendimiento diario se expresa en la unidad del insumo. Si la biblioteca está vacía, el primer valor guardado desde un presupuesto se conservará como referencia. Cada presupuesto puede usar su propio valor.</p></div><p class="modal-help">La composición completa se ve en el panel de la partida. Podés abrir cada insumo con doble clic o con Editar.</p>`;
     } else if (kind === "analysis") {
       const editing = Boolean(item.id);
       title = editing

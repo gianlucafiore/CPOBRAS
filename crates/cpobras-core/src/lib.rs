@@ -41,6 +41,8 @@ pub enum ResourceKind {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResourcePriceSnapshot {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub daily_output: Option<Decimal>,
     #[serde(default = "included_by_default")]
     pub included: bool,
     pub resource_id: Uuid,
@@ -74,6 +76,8 @@ pub enum DomainError {
     NegativeValue,
     #[error("cost analysis has no components")]
     EmptyAnalysis,
+    #[error("El rendimiento por día hábil debe ser mayor que cero")]
+    InvalidDailyOutput,
 }
 
 fn included_by_default() -> bool {
@@ -88,6 +92,9 @@ impl UnitCostAnalysis {
         self.components
             .iter()
             .try_fold(Decimal::ZERO, |total, item| {
+                if item.daily_output.is_some_and(|v| v <= Decimal::ZERO) {
+                    return Err(DomainError::InvalidDailyOutput);
+                }
                 if item.quantity_per_unit < Decimal::ZERO || item.unit_price < Decimal::ZERO {
                     return Err(DomainError::NegativeValue);
                 }
@@ -264,6 +271,7 @@ mod tests {
             description: "Mampostería".into(),
             unit: "m2".into(),
             components: vec![ResourcePriceSnapshot {
+                daily_output: None,
                 included: true,
                 resource_id: Uuid::new_v4(),
                 description: "Ladrillo".into(),
@@ -287,6 +295,7 @@ mod tests {
             unit: "kg".into(),
             components: vec![
                 ResourcePriceSnapshot {
+                    daily_output: None,
                     included: true,
                     resource_id: Uuid::new_v4(),
                     description: "Acero".into(),
@@ -295,6 +304,7 @@ mod tests {
                     unit_price: Decimal::new(10, 0),
                 },
                 ResourcePriceSnapshot {
+                    daily_output: None,
                     included: true,
                     resource_id: Uuid::new_v4(),
                     description: "Soldador".into(),
@@ -303,6 +313,7 @@ mod tests {
                     unit_price: Decimal::new(15, 0),
                 },
                 ResourcePriceSnapshot {
+                    daily_output: None,
                     included: true,
                     resource_id: Uuid::new_v4(),
                     description: "Grúa".into(),
@@ -311,6 +322,7 @@ mod tests {
                     unit_price: Decimal::new(5, 0),
                 },
                 ResourcePriceSnapshot {
+                    daily_output: None,
                     included: true,
                     resource_id: Uuid::new_v4(),
                     description: "Montaje".into(),
@@ -363,6 +375,7 @@ mod tests {
             description: "Prueba".into(),
             unit: "u".into(),
             components: vec![ResourcePriceSnapshot {
+                daily_output: None,
                 included: true,
                 resource_id: Uuid::new_v4(),
                 description: "Insumo".into(),
@@ -408,6 +421,7 @@ mod arithmetic_regressions {
             description: "Extremo".into(),
             unit: "u".into(),
             components: vec![ResourcePriceSnapshot {
+                daily_output: None,
                 included: true,
                 resource_id: Uuid::new_v4(),
                 description: "Insumo".into(),

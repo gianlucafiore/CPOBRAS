@@ -97,6 +97,8 @@ export function createResourcePicker({
       resourceLabel(r);
     const unit = row.querySelector("[data-resource-unit]");
     if (unit) {unit.textContent = "Unidad: " + r.unit;unit.hidden = false;}
+    const daily=row.querySelector('[name="dailyOutput"]');if(daily)daily.value=r.daily_output??"";
+    for(const node of row.querySelectorAll('[data-daily-output-unit]'))node.textContent=r.unit+"/día hábil";
     const price = row.querySelector('[name="unitPrice"]');
     if (price)
       price.value =

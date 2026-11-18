@@ -92,6 +92,12 @@ impl LocalStore {
     }
 
     pub fn create_estimate(&mut self, estimate: &Estimate) -> Result<()> {
+        self.create_estimate_initial(estimate, false)
+    }
+    pub fn create_estimate_with_defaults(&mut self, estimate: &Estimate) -> Result<()> {
+        self.create_estimate_initial(estimate, true)
+    }
+    fn create_estimate_initial(&mut self, estimate: &Estimate, use_defaults: bool) -> Result<()> {
         if estimate.title.trim().is_empty() || estimate.issued {
             return Err(StorageError::InvalidValue(
                 "new estimate must have a title and start as draft".into(),
@@ -121,12 +127,19 @@ impl LocalStore {
                 })
                 .unwrap_or(Ok(Decimal::ZERO))
         };
-        let rates = cpobras_core::PricingRates {
-            general_expenses_percent: rate("general_expenses_percent")?,
-            financial_expenses_percent: rate("financial_expenses_percent")?,
-            profit_percent: rate("profit_percent")?,
-            discount_percent: rate("discount_percent")?,
-            tax_percent: rate("tax_percent")?,
+        let rates = if use_defaults {
+            cpobras_core::PricingRates {
+                profit_percent: Decimal::from(20), tax_percent: Decimal::from(21),
+                ..cpobras_core::PricingRates::default()
+            }
+        } else {
+            cpobras_core::PricingRates {
+                general_expenses_percent: rate("general_expenses_percent")?,
+                financial_expenses_percent: rate("financial_expenses_percent")?,
+                profit_percent: rate("profit_percent")?,
+                discount_percent: rate("discount_percent")?,
+                tax_percent: rate("tax_percent")?,
+            }
         };
         cpobras_core::price_estimate(Decimal::ZERO, rates)
             .map_err(|e| StorageError::InvalidValue(e.to_string()))?;
@@ -143,6 +156,10 @@ impl LocalStore {
             ],
         )?;
         tx.execute("INSERT INTO estimate_pricing(estimate_id,general_expenses_percent,financial_expenses_percent,profit_percent,discount_percent,tax_percent) VALUES (?1,?2,?3,?4,?5,?6)",params![estimate.id.to_string(),rates.general_expenses_percent.to_string(),rates.financial_expenses_percent.to_string(),rates.profit_percent.to_string(),rates.discount_percent.to_string(),rates.tax_percent.to_string()])?;
+        if use_defaults {
+            let definition = cpobras_core::price_determination::PriceDefinition::for_new_budget();
+            tx.execute("INSERT INTO estimate_price_definitions(estimate_id,revision,definition_json) VALUES(?1,1,?2)",params![estimate.id.to_string(),serde_json::to_string(&definition)?])?;
+        }
         tx.commit()?;
         Ok(())
     }
@@ -767,6 +784,7 @@ mod tests {
             description: "Acero montado".into(),
             unit: "kg".into(),
             components: vec![ResourcePriceSnapshot {
+                daily_output: None,
                 included: true,
                 resource_id: Uuid::new_v4(),
                 description: "Acero".into(),

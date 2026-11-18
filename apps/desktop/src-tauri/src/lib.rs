@@ -91,6 +91,7 @@ pub(crate) fn configure<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri:
             commands::printing::get_print_profile,
             commands::printing::save_print_profile,
             commands::printing::get_budget_print_data,
+            commands::budget_tools::delete_budget_section_contents,
             commands::printing::save_organization_indirect_costs,
             commands::printing::get_organization_indirect_costs,
             commands::printing::save_budget_presentation,

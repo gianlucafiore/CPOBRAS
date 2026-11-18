@@ -57,6 +57,7 @@ pub(crate) fn synchronize(
         }
         let mut changed = !private;
         for c in &mut analysis.components {
+            if !private { c.daily_output = crate::resource_productivity::daily_output_for(conn,c.resource_id)?; }
             let price = if let Some(price) = prices.get(&c.resource_id) {
                 *price
             } else {

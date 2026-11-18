@@ -1,3 +1,4 @@
+import {priceCostFactor} from "../services/price-summary.js";
 import {estimateMonths,applyEstimateDuration,organizationCostAmount} from "../services/price-duration.js";
 import {createPriceAutosave} from "../services/price-autosave.js";
 import {resourcePicker} from "./resource-picker.js";
@@ -55,7 +56,8 @@ export function createPriceDetermination({
     for(const node of document.querySelectorAll?.('[data-price-error-message]')||[]){node.textContent=m.error||'';node.parentElement.hidden=!m.error;}
     for(const node of document.querySelectorAll?.('[data-price-retry]')||[])node.hidden=!['error','conflict'].includes(m.saveStatus);
     if(!m.dirty && m.calculation && state.estimateId===autosave.contextId()){
-      state.totals=m.calculation.breakdown;
+      state.totals={...m.calculation.breakdown,rows:m.calculation.rows};
+      state.priceDefinition=m.definition;
       const total=document.querySelector('.total-head strong');if(total)total.textContent=money(m.calculation.breakdown.total);
     }
     previewState();
@@ -202,7 +204,7 @@ export function createPriceDetermination({
       return '<div class="blank-state"><strong>Seleccioná una línea</strong><p>Podés agregar un concepto, porcentaje o subtotal desde la lista.</p></div>';
     if(row.role==='direct_costs')return directPane();
     const calculated = result(row.id);
-    return `${row.role==='overhead' && row.label==='Gastos generales'?'<p class="small-muted">Concepto anterior conservado: revisá si corresponde a Gastos Directos de la obra o a Gastos indirectos de la organización.</p>':''}<div class="price-detail-heading"><h2>${e(row.label)}</h2><strong>${m.calculation ? money(calculated?.amount) : "—"}</strong></div>${row.role==='overhead'?`<p class="small-muted">Plazo estimado de obra: ${numeric(duration())} meses. Los gastos vinculados se actualizan al cambiarlo desde Gastos Directos.</p>${row.label==='Gastos indirectos'&&row.items.some(i=>!i.group&&!i.periodic&&i.months==null&&['mes','año'].includes(i.unit))?`<button class="btn tiny" data-action="price-link-indirect-duration" ${lock()}>Vincular gastos recurrentes anteriores al plazo de obra</button>`:''}`:''}<fieldset class="price-properties" ${lock()}><div class="form-grid">${select("Tipo de cálculo", "price-kind", kinds, row.kind)}${select("Categoría del concepto", "price-role", roles, row.role)}${select(
+    return `${row.role==='overhead' && row.label==='Gastos generales'?'<p class="small-muted">Concepto anterior conservado: revisá si corresponde a Gastos Directos de la obra o a Gastos indirectos de la organización.</p>':''}<div class="price-detail-heading"><h2>${e(row.label)}</h2><strong>${m.calculation ? money(calculated?.amount) : "—"}</strong></div>${row.role==='overhead'?`<p class="price-duration-note">Plazo estimado de obra: <strong>${numeric(duration())} meses</strong>. Los gastos vinculados se actualizan al cambiarlo desde Gastos Directos.</p>${row.label==='Gastos indirectos'&&row.items.some(i=>!i.group&&!i.periodic&&i.months==null&&['mes','año'].includes(i.unit))?`<button class="btn tiny" data-action="price-link-indirect-duration" ${lock()}>Vincular gastos recurrentes anteriores al plazo de obra</button>`:''}`:''}<fieldset class="price-properties" ${lock()}><div class="form-grid">${select("Tipo de cálculo", "price-kind", kinds, row.kind)}${select("Categoría del concepto", "price-role", roles, row.role)}${select(
       "Operación",
       "price-sign",
       [
@@ -235,7 +237,7 @@ export function createPriceDetermination({
       .filter((r) => r.enabled)
       .map(
         (r) =>
-          `<div class="summary-row ${r.kind === "subtotal" ? "price-subtotal" : ""}"><span>${e(r.label)}</span><strong>${money(r.amount)}</strong></div>`,
+          `<div class="summary-row ${r.kind === "subtotal" ? "price-subtotal" : ""}"><span>${e(r.label)}${r.kind==='subtotal'?`<small class="price-cost-factor">Factor precio / costo directo: <b>${priceCostFactor(r.amount,m.direct)}</b></small>`:''}</span><strong>${money(r.amount)}</strong></div>`,
       )
       .join(
         "",
@@ -538,7 +540,7 @@ export function createPriceDetermination({
     if(form.id==='price-indirect-form'){
       if(!editable())throw Error('El presupuesto es de solo lectura');
       const existing=m.definition.rows.find(r=>r.role==='overhead'&&r.label==='Gastos indirectos');
-      if(existing&&!window.confirm('Ya hay Gastos indirectos. ¿Reemplazar ese detalle con esta nueva distribución?'))return;
+      if(existing&&(existing.items.length||existing.kind!=='detailed'||existing.detail_mode!=='items')&&!window.confirm('Ya hay Gastos indirectos. ¿Reemplazar ese detalle con esta nueva distribución?'))return;
       const definition=structuredClone(m.definition),row=newRow('detailed');
       Object.assign(row,{role:'overhead',label:'Gastos indirectos',items:m.modal.plan.items.map(i=>({id:window.crypto.randomUUID(),parent_id:null,group:false,description:i.description,unit:{once:'un',monthly:'mes',yearly:'año'}[i.periodicity],quantity:'1',unit_price:i.amount,participation_percent:value('allocation'),periodic:null,months:i.periodicity==='once'?null:duration(),use_estimate_duration:i.periodicity!=='once',months_per_payment:i.periodicity==='yearly'?'12':null,resource_id:null,resource_kind:null}))});
       if(existing)definition.rows.splice(definition.rows.findIndex(r=>r.id===existing.id),1,row);else definition.rows.unshift(row);

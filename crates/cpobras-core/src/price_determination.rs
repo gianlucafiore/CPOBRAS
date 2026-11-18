@@ -279,6 +279,30 @@ impl PriceDefinition {
         }
     }
 
+    /// Initial presentation for newly created user budgets; legacy rates remain unchanged.
+    pub fn for_new_budget() -> Self {
+        let mut definition = Self::from_rates(PricingRates {
+            profit_percent: D::from(20),
+            tax_percent: D::from(21),
+            ..PricingRates::default()
+        });
+        definition.rows.retain(|row| matches!(row.role,
+            PriceRole::DirectCosts | PriceRole::Finance | PriceRole::Profit | PriceRole::Tax)
+            || row.kind == PriceKind::Subtotal);
+        let mut indirect = definition.rows.iter().find(|row| row.role == PriceRole::DirectCosts).unwrap().clone();
+        indirect.id = Uuid::from_u128(0xf100);
+        indirect.label = "Gastos indirectos".into();
+        indirect.role = PriceRole::Overhead;
+        let mut fees = indirect.clone();
+        fees.id = Uuid::from_u128(0xf101);
+        fees.label = "Honorarios profesionales".into();
+        fees.role = PriceRole::Other;
+        fees.enabled = false;
+        definition.rows.insert(0, indirect);
+        definition.rows.insert(definition.rows.len() - 1, fees);
+        definition
+    }
+
     pub fn from_rates(r: PricingRates) -> Self {
         let mut rows = vec![];
         let mut row = |label: &str, kind, role, value, subtract| {

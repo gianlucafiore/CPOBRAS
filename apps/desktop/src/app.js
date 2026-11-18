@@ -16,6 +16,7 @@ import { createOrganizations } from "./components/organizations.js";
 import { createPrintProfile } from "./components/print-profile.js";
 import {createBudgetPresentation} from "./services/budget-presentation.js";
 import { createBudgetPrinting } from "./components/budget-printing.js";
+import {syncDailyOutputUnit} from "./components/resource-productivity.js";
 import { createPriceDetermination } from "./components/price-determination.js";
 import { createBudgetPatterns } from "./components/budget-patterns.js";
 import { createUnitPicker } from "./components/unit-picker.js";
@@ -227,6 +228,7 @@ export function createWorkspaceApp({
             resourceId: row.resource_id,
             quantity: row.quantity,
             unitPrice: row.unit_price,
+            dailyOutput: row.daily_output,
           }))
         : [];
     state.comparison = null;
@@ -623,7 +625,7 @@ export function createWorkspaceApp({
       if(!remoteActionAllowed(state,button))return;
       if(button.dataset.action==='ai-resource-open'){await aiResourceImport.open(resourceLibraryBrief);return;}
       if(button.dataset.action==='acu-library-return'){await returnToAcu();return;}
-      if(button.dataset.action==='issue'){await presentation.flush();await pricing.flush();}
+      if(['issue','delete-section-tree'].includes(button.dataset.action)){await presentation.flush();await pricing.flush();}
       if(button.dataset.action==='presentation-save'){await presentation.flush();return;}
       if(['presentation-use-draft','presentation-use-saved'].includes(button.dataset.action)){
         await presentation.resolve(button.dataset.action==='presentation-use-draft');printing.restore();budgetTools.model.options.memory=presentation.model.data.memory;render();return;
@@ -854,6 +856,7 @@ export function createWorkspaceApp({
     )
       if(evt.target.name!=="calendar-month")state.pageDirty = true;
     organizations.input(evt.target);
+    syncDailyOutputUnit(evt.target);
     agreement.change(evt.target);
     if(state.view === "system-settings") systemSettings.change(evt.target);
     if (state.modal && state.modal.kind !== "from-acu" && evt.target.closest?.("#dialog-form"))
@@ -930,6 +933,7 @@ export function createWorkspaceApp({
     reminders.input(evt.target);
     people.input(evt.target);
     organizations.input(evt.target);
+    syncDailyOutputUnit(evt.target);
     printing.input(evt.target);
     presentation.input(evt.target);
     budgetTools.input(evt.target);

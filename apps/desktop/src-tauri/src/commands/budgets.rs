@@ -480,7 +480,7 @@ pub(crate) fn create_estimate(
         issued: false,
     };
     store
-        .create_estimate(&estimate)
+        .create_estimate_with_defaults(&estimate)
         .map_err(|e| e.to_string())?;
     Ok(EstimateView::from(estimate))
 }

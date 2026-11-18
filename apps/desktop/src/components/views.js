@@ -1,3 +1,4 @@
+import {priceCostFactor,priceRowRate} from "../services/price-summary.js";
 import { budgetNumbering } from "../services/budget-numbering.js";
 import { entityActions } from "./entity-actions.js";
 const appLogo = new URL("../../src-tauri/icons/icon.png", import.meta.url).href;
@@ -269,7 +270,7 @@ export function createViews({
         const group = rows.filter((row) => row.kind === type);
         if (!group.length) return "";
         return `<tr class="group-row"><td colspan="6">${kindName(type).toUpperCase()}</td><td class="number group-total">${money(sumDecimals(group.map(row=>row.total)))} <button class="btn tiny inclusion-bulb ${group.every(row=>row.included===false)?"is-off":""}" data-action="toggle-line-resource-group" data-kind="${type}" aria-label="${group.every(row=>row.included!==false)?"Excluir":"Incluir"} grupo ${kindName(type)} del costo" aria-pressed="${group.every(row=>row.included!==false)?"true":group.every(row=>row.included===false)?"false":"mixed"}" title="Incluir / excluir este grupo del costo" ${locked()}>💡</button></td></tr>
-      ${group.map((row) => `<tr class="line-resource-row ${row.included===false?"component-excluded":""}" data-component-index="${rows.indexOf(row)}" tabindex="0" aria-label="Insumo ${e(row.description)}"><td><span class="kind kind-${type}">${kindBadge(type)}</span></td><td>${e(row.description)}</td><td class="component-unit">${e(state.resources.find(r => r.id === row.resource_id)?.unit || row.unit || "—")}</td><td class="number">${numeric(row.quantity)}</td><td class="number">${money(row.unit_price)}</td><td class="number">${money(row.total)}</td><td class="component-actions"><button class="btn tiny inclusion-bulb ${row.included===false?"is-off":""}" data-action="toggle-line-resource" data-index="${rows.indexOf(row)}" aria-label="${row.included===false?"Incluir":"Excluir"} ${e(row.description)} del costo" aria-pressed="${row.included===false?"false":"true"}" title="${row.included===false?"Apagado: sin sumar. Encender para incluir":"Encendido: incluido. Apagar para excluir"}" ${locked()}>💡</button><button class="btn tiny" data-action="edit-line-resource" data-index="${rows.indexOf(row)}" ${locked()}>Editar</button><button class="btn tiny tiny-danger" data-action="remove-line-resource" data-index="${rows.indexOf(row)}" aria-label="Quitar ${e(row.description)} de la partida" ${locked()}>×</button></td></tr>`).join("")}`;
+      ${group.map((row) => `<tr class="line-resource-row ${row.included===false?"component-excluded":""}" data-component-index="${rows.indexOf(row)}" tabindex="0" aria-label="Insumo ${e(row.description)}"><td><span class="kind kind-${type}">${kindBadge(type)}</span></td><td>${e(row.description)}${row.daily_output?`<small class="component-productivity">Rendimiento: ${numeric(row.daily_output)} ${e(state.resources.find(r=>r.id===row.resource_id)?.unit||row.unit||'unidad')}/día hábil</small>`:''}</td><td class="component-unit">${e(state.resources.find(r => r.id === row.resource_id)?.unit || row.unit || "—")}</td><td class="number">${numeric(row.quantity)}</td><td class="number">${money(row.unit_price)}</td><td class="number">${money(row.total)}</td><td class="component-actions"><button class="btn tiny inclusion-bulb ${row.included===false?"is-off":""}" data-action="toggle-line-resource" data-index="${rows.indexOf(row)}" aria-label="${row.included===false?"Incluir":"Excluir"} ${e(row.description)} del costo" aria-pressed="${row.included===false?"false":"true"}" title="${row.included===false?"Apagado: sin sumar. Encender para incluir":"Encendido: incluido. Apagar para excluir"}" ${locked()}>💡</button><button class="btn tiny" data-action="edit-line-resource" data-index="${rows.indexOf(row)}" ${locked()}>Editar</button><button class="btn tiny tiny-danger" data-action="remove-line-resource" data-index="${rows.indexOf(row)}" aria-label="Quitar ${e(row.description)} de la partida" ${locked()}>×</button></td></tr>`).join("")}`;
       })
       .join("");
     return `<div class="detail-heading"><div><strong>${e(line.description)}</strong>${subtitle}</div>
@@ -294,44 +295,14 @@ export function createViews({
   }
   function summaryPane() {
     const t = state.totals || {};
-    const r = state.rates || {};
+    const definition=state.priceDefinition;
+    const rows=t.rows||[];
     return `<div class="detail-heading"><strong>RESUMEN DEL PRESUPUESTO</strong><button class="btn tiny" data-action="open-price-determination">Determinación de precio</button></div>
-    <div class="summary-rows">
-      ${
-        t.pricing_error
-          ? `<p class="price-error">${e(t.pricing_error)}. Revisá Determinación de precio.</p>`
-          : t.rows?.length
-            ? `<div class="summary-row"><span>Costo directo</span><strong>${money(t.direct)}</strong></div>` +
-              t.rows
-                .filter((row) => row.enabled)
-                .map(
-                  (row) =>
-                    `<div class="summary-row"><span>${e(row.label)}</span><strong>${money(row.amount)}</strong></div>`,
-                )
-                .join("")
-            : [
-                ["Costo directo", t.direct, ""],
-                [
-                  "Gastos generales",
-                  t.general_expenses,
-                  r.general_expenses_percent,
-                ],
-                [
-                  "Gastos financieros",
-                  t.financial_expenses,
-                  r.financial_expenses_percent,
-                ],
-                ["Beneficio", t.profit, r.profit_percent],
-                ["Descuento", t.discount, r.discount_percent],
-                ["Subtotal gravado", t.taxable_subtotal, ""],
-                ["Impuestos", t.taxes, r.tax_percent],
-              ]
-                .map(
-                  ([label, value, rate]) =>
-                    `<div class="summary-row"><span>${label} ${rate !== "" && rate != null ? `<small>${e(rate)}%</small>` : ""}</span><strong>${money(value)}</strong></div>`,
-                )
-                .join("")
-      }
+    <div class="summary-rows">${t.pricing_error?`<p class="price-error">${e(t.pricing_error)}. Revisá Determinación de precio.</p>`:`<div class="summary-row"><span>Costo directo</span><strong>${money(t.direct)}</strong></div>${rows.filter(row=>row.enabled).map(row=>{
+      const source=definition?.rows?.find(r=>r.id===row.id),rate=priceRowRate(source);
+      return `<div class="summary-row ${row.kind==='subtotal'?'price-subtotal':''}"><span>${e(row.label)}${rate?` <small>${e(rate)}</small>`:''}${row.kind==='subtotal'?`<small class="price-cost-factor">Factor precio / costo directo: <b>${priceCostFactor(row.amount,t.direct)}</b></small>`:''}</span><strong>${money(row.amount)}</strong></div>`;
+    }).join('')}`}
+
     </div><div class="summary-final"><span>TOTAL PRESUPUESTADO</span><strong>${e(currentEstimate()?.currency || "ARS")} ${t.pricing_error ? "—" : money(t.total)}</strong></div>
     <div class="detail-footer muted-note">Cálculo decimal realizado en Rust. La determinación queda bloqueada al emitir.</div>`;
   }

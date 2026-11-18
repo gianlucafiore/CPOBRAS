@@ -222,6 +222,7 @@ export function buildBudgetWorkbook(
       "",
       "Cobrar (1/0)",
       "",
+      "Rendimiento por día hábil",
     ]),
   ];
   const acuRefs = new Map(),
@@ -266,6 +267,7 @@ export function buildBudgetWorkbook(
         text(c.resource_id),
         number(c.included===false?0:1,"0",true),
         formula(`D${n}*E${n}*G${n}`,multiplyDecimals(multiplyDecimals(c.quantity,c.unit_price),quantity)),
+        c.daily_output==null?null:number(c.daily_output,decimal,true),
       ]);
       componentRefs.push({
         ...c,
@@ -665,7 +667,7 @@ export function buildBudgetWorkbook(
       printColumns: 10,
       stickyRowsCount: 4,
     }),
-    sheet("ACU", acu, [18, 48, 12, 18, 20, 22, 20, 20, 24, 1, 16, 1], {
+    sheet("ACU", acu, [18, 48, 12, 18, 20, 22, 20, 20, 24, 1, 16, 1, 24], {
       hiddenColumns: [10,12],
       printColumns: 9,
       pageBreakRows: breaks,

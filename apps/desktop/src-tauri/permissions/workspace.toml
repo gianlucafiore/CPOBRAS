@@ -33,6 +33,7 @@ commands.allow = [
   "get_print_profile",
   "save_print_profile",
   "get_budget_print_data",
+  "delete_budget_section_contents",
   "save_organization_indirect_costs",
   "get_organization_indirect_costs",
   "save_budget_presentation",
