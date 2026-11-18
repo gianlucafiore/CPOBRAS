@@ -1367,7 +1367,7 @@ test('export center creates an editable full workbook and keeps bulk editing col
  const form=page.locator('#budget-export-form');
  await expect(form.getByRole('combobox',{name:'Presentación',exact:true})).toHaveValue('full');
  await form.getByRole('button',{name:'Generar archivo',exact:true}).click();
- await expect(form.getByRole('status')).toContainText('presupuesto.xlsx');
+ await expect(form.getByRole('status').filter({hasText:'Archivo guardado en:'})).toContainText('presupuesto.xlsx');
  const bytes=await page.evaluate(()=>window.__calls.filter(c=>c.command==='write_export').at(-1).args.bytes);
  const {unzipSync,strFromU8}=await import('fflate');const files=unzipSync(new Uint8Array(bytes)),book=strFromU8(files['xl/workbook.xml']);
  for(const name of ['Partidas','ACU','Precio','Insumos','Metrados','Detalle precio','Memoria'])expect(book).toContain('name="'+name+'"');
