@@ -170,6 +170,7 @@ impl LocalStore {
             include_str!("../migrations/0038_budget_presentation.sql"),
             include_str!("../migrations/0039_estimate_duration.sql"),
             include_str!("../migrations/0040_resource_productivity.sql"),
+            include_str!("../migrations/0041_public_price_rows.sql"),
         ];
         let latest: i64 = tx.query_row(
             "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",

@@ -428,10 +428,8 @@ export async function budgetReportPdf(
   }
   if (mode === "client") {
     const summary = publicPriceSummary(data);
-    text("Subtotal sin IVA: " + currency + " " + money(summary.subtotal), {
-      bold: true,
-    });
-    text("IVA / impuestos: " + currency + " " + money(summary.taxes));
+    for(const row of summary.rows)
+      text(row.label+": "+currency+" "+money(row.amount),{bold:row.kind!=="tax"});
   }
   if (y + 15 > bottom) nextPage();
   pdf.setFillColor(32, 53, 73);

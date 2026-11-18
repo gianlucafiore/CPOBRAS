@@ -198,7 +198,7 @@ export function buildBudgetWorkbook(
   const doc = data.document,
     numbering = budgetNumbering(doc.sections,doc.lines,doc.assignments),
     normalized = normalizedAnalyses(data, analyses, resources, prices),
-    publicValues = new Map(clientPrintData(data).lines.map((l) => [l.id, l]));
+    publicValues = new Map(clientPrintData(data,{splitCharges:false}).lines.map((l) => [l.id, l]));
   const lineStart = 5,
     lineEnd = Math.max(lineStart, doc.lines.length + lineStart - 1),
     quantityRange = `${sq("Partidas")}!$E$${lineStart}:$E$${lineEnd}`,
@@ -786,8 +786,7 @@ export function buildClientWorkbook(
       ]);
     }
     const end = content.length,
-      totalNet = end + 2,
-      tax = totalNet + 1;
+      totalNet = end + 2;
     for (let n = first; n <= end; n++) {
       if (content[n - 1][7]?.value === "line")
         content[n - 1][6] = formula(
@@ -832,37 +831,18 @@ export function buildClientWorkbook(
         percent,
       );
     }
-    const rate =
-      compareDecimals(summary.subtotal, "0") !== 0
-        ? divideDecimals(summary.taxes, summary.subtotal, 20)
-        : "0";
-    content.push(
-      [],
-      moneyRow(
-        "Subtotal",
-        formula(
-          end >= first
-            ? `SUMIF(H${first}:H${end},"line",F${first}:F${end})`
-            : "0",
-          summary.subtotal,
-        ),
-        7,
-      ),
-      moneyRow(
-        "IVA / impuestos",
-        compareDecimals(summary.subtotal, "0") === 0
-          ? number(summary.taxes, cash, true)
-          : formula(`ROUND(G${totalNet}*${rate},2)`, summary.taxes),
-        7,
-      ),
-      moneyRow(
-        "TOTAL FINAL",
-        formula(`G${totalNet}+G${tax}`, summary.total),
-        7,
-      ),
-      ...paragraphs(notes, 7),
-      ...paragraphs(p.footer, 7),
-    );
+    content.push([],moneyRow(summary.rows[0].label,formula(
+      end>=first?`SUMIF(H${first}:H${end},"line",F${first}:F${end})`:"0",summary.work_subtotal),7));
+    let visibleBase=summary.work_subtotal;
+    for(const row of summary.rows.slice(1)){
+      const previous=content.length;
+      const cell=row.kind==='tax'&&compareDecimals(visibleBase,"0")!==0
+        ?formula(`ROUND(SUM(G${totalNet}:G${previous})*${divideDecimals(row.amount,visibleBase,24)},2)`,row.amount)
+        :number(row.amount,cash,true);
+      content.push(moneyRow(row.label,cell,7));visibleBase=sumDecimals([visibleBase,row.amount]);
+    }
+    const summaryEnd=content.length;
+    content.push(moneyRow("TOTAL FINAL",formula(`SUM(G${totalNet}:G${summaryEnd})`,summary.total),7),...paragraphs(notes,7),...paragraphs(p.footer,7));
     output.push(
       sheet("Presupuesto", content, [8, 55, 10, 16, 23, 24, 17, 1], {
         hiddenColumns: [8],
@@ -876,8 +856,7 @@ export function buildClientWorkbook(
 }
 function publicSummaryRows(summary, width) {
   return [
-    moneyRow("Subtotal", number(summary.subtotal), width),
-    moneyRow("IVA / impuestos", number(summary.taxes), width),
+    ...summary.rows.map(row=>moneyRow(row.label,number(row.amount),width)),
     moneyRow("TOTAL FINAL", number(summary.total), width),
   ];
 }

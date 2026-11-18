@@ -106,3 +106,29 @@ El botón **Acuerdo de ajuste del presupuesto** define mes base, desfase e índi
 ponderados. Las publicaciones se cargan una vez en **Inicio → Datos generales**.
 Este acuerdo no altera los precios base guardados; se aplica al certificar y
 conserva los valores utilizados en cada emisión. [Guía de índices y adicionales](INDEX_ADJUSTMENTS.md).
+
+## Conceptos separados en la cotización del cliente
+
+Cada concepto distinto de impuestos y separadores tiene un segundo check,
+desmarcado por defecto. Su texto «Mostrar separado en la cotización» aparece
+al pasar el mouse por la fila o enfocar el check con el teclado. Su etiqueta
+accesible identifica también el concepto. La selección se guarda automáticamente
+y queda bloqueada cuando el presupuesto está emitido.
+
+Un concepto marcado se descuenta del importe distribuido entre partidas y se
+muestra con su nombre e importe en la vista previa, PDF y Excel para cliente.
+Se respeta su posición respecto de los impuestos. Por ejemplo, con un subtotal
+de partidas de 115.262.500, impuestos de 24.205.125 y honorarios posteriores de
+47.470.531, el total sigue siendo 186.938.156. Los conceptos no marcados conservan
+su distribución entre las partidas; sus nombres y detalles no se publican.
+
+El cálculo de la determinación, las bases porcentuales y el total del presupuesto
+se conservan. Los descuentos separados mantienen su signo. El redondeo público
+se reparte de forma acumulada para conservar los centavos y el total. El Excel
+para cliente suma el subtotal de partidas, los conceptos separados y los impuestos;
+los importes separados quedan editables y los impuestos se recalculan sobre la
+base pública visible. El respaldo completo conserva la formación interna del precio.
+
+La preferencia viaja en las copias y plantillas de determinación y en el JSON
+completo. Esquema SQLite 41 y formato de intercambio 11: versiones anteriores
+rechazan estos datos para evitar perder la preferencia al guardarlos.
