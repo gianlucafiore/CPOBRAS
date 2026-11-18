@@ -123,7 +123,7 @@ impl LocalStore {
             price_definition: self.stored_price_definition(id)?,
             line_analyses,
             formulas,
-            format_version: 10,
+            format_version: 11,
             currency: estimate.currency,
             title: estimate.title,
             sections: self.list_budget_sections(id)?,
@@ -173,7 +173,7 @@ impl LocalStore {
         project_id: Uuid,
         document: &BudgetDocument,
     ) -> Result<Estimate> {
-        if ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10].contains(&document.format_version)
+        if ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].contains(&document.format_version)
             || document.title.trim().is_empty()
             || document.lines.len() > 10_000
             || document.sections.len() > 5000

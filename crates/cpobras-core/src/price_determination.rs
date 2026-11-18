@@ -182,6 +182,8 @@ impl PriceItem {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct PriceRow {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub show_separately: bool,
     pub id: Uuid,
     pub label: String,
     pub enabled: bool,
@@ -203,6 +205,8 @@ pub struct PriceDefinition {
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PriceRowResult {
+    #[serde(default)]
+    pub show_separately: bool,
     pub id: Uuid,
     pub label: String,
     pub enabled: bool,
@@ -265,12 +269,14 @@ impl PriceDefinition {
                 && r.items.is_empty()
                 && r.percent == D::ZERO
                 && r.amount == D::ZERO
-                && r.reference_percent == D::ZERO)
+                && r.reference_percent == D::ZERO
+                && !r.show_separately)
         });
         if !self.rows.iter().any(|r| r.role == PriceRole::DirectCosts) {
             self.rows.insert(
                 0,
                 PriceRow {
+                    show_separately: false,
                     id: Uuid::from_u128(0xdc057),
                     label: "Gastos Directos".into(),
                     enabled: true,
@@ -323,6 +329,7 @@ impl PriceDefinition {
         let mut rows = vec![];
         let mut row = |label: &str, kind, role, value, subtract| {
             rows.push(PriceRow {
+                show_separately: false,
                 // Legacy rows need stable identities across reads and P2P snapshots.
                 id: Uuid::from_u128(rows.len() as u128 + 1),
                 label: label.into(),
@@ -383,6 +390,7 @@ impl PriceDefinition {
             rows.insert(
                 rows.len() - 1,
                 PriceRow {
+                    show_separately: false,
                     id: Uuid::from_u128(rows.len() as u128 + 1),
                     label: name.into(),
                     enabled: false,
@@ -611,6 +619,9 @@ impl PriceDefinition {
                 }
             }
             results.push(PriceRowResult {
+                show_separately: row.show_separately
+                    && row.kind != PriceKind::Subtotal
+                    && row.role != PriceRole::Tax,
                 id: row.id,
                 label: row.label.clone(),
                 enabled: row.enabled,
@@ -649,6 +660,7 @@ mod tests {
     }
     fn row(kind: PriceKind, role: PriceRole, value: &str) -> PriceRow {
         PriceRow {
+            show_separately: false,
             id: Uuid::new_v4(),
             label: "Concepto".into(),
             enabled: true,

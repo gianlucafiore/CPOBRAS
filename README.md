@@ -40,6 +40,10 @@ abrí `CPOBRAS.app`.
   para registrar obras.
 - En **Inicio → Opciones → Abrir base de datos…**, elegí un archivo SQLite de CPOBRAS.
   Si hay migraciones pendientes, se aplican antes de abrirlo.
+- Si te pasaron una base, guardá una copia en una carpeta local (por ejemplo,
+  Documentos en Windows) y usá **Abrir base de datos…**. No hace falta reemplazar
+  el archivo de AppData. **Nueva base de datos…** no importa archivos existentes
+  ni los sobrescribe.
 - CPOBRAS se vuelve a abrir con la base elegida y recuerda el archivo para el
   próximo inicio. El panel **Opciones**, disponible en Inicio, muestra la base activa.
 - Si querés volver a tus datos originales, abrí el archivo `cpobras.sqlite`

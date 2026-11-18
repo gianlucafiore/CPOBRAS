@@ -70,7 +70,7 @@ export function createBudgetPrinting({
       )
       .join(
         "",
-      )}</tbody></table></div>${rows.length > 200 ? "<p>Vista previa de los primeros 200 renglones. El archivo incluye todos.</p>" : ""}${model.mode === "client" ? `<div class="summary-row"><span>Subtotal sin IVA</span><strong>${money(publicPriceSummary(data).subtotal)}</strong></div><div class="summary-row"><span>IVA / impuestos</span><strong>${money(publicPriceSummary(data).taxes)}</strong></div>` : ""}<div class="summary-final"><span>TOTAL ${e(["USD", "Usd"].includes(data.estimate.currency) ? "USD" : "ARS")}</span><strong>${money(data.final_total)}</strong></div>${model.mode === "incidences" ? `<p>Incidencia total: ${numeric(/^0(?:\.0+)?$/.test(String(data.final_total)) ? "0" : "100")} %</p>` : ""}${
+      )}</tbody></table></div>${rows.length > 200 ? "<p>Vista previa de los primeros 200 renglones. El archivo incluye todos.</p>" : ""}${model.mode === "client" ? `${publicPriceSummary(data).rows.map(row=>`<div class="summary-row"><span>${e(row.label)}</span><strong>${money(row.amount)}</strong></div>`).join("")}` : ""}<div class="summary-final"><span>TOTAL ${e(["USD", "Usd"].includes(data.estimate.currency) ? "USD" : "ARS")}</span><strong>${money(data.final_total)}</strong></div>${model.mode === "incidences" ? `<p>Incidencia total: ${numeric(/^0(?:\.0+)?$/.test(String(data.final_total)) ? "0" : "100")} %</p>` : ""}${
       model.mode === "internal"
         ? `<h3>Determinación de precio</h3><p>Costo directo: ${money(data.calculation.breakdown.direct)}</p>${data.calculation.rows
             .filter((r) => r.enabled)

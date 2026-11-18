@@ -326,7 +326,7 @@ export function createWorkspaceApp({
       if(result==="unchanged")state.message="La base seleccionada ya está activa.";
       if(result==="cancelled")state.message="No se seleccionó un archivo. La base activa se conserva.";
     } catch (error) {
-      state.databaseError="No se pudo cambiar la base de datos. " + String(error);
+      state.databaseError=(create ? "No se pudo crear la base de datos. " : "No se pudo abrir la base de datos. ") + String(error);
     } finally {
       document.body.inert = false;
       switchingDatabase = false;

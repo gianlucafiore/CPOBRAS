@@ -170,6 +170,7 @@ impl LocalStore {
             include_str!("../migrations/0038_budget_presentation.sql"),
             include_str!("../migrations/0039_estimate_duration.sql"),
             include_str!("../migrations/0040_resource_productivity.sql"),
+            include_str!("../migrations/0041_public_price_rows.sql"),
         ];
         let latest: i64 = tx.query_row(
             "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
@@ -182,9 +183,13 @@ impl LocalStore {
             ));
         }
         if latest > migrations.len() as i64 {
-            return Err(StorageError::InvalidValue(
-                "La base pertenece a una versión más nueva de CPOBRAS".into(),
-            ));
+            return Err(StorageError::InvalidValue(format!(
+                "La base usa el formato {latest}; esta aplicación admite hasta el {}. \
+                 Actualizá CPOBRAS en este equipo a una versión que admita ese formato. \
+                 Si usás la base en varios equipos o sistemas operativos, actualizalos también. \
+                 La apertura se canceló para proteger los datos.",
+                migrations.len()
+            )));
         }
         for (index, sql) in migrations.iter().enumerate() {
             let version = index as i64 + 1;

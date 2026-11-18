@@ -99,6 +99,7 @@ export function createPriceDetermination({
               ? "Monto fijo"
               : "Nuevo porcentaje",
       enabled: true,
+      show_separately: false,
       kind,
       role: "other",
       subtract: false,
@@ -241,7 +242,7 @@ export function createPriceDetermination({
       )
       .join(
         "",
-      )}<div class="summary-final"><span>PRESUPUESTO TOTAL</span><strong>${e(currentEstimate()?.currency)} ${calc ? money(calc.breakdown.total) : "—"}</strong></div></section><section class="price-card"><h2>Conceptos y orden de cálculo</h2><p class="small-muted">Arrastrá el asa para reordenar. Las flechas permiten mover cada línea.</p><div class="price-row-list">${m.definition.rows.map((row, index) => `<div class="price-row ${row.id === m.selectedId ? "selected" : ""}" data-price-row="${row.id}"><button type="button" class="price-drag" draggable="${editable()}" data-price-drag="${row.id}" aria-label="Arrastrar ${e(row.label)}" ${lock()}>⋮⋮</button><input type="checkbox" aria-label="Activar ${e(row.label)}" data-price-enabled="${row.id}" ${row.enabled ? "checked" : ""} ${lock()}><input class="price-label" name="price-label-${row.id}" data-price-label="${row.id}" aria-label="Nombre de línea ${index + 1}" value="${e(row.label)}" ${lock()}><button type="button" class="btn tiny" data-action="price-select" data-id="${row.id}">${e(row.kind === "detailed" ? { items: "Con detalle", manual: "Monto manual", reference: "% CD ref." }[row.detail_mode] : kinds.find(([kind]) => kind === row.kind)?.[1])}</button>${row.kind.startsWith("percent_") ? `<input class="price-number" name="price-percent-${row.id}" data-price-percent="${row.id}" aria-label="Porcentaje ${e(row.label)}" type="number" min="0" step="any" value="${e(row.percent)}" ${lock()}>` : row.kind === "fixed" ? `<input class="price-number" name="price-amount-${row.id}" data-price-amount="${row.id}" aria-label="Monto ${e(row.label)}" type="number" min="0" step="any" value="${e(row.amount)}" ${lock()}>` : ""}<button class="price-move" data-action="price-up" data-id="${row.id}" aria-label="Subir ${e(row.label)}" ${lock()}>↑</button><button class="price-move" data-action="price-down" data-id="${row.id}" aria-label="Bajar ${e(row.label)}" ${lock()}>↓</button><button class="tiny-danger" data-action="price-delete-row" data-id="${row.id}" aria-label="${row.role==='direct_costs'?'Desactivar':'Quitar línea'} ${e(row.label)}" ${lock()}>×</button></div>`).join("")}</div><div class="price-add"><small>Agregar línea:</small><button class="btn tiny" data-action="price-add-indirect" ${lock()}>Gastos indirectos de la organización</button>${kinds.map(([kind, label]) => `<button class="btn tiny" data-action="price-add-row" data-kind="${kind}" ${lock()}>${e(label)}</button>`).join("")}</div></section><section class="price-card"><h2>Plantillas y exportación</h2>${select("Plantilla de determinación o detalle", "price-template", [["", "Elegir plantilla"], ...m.templates.filter((t) => t.currency === currentEstimate()?.currency).map((t) => [t.id, (t.scope === "detail" ? "Detalle" : "Determinación") + " · " + t.name])], m.templateId)}<div class="price-add"><button class="btn" data-action="price-load-template" ${lock()}>Cargar plantilla</button><button class="btn" data-action="price-template">Guardar plantilla</button><button class="btn" data-action="price-export">Exportar</button></div>${m.lastExport ? `<p role="status">Archivo guardado en ${e(m.lastExport)}</p>` : ""}</section></aside><section class="price-right">${rowEditor()}</section></div>${modalMarkup()}</main>`;
+      )}<div class="summary-final"><span>PRESUPUESTO TOTAL</span><strong>${e(currentEstimate()?.currency)} ${calc ? money(calc.breakdown.total) : "—"}</strong></div></section><section class="price-card"><h2>Conceptos y orden de cálculo</h2><p class="small-muted">Arrastrá el asa para reordenar. Las flechas permiten mover cada línea.</p><div class="price-row-list">${m.definition.rows.map((row, index) => `<div class="price-row ${row.id === m.selectedId ? "selected" : ""}" data-price-row="${row.id}"><button type="button" class="price-drag" draggable="${editable()}" data-price-drag="${row.id}" aria-label="Arrastrar ${e(row.label)}" ${lock()}>⋮⋮</button><input type="checkbox" aria-label="Activar ${e(row.label)}" data-price-enabled="${row.id}" ${row.enabled ? "checked" : ""} ${lock()}><input class="price-label" name="price-label-${row.id}" data-price-label="${row.id}" aria-label="Nombre de línea ${index + 1}" value="${e(row.label)}" ${lock()}>${row.kind!=="subtotal"&&row.role!=="tax"?`<label class="price-public-toggle"><input type="checkbox" name="price-public-${row.id}" data-price-public="${row.id}" aria-label="Mostrar separado en la cotización: ${e(row.label)}" ${row.show_separately?"checked":""} ${lock()}><span class="price-public-hint">Mostrar separado en la cotización</span></label>`:""}<button type="button" class="btn tiny" data-action="price-select" data-id="${row.id}">${e(row.kind === "detailed" ? { items: "Con detalle", manual: "Monto manual", reference: "% CD ref." }[row.detail_mode] : kinds.find(([kind]) => kind === row.kind)?.[1])}</button>${row.kind.startsWith("percent_") ? `<input class="price-number" name="price-percent-${row.id}" data-price-percent="${row.id}" aria-label="Porcentaje ${e(row.label)}" type="number" min="0" step="any" value="${e(row.percent)}" ${lock()}>` : row.kind === "fixed" ? `<input class="price-number" name="price-amount-${row.id}" data-price-amount="${row.id}" aria-label="Monto ${e(row.label)}" type="number" min="0" step="any" value="${e(row.amount)}" ${lock()}>` : ""}<button class="price-move" data-action="price-up" data-id="${row.id}" aria-label="Subir ${e(row.label)}" ${lock()}>↑</button><button class="price-move" data-action="price-down" data-id="${row.id}" aria-label="Bajar ${e(row.label)}" ${lock()}>↓</button><button class="tiny-danger" data-action="price-delete-row" data-id="${row.id}" aria-label="${row.role==='direct_costs'?'Desactivar':'Quitar línea'} ${e(row.label)}" ${lock()}>×</button></div>`).join("")}</div><div class="price-add"><small>Agregar línea:</small><button class="btn tiny" data-action="price-add-indirect" ${lock()}>Gastos indirectos de la organización</button>${kinds.map(([kind, label]) => `<button class="btn tiny" data-action="price-add-row" data-kind="${kind}" ${lock()}>${e(label)}</button>`).join("")}</div></section><section class="price-card"><h2>Plantillas y exportación</h2>${select("Plantilla de determinación o detalle", "price-template", [["", "Elegir plantilla"], ...m.templates.filter((t) => t.currency === currentEstimate()?.currency).map((t) => [t.id, (t.scope === "detail" ? "Detalle" : "Determinación") + " · " + t.name])], m.templateId)}<div class="price-add"><button class="btn" data-action="price-load-template" ${lock()}>Cargar plantilla</button><button class="btn" data-action="price-template">Guardar plantilla</button><button class="btn" data-action="price-export">Exportar</button></div>${m.lastExport ? `<p role="status">Archivo guardado en ${e(m.lastExport)}</p>` : ""}</section></aside><section class="price-right">${rowEditor()}</section></div>${modalMarkup()}</main>`;
   }
   function modalMarkup() {
     if (!m.modal) return "";
@@ -690,6 +691,13 @@ export function createPriceDetermination({
     if(target.dataset.directOverride){const item=directRow().items.find(i=>i.id===target.dataset.directOverride);item.use_estimate_duration=!target.checked;if(!target.checked)item.months=duration();m.dirty=true;await preview();return;}
     if(target.dataset.directPeriod){const item=directRow().items.find(i=>i.id===target.dataset.directPeriod);item.months=target.value==='monthly'?duration():null;item.use_estimate_duration=target.value==='monthly';item.months_per_payment=null;m.dirty=true;await preview();return;}
     if(row?.role==='direct_costs' && ['price-kind','price-role','price-sign'].includes(target.name))return;
+    if(target.dataset.pricePublic){
+      const concept=m.definition.rows.find(r=>r.id===target.dataset.pricePublic);
+      if(concept&&concept.kind!=='subtotal'&&concept.role!=='tax'){
+        concept.show_separately=target.checked;m.dirty=true;await preview();
+      }
+      return;
+    }
     if (target.dataset.priceEnabled) {
       m.definition.rows.find(
         (r) => r.id === target.dataset.priceEnabled,
@@ -699,11 +707,13 @@ export function createPriceDetermination({
     }
     if (target.name === "price-kind") {
       row.kind = target.value;
+      if(row.kind==='subtotal')row.show_separately=false;
       m.dirty = true;
       await preview();
     }
     if (target.name === "price-role") {
       row.role = target.value;
+      if(row.role==='tax')row.show_separately=false;
       if (row.role === "discount") row.subtract = true;
       m.dirty = true;
       await preview();
