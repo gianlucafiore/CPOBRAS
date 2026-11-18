@@ -17,3 +17,20 @@ Para este cambio no se ejecutaron tests ni compilaciones, por indicación del us
 El registro de auditoría utiliza una columna de clave que exista en cada tabla. En gastos indirectos corresponde `organization_id`; los disparadores se regeneran al abrir la base para corregir instalaciones anteriores, sin borrar datos ni cambiar el esquema.
 
 Los gastos indirectos recurrentes nuevos se vinculan al plazo del presupuesto. En cada detalle se puede marcar «Usar meses distintos». Los detalles anteriores conservan sus importes; el botón «Vincular gastos recurrentes anteriores al plazo de obra» convierte sus meses/años de referencia en un gasto ligado al plazo actual. Los presupuestos emitidos mantienen sus datos.
+
+## Edición y presentación de la memoria
+
+La pestaña Memoria descriptiva y el centro de exportación comparten un editor
+con títulos, negrita, cursiva y listas numeradas o con viñetas. La barra aplica
+Markdown al texto seleccionado; Ctrl/Cmd+B y Ctrl/Cmd+I alternan el énfasis.
+La vista previa muestra el mismo formato básico usado en el PDF. El contenido
+se guarda como texto en el campo existente, conservando el autoguardado, los
+borradores y los controles de revisión. El HTML se muestra como texto y no se ejecuta.
+
+En «Memoria descriptiva, planilla y precio», la memoria abre la propuesta con
+los datos públicos del emisor, la obra y el cliente. La cotización comienza
+en una página nueva, después de toda la memoria. Un texto extenso continúa
+en las hojas necesarias sin mezclarse con la tabla ni cortarse. Las opciones
+«Planilla y precio» y «Memoria y precio» siguen disponibles. Si todavía no se
+eligió una presentación y hay memoria, se propone la presentación completa;
+una elección de impresión ya guardada se conserva.

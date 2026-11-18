@@ -15,6 +15,7 @@ import { createPersons } from "./components/persons.js";
 import { createOrganizations } from "./components/organizations.js";
 import { createPrintProfile } from "./components/print-profile.js";
 import {createBudgetPresentation} from "./services/budget-presentation.js";
+import {memoryEditorAction,memoryEditorInput,memoryEditorKeydown} from "./components/memory-editor.js";
 import { createBudgetPrinting } from "./components/budget-printing.js";
 import {syncDailyOutputUnit} from "./components/resource-productivity.js";
 import { createPriceDetermination } from "./components/price-determination.js";
@@ -623,6 +624,7 @@ export function createWorkspaceApp({
     }
     try {
       if(!remoteActionAllowed(state,button))return;
+      if(memoryEditorAction(button))return;
       if(button.dataset.action==='ai-resource-open'){await aiResourceImport.open(resourceLibraryBrief);return;}
       if(button.dataset.action==='acu-library-return'){await returnToAcu();return;}
       if(['issue','delete-section-tree'].includes(button.dataset.action)){await presentation.flush();await pricing.flush();}
@@ -936,6 +938,7 @@ export function createWorkspaceApp({
     syncDailyOutputUnit(evt.target);
     printing.input(evt.target);
     presentation.input(evt.target);
+    memoryEditorInput(evt.target);
     budgetTools.input(evt.target);
     pricing.input(evt.target);
     patterns.input(evt.target);
@@ -1004,6 +1007,7 @@ export function createWorkspaceApp({
     }
   });
   document.addEventListener("keydown", (evt) => {
+    if(memoryEditorKeydown(evt))return;
     if(homeCash.keydown(evt))return;
     if(evt.key === "Escape" && resourceImport.model.open){evt.preventDefault();resourceImport.act({dataset:{action:"resource-import-close"}});return;}
     if(evt.key==='Escape' && agreement.model.open){evt.preventDefault();agreement.act({dataset:{action:'agreement-close'}}).catch(error=>{state.message=String(error);render();});return;}

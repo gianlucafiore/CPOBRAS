@@ -1,4 +1,5 @@
 import {createPdf} from "./pdf-units.js";
+import {drawMemoryPdf} from "./memory-markdown.js";
 import { budgetNumbering } from "./budget-numbering.js";
 import { money, numeric, sumDecimals } from "../decimal.js";
 import {
@@ -199,8 +200,8 @@ export async function budgetReportPdf(
     reference = "",
     notes = "",
     landscape = false,
-    layout = "sheet_price",
     memory = data.document.presentation?.memory || "",
+    layout = memory.trim()?"memory_sheet_price":"sheet_price",
     appendices = [],
   } = {},
 ) {
@@ -395,7 +396,14 @@ export async function budgetReportPdf(
     );
   if (hasMemory(layout) && memory) {
     text("Memoria descriptiva", { bold: true, size: 11 });
-    text(memory);
+    y=drawMemoryPdf(pdf,memory,{left,width:usable,top:y,bottom,nextPage:()=>{nextPage();return y;}});
+    if(memory.trim() && (hasSchedule(layout) || mode!=="client")){
+      nextPage();
+      text(mode==="client"?"Cotización":"Planilla de presupuesto",{bold:true,size:15});
+      text("Obra: "+data.project.name,{bold:true});
+      text("Cliente: "+data.client.name);
+      if(reference)text("Referencia: "+reference);
+    }
   }
   if (hasSchedule(layout) || mode !== "client") {
     if (y + 19 > bottom) nextPage();

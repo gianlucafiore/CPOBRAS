@@ -75,7 +75,7 @@ const pages = {
   ],
 };
 const panels = {
-  memory: ["Memoria descriptiva", "Texto público de este presupuesto. Se guarda automáticamente. Para incluirlo en el documento elegí una presentación con memoria en Imprimir presupuesto o Herramientas / exportar."],
+  memory: ["Memoria descriptiva", "Presentación pública del presupuesto con títulos, negrita, cursiva y listas. Se guarda automáticamente. Elegí un documento con memoria para imprimirla al comienzo; la cotización se anexa desde una página nueva."],
   "direct-costs": [
     "Gastos Directos del presupuesto",
     "Definí el plazo estimado de obra, inicialmente 6 meses. Los gastos mensuales usan ese plazo; marcá «Usar meses distintos» para indicar una duración propia por insumo. Los gastos puntuales se suman una vez. El plazo también se usa en los gastos indirectos vinculados de Determinación de precio. Los cambios se guardan automáticamente.",
