@@ -34,3 +34,13 @@ en las hojas necesarias sin mezclarse con la tabla ni cortarse. Las opciones
 «Planilla y precio» y «Memoria y precio» siguen disponibles. La opción predeterminada es «Memoria descriptiva, planilla y precio», también
 para presupuestos nuevos que todavía no tienen texto. Una elección de
 impresión ya guardada se conserva.
+
+## Si aparece la vista anterior al probar en desarrollo
+
+La release 0.1.10 precede al editor de memoria con formato. Para probar esta
+mejora se debe abrir la rama que contiene el editor mediante `npm run tauri dev`,
+tras cerrar la aplicación anterior y detener las terminales de desarrollo.
+
+Vite usa el puerto 1420 con `--strictPort`, el mismo de `devUrl` en Tauri.
+Si ese puerto sigue ocupado, el arranque informa el problema y se detiene;
+evita usar otro puerto mientras la ventana se conecta a un servidor viejo.
