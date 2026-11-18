@@ -4,6 +4,8 @@ Sistema local de cómputos, presupuestos y gestión de obras para Argentina.
 Rust concentra las reglas de negocio; SQLite guarda los datos en el equipo y
 Tauri 2 presenta la interfaz. Los importes se calculan con precisión decimal.
 
+Validación de la versión actual: [suite 0.1.10](docs/releases/v0.1.10-validation.md).
+
 ## Descargar y abrir en otra computadora Linux
 
 Descargá el **AppImage** desde [Releases de GitHub](https://github.com/gianlucafiore/CPOBRAS/releases).
@@ -13,7 +15,7 @@ Es un único archivo para Linux x86-64: no necesitás instalar Rust, Node ni Git
 2. Clic derecho → **Propiedades → Permisos → Permitir ejecutar como programa**.
 3. Abrilo con doble clic.
 
-La versión 0.1.3 está preparada para Linux Mint 21/22 y Ubuntu 22.04/24.04.
+La versión 0.1.10 está preparada para Linux Mint 21/22 y Ubuntu 22.04/24.04.
 Los datos se guardan por usuario fuera del AppImage; no se transfieren con el
 programa. Para consultar una obra de otro equipo, usá **Inicio → Vinculación P2P**.
 Guía y solución para sistemas sin FUSE: [docs/APPIMAGE.md](docs/APPIMAGE.md).
@@ -21,20 +23,25 @@ Guía y solución para sistemas sin FUSE: [docs/APPIMAGE.md](docs/APPIMAGE.md).
 ## Descargar y abrir en Windows
 
 En [Releases de GitHub](https://github.com/gianlucafiore/CPOBRAS/releases), descargá el
-archivo `CPOBRAS_0.1.3_windows_x86_64_portable.exe` y abrilo directamente. Requiere
+archivo `CPOBRAS_0.1.10_windows_x86_64_portable.exe` y abrilo directamente. Requiere
 Windows 10/11 y Microsoft Edge WebView2 Runtime. Los datos se guardan en el perfil
 del usuario; copiar el ejecutable no traslada la base de datos.
 
+## Descargar y abrir en macOS
+
+En [Releases de GitHub](https://github.com/gianlucafiore/CPOBRAS/releases), descargá
+el ZIP portable de Apple Silicon (`aarch64`) o Intel (`x86_64`), descomprimilo y
+abrí `CPOBRAS.app`.
+
 ## Crear o cambiar de base de datos
 
-- En **Archivo → Nueva base de datos…**, elegí el nombre y la ubicación del
+- En **Inicio → Opciones → Nueva base de datos…**, elegí el nombre y la ubicación del
   archivo. CPOBRAS abre una base vacía, con la organización inicial necesaria
   para registrar obras.
-- En **Archivo → Abrir base de datos…**, elegí un archivo SQLite de CPOBRAS.
+- En **Inicio → Opciones → Abrir base de datos…**, elegí un archivo SQLite de CPOBRAS.
   Si hay migraciones pendientes, se aplican antes de abrirlo.
 - CPOBRAS se vuelve a abrir con la base elegida y recuerda el archivo para el
-  próximo inicio. El menú **Archivo** muestra el nombre de la base activa y
-  su ruta completa al posar el puntero sobre el nombre.
+  próximo inicio. El panel **Opciones**, disponible en Inicio, muestra la base activa.
 - Si querés volver a tus datos originales, abrí el archivo `cpobras.sqlite`
   original. Si la última base seleccionada deja de estar disponible, el
   programa abre la original y muestra un aviso.

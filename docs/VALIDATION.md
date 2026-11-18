@@ -1,3 +1,5 @@
+Validación más reciente: [CPOBRAS 0.1.10](releases/v0.1.10-validation.md).
+
 # Validación de desarrollo — 2026-11-07
 
 Las comprobaciones se ejecutan en la máquina de esta sesión, sobre Linux,
