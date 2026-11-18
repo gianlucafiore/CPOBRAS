@@ -1,3 +1,4 @@
+import {createHomeCash} from "./components/home-cash.js";
 import {createAcuInsertPicker} from "./components/acu-insert-picker.js";
 import {optionsMarkup} from "./components/app-options.js";
 import {createReminders} from "./components/reminders.js";
@@ -105,12 +106,14 @@ export function createWorkspaceApp({
     management,
   });
   const printing = createBudgetPrinting(context);
+  const homeCash = createHomeCash({...context,invoke:nativeInvoke});
   const reminders = createReminders({...context,invoke:nativeInvoke});
   const { workspace, listViews, chrome, rightPanel } = createViews({
     ...context,
     modalMarkup,
     costingMarkup: costing.markup,
     remindersMarkup: reminders.markup,
+    homeCashMarkup: homeCash.markup,
   });
   const { act, handleSubmit } = createActions(context);
   const interactions = createBudgetInteractions({ ...context, act });
@@ -178,6 +181,8 @@ export function createWorkspaceApp({
                         ? workspace()
                         : listViews();
     if (state.view === "resources" && resourceLibraryOrigin) root.querySelector('.list-top')?.insertAdjacentHTML('afterend',`<aside class="acu-library-return"><p>Tu preparación de ACU sigue disponible. Cargá los insumos faltantes y volvé para elegirlos y revisar sus consumos.</p><div class="heading-actions"><button class="btn tiny" data-action="ai-resource-open">Preparar faltantes con IA</button><button class="btn tiny primary" data-action="acu-library-return">Volver al ACU</button></div></aside>`);
+    if (state.view === "projects" && homeCash.model.draft) root.innerHTML += homeCash.editor();
+    homeCash.afterRender();
     if (resourceImport.model.open) root.innerHTML += resourceImport.markup();
     if (agreement.model.open) root.innerHTML += agreement.markup();
     if (patterns.model.active) {
@@ -643,6 +648,7 @@ export function createWorkspaceApp({
         );
         return;
       }
+      if(button.dataset.action.startsWith("home-cash-")){if(button.dataset.action==="home-cash-new" && !(await protectContext()))return;await homeCash.act(button);return;}
       if(button.dataset.action.startsWith("reminder-")){await reminders.act(button);return;}
       if(button.dataset.action.startsWith("agreement-")){await agreement.act(button);return;}
       if (button.dataset.action === "open-system-settings" || button.dataset.action.startsWith("system-") || (state.view==="system-settings" && button.dataset.action.startsWith("plan-calendar-"))) {await systemSettings.act(button);return;}
@@ -699,6 +705,7 @@ export function createWorkspaceApp({
       [printProfile, ["print-profile-form"]],
       [printing, ["budget-print-form"]],
       [reminders, ["reminder-form"]],
+      [homeCash, ["home-cash-form"]],
       [
         pricing,
         ["price-item-form", "price-template-form", "price-export-form"],
@@ -843,6 +850,7 @@ export function createWorkspaceApp({
     }
     try {
       if (state.modal?.kind === "from-acu" && evt.target.name === "sectionId") state.modal.sectionId=evt.target.value;
+      homeCash.change(evt.target);
       reminders.change(evt.target);
       await people.change(evt.target);
       await resourceImport.change(evt.target);
@@ -884,6 +892,7 @@ export function createWorkspaceApp({
     }
   });
   document.addEventListener("focusin", (evt) => {
+    homeCash.focus(evt.target);
     unitPicker.focus(evt);
     resourcePicker.focus(evt);
   });
@@ -895,6 +904,7 @@ export function createWorkspaceApp({
     )
       if(evt.target.name!=="calendar-month")state.pageDirty = true;
     acuInsertPicker.input(evt.target);
+    homeCash.input(evt.target);
     reminders.input(evt.target);
     people.input(evt.target);
     printing.input(evt.target);
@@ -966,6 +976,7 @@ export function createWorkspaceApp({
     }
   });
   document.addEventListener("keydown", (evt) => {
+    if(homeCash.keydown(evt))return;
     if(evt.key === "Escape" && resourceImport.model.open){evt.preventDefault();resourceImport.act({dataset:{action:"resource-import-close"}});return;}
     if(evt.key==='Escape' && agreement.model.open){evt.preventDefault();agreement.act({dataset:{action:'agreement-close'}}).catch(error=>{state.message=String(error);render();});return;}
     if(evt.key==='Escape'&&state.view==='planning'&&(document.querySelector('#planning-task-form')||document.querySelector('#planning-split-form'))){evt.preventDefault();const action=document.querySelector('#planning-split-form')?'plan-split-cancel':'plan-cancel';planning.act({dataset:{action}}).catch(error=>{state.message=String(error);render();});return;}
