@@ -21,3 +21,8 @@ test('quotation needs include omitted report materials and subtract consumed sto
  assert.equal(needs[1].suggested,'20');
  assert.equal(materialNeedsFromTotals([totals[0]],[{resource_id:'r',stock:'200'}])[0].suggested,'0');
 });
+
+test('budget level monthly resources add to supply quantities even when their charged concept is off',()=>{
+ const definition={rows:[{role:'direct_costs',enabled:false,items:[{resource_id:'r',description:'Vallas',resource_kind:'material',unit:'un',quantity:'2',unit_price:'12.5',months:'3',participation_percent:'100'}]}]};
+ const totals=budgetResourceTotals([],new Map(),[],{},definition);assert.equal(Number(totals[0].quantity),6);assert.equal(Number(totals[0].total),75);
+});

@@ -1,3 +1,4 @@
+import {createOrganizationIndirectCosts} from "./organization-indirect-costs.js";
 import { e, field } from "./helpers.js";
 export function createOrganizations({
   invoke,
@@ -10,6 +11,7 @@ export function createOrganizations({
   profile,
   management,
 }) {
+  const indirect=createOrganizationIndirectCosts({invoke,state,render,document,window,FormData});
   const model = { tab: "list" };
   const selected = () =>
     state.organizations.find((o) => o.id === state.organizationId);
@@ -28,6 +30,7 @@ export function createOrganizations({
     return true;
   }
   function markup() {
+    if (model.tab === "indirect") return indirect.markup();
     if (model.tab === "profile") return profile.markup();
     if (model.tab === "directories")
       return `<div class="feature-toolbar organization-directory-bar"><button class="btn" data-action="organization-open" data-id="${e(state.organizationId)}">← Datos de ${e(selected()?.name)}</button><button class="btn" data-action="organization-list">Organizaciones</button></div>${management.markup()}`;
@@ -35,6 +38,8 @@ export function createOrganizations({
   }
   async function act(button) {
     const a = button.dataset.action;
+    if(indirect.act(button))return true;
+    if(a==="organization-indirect"){if(!protect())return true;await indirect.open(state.organizationId);model.tab="indirect";render();return true;}
     if (a === "open-organizations") {
       await refresh();
       state.organizationId = null;
@@ -90,6 +95,7 @@ export function createOrganizations({
     return true;
   }
   async function submit(form) {
+    if(form.id==="organization-indirect-form"){await indirect.submit(form);return;}
     const data = new FormData(form),
       o = await invoke("create_organization", {
         name: String(data.get("name") || "").trim(),
@@ -98,5 +104,5 @@ export function createOrganizations({
     state.pageDirty = false;
     await act({ dataset: { action: "organization-open", id: o.id } });
   }
-  return { markup, act, submit, model };
+  return { markup, act, submit, model, input:indirect.input };
 }

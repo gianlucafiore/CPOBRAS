@@ -39,25 +39,21 @@ async function handleSubmit(form) {
   } else if (kind === "resource") {
     if (item.id) {
       await invoke("update_resource", { resourceId: item.id, code: v("code"),
-        description: v("description"), unit: v("unit"), kind: v("kind"), active: v("active") === "true" });
+        description: v("description"), unit: v("unit"), kind: v("kind"), active: v("active") === "true", dailyOutput:v("dailyOutput") });
       state.selectedResourceId = item.id;
-    } else if (!v("price")) {
-      const result=await invoke("import_resources",{rows:[{code:v("code"),description:v("description"),unit:v("unit"),kind:v("kind"),price:null}],effectiveDate:v("effectiveDate"),source:v("source")||"Carga manual"});
-      state.selectedResourceId=result.resource_ids?.[0]||null;
     } else {
-      await invoke("create_resource", { code: v("code"), description: v("description"),
-        unit: v("unit"), kind: v("kind"), price: v("price"),
-        effectiveDate: v("effectiveDate"), source: v("source") || null });
+      const created=await invoke("create_resource", { code:v("code"),description:v("description"),unit:v("unit"),kind:v("kind"),price:v("price"),effectiveDate:v("effectiveDate"),source:v("source")||null,dailyOutput:v("dailyOutput") });
+      state.selectedResourceId=created.id;
     }
   } else if (kind === "price") {
     await invoke("register_resource_price", { resourceId: item.id, amount: v("amount"), currency: v("currency"), effectiveDate: v("effectiveDate"), source: v("source") || null });
     state.selectedResourceId = item.id;
   } else if (kind === "line-resources") {
     if(!editable())throw new Error("El presupuesto emitido no se modifica");
-    const components=[...form.querySelectorAll(".component-row")].map(row=>({resourceId:row.querySelector('select[name="resource"]')?.value,quantity:row.querySelector('input[name="quantity"]')?.value,unitPrice:row.querySelector('input[name="unitPrice"]')?.value}));
+    const components=[...form.querySelectorAll(".component-row")].map(row=>({resourceId:row.querySelector('select[name="resource"]')?.value,quantity:row.querySelector('input[name="quantity"]')?.value,unitPrice:row.querySelector('input[name="unitPrice"]')?.value,dailyOutput:row.querySelector('input[name="dailyOutput"]')?.value??''}));
     if(!components.length)throw new Error("Agregá al menos un insumo");
     if(components.some(row=>!row.resourceId))throw new Error("Seleccioná un insumo del catálogo en cada fila");
-    const all=(item.allComponents||[]).map(row=>({resourceId:row.resource_id,quantity:row.quantity,unitPrice:row.unit_price,included:row.included!==false}));
+    const all=(item.allComponents||[]).map(row=>({resourceId:row.resource_id,quantity:row.quantity,unitPrice:row.unit_price,dailyOutput:row.daily_output??"",included:row.included!==false}));
     if(item.componentIndex>=0)all[item.componentIndex]={...components[0],included:all[item.componentIndex]?.included!==false};else all.push({...components[0],included:true});
     for(const row of all)if(row.resourceId===components[0].resourceId)row.unitPrice=components[0].unitPrice;
     await invoke("save_line_resources",{estimateId,lineId:item.id,components:all});state.panel="acu";
@@ -214,7 +210,7 @@ async function act(button) {
     let index=action==="edit-line-resource"?Number(button.dataset.index):-1;
     if(action==="assign-resource")index=all.findIndex(row=>row.resource_id===button.dataset.id);
     const resource=action==="assign-resource"?state.resources.find(row=>row.id===button.dataset.id):null;
-    const selected=index>=0?all[index]:resource?{resource_id:resource.id,quantity:"1",unit_price:state.estimateResourcePrices?.[resource.id]??(currentEstimate()?.currency==="USD"?"":resource.price??"")}:{resource_id:"",quantity:"1",unit_price:""};
+    const selected=index>=0?all[index]:resource?{resource_id:resource.id,daily_output:resource.daily_output,quantity:"1",unit_price:state.estimateResourcePrices?.[resource.id]??(currentEstimate()?.currency==="USD"?"":resource.price??"")}:{resource_id:"",quantity:"1",unit_price:""};
     if(index>=0&&!selected)throw new Error("El insumo ya no está en la composición");
     openModal("line-resources",{...line,components:[selected],allComponents:all,componentIndex:index});return;
   }
@@ -227,6 +223,17 @@ async function act(button) {
     return openModal("estimate");
   }
   if (action === "modal-section") return editable() && openModal("section");
+  if(action==='delete-section-tree'){
+    if(!editable())return;
+    const root=state.sections.find(s=>s.id===button.dataset.id);if(!root)throw Error('El rubro ya no existe');
+    const ids=new Set([root.id]);let previous=0;
+    while(previous!==ids.size){previous=ids.size;for(const s of state.sections)if(ids.has(s.parent_id))ids.add(s.id);}
+    const lines=state.lines.filter(l=>ids.has(state.assignments[l.id]));
+    if(!window.confirm(`¿Eliminar el rubro «${root.title}»? Se perderán las ${lines.length} partidas que contiene${ids.size>1?`, incluyendo sus ${ids.size-1} subrubros`:''}.`))return;
+    await invoke('delete_budget_section_contents',{estimateId:state.estimateId,sectionId:root.id,expectedTitle:root.title,expectedSections:[...ids],expectedLines:lines.map(l=>l.id)});
+    state.selectedSectionId=null;state.selectedLineId=null;
+    await loadCollections();await loadEstimate();state.message='Rubro y partidas eliminados';render();return;
+  }
   if (action === "edit-section") return editable() && openModal("section", state.sections.find(s => s.id === button.dataset.id));
   if (action === "modal-line") return editable() && openModal("line");
   if (action === "edit-line") return editable() && currentLine() && openModal("line", currentLine());

@@ -463,6 +463,7 @@ fn direct_line_resources_are_private_snapshots_and_survive_versions_and_exchange
     };
     store.save_resource(&resource).unwrap();
     let inputs = vec![LineResourceInput {
+        daily_output: None,
         included: None,
         resource_id: resource.id,
         quantity: Decimal::new(25, 1),
@@ -483,6 +484,7 @@ fn direct_line_resources_are_private_snapshots_and_survive_versions_and_exchange
             estimate.id,
             line.id,
             &[LineResourceInput {
+                daily_output: None,
                 included: None,
                 resource_id: resource.id,
                 quantity: Decimal::from(3),
@@ -1114,6 +1116,7 @@ fn deleting_a_draft_cascades_owned_data_preserves_catalog_and_other_versions() {
         })
         .unwrap();
     let inputs = [LineResourceInput {
+        daily_output: None,
         included: None,
         resource_id: resource,
         quantity: 2.into(),
@@ -1198,6 +1201,7 @@ fn deleting_a_line_keeps_documents_stock_and_receiving_pending_orders_working() 
             e.id,
             line.id,
             &[crate::line_workflows::LineResourceInput {
+                daily_output: None,
                 included: None,
                 resource_id: res,
                 quantity: 1.into(),
@@ -1351,7 +1355,7 @@ fn upgrades_populated_schema_fifteen_and_deletes_its_preexisting_linked_line() {
     old.execute_batch("DROP TABLE reminders;").unwrap();
     undo_people_migration_for_fixture(&old);
     old.execute_batch("DROP TRIGGER assisted_batches_no_update; DROP TRIGGER assisted_batches_no_delete; DROP TABLE assisted_budget_batches; DROP TRIGGER inactive_client_new_project; DROP TRIGGER inactive_client_change_project; DROP TRIGGER IF EXISTS inactive_supplier_new_offer; DROP TABLE advance_agreement_links; DROP TABLE entity_archives; DROP TABLE supplier_movements; DROP TABLE operation_files; ALTER TABLE operation_links DROP COLUMN archived_line_id; DROP TABLE deleted_estimate_lines; DROP TABLE line_analysis_sources; DROP TABLE estimate_resource_prices; DROP TABLE quotation_request_revisions;DROP TABLE quotation_response_files;DROP TABLE quotation_awards;DROP TABLE quotation_responses;DROP TABLE site_book_entries;DROP TABLE certificate_drafts;DROP TABLE certificate_sheets;DROP TABLE certified_sources;DROP TABLE quotation_requests;DROP TABLE estimate_adjustment_agreements;DROP TABLE index_points;DROP TABLE system_calendar;DROP TABLE estimate_price_definitions; DROP TABLE price_definition_templates;
-             DROP TABLE print_profiles; DROP TRIGGER new_project_organization; DROP TRIGGER external_company_readonly_update; DROP TRIGGER external_company_readonly_delete; DROP TRIGGER clear_measured_quantity; DROP TABLE automatic_codes; DROP TABLE measured_lines; DROP TABLE project_attachments; DROP TABLE project_organizations; DROP TABLE organization_preferences; DROP TABLE organizations; DELETE FROM schema_migrations WHERE version>=16; CREATE TRIGGER operation_links_no_update BEFORE UPDATE ON operation_links BEGIN SELECT RAISE(ABORT,'operation links are immutable'); END;").unwrap();
+             DROP TABLE resource_productivities; DROP TABLE budget_presentations; DROP TABLE organization_indirect_costs; DROP TABLE print_profiles; DROP TRIGGER new_project_organization; DROP TRIGGER external_company_readonly_update; DROP TRIGGER external_company_readonly_delete; DROP TRIGGER clear_measured_quantity; DROP TABLE automatic_codes; DROP TABLE measured_lines; DROP TABLE project_attachments; DROP TABLE project_organizations; DROP TABLE organization_preferences; DROP TABLE organizations; DELETE FROM schema_migrations WHERE version>=16; CREATE TRIGGER operation_links_no_update BEFORE UPDATE ON operation_links BEGIN SELECT RAISE(ABORT,'operation links are immutable'); END;").unwrap();
     drop(old);
     let mut upgraded = LocalStore::open(&path).unwrap();
     assert_eq!(
@@ -1360,7 +1364,7 @@ fn upgrades_populated_schema_fifteen_and_deletes_its_preexisting_linked_line() {
             .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| r
                 .get::<_, i64>(0))
             .unwrap(),
-        36
+        40
     );
     upgraded.delete_estimate_item(e.id, line.id).unwrap();
     assert!(upgraded.estimate_items(e.id).unwrap().is_empty());
@@ -1731,6 +1735,7 @@ fn resource_price_changes_propagate_within_one_budget_without_changing_yields_or
     };
     s.add_estimate_item(&second).unwrap();
     let input = |qty, price| crate::line_workflows::LineResourceInput {
+        daily_output: None,
         included: None,
         resource_id: res,
         quantity: Decimal::from(qty),
@@ -1779,6 +1784,7 @@ fn pattern_prices_use_destination_resource_prices_and_without_prices_do_not_get_
     use crate::budget_patterns::*;
     let (mut s, p, e, l, _, res, _) = stock_fixture();
     let input = |q, p| crate::line_workflows::LineResourceInput {
+        daily_output: None,
         included: None,
         resource_id: res,
         quantity: Decimal::from(q),
@@ -1851,6 +1857,7 @@ fn resource_price_overflow_rolls_back_every_partida_and_price() {
     };
     s.add_estimate_item(&second).unwrap();
     let input = |q, p| crate::line_workflows::LineResourceInput {
+        daily_output: None,
         included: None,
         resource_id: res,
         quantity: q,
@@ -1881,6 +1888,7 @@ fn library_acus_adopt_the_budget_price_without_mutating_the_library() {
         description: "ACU".into(),
         unit: l.unit.clone(),
         components: vec![cpobras_core::ResourcePriceSnapshot {
+            daily_output: None,
             included: true,
             resource_id: res,
             description: "Material".into(),
@@ -1924,6 +1932,7 @@ fn schema_seventeen_reconciles_legacy_draft_prices_once_using_the_latest_composi
         e.id,
         l.id,
         &[crate::line_workflows::LineResourceInput {
+            daily_output: None,
             included: None,
             resource_id: res,
             quantity: 2.into(),
@@ -1943,6 +1952,7 @@ fn schema_seventeen_reconciles_legacy_draft_prices_once_using_the_latest_composi
         description: "Legacy".into(),
         unit: l.unit.clone(),
         components: vec![cpobras_core::ResourcePriceSnapshot {
+            daily_output: None,
             included: true,
             resource_id: res,
             description: "Material".into(),
@@ -1997,6 +2007,7 @@ fn legacy_library_unit_changes_do_not_prevent_opening_or_reinterpret_stored_pric
         description: "Biblioteca modificada".into(),
         unit: "kg".into(),
         components: vec![cpobras_core::ResourcePriceSnapshot {
+            daily_output: None,
             included: true,
             resource_id: res,
             description: "Material".into(),
@@ -2035,10 +2046,13 @@ fn custom_price_definition_revision_copy_export_and_issue_are_consistent() {
     let original = store.get_price_definition(estimate.id).unwrap();
     assert!(!original.custom);
     assert_eq!(original.revision, 0);
-    let mut definition = PriceDefinition::from_rates(PricingRates::default());
-    definition.rows[0].reference_percent = Decimal::from(10);
-    definition.rows[2].kind = PriceKind::PercentDirect;
-    definition.rows[2].percent = Decimal::from(15);
+    let mut definition = PriceDefinition::from_rates(PricingRates {
+        general_expenses_percent: Decimal::ONE,
+        ..PricingRates::default()
+    });
+    definition.rows[1].reference_percent = Decimal::from(10);
+    definition.rows[3].kind = PriceKind::PercentDirect;
+    definition.rows[3].percent = Decimal::from(15);
     definition.rows.last_mut().unwrap().percent = Decimal::from(21);
     let saved = store
         .save_price_definition(estimate.id, 0, &definition)
@@ -2060,7 +2074,7 @@ fn custom_price_definition_revision_copy_export_and_issue_are_consistent() {
         Decimal::new(3025, 1)
     );
     let document = store.export_budget(estimate.id).unwrap();
-    assert_eq!(document.format_version, 6);
+    assert_eq!(document.format_version, 10);
     let json = serde_json::to_string(&document).unwrap();
     let imported = store
         .import_budget(project.id, &serde_json::from_str(&json).unwrap())
@@ -2088,10 +2102,10 @@ fn invalid_custom_price_can_be_repaired_after_direct_cost_change() {
     use cpobras_core::price_determination::{PriceDefinition, PriceKind, PriceRole};
     let (mut store, _, estimate, line) = fixture();
     let mut definition = PriceDefinition::from_rates(PricingRates::default());
-    definition.rows[0].kind = PriceKind::Fixed;
-    definition.rows[0].role = PriceRole::Discount;
-    definition.rows[0].subtract = true;
-    definition.rows[0].amount = Decimal::from(150);
+    definition.rows[1].kind = PriceKind::Fixed;
+    definition.rows[1].role = PriceRole::Discount;
+    definition.rows[1].subtract = true;
+    definition.rows[1].amount = Decimal::from(150);
     store
         .save_price_definition(estimate.id, 0, &definition)
         .unwrap();
@@ -2112,7 +2126,7 @@ fn invalid_custom_price_can_be_repaired_after_direct_cost_change() {
     assert!(saved.calculation.is_none());
     assert!(saved.calculation_error.is_some());
     assert!(store.issue_estimate(estimate.id).is_err());
-    definition.rows[0].amount = Decimal::from(10);
+    definition.rows[1].amount = Decimal::from(10);
     store
         .save_price_definition(estimate.id, 1, &definition)
         .unwrap();
@@ -2128,8 +2142,8 @@ fn certificates_prorate_custom_price_including_fixed_charges() {
     use cpobras_core::price_determination::{PriceDefinition, PriceKind};
     let (mut s, p, e, l) = fixture();
     let mut definition = PriceDefinition::from_rates(PricingRates::default());
-    definition.rows[0].kind = PriceKind::Fixed;
-    definition.rows[0].amount = 50.into();
+    definition.rows[1].kind = PriceKind::Fixed;
+    definition.rows[1].amount = 50.into();
     s.save_price_definition(e.id, 0, &definition).unwrap();
     s.issue_estimate(e.id).unwrap();
     let mut cert = operation(p.id, "certificate");
@@ -2173,8 +2187,8 @@ fn print_snapshots_reconcile_client_prices_and_incidence_without_mutating_costs(
         .unwrap();
     }
     let mut definition = PriceDefinition::from_rates(PricingRates::default());
-    definition.rows[0].kind = PriceKind::Fixed;
-    definition.rows[0].amount = 1.into();
+    definition.rows[1].kind = PriceKind::Fixed;
+    definition.rows[1].amount = 1.into();
     s.save_price_definition(e.id, 0, &definition).unwrap();
     let before = s.export_budget(e.id).unwrap();
     let data = s.budget_print_data(e.id).unwrap();
@@ -2246,8 +2260,8 @@ fn zero_direct_cost_prints_fixed_price_as_explicit_unallocated_amount() {
     )
     .unwrap();
     let mut definition = PriceDefinition::from_rates(PricingRates::default());
-    definition.rows[0].kind = PriceKind::Fixed;
-    definition.rows[0].amount = 50.into();
+    definition.rows[1].kind = PriceKind::Fixed;
+    definition.rows[1].amount = 50.into();
     s.save_price_definition(e.id, 0, &definition).unwrap();
     let data = s.budget_print_data(e.id).unwrap();
     assert_eq!(data.final_total, 50.into());
@@ -2355,7 +2369,7 @@ fn schema_nineteen_migration_keeps_legacy_logo_and_project_owner_after_reopening
             [serde_json::to_string(&profile).unwrap()],
         )
         .unwrap();
-    s.conn.execute_batch("DROP TRIGGER new_project_organization; DROP TRIGGER external_company_readonly_update; DROP TRIGGER external_company_readonly_delete; DROP TABLE project_organizations; DROP TABLE organization_preferences; DROP TABLE organizations; DELETE FROM schema_migrations WHERE version=20;").unwrap();
+    s.conn.execute_batch("DROP TABLE budget_presentations; DROP TABLE organization_indirect_costs; DELETE FROM schema_migrations WHERE version=38; DROP TRIGGER new_project_organization; DROP TRIGGER external_company_readonly_update; DROP TRIGGER external_company_readonly_delete; DROP TABLE project_organizations; DROP TABLE organization_preferences; DROP TABLE organizations; DELETE FROM schema_migrations WHERE version=20;").unwrap();
     s.conn
         .backup(rusqlite::DatabaseName::Main, &path, None)
         .unwrap();
@@ -2771,6 +2785,7 @@ fn saving_an_acu_pattern_copies_unit_composition_without_changing_the_source() {
             e.id,
             line.id,
             &[LineResourceInput {
+                daily_output: None,
                 included: None,
                 resource_id: r.id,
                 quantity: Decimal::from(3),
@@ -3099,12 +3114,19 @@ fn monthly_rentals_reconcile_partial_invoices_payments_and_cash_before_collectio
     for row in &mut definition.rows {
         row.enabled = false;
     }
-    let row = &mut definition.rows[0];
+    let row = &mut definition.rows[1];
+    row.kind = cpobras_core::price_determination::PriceKind::Detailed;
+    row.role = cpobras_core::price_determination::PriceRole::Overhead;
     row.enabled = true;
     row.detail_mode = DetailMode::Items;
     let item_id = Uuid::new_v4();
     let row_id = row.id;
     row.items = vec![PriceItem {
+        use_estimate_duration: false,
+        months_per_payment: None,
+        resource_id: None,
+        resource_kind: None,
+        months: None,
         id: item_id,
         parent_id: None,
         group: false,
@@ -3188,6 +3210,7 @@ fn declared_acopio_reduces_period_purchases_without_creating_a_payment() {
         description: "Materiales".into(),
         unit: "m".into(),
         components: vec![ResourcePriceSnapshot {
+            daily_output: None,
             included: true,
             resource_id: resource,
             description: "Material".into(),
@@ -3202,6 +3225,7 @@ fn declared_acopio_reduces_period_purchases_without_creating_a_payment() {
         e.id,
         l.id,
         &[crate::line_workflows::LineResourceInput {
+            daily_output: None,
             included: None,
             resource_id: resource,
             quantity: 5.into(),
@@ -3294,6 +3318,7 @@ fn crew_friday_payments_cap_advance_recovery_and_replace_liquidated_wages() {
         e.id,
         l.id,
         &[LineResourceInput {
+            daily_output: None,
             included: None,
             resource_id: resource,
             quantity: 1.into(),
@@ -3364,6 +3389,7 @@ fn material_orders_in_another_currency_cover_supply_without_implicit_currency_co
         e.id,
         l.id,
         &[crate::line_workflows::LineResourceInput {
+            daily_output: None,
             included: None,
             resource_id: resource,
             quantity: 5.into(),
@@ -5641,6 +5667,7 @@ fn assisted_acu_reuses_reference_consumption_but_not_historical_prices() {
         e.id,
         line.id,
         &[LineResourceInput {
+            daily_output: None,
             included: None,
             resource_id: id,
             quantity: 2.into(),
@@ -5723,12 +5750,14 @@ fn removing_line_resources_preserves_catalog_snapshots_and_handles_the_last_comp
     store.save_resource(&second).unwrap();
     let inputs = vec![
         LineResourceInput {
+            daily_output: None,
             included: None,
             resource_id: resource.id,
             quantity: Decimal::ONE,
             unit_price: Decimal::from(10),
         },
         LineResourceInput {
+            daily_output: None,
             included: None,
             resource_id: second.id,
             quantity: Decimal::from(3),
@@ -5786,6 +5815,7 @@ fn line_cost_exclusions_keep_prices_quantities_other_lines_and_survive_edit_copy
     use crate::line_workflows::LineResourceInput;
     let (mut s, p, e, l, _, resource, _) = stock_fixture();
     let inputs = [LineResourceInput {
+        daily_output: None,
         included: None,
         resource_id: resource,
         quantity: Decimal::from(2),
@@ -5838,6 +5868,7 @@ fn line_cost_exclusions_keep_prices_quantities_other_lines_and_survive_edit_copy
             e.id,
             l.id,
             &[LineResourceInput {
+                daily_output: None,
                 included: None,
                 resource_id: resource,
                 quantity: Decimal::from(3),
@@ -5865,7 +5896,7 @@ fn line_cost_exclusions_keep_prices_quantities_other_lines_and_survive_edit_copy
             .included
     );
     let document = s.export_budget(e.id).unwrap();
-    assert_eq!(document.format_version, 6);
+    assert_eq!(document.format_version, 10);
     let imported = s.import_budget(p.id, &document).unwrap();
     let imported_line = s.estimate_items(imported.id).unwrap()[0].clone();
     assert!(
@@ -5907,4 +5938,331 @@ fn legacy_components_default_to_included_and_exclusions_only_remove_the_cost() {
     assert_eq!(acu.cost_breakdown().unwrap().total, Decimal::ZERO);
     assert_eq!(acu.components[0].unit_price, Decimal::from(100));
     assert_eq!(acu.components[0].quantity_per_unit, Decimal::from(3));
+}
+
+#[test]
+fn direct_budget_costs_roundtrip_without_lines_and_preserve_requirements_when_not_charged() {
+    use cpobras_core::price_determination::{PriceDefinition, PriceRole};
+    let (mut s, p, e, _) = fixture();
+    let resource = Uuid::new_v4();
+    let mut definition = PriceDefinition::from_rates(PricingRates::default());
+    definition.rows[0].items=vec![serde_json::from_value(serde_json::json!({
+        "id":Uuid::new_v4(),"resource_id":resource,"resource_kind":"material","months":"3", "parent_id":null,"group":false,"description":"Protección de obra","unit":"un","quantity":"2","unit_price":"100","participation_percent":"100","periodic":null
+    })).unwrap()];
+    let before = s.estimate_items(e.id).unwrap().len();
+    s.save_price_definition(e.id, 0, &definition).unwrap();
+    assert_eq!(
+        s.priced_estimate_total(e.id).unwrap().total,
+        Decimal::from(800)
+    );
+    assert_eq!(s.estimate_items(e.id).unwrap().len(), before);
+    let mut recovered = s.get_price_definition(e.id).unwrap().definition;
+    assert_eq!(recovered.rows[0].items[0].months, Some(Decimal::from(3)));
+    recovered.rows[0].enabled = false;
+    s.save_price_definition(e.id, 1, &recovered).unwrap();
+    assert_eq!(
+        s.priced_estimate_total(e.id).unwrap().total,
+        Decimal::from(200)
+    );
+    let report = s.operations_report(p.id, Some(e.id), "2026-11-17").unwrap();
+    assert_eq!(
+        report
+            .needs
+            .iter()
+            .find(|n| n.resource_id == resource)
+            .unwrap()
+            .required,
+        Decimal::from(6)
+    );
+    // Omission by a legacy caller cannot erase the linked composition.
+    let mut omitted = recovered.clone();
+    omitted.rows.retain(|r| r.role != PriceRole::DirectCosts);
+    s.save_price_definition(e.id, 2, &omitted).unwrap();
+    assert_eq!(
+        s.get_price_definition(e.id).unwrap().definition.rows[0].items,
+        recovered.rows[0].items
+    );
+    let copied = s.duplicate_estimate(e.id, "Copia con gastos").unwrap();
+    let doc = s.export_budget(copied.id).unwrap();
+    assert_eq!(doc.format_version, 10);
+    let imported = s.import_budget(p.id, &doc).unwrap();
+    let read = s.get_price_definition(imported.id).unwrap();
+    let row = read
+        .definition
+        .rows
+        .iter()
+        .find(|r| r.role == PriceRole::DirectCosts)
+        .unwrap();
+    assert!(!row.enabled);
+    assert_eq!(row.items[0].months, Some(Decimal::from(3)));
+    assert_eq!(row.items[0].resource_id, Some(resource));
+    s.issue_estimate(e.id).unwrap();
+    assert!(s.save_price_definition(e.id, 3, &recovered).is_err());
+}
+
+#[test]
+fn daily_productivity_seeds_once_keeps_budget_snapshots_and_rolls_back_failed_saves() {
+    use crate::{line_workflows::LineResourceInput, resource_catalog::Resource};
+    let (mut s, p, e, l) = fixture();
+    let r = Resource {
+        id: Uuid::new_v4(),
+        code: "RATE-1".into(),
+        description: "Subcontrato".into(),
+        unit: "m".into(),
+        kind: cpobras_core::ResourceKind::Subcontract,
+        active: true,
+    };
+    s.save_resource(&r).unwrap();
+    let input = |rate: &str, price: Decimal| LineResourceInput {
+        daily_output: Some(rate.into()),
+        included: Some(true),
+        resource_id: r.id,
+        quantity: Decimal::ONE,
+        unit_price: price,
+    };
+    let a = s
+        .save_line_resources(e.id, l.id, &[input("100", 100.into())])
+        .unwrap();
+    assert_eq!(s.resource_daily_output(r.id).unwrap(), Some(100.into()));
+    let copy = s.duplicate_estimate(e.id, "Otro presupuesto").unwrap();
+    let second = s.estimate_items(copy.id).unwrap()[0].id;
+    let b = s
+        .save_line_resources(copy.id, second, &[input("200", 100.into())])
+        .unwrap();
+    assert_eq!(s.resource_daily_output(r.id).unwrap(), Some(100.into()));
+    s.save_resource_with_productivity(&r, None, Some(Some(300.into())))
+        .unwrap();
+    assert_eq!(
+        s.get_analysis(a).unwrap().unwrap().components[0].daily_output,
+        Some(100.into())
+    );
+    assert_eq!(
+        s.get_analysis(b).unwrap().unwrap().components[0].daily_output,
+        Some(200.into())
+    );
+    let document = s.export_budget(copy.id).unwrap();
+    let imported = s.import_budget(p.id, &document).unwrap();
+    let imported_analysis = s.estimate_items(imported.id).unwrap()[0]
+        .analysis_id
+        .unwrap();
+    assert_eq!(
+        s.get_analysis(imported_analysis)
+            .unwrap()
+            .unwrap()
+            .components[0]
+            .daily_output,
+        Some(200.into())
+    );
+    let failed = Resource {
+        id: Uuid::new_v4(),
+        code: "RATE-FAIL".into(),
+        ..r.clone()
+    };
+    s.save_resource(&failed).unwrap();
+    let line = EstimateItem {
+        id: Uuid::new_v4(),
+        position: 1,
+        analysis_id: None,
+        quantity: Decimal::MAX,
+        unit_cost_snapshot: Decimal::ZERO,
+        ..l
+    };
+    s.add_estimate_item(&line).unwrap();
+    assert!(s
+        .save_line_resources(
+            e.id,
+            line.id,
+            &[LineResourceInput {
+                daily_output: Some("50".into()),
+                included: Some(true),
+                resource_id: failed.id,
+                quantity: Decimal::ONE,
+                unit_price: 2.into()
+            }]
+        )
+        .is_err());
+    assert_eq!(s.resource_daily_output(failed.id).unwrap(), None);
+    assert_eq!(
+        s.estimate_items(e.id)
+            .unwrap()
+            .iter()
+            .find(|row| row.id == line.id)
+            .unwrap()
+            .unit_cost_snapshot,
+        Decimal::ZERO
+    );
+}
+
+#[test]
+fn destructive_rubro_delete_checks_confirmation_and_preserves_other_lines() {
+    use crate::budget_sections::BudgetSection;
+    let (mut s, _, e, l) = fixture();
+    let root = BudgetSection {
+        id: Uuid::new_v4(),
+        estimate_id: e.id,
+        parent_id: None,
+        code: "R1".into(),
+        title: "Eliminar".into(),
+        position: 0,
+    };
+    let child = BudgetSection {
+        id: Uuid::new_v4(),
+        parent_id: Some(root.id),
+        code: "R1.1".into(),
+        title: "Hijo".into(),
+        position: 1,
+        ..root.clone()
+    };
+    s.save_budget_section(&root).unwrap();
+    s.save_budget_section(&child).unwrap();
+    s.assign_line_section(e.id, l.id, child.id).unwrap();
+    let other = EstimateItem {
+        id: Uuid::new_v4(),
+        position: 1,
+        ..l.clone()
+    };
+    s.add_estimate_item(&other).unwrap();
+    assert!(s
+        .delete_budget_section_contents(e.id, root.id, &root.title, &[root.id], &[l.id])
+        .is_err());
+    assert_eq!(s.estimate_items(e.id).unwrap().len(), 2);
+    assert_eq!(
+        s.delete_budget_section_contents(e.id, root.id, &root.title, &[root.id, child.id], &[l.id])
+            .unwrap(),
+        1
+    );
+    assert_eq!(s.estimate_items(e.id).unwrap()[0].id, other.id);
+    assert!(s.list_budget_sections(e.id).unwrap().is_empty());
+    let count: i64 = s
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM deleted_estimate_lines WHERE id=?1",
+            [l.id.to_string()],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 1);
+}
+
+#[test]
+fn new_user_budgets_have_requested_price_rows_without_changing_existing_budgets() {
+    let (mut s, _, old, l) = fixture();
+    let new = Estimate {
+        id: Uuid::new_v4(),
+        title: "Nuevo".into(),
+        ..old.clone()
+    };
+    s.create_estimate_with_defaults(&new).unwrap();
+    s.add_estimate_item(&EstimateItem {
+        id: Uuid::new_v4(),
+        estimate_id: new.id,
+        ..l
+    })
+    .unwrap();
+    let saved = s.get_price_definition(new.id).unwrap();
+    assert_eq!(
+        saved
+            .definition
+            .rows
+            .iter()
+            .map(|r| r.label.as_str())
+            .collect::<Vec<_>>(),
+        vec![
+            "Gastos indirectos",
+            "Gastos Directos",
+            "Gastos financieros",
+            "Beneficio",
+            "Subtotal",
+            "Honorarios profesionales",
+            "Impuestos"
+        ]
+    );
+    assert!(!saved.definition.rows[5].enabled);
+    assert_eq!(saved.definition.rows[3].percent, 20.into());
+    assert_eq!(saved.definition.rows[6].percent, 21.into());
+    assert_eq!(
+        saved.calculation.unwrap().breakdown.total,
+        Decimal::new(2904, 1)
+    );
+    assert_eq!(
+        s.priced_estimate_total(old.id).unwrap().total,
+        Decimal::from(200)
+    );
+}
+
+#[test]
+fn shared_work_duration_updates_monthly_and_annual_costs_but_not_overrides() {
+    use cpobras_core::price_determination::{PriceDefinition, PriceItem, PriceRole};
+    let mut definition = PriceDefinition::for_new_budget();
+    definition.estimated_months = Some(7.into());
+    let item = |annual: bool, linked: bool| -> PriceItem {
+        serde_json::from_value(serde_json::json!({"id":Uuid::new_v4(),"parent_id":null,"group":false,"description":"Seguro","unit":"mes","quantity":"1","unit_price":"120000","participation_percent":"20","periodic":null,"months":"3","use_estimate_duration":linked,"months_per_payment":if annual{Some("12")}else{None}})).unwrap()
+    };
+    let monthly = item(false, true);
+    let annual = item(true, true);
+    let fixed = item(false, false);
+    let ids = [monthly.id, annual.id, fixed.id];
+    let row = definition
+        .rows
+        .iter_mut()
+        .find(|r| r.role == PriceRole::Overhead)
+        .unwrap();
+    let row_id = row.id;
+    row.items = vec![monthly, annual, fixed];
+    let first = definition.calculate(Decimal::ZERO).unwrap();
+    let totals = &first
+        .rows
+        .iter()
+        .find(|r| r.id == row_id)
+        .unwrap()
+        .item_totals;
+    assert_eq!(totals[&ids[0]], 168000.into());
+    assert_eq!(totals[&ids[1]], 14000.into());
+    assert_eq!(totals[&ids[2]], 72000.into());
+    definition.estimated_months = Some(10.into());
+    let next = definition.calculate(Decimal::ZERO).unwrap();
+    let totals = &next
+        .rows
+        .iter()
+        .find(|r| r.id == row_id)
+        .unwrap()
+        .item_totals;
+    assert_eq!(totals[&ids[0]], 240000.into());
+    assert_eq!(totals[&ids[1]], 20000.into());
+    assert_eq!(totals[&ids[2]], 72000.into());
+}
+
+#[test]
+fn organization_indirect_cost_audit_uses_organization_id_on_insert_and_update() {
+    use crate::presentation::{IndirectCost, IndirectCostPlan};
+    let (mut s, _, _, _) = fixture();
+    let org = s.default_organization().unwrap();
+    let mut data = IndirectCostPlan {
+        currency: Currency::Ars,
+        items: vec![IndirectCost {
+            id: Uuid::new_v4(),
+            description: "Seguro".into(),
+            amount: 120000.into(),
+            periodicity: "monthly".into(),
+            periods: Decimal::ONE,
+        }],
+    };
+    let saved = s
+        .save_organization_indirect_costs(org.id, 0, &data)
+        .unwrap();
+    data.items[0].amount = 130000.into();
+    s.save_organization_indirect_costs(org.id, saved.revision, &data)
+        .unwrap();
+    let events = s
+        .change_events(0)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.entity_type == "organization_indirect_costs")
+        .collect::<Vec<_>>();
+    assert_eq!(events.len(), 2);
+    assert!(events.iter().all(|e| e.entity_id == org.id.to_string()));
+    assert_eq!(
+        s.organization_indirect_costs(org.id).unwrap().data.items[0].amount,
+        130000.into()
+    );
 }

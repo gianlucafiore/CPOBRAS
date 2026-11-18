@@ -398,3 +398,15 @@ test('excluded ACU components remain priced for supply but are controlled indepe
  assert.equal(supplies.data[3][3].cached,'8');assert.equal(supplies.data[3][4].cached,'200');assert.match(supplies.data[3][4].value,/!L4:L/);
  const files=unzipSync(await workbookBytes(sheets));assert.match(strFromU8(files['xl/worksheets/sheet2.xml']),/IF\(K5=1,D5\*E5,0\)/);
 });
+
+test('monthly budget costs remain editable and feed consolidated supply formulas without becoming a partida',()=>{
+ const data=workbookFixture();
+ const row={id:'dc',label:'Gastos Directos',role:'direct_costs',kind:'detailed',enabled:true,detail_mode:'items',percent:'0',reference_percent:'0',amount:'0',items:[{id:'dc-item',resource_id:'r1',resource_kind:'material',parent_id:null,group:false,description:'Material privado',unit:'kg',quantity:'2',unit_price:'25',participation_percent:'100',months:'3'}]};
+ data.document.price_definition.rows.unshift(row);data.calculation.rows.unshift({...row,base:'0',amount:'150',running_total:'500',detail_total:'150',reference_total:'0',item_totals:{'dc-item':'150'}});
+ data.final_total='689.70';Object.assign(data.calculation.breakdown,{taxable_subtotal:'570',taxes:'119.70',total:'689.70'});Object.assign(data.calculation.rows.find(r=>r.id==='profit'),{running_total:'570'});Object.assign(data.calculation.rows.find(r=>r.id==='iva'),{base:'570',amount:'119.70',running_total:'689.70'});
+ const before=data.document.lines.length,sheets=buildBudgetWorkbook(data);
+ const detail=sheets.find(s=>s.sheet==='Detalle precio').data.find(r=>r[1]?.value==='Material privado');
+ assert.equal(String(detail[6].value),'3');assert.match(detail[7].value,/D\d+\/100\*E\d+\*F\d+\*G\d+/);
+ const consolidated=sheets.find(s=>s.sheet==='Insumos').data.find(r=>r[1]?.value==='Material privado');
+ assert.match(consolidated[3].value,/Detalle precio/);assert.match(consolidated[4].value,/Detalle precio/);assert.equal(Number(consolidated[3].cached),14);assert.equal(Number(consolidated[4].cached),350);assert.equal(data.document.lines.length,before);
+});

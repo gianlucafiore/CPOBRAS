@@ -10,11 +10,11 @@ const pages = {
   ],
   "budget-printing": [
     "Imprimir presupuesto",
-    "Elegí presentación para cliente, interna o planilla de incidencias. El PDF se guarda y se solicita abrirlo en el lector predeterminado del sistema. Revisá condiciones públicas y versión antes de generar.",
+    "Elegí presentación para cliente, interna o planilla de incidencias. Los campos se guardan al salir de ellos y antes de generar. Elegí si incluís la memoria descriptiva del presupuesto. El PDF se guarda y se abre en el lector predeterminado del sistema.",
   ],
   "price-determination": [
     "Determinación de precio",
-    "Activá y ordená conceptos para pasar del costo directo al precio final. Cada línea puede usar porcentaje, monto o detalle. Revisá la vista previa y guardá la determinación antes de salir.",
+    "Activá y ordená conceptos para pasar del costo directo al precio final. Cada línea puede usar porcentaje, monto o detalle. Los cambios se guardan automáticamente. Revisá el indicador de guardado y los errores antes de salir.",
   ],
   portfolio: [
     "Cartera global de obras",
@@ -75,13 +75,18 @@ const pages = {
   ],
 };
 const panels = {
+  memory: ["Memoria descriptiva", "Texto público de este presupuesto. Se guarda automáticamente. Para incluirlo en el documento elegí una presentación con memoria en Imprimir presupuesto o Herramientas / exportar."],
+  "direct-costs": [
+    "Gastos Directos del presupuesto",
+    "Definí el plazo estimado de obra, inicialmente 6 meses. Los gastos mensuales usan ese plazo; marcá «Usar meses distintos» para indicar una duración propia por insumo. Los gastos puntuales se suman una vez. El plazo también se usa en los gastos indirectos vinculados de Determinación de precio. Los cambios se guardan automáticamente.",
+  ],
   acu: [
     "Composición de la partida",
     "Acá ves los insumos por unidad y el precio calculado. «Agregar insumo» abre un formulario individual. Doble clic o Editar para cambiar un insumo. Su precio se comparte en este presupuesto; cada partida conserva su rendimiento.",
   ],
   resources: [
     "Insumos del presupuesto",
-    "Esta lista reúne solo los insumos usados por las partidas del presupuesto actual. Seleccioná una partida y pulsá Asignar para reutilizar uno. Con «Agregar insumo» podés buscar otros en la biblioteca. Ajustá su consumo por unidad y precio en el formulario.",
+    "Esta lista muestra las cantidades y precios totales de los insumos de todo el presupuesto. Para agregar o modificar insumos, usá el ACU de la partida correspondiente o la pestaña Gastos Directos.",
   ],
   takeoffs: [
     "Metrados",

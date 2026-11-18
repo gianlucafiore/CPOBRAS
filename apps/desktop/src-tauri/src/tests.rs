@@ -345,18 +345,31 @@ fn ipc_creates_budget_and_preserves_issued_snapshot() {
     )
     .unwrap();
     let mut definition = initial["definition"].clone();
-    definition["rows"][0]["reference_percent"] = json!("10");
+    definition["rows"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|r| r["role"] == "overhead")
+        .unwrap()["reference_percent"] = json!("10");
     let preview = call(
         "calculate_price_definition",
         json!({"estimateId":price_estimate["id"],"definition":definition}),
     )
     .unwrap();
+    let revision = initial["revision"].as_i64().unwrap();
+    if revision > 0 {
+        assert!(call(
+            "save_price_definition",
+            json!({"estimateId":price_estimate["id"],"revision":revision-1,"definition":definition}),
+        )
+        .is_err());
+    }
     let saved_price = call(
         "save_price_definition",
-        json!({"estimateId":price_estimate["id"],"revision":0,"definition":definition}),
+        json!({"estimateId":price_estimate["id"],"revision":revision,"definition":definition}),
     )
     .unwrap();
-    assert_eq!(saved_price["revision"], 1);
+    assert_eq!(saved_price["revision"], revision + 1);
     assert_eq!(saved_price["calculation"], preview);
     let priced = call(
         "priced_estimate_total",
@@ -381,7 +394,7 @@ fn ipc_creates_budget_and_preserves_issued_snapshot() {
     call("issue_estimate", json!({"estimateId":price_estimate["id"]})).unwrap();
     assert!(call(
         "save_price_definition",
-        json!({"estimateId":price_estimate["id"],"revision":1,"definition":definition})
+        json!({"estimateId":price_estimate["id"],"revision":saved_price["revision"],"definition":definition})
     )
     .is_err());
     let public_profile = call("get_print_profile", json!({})).unwrap();

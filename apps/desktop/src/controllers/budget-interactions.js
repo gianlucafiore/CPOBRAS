@@ -89,7 +89,7 @@ export function createBudgetInteractions({invoke,state,editable,currentLine,load
     {action:'delete-line',label:'Eliminar partida',disabled:!editable()}];
   }else if(state.view==='workspace'&&row?.dataset.dropSection){
    state.selectedSectionId=row.dataset.id;state.selectedLineId=null;
-   items=[{action:'modal-line',label:'Nueva partida en este rubro',disabled:!editable()},{action:'edit-section',id:row.dataset.id,label:'Editar rubro',disabled:!editable()}];
+   items=[{action:'modal-line',label:'Nueva partida en este rubro',disabled:!editable()},{action:'edit-section',id:row.dataset.id,label:'Editar rubro',disabled:!editable()},{action:'delete-section-tree',id:row.dataset.id,label:'Eliminar rubro y sus partidas',disabled:!editable()}];
   }else{
    const row=event.target.closest?.('tr[data-action]');
    if(state.view==='resources'&&row?.dataset.id)items.push({action:'edit-resource',id:row.dataset.id,label:'Editar insumo'},{action:'modal-price',id:row.dataset.id,label:'Registrar precio'});

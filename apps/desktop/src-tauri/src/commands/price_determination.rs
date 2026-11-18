@@ -26,11 +26,14 @@ pub(crate) fn calculate_price_definition(
     {
         return Err("Presupuesto inexistente".into());
     }
-    definition.calculate(
-        store
-            .estimate_total(estimate_id)
-            .map_err(|e| e.to_string())?,
-    )
+    store
+        .effective_price_definition(estimate_id, &definition)
+        .map_err(|e| e.to_string())?
+        .calculate(
+            store
+                .estimate_total(estimate_id)
+                .map_err(|e| e.to_string())?,
+        )
 }
 #[tauri::command]
 pub(crate) fn save_price_definition(

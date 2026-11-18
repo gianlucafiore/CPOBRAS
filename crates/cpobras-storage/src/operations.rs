@@ -2266,6 +2266,30 @@ impl LocalStore {
             if !e.issued {
                 alerts.push("El presupuesto de referencia aún es un borrador".into());
             }
+            for row in self.get_price_definition(e.id)?.definition.rows {
+                if row.role != cpobras_core::price_determination::PriceRole::DirectCosts {
+                    continue;
+                }
+                for item in row.items {
+                    if item.group || item.resource_kind.as_deref() != Some("material") {
+                        continue;
+                    }
+                    if let Some(id) = item.resource_id {
+                        let quantity = mul(
+                            mul(
+                                item.quantity,
+                                div(
+                                    item.months.unwrap_or(D::ONE),
+                                    item.months_per_payment.unwrap_or(D::ONE),
+                                )?,
+                            )?,
+                            div(item.participation_percent, D::from(100))?,
+                        )?;
+                        let old = requirements.get(&id).copied().unwrap_or_default();
+                        requirements.insert(id, add(old, quantity)?);
+                    }
+                }
+            }
             let sections = self.list_budget_sections(e.id)?;
             let assignments: BTreeMap<_, _> = self.list_line_sections(e.id)?.into_iter().collect();
             let mut earned = D::ZERO;

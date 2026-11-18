@@ -528,6 +528,7 @@ pub(crate) fn apply_changes(conn: &Connection, batch: &ReviewedBatch) -> Result<
                 _ => return Err(invalid("Tipo de insumo inválido")),
             };
             components.push(ResourcePriceSnapshot {
+                daily_output: None,
                 included: previous
                     .as_ref()
                     .and_then(|a| {

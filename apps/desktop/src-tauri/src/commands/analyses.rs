@@ -6,6 +6,7 @@ use uuid::Uuid;
 
 #[derive(serde::Serialize)]
 pub(crate) struct AnalysisComponentView {
+    daily_output: Option<String>,
     included: bool,
     resource_id: String,
     description: String,
@@ -41,6 +42,7 @@ pub(crate) fn get_analysis_details(
         .components
         .into_iter()
         .map(|component| AnalysisComponentView {
+            daily_output: component.daily_output.map(|v| v.to_string()),
             included: component.included,
             resource_id: component.resource_id.to_string(),
             description: component.description,
@@ -116,6 +118,9 @@ pub(crate) fn compare_contracting(
             .map_err(|err| err.to_string())?
             .ok_or("Falta precio ARS del insumo")?;
         components.push(ResourcePriceSnapshot {
+            daily_output: store
+                .resource_daily_output(resource_id)
+                .map_err(|e| e.to_string())?,
             included: true,
             resource_id,
             description: resource.description,
@@ -260,6 +265,7 @@ pub(crate) fn create_analysis(
                 .amount
         };
         snapshots.push(ResourcePriceSnapshot {
+            daily_output: store.resource_daily_output(id).map_err(|e| e.to_string())?,
             included: true,
             resource_id: id,
             description: resource.description,
@@ -367,6 +373,17 @@ pub(crate) fn update_analysis(
             return Err("Los rendimientos y precios deben ser positivos o cero".into());
         }
         snapshots.push(ResourcePriceSnapshot {
+            daily_output: if let Some(old) = previous
+                .components
+                .iter()
+                .find(|c| c.resource_id == resource_id)
+            {
+                old.daily_output
+            } else {
+                store
+                    .resource_daily_output(resource_id)
+                    .map_err(|e| e.to_string())?
+            },
             included: previous
                 .components
                 .iter()

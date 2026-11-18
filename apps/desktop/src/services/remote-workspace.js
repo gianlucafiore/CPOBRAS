@@ -166,6 +166,9 @@ export function createRemoteInvoke(nativeInvoke, state) {
             }
           );
         }
+        case "get_budget_presentation":
+          requirePermission("budget");
+          return {revision:0,data:budget().document.presentation||{memory:"",print_options:{}}};
         case "get_budget_print_data":
           if (!budget().print_data)
             throw new Error(

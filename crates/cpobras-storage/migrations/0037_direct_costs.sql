@@ -1,0 +1,1 @@
+-- Semantic compatibility: price definitions contain linked resources, monthly multipliers and the direct_costs role. Older engines must not rewrite these definitions.

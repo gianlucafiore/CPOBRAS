@@ -1,3 +1,4 @@
+import {createPdf} from "./pdf-units.js";
 import { budgetNumbering } from "./budget-numbering.js";
 import { money, numeric, sumDecimals } from "../decimal.js";
 import {
@@ -199,12 +200,12 @@ export async function budgetReportPdf(
     notes = "",
     landscape = false,
     layout = "sheet_price",
-    memory = "",
+    memory = data.document.presentation?.memory || "",
     appendices = [],
   } = {},
 ) {
   const { jsPDF } = await import("jspdf");
-  const pdf = new jsPDF({
+  const pdf = createPdf(jsPDF, {
     orientation: landscape ? "landscape" : "portrait",
     compress: false,
   });

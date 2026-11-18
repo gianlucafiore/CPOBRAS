@@ -6,6 +6,9 @@
     "main"
   ],
   "permissions": [
-    "workspace"
+    "workspace",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "core:window:allow-destroy"
   ]
 }

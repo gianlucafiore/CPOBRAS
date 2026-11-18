@@ -14,7 +14,9 @@ import { createSharing } from "./components/sharing.js";
 import { createPersons } from "./components/persons.js";
 import { createOrganizations } from "./components/organizations.js";
 import { createPrintProfile } from "./components/print-profile.js";
+import {createBudgetPresentation} from "./services/budget-presentation.js";
 import { createBudgetPrinting } from "./components/budget-printing.js";
+import {syncDailyOutputUnit} from "./components/resource-productivity.js";
 import { createPriceDetermination } from "./components/price-determination.js";
 import { createBudgetPatterns } from "./components/budget-patterns.js";
 import { createUnitPicker } from "./components/unit-picker.js";
@@ -96,7 +98,8 @@ export function createWorkspaceApp({
   const costing = createCostingWorkspace(context);
   const patterns = createBudgetPatterns(context);
   const pricing = createPriceDetermination(context);
-  const budgetTools = createBudgetTools(context);
+  const presentation = createBudgetPresentation(context);
+  const budgetTools = createBudgetTools({...context,presentation});
   const printProfile = createPrintProfile(context);
   const people = createPersons(context);
   const sharing = createSharing(context);
@@ -105,7 +108,7 @@ export function createWorkspaceApp({
     profile: printProfile,
     management,
   });
-  const printing = createBudgetPrinting(context);
+  const printing = createBudgetPrinting({...context,presentation});
   const homeCash = createHomeCash({...context,invoke:nativeInvoke});
   const reminders = createReminders({...context,invoke:nativeInvoke});
   const { workspace, listViews, chrome, rightPanel } = createViews({
@@ -114,6 +117,8 @@ export function createWorkspaceApp({
     costingMarkup: costing.markup,
     remindersMarkup: reminders.markup,
     homeCashMarkup: homeCash.markup,
+    directCostsMarkup: pricing.directPane,
+    memoryMarkup: presentation.markup,
   });
   const { act, handleSubmit } = createActions(context);
   const interactions = createBudgetInteractions({ ...context, act });
@@ -189,7 +194,8 @@ export function createWorkspaceApp({
       root.innerHTML += patterns.markup();
       patterns.afterRender();
     }
-    if (state.view === "price-determination") pricing.afterRender();
+    if (state.view === "workspace" && state.panel === "direct-costs" && pricing.model.modal) root.innerHTML += pricing.modalMarkup();
+    if (state.view === "price-determination" || (state.view === "workspace" && state.panel === "direct-costs")) pricing.afterRender();
     if(state.view==='planning')planning.afterRender();
     if(state.view==='management')management.afterRender();
     for(const item of offsets){const el=root.querySelectorAll(item.selector)[item.index];if(el){el.scrollTop=item.top;el.scrollLeft=item.left;}}
@@ -222,6 +228,7 @@ export function createWorkspaceApp({
             resourceId: row.resource_id,
             quantity: row.quantity,
             unitPrice: row.unit_price,
+            dailyOutput: row.daily_output,
           }))
         : [];
     state.comparison = null;
@@ -263,8 +270,9 @@ export function createWorkspaceApp({
   };
   async function protectContext() {
     if (state.busy || state.navigating) return false;
+    try{await presentation.flush();}catch(error){state.message=String(error);render();return false;}
     if (state.modal && !closeModal()) return false;
-    if (state.view === "price-determination" && !pricing.leave()) return false;
+    if ((state.view === "price-determination" || (state.view === "workspace" && state.panel === "direct-costs")) && !(await pricing.leave())) return false;
     if (state.view === "operations" && !(await operations.protect())) return false;
     const pending =
       state.pageDirty || (state.view === "planning" && planning.model.dirty);
@@ -617,6 +625,17 @@ export function createWorkspaceApp({
       if(!remoteActionAllowed(state,button))return;
       if(button.dataset.action==='ai-resource-open'){await aiResourceImport.open(resourceLibraryBrief);return;}
       if(button.dataset.action==='acu-library-return'){await returnToAcu();return;}
+      if(['issue','delete-section-tree'].includes(button.dataset.action)){await presentation.flush();await pricing.flush();}
+      if(button.dataset.action==='presentation-save'){await presentation.flush();return;}
+      if(['presentation-use-draft','presentation-use-saved'].includes(button.dataset.action)){
+        await presentation.resolve(button.dataset.action==='presentation-use-draft');printing.restore();budgetTools.model.options.memory=presentation.model.data.memory;render();return;
+      }
+      if(button.dataset.action==='panel'){
+        await presentation.flush();
+        if(state.panel==='direct-costs'&&button.dataset.panel!=='direct-costs'&&!(await pricing.leave()))return;
+        if(button.dataset.panel==='memory'){await presentation.open();state.panel='memory';render();return;}
+        if(button.dataset.panel==='direct-costs'){await pricing.openDirect();return;}
+      }
       if (await entityActions.act(button)) return;
       if (await route(button)) return;
       if (button.dataset.action.startsWith("resource-import-")) {await resourceImport.act(button);return;}
@@ -701,14 +720,14 @@ export function createWorkspaceApp({
       [systemSettings, ["system-calendar", "system-index"]],
       [people, ["person-form"]],
       [sharing, ["p2p-invite-form", "p2p-join-form", "p2p-access-form"]],
-      [organizations, ["organization-create-form"]],
+      [organizations, ["organization-create-form","organization-indirect-form"]],
       [printProfile, ["print-profile-form"]],
       [printing, ["budget-print-form"]],
       [reminders, ["reminder-form"]],
       [homeCash, ["home-cash-form"]],
       [
         pricing,
-        ["price-item-form", "price-template-form", "price-export-form"],
+        ["price-item-form", "price-direct-form", "price-indirect-form", "price-template-form", "price-export-form"],
       ],
       [operations, ["operation-form", "warehouse-form", "certificate-workflow-form", "quotation-request-form", "workflow-cash-form", "site-book-form","site-book-print-form","quotation-award-form","quotation-receive-form","quotation-payment-form","supplier-movement-form","certificate-payment-form"]],
       [
@@ -832,10 +851,12 @@ export function createWorkspaceApp({
     }
     if (
       evt.target.closest?.(
-        "#p2p-invite-form,#p2p-join-form,#p2p-access-form,#organization-create-form,#print-profile-form,#budget-print-form,#management-form,#project-attachment-form,#planning-task-form,#planning-split-form,#planning-settings,#planning-finance,#planning-agreement,#system-calendar,#system-index,#budget-bulk-form,#nested-analysis-form,#price-list-form,#scoped-price-form,#fx-quote-form",
+        "#p2p-invite-form,#p2p-join-form,#p2p-access-form,#organization-create-form,#print-profile-form,#management-form,#project-attachment-form,#planning-task-form,#planning-split-form,#planning-settings,#planning-finance,#planning-agreement,#system-calendar,#system-index,#budget-bulk-form,#nested-analysis-form,#price-list-form,#scoped-price-form,#fx-quote-form",
       )
     )
       if(evt.target.name!=="calendar-month")state.pageDirty = true;
+    organizations.input(evt.target);
+    syncDailyOutputUnit(evt.target);
     agreement.change(evt.target);
     if(state.view === "system-settings") systemSettings.change(evt.target);
     if (state.modal && state.modal.kind !== "from-acu" && evt.target.closest?.("#dialog-form"))
@@ -891,6 +912,10 @@ export function createWorkspaceApp({
       }
     }
   });
+  document.addEventListener("focusout", (evt) => {
+    if(evt.target.closest?.("#budget-print-form") || evt.target.name==="budget-memory" || evt.target.closest?.("#budget-export-form"))
+      presentation.flush().catch(()=>{});
+  });
   document.addEventListener("focusin", (evt) => {
     homeCash.focus(evt.target);
     unitPicker.focus(evt);
@@ -899,7 +924,7 @@ export function createWorkspaceApp({
   document.addEventListener("input", (evt) => {
     if (
       evt.target.closest?.(
-        "#p2p-invite-form,#p2p-join-form,#p2p-access-form,#organization-create-form,#print-profile-form,#budget-print-form,#management-form,#project-attachment-form,#planning-task-form,#planning-split-form,#planning-settings,#planning-finance,#planning-agreement,#system-calendar,#system-index,#budget-bulk-form,#nested-analysis-form,#price-list-form,#scoped-price-form,#fx-quote-form",
+        "#p2p-invite-form,#p2p-join-form,#p2p-access-form,#organization-create-form,#print-profile-form,#management-form,#project-attachment-form,#planning-task-form,#planning-split-form,#planning-settings,#planning-finance,#planning-agreement,#system-calendar,#system-index,#budget-bulk-form,#nested-analysis-form,#price-list-form,#scoped-price-form,#fx-quote-form",
       )
     )
       if(evt.target.name!=="calendar-month")state.pageDirty = true;
@@ -907,7 +932,10 @@ export function createWorkspaceApp({
     homeCash.input(evt.target);
     reminders.input(evt.target);
     people.input(evt.target);
+    organizations.input(evt.target);
+    syncDailyOutputUnit(evt.target);
     printing.input(evt.target);
+    presentation.input(evt.target);
     budgetTools.input(evt.target);
     pricing.input(evt.target);
     patterns.input(evt.target);
@@ -1013,5 +1041,9 @@ export function createWorkspaceApp({
     }
   })();
 
-  return { state, ready, render };
+  async function flushPending(){
+    try{await presentation.flush();await pricing.flush();if(pricing.hasUnsavedForm()){state.message='Terminá o cerrá la ventana de edición antes de salir.';render();return false;}return true;}
+    catch(error){state.message='No se pudo guardar antes de cerrar: '+String(error);render();return false;}
+  }
+  return { state, ready, render, flushPending };
 }

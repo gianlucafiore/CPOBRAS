@@ -1,3 +1,4 @@
+import {createPdf} from "./pdf-units.js";
 import {
   money,
   numeric,
@@ -83,7 +84,7 @@ async function pdfTable(
   landscape = false,
 ) {
   const { jsPDF } = await import("jspdf");
-  const pdf = new jsPDF({
+  const pdf = createPdf(jsPDF, {
     orientation: landscape ? "landscape" : "portrait",
     unit: "mm",
     format: landscape ? "a3" : "a4",
@@ -248,7 +249,7 @@ export async function exportRequest(invoke, r, format, filename = r.title) {
 }
 export async function exportCertificate(invoke, s) {
   const { jsPDF } = await import("jspdf");
-  const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+  const pdf = createPdf(jsPDF, { orientation: "landscape", unit: "mm", format: "a4" });
   const o = s.operation,
     c = o.calculated || {},
     a = o.index_snapshot,

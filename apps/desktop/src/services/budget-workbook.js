@@ -1,3 +1,4 @@
+import {estimateMonths,monthFactor} from "./price-duration.js";
 import { budgetNumbering } from "./budget-numbering.js";
 import {
   sumDecimals,
@@ -146,7 +147,8 @@ export function normalizedAnalyses(
   }
   return result;
 }
-function periodicFactor(item) {
+function periodicFactor(item,definition) {
+  if(item.months!=null||item.use_estimate_duration)return monthFactor(item,definition);
   if (!item.periodic) return "1";
   const p = item.periodic,
     start = new Date(p.start + "T00:00:00Z"),
@@ -185,13 +187,14 @@ export function buildBudgetWorkbook(
     resources = [],
     prices = {},
     title = data.document.title,
-    memory = "",
+    memory = data.document.presentation?.memory || "",
     notes = "",
     date = "",
     reference = "",
     landscape = true,
   } = {},
 ) {
+  const directRefs=[];
   const doc = data.document,
     numbering = budgetNumbering(doc.sections,doc.lines,doc.assignments),
     normalized = normalizedAnalyses(data, analyses, resources, prices),
@@ -219,6 +222,7 @@ export function buildBudgetWorkbook(
       "",
       "Cobrar (1/0)",
       "",
+      "Rendimiento por día hábil",
     ]),
   ];
   const acuRefs = new Map(),
@@ -263,6 +267,7 @@ export function buildBudgetWorkbook(
         text(c.resource_id),
         number(c.included===false?0:1,"0",true),
         formula(`D${n}*E${n}*G${n}`,multiplyDecimals(multiplyDecimals(c.quantity,c.unit_price),quantity)),
+        c.daily_output==null?null:number(c.daily_output,decimal,true),
       ]);
       componentRefs.push({
         ...c,
@@ -350,10 +355,7 @@ export function buildBudgetWorkbook(
   ];
   const price = [
     banner("Determinación del precio", 8),
-    note(
-      "Celdas azules: datos editables. Los porcentajes y los importes fijos mantienen el orden de cálculo del presupuesto.",
-      8,
-    ),
+    [text("Plazo estimado de obra (meses)"),number(estimateMonths(doc.price_definition),decimal,true)],
     head([
       "Concepto",
       "Activo (1/0)",
@@ -407,7 +409,7 @@ export function buildBudgetWorkbook(
       const first = detail.length + 1;
       for (const item of source.items.filter((i) => !i.group)) {
         const r = detail.length + 1,
-          factor = periodicFactor(item);
+          factor = periodicFactor(item,doc.price_definition);
         const cache =
           result.item_totals?.[item.id] ??
           multiplyDecimals(
@@ -417,6 +419,7 @@ export function buildBudgetWorkbook(
             ),
             factor,
           );
+        if(source.role==='direct_costs' && item.resource_id)directRefs.push({resource_id:item.resource_id,description:item.description,kind:item.resource_kind||resources.find(r=>r.id===item.resource_id)?.kind||'material',unit:item.unit,quantity:multiplyDecimals(multiplyDecimals(item.quantity,factor),divideDecimals(item.participation_percent,'100')),amount:cache,qtyRef:`${sq("Detalle precio")}!D${r}/100*${sq("Detalle precio")}!E${r}*${sq("Detalle precio")}!G${r}`,amountRef:`${sq("Detalle precio")}!H${r}`});
         detail.push([
           text(source.label),
           text(item.description),
@@ -424,7 +427,9 @@ export function buildBudgetWorkbook(
           number(item.participation_percent, "0.00", true),
           number(item.quantity, decimal, true),
           number(item.unit_price, cash, true),
-          number(factor, decimal, true),
+          item.use_estimate_duration
+            ? formula(`${sq("Precio")}!$B$2/${item.months_per_payment??"1"}`,factor)
+            : number(factor, decimal, true),
           formula(`D${r}/100*E${r}*F${r}*G${r}`, cache),
           text(item.periodic?.start || ""),
           text(item.periodic?.end || ""),
@@ -608,10 +613,11 @@ export function buildBudgetWorkbook(
     head(["Tipo", "Insumo", "Unidad", "Cantidad total", "Precio total"]),
   ];
   const grouped = new Map();
-  for (const c of componentRefs) {
+  for (const c of [...componentRefs,...directRefs]) {
     if (!grouped.has(c.resource_id))
-      grouped.set(c.resource_id, { ...c, quantity: "0", amount: "0" });
+      grouped.set(c.resource_id, { ...c, quantity: "0", amount: "0",qtyRefs:[],amountRefs:[] });
     const row = grouped.get(c.resource_id);
+    if(c.qtyRef)row.qtyRefs.push(c.qtyRef);if(c.amountRef)row.amountRefs.push(c.amountRef);
     row.quantity = sumDecimals([row.quantity, c.quantity]);
     row.amount = sumDecimals([row.amount, c.amount]);
   }
@@ -622,12 +628,12 @@ export function buildBudgetWorkbook(
       text(c.description),
       text(c.unit),
       formula(
-        `SUMIF(${sq("ACU")}!J4:J${lastAcu},${literal(c.resource_id)},${sq("ACU")}!H4:H${lastAcu})`,
+        `SUMIF(${sq("ACU")}!J4:J${lastAcu},${literal(c.resource_id)},${sq("ACU")}!H4:H${lastAcu})${c.qtyRefs.map(r=>'+('+r+')').join('')}`,
         c.quantity,
         decimal,
       ),
       formula(
-        `SUMIF(${sq("ACU")}!J4:J${lastAcu},${literal(c.resource_id)},${sq("ACU")}!L4:L${lastAcu})`,
+        `SUMIF(${sq("ACU")}!J4:J${lastAcu},${literal(c.resource_id)},${sq("ACU")}!L4:L${lastAcu})${c.amountRefs.map(r=>'+'+r).join('')}`,
         c.amount,
       ),
     ]);
@@ -651,7 +657,7 @@ export function buildBudgetWorkbook(
     ...paragraphs(memory ? "Memoria descriptiva\n" + memory : "", 6),
     ...paragraphs(notes ? "Condiciones comerciales\n" + notes : "", 6),
     ...paragraphs(
-      "Las celdas azules son editables. Modificá consumos o precios en ACU: Partidas, Precio e Insumos se recalculan. Las partidas sin ACU mantienen un precio declarado editable. Las fórmulas no están protegidas. Los valores numéricos usan la precisión de la hoja de cálculo. Este archivo es independiente de CPOBRAS.",
+      "Las celdas azules son editables. Modificá consumos o precios en ACU: Partidas, Precio e Insumos se recalculan. Las partidas sin ACU mantienen un precio declarado editable. El plazo de obra se edita en Precio!B2 y actualiza los gastos vinculados; los meses propios se conservan. Las fórmulas no están protegidas. Los valores numéricos usan la precisión de la hoja de cálculo. Este archivo es independiente de CPOBRAS.",
       6,
     ),
   ];
@@ -661,7 +667,7 @@ export function buildBudgetWorkbook(
       printColumns: 10,
       stickyRowsCount: 4,
     }),
-    sheet("ACU", acu, [18, 48, 12, 18, 20, 22, 20, 20, 24, 1, 16, 1], {
+    sheet("ACU", acu, [18, 48, 12, 18, 20, 22, 20, 20, 24, 1, 16, 1, 24], {
       hiddenColumns: [10,12],
       printColumns: 9,
       pageBreakRows: breaks,
@@ -684,7 +690,7 @@ export function buildClientWorkbook(
   data,
   {
     title = data.document.title,
-    memory = "",
+    memory = data.document.presentation?.memory || "",
     notes = "",
     layout = "sheet_price",
     date = "",
