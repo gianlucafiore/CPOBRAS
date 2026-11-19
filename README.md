@@ -1,5 +1,7 @@
 # CPOBRAS
 
+[Sitio oficial](https://gianlucafiore.github.io/CPOBRAS/) · [Cómo contribuir](CONTRIBUTING.md)
+
 Sistema local de cómputos, presupuestos y gestión de obras para Argentina.
 Rust concentra las reglas de negocio; SQLite guarda los datos en el equipo y
 Tauri 2 presenta la interfaz. Los importes se calculan con precisión decimal.

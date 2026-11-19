@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="es-AR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="CP Obras es una aplicación de escritorio para cómputos, presupuestos, planificación y gestión de obras en Argentina.">
+  <meta name="theme-color" content="#102d29">
+  <title>CP Obras · Cómputo, presupuesto y gestión de obra</title>
+  <link rel="icon" href="./yacare.webp" type="image/webp">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <a class="skip" href="#contenido">Saltar al contenido</a>
+  <header class="top">
+    <div class="wrap nav">
+      <a class="brand" href="#contenido"><img src="./yacare.webp" width="38" height="38" alt=""> CP Obras</a>
+      <nav aria-label="Principal">
+        <a href="#funciones">Funciones</a>
+        <a href="#presupuesto">Presupuestos</a>
+        <a href="#contribuir">Contribuir</a>
+      </nav>
+      <a class="nav-download" href="#descargar">Descargar <span aria-hidden="true">↓</span></a>
+    </div>
+  </header>
+  <main id="contenido">
+    <section class="hero">
+      <div class="wrap hero-grid">
+        <div>
+          <p class="eyebrow">Software de obra para Argentina</p>
+          <h1>Del presupuesto al seguimiento de obra</h1>
+          <p class="lede">Computá cantidades, armá precios y planificá la ejecución en una aplicación de escritorio. Empezá con una planilla corta y agregá detalle a medida que lo necesites.</p>
+          <div class="actions">
+            <a class="button primary" href="#descargar">Descargar CP Obras</a>
+            <a class="button secondary" href="#presupuesto">Ver un presupuesto</a>
+          </div>
+          <p class="platforms">Windows · macOS · Linux</p>
+        </div>
+        <figure class="sheet">
+          <figcaption><span>Presupuesto de ejemplo</span><strong>Refacción de un baño</strong></figcaption>
+          <table>
+            <thead><tr><th scope="col">Partida</th><th scope="col">Cantidad</th><th scope="col">Importe</th></tr></thead>
+            <tbody>
+              <tr><th scope="row">Retiro de revestimiento</th><td>12 m²</td><td>$36.000</td></tr>
+              <tr><th scope="row">Colocación de cerámicos</th><td>12 m²</td><td>$144.000</td></tr>
+              <tr><th scope="row">Instalación de artefacto</th><td>1 ud</td><td>$45.000</td></tr>
+            </tbody>
+            <tfoot><tr><th scope="row" colspan="2">Costo directo</th><td>$225.000</td></tr></tfoot>
+          </table>
+          <p>Importes ilustrativos en pesos argentinos.</p>
+        </figure>
+      </div>
+    </section>
+
+    <section class="wrap section" id="funciones">
+      <h2>¿Para qué podés usar CP Obras?</h2>
+      <p class="intro">Para cotizar una refacción, preparar una oferta por rubros o dirigir una obra con compras, avances y certificaciones. Está pensado para profesionales de arquitectura, contratistas y equipos de obra.</p>
+      <div class="features">
+        <article><h3>Cómputos y presupuestos</h3><p>Organizá rubros, subrubros, partidas y metrados con fórmulas. Compará versiones, reutilizá patrones de otras obras y trabajá con Excel, CSV o JSON según la operación.</p><a href="https://github.com/gianlucafiore/CPOBRAS/blob/main/docs/PATTERNS_AND_PRICES.md">Patrones y precios</a></article>
+        <article><h3>Costos y cotizaciones</h3><p>Armá bibliotecas de insumos y análisis de costos unitarios. Usá listas e historial de precios, rendimientos, desperdicios y conversiones con cotización explícita. Sumá gastos, utilidad, honorarios, aportes e impuestos según corresponda.</p><a href="https://github.com/gianlucafiore/CPOBRAS/blob/main/docs/PRICE_DETERMINATION.md">Determinación de precio</a></article>
+        <article><h3>Planificación</h3><p>Vinculá partidas con tareas, recursos e hitos. Organizá dependencias y tramos con Gantt y PERT, y seguí calendario, holguras, ruta crítica y curva S.</p><a href="https://github.com/gianlucafiore/CPOBRAS/blob/main/docs/PLANNING.md">Guía de planificación</a></article>
+        <article><h3>Compras y ejecución</h3><p>Registrá compras, stock, materiales, acopios, producción y subcontratos. Usá el libro de obra y consultá el avance a una fecha de corte.</p><a href="https://github.com/gianlucafiore/CPOBRAS/blob/main/docs/SITE_BOOK_AND_PROCUREMENT.md">Libro de obra y compras</a></article>
+        <article><h3>Certificaciones y finanzas</h3><p>Prepará y emití certificados, aplicá índices como CAC o IPC según el convenio y registrá anticipos y adicionales. Proyectá cobros, pagos y capital necesario, y controlá el fondo de obra.</p><a href="https://github.com/gianlucafiore/CPOBRAS/blob/main/docs/FINANCIAL_PLANNING.md">Previsión financiera</a></article>
+        <article><h3>Proyectos y colaboración</h3><p>Administrá clientes, proveedores, organizaciones, contratos y legajos. Guardá los datos en una base local SQLite, generá copias y compartí consultas de una obra mediante invitaciones P2P de solo lectura.</p><a href="https://github.com/gianlucafiore/CPOBRAS/blob/main/docs/P2P.md">Vinculación P2P</a></article>
+        <article><h3>Presentación y entrega</h3><p>Generá PDF o Excel para el cliente, una versión interna con costos o una planilla de incidencias. Elegí qué conceptos mostrar por separado en la cotización.</p><a href="https://github.com/gianlucafiore/CPOBRAS/blob/main/docs/PRINTING.md">Impresión y exportación</a></article>
+        <article><h3>Asistente de IA opcional</h3><p>Prepará partidas, insumos, rendimientos y metrados con OpenAI o Claude. Usá tu propia clave de API y revisá las propuestas antes de incorporarlas. Las consultas autorizadas pueden generar cargos del proveedor.</p><a href="https://github.com/gianlucafiore/CPOBRAS#asistente-ia-por-api-opcional">Configuración y alcance</a></article>
+      </div>
+    </section>
+
+    <section class="budget section" id="presupuesto">
+      <div class="wrap">
+        <h2>Un mismo presupuesto, tres niveles de detalle</h2>
+        <p class="intro">Seguí la colocación de cerámicos del ejemplo. Los valores en ARS y los consumos son ficticios.</p>
+        <div class="steps">
+          <details open>
+            <summary>01 <strong>Estimación rápida</strong></summary>
+            <div class="step-body"><p>En <b>Proyecto → Nuevo presupuesto</b>, agregá el rubro <b>Revestimientos</b> y la partida <b>Colocación de cerámicos</b>. Cargá la unidad, la cantidad y el precio unitario manual.</p><p class="calculation">12 m² × $12.000/m² = <strong>$144.000</strong></p><p>Con el retiro y la instalación de la tabla, el costo directo de la refacción es <b>$225.000</b>.</p></div>
+          </details>
+          <details>
+            <summary>02 <strong>Cómputo con medidas</strong></summary>
+            <div class="step-body"><p>En <b>Metrados</b>, cargá las superficies por separado. Así podés revisar de dónde sale la cantidad y actualizarla si cambia una medida.</p><ul><li>Pared A: 2,50 × 2,40 m = 6,00 m².</li><li>Pared B: 3,20 × 2,40 m = 7,68 m².</li><li>Descuento por abertura: 0,80 × 2,10 m = 1,68 m².</li></ul><p class="calculation">6,00 + 7,68 − 1,68 = <strong>12,00 m²</strong></p><p>Podés guardar el cómputo como patrón y reutilizar sus fórmulas en otra obra.</p></div>
+          </details>
+          <details>
+            <summary>03 <strong>ACU y precio de venta</strong></summary>
+            <div class="step-body"><p>En <b>Insumos</b> de la partida, asigná materiales y mano de obra por cada m² colocado. El análisis de costos unitarios (ACU) multiplica cada consumo por su precio y suma los parciales.</p>
+              <table><caption>Composición por m² colocado</caption><thead><tr><th scope="col">Insumo</th><th scope="col">Consumo × precio</th><th scope="col">Parcial</th></tr></thead><tbody>
+                <tr><th scope="row">Cerámicos</th><td>1,10 m² × $6.000/m²</td><td>$6.600</td></tr>
+                <tr><th scope="row">Adhesivo</th><td>4 kg × $350/kg</td><td>$1.400</td></tr>
+                <tr><th scope="row">Mano de obra</th><td>0,50 h × $8.000/h</td><td>$4.000</td></tr>
+              </tbody><tfoot><tr><th colspan="2" scope="row">Costo unitario</th><td>$12.000</td></tr></tfoot></table>
+              <p>El cerámico incluye un 10% de desperdicio en el consumo. Con 12 m² medidos, la partida sigue dando <b>$144.000</b>.</p><p>En <b>Determinación de precio</b>, aplicá, por ejemplo, 10% de gastos generales sobre el costo directo de la obra y 15% de utilidad sobre el subtotal. Elegí la base de cada concepto según tu presupuesto.</p><p class="calculation">$225.000 + $22.500 + $37.125 = <strong>$284.625 antes de impuestos</strong></p><p>Revisá el resultado y exportá la cotización para el cliente. Podés vincular las partidas con el cronograma y usar el presupuesto como base para certificar avances.</p></div>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <section class="wrap section download" id="descargar">
+      <div><h2>Descargá CP Obras</h2><p class="intro">Elegí la descarga portable para tu sistema en la última publicación de GitHub. Abrí la aplicación y creá una obra desde Inicio para armar tu primer presupuesto.</p></div>
+      <div>
+        <ul class="systems">
+          <li><strong>Windows 10/11</strong><span>EXE x86-64 · requiere WebView2</span></li>
+          <li><strong>macOS</strong><span>ZIP · Apple Silicon e Intel</span></li>
+          <li><strong>Linux</strong><span>AppImage x86-64 · dale permiso de ejecución</span></li>
+        </ul>
+        <a class="button dark" href="https://github.com/gianlucafiore/CPOBRAS/releases/latest">Ir a la última versión <span aria-hidden="true">↗</span></a>
+      </div>
+    </section>
+
+    <section class="support section" id="contribuir">
+      <div class="wrap">
+        <h2>Contribuí al proyecto</h2>
+        <div class="support-grid">
+          <article><h3>Desarrollo y comentarios</h3><p>Si encontrás un error, contá qué hiciste, qué esperabas, qué ocurrió y qué versión y sistema usás. También podés proponer mejoras o enviar un pull request con código o documentación.</p><div class="actions"><a href="https://github.com/gianlucafiore/CPOBRAS/issues">Ver y abrir issues ↗</a><a href="https://github.com/gianlucafiore/CPOBRAS/blob/main/CONTRIBUTING.md">Guía para contribuir ↗</a></div></article>
+          <article id="patrocinio"><h3>GitHub Sponsors</h3><p>El patrocinio económico de CP Obras está pendiente de activación. Mientras tanto, podés apoyar el desarrollo con reportes, ideas y aportes al repositorio.</p><a href="https://github.com/gianlucafiore/CPOBRAS">Ver el proyecto en GitHub ↗</a></article>
+        </div>
+      </div>
+    </section>
+  </main>
+  <footer><div class="wrap"><a class="brand" href="#contenido"><img src="./yacare.webp" width="34" height="34" alt=""> CP Obras</a><a href="https://github.com/gianlucafiore/CPOBRAS">Repositorio y documentación ↗</a></div></footer>
+</body>
+</html>
