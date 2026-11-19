@@ -20,6 +20,15 @@ async function bridge(page, options={}) {
   const totals = { direct: "200", general_expenses: "0", financial_expenses: "0", profit: "0", discount: "0", taxable_subtotal: "200", taxes: "0", total: "200" };
   const makePriceRow=(label,kind,role,percent='0')=>({id:crypto.randomUUID(),label,kind,role,enabled:true,subtract:false,percent,amount:'0',detail_mode:'reference',reference_percent:percent,items:[]});
   let priceDefinition={rows:[makePriceRow('Gastos generales','detailed','overhead'),makePriceRow('Beneficio','percent_direct','profit'),makePriceRow('Subtotal','subtotal','other'),makePriceRow('IVA','percent_subtotal','tax')]},priceRevision=0;const priceTemplates=[];
+  if (fixture.directCostCount) {
+    const row = makePriceRow('Gastos Directos', 'detailed', 'direct_costs');
+    row.detail_mode = 'items';
+    row.items = Array.from({length: fixture.directCostCount}, (_, index) => ({
+      id: crypto.randomUUID(), description: `Insumo ${index + 1}`, unit: 'kg',
+      quantity: '1', unit_price: '100', participation_percent: '100', months: null,
+    }));
+    priceDefinition.rows.unshift(row);
+  }
   function calculatePrice(definition){let running=Number(totals.direct),profit=0;const rows=[];for(const row of definition.rows){const item_totals={};let detail=0;for(const i of row.items.filter(i=>!i.group)){const v=Number(i.quantity)*Number(i.unit_price)*Number(i.participation_percent)/100*Number(i.months??1);detail+=v;item_totals[i.id]=String(v);let parent=i.parent_id;while(parent){item_totals[parent]=String(Number(item_totals[parent]||0)+v);parent=row.items.find(i=>i.id===parent)?.parent_id;}}const base=row.kind==='percent_direct'?Number(totals.direct):row.kind==='percent_profit'?profit:running;const reference=Number(totals.direct)*Number(row.reference_percent)/100;const raw=row.kind==='subtotal'?running:row.kind==='fixed'?Number(row.amount):row.kind==='detailed'?row.detail_mode==='items'?detail:row.detail_mode==='manual'?Number(row.amount):reference:base*Number(row.percent)/100;const amount=row.enabled?raw*(row.subtract?-1:1):0;if(row.enabled&&row.kind!=='subtotal'){running+=amount;if(row.role==='profit')profit+=amount;}rows.push({...row,base:String(base),amount:String(amount),running_total:String(running),detail_total:String(detail),reference_total:String(reference),item_totals});}return {rows,breakdown:{...totals,total:String(running)}};}
   let takeoffMeasured=Boolean(fixture.measured||fixture.restorableTakeoff);
   const takeoffRows=fixture.restorableTakeoff?[{id:"takeoff-1",line_id:line.id,estimate_id:estimate.id,note:"Medición de prueba",factor:"1",length:"3",width:"2",height:"1",sign:1,quantity:"6"}]:[];
@@ -1547,6 +1556,24 @@ test('home cards stay below projects beside reminders and the AI launcher defaul
 
 test('opening quick cash protects an unfinished reminder before starting another form',async({page})=>{
  await bridge(page);const reminders=page.getByRole('complementary',{name:'Recordatorios',exact:true});await reminders.getByRole('button',{name:'＋ Nuevo',exact:true}).click();await reminders.getByLabel('Recordatorio',{exact:true}).fill('Comprar materiales mañana');page.once('dialog',dialog=>dialog.dismiss());await page.getByRole('button',{name:'＋ Egreso',exact:true}).click();await expect(page.getByRole('dialog',{name:'Agregar egreso',exact:true})).toHaveCount(0);await expect(reminders.getByLabel('Recordatorio',{exact:true})).toHaveValue('Comprar materiales mañana');
+});
+
+test('direct costs keep totals in view while the table scrolls', async ({page}) => {
+  await page.setViewportSize({width: 1440, height: 700});
+  await bridge(page, {directCostCount: 20});
+  await page.getByRole('button', {name: 'Abrir ›', exact: true}).first().click();
+  await page.locator('[data-action=manage-dashboard-budget]').first().click();
+  await page.getByRole('tab', {name: 'Gastos Directos', exact: true}).click();
+
+  const table = page.locator('.direct-costs-panel > .table-scroll');
+  const totals = page.getByText('Total del detalle:', {exact: false});
+  await expect(totals).toBeInViewport({ratio: 1});
+  await expect(totals).toContainText('2.000,00');
+  await table.hover();
+  await page.mouse.wheel(0, 1500);
+  await expect.poll(() => table.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
+  await expect(table.getByText('Insumo 20', {exact: true})).toBeInViewport({ratio: 1});
+  await expect(totals).toBeInViewport({ratio: 1});
 });
 
 test('budget direct costs share one enabled price concept and autosave months without creating a line',async({page})=>{
