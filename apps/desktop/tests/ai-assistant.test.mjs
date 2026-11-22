@@ -526,3 +526,12 @@ test('structured tool output never executes unknown or unsafe operations',()=>{
  assert.match(malformed.actionError,/JSON de respuesta inválido/);
  assert.doesNotMatch(malformed.answer,/tool_call/);
 });
+
+test('natural explicit approval routes to the pending write instead of an LLM acknowledgement',()=>{
+ for(const text of ['listo cargalo','listo guardalo','sí cargalo','dale hacelo','perfecto aprobalo']){
+  assert.equal(isApprovalReply(text),true,text);
+ }
+ for(const text of ['¿lo cargaste?','no cargues nada','listo para mañana','revisá antes de cargar']){
+  assert.equal(isApprovalReply(text),false,text);
+ }
+});
