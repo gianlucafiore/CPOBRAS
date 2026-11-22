@@ -1,10 +1,11 @@
 import {buildCatalogContext} from './ai-catalog-context.js';
 import {normalize,importDecimal} from './ai-budget-import.js';
 import {missingResourceItems} from './ai-missing-resources.js';
+import {consumptionScaleErrors} from './ai-quantity-safety.js';
 import {multiplyDecimals,sumDecimals,compareDecimals} from '../decimal.js';
 export const expectedLine=line=>({description:line.description,unit:line.unit,quantity:line.quantity,unit_cost:line.unit_cost,analysis_id:line.analysis_id||null});
 export function acuSeed(line){return {...line,is_new:false};}
-export function newAcuSeeds(rows){return rows.map(r=>({id:r.new_id||globalThis.crypto.randomUUID(),description:r.description,unit:r.unit,quantity:r.quantity??'0',section:r.section||'',section_id:null,is_new:true,components:[],takeoffs:[],formula:null,analysis_id:null,expected_recipe:null,unit_cost:'0',work_result:r.work_result||'',outline_issues:Array.isArray(r.outline_issues)?[...r.outline_issues]:[],expected_resources:Array.isArray(r.expected_resources)?structuredClone(r.expected_resources):[]}));}
+export function newAcuSeeds(rows){return rows.map(r=>({id:r.new_id||globalThis.crypto.randomUUID(),description:r.description,unit:r.unit,quantity:r.quantity??'0',quantity_status:r.quantity_status||'pending',quantity_source:r.quantity_source||null,section:r.section||'',section_id:null,is_new:true,components:[],takeoffs:[],formula:null,analysis_id:null,expected_recipe:null,unit_cost:'0',work_result:r.work_result||'',outline_issues:Array.isArray(r.outline_issues)?[...r.outline_issues]:[],expected_resources:Array.isArray(r.expected_resources)?structuredClone(r.expected_resources):[]}));}
 export function emptyAcu(seed){return {id:seed.id,seed,selected:false,components:[],measurements:[],apply_measurements:false,section_id:seed.section_id||null,section_title:seed.section||'',assumptions:[],missing_resources:[],missing_resource_drafts:[],missing_resolved:false};}
 function decimal(value,label){if(typeof value!=='string')throw new Error(`${label}: usá un decimal como texto`);const v=importDecimal(value.trim().replace(',','.'),'decimal',true);if(v==null)throw new Error(`${label}: falta el dato`);return v;}
 // Notes are explanatory text, not a write schema. Providers sometimes return a
@@ -60,6 +61,10 @@ function consumptionUnit(value){
 }
 function componentEvidence(component){
  const evidence={};
+ if(component.quantity_scope!=null){
+  if(!['per_unit','total'].includes(component.quantity_scope))throw new Error('Alcance del consumo no reconocido');
+  evidence.quantity_scope=component.quantity_scope;
+ }
  for(const [field,label,max] of [['quantity_unit','Unidad del consumo',50],['requested_description','Descripción del insumo requerido',500],['consumption_support','Fundamento del consumo',1500],['source_unit','Unidad del consumo de origen',50]]){
   if(component[field]==null)continue;
   if(typeof component[field]!=='string'||component[field].length>max)throw new Error(`${label} inválida`);
@@ -205,14 +210,11 @@ export function acuTotals(row,resources){
   if(compareDecimals(r.price,'0')===0)warnings.push('Precio cero: '+r.description);
   try{
    const q=decimal(String(c.quantity),'Consumo');if(compareDecimals(q,'0')<=0)throw new Error();
-   // Control dimensional general (sin nombres de materiales): una cantidad
-   // masiva total copiada como consumo por unidad de una partida nueva es
-   // sospechosa y requiere revisión explícita.
-   const total=String(row.seed?.quantity??'');
-   if(row.seed?.is_new&&total&&compareDecimals(total,'100')>=0&&
-      consumptionUnit(row.seed.unit)===consumptionUnit(c.quantity_unit||r.unit)&&
-      compareDecimals(q,total)===0)
-    errors.push('El consumo por unidad coincide con la cantidad total de la partida: '+r.description+'. Revisá el rendimiento antes de guardar.');
+   errors.push(...consumptionScaleErrors({
+    partQuantity:row.seed?.quantity_status==='pending'?null:row.seed?.quantity,
+    partUnit:row.seed?.unit,componentQuantity:q,componentUnit:c.quantity_unit||r.unit,
+    quantityScope:c.quantity_scope
+   }).map(message=>r.description+': '+message));
    cost=sumDecimals([cost,multiplyDecimals(q,r.price)]);
   }catch{errors.push('Consumo inválido: '+r.description);}
  }
@@ -279,7 +281,7 @@ export function acuPromptContext(seeds,resources,examples,brief){
   const suggestions=[...primary,...found.related.slice(0,16-primary.length)];
   return {line_id:seed.id,candidates:suggestions.map(item=>({resource_id:item.id,match:item.matched_by}))};
  });
- const payload={task:'acu',resource_candidates,candidate_rule:'Son sugerencias de búsqueda, NO equivalencias automáticas. Elegí solo recursos cuya identidad, oficio, material, unidad, dimensión y destino sean técnicamente compatibles; si hay dudas, informá el faltante. Los recursos disponibles están en resources.',targets:seeds.map(s=>({line_id:s.id,description:s.description,unit:s.unit,quantity:s.quantity,section:s.section,is_new:s.is_new,work_result:s.work_result||'',required_resources:s.expected_resources||[],existing_components:s.components,existing_measurements:s.takeoffs?.map(m=>({note:m.note,factor:m.factor,length:m.length,width:m.width,height:m.height,sign:m.sign}))})),resources:narrowed.map(r=>({resource_id:r.id,code:r.code,description:r.description,unit:r.unit,kind:r.kind,has_price:r.price!=null})),catalog_total:resources.length,catalog_sampled:narrowed.length,catalog_truncated:narrowed.length<resources.length,examples:ranked};
+ const payload={task:'acu',resource_candidates,candidate_rule:'Son sugerencias de búsqueda, NO equivalencias automáticas. Elegí solo recursos cuya identidad, oficio, material, unidad, dimensión y destino sean técnicamente compatibles; si hay dudas, informá el faltante. Los recursos disponibles están en resources.',targets:seeds.map(s=>({line_id:s.id,description:s.description,unit:s.unit,quantity:s.quantity,section:s.section,is_new:s.is_new,quantity_status:s.quantity_status||'pending',quantity_source:s.quantity_source||null,work_result:s.work_result||'',required_resources:s.expected_resources||[],existing_components:s.components,existing_measurements:s.takeoffs?.map(m=>({note:m.note,factor:m.factor,length:m.length,width:m.width,height:m.height,sign:m.sign}))})),resources:narrowed.map(r=>({resource_id:r.id,code:r.code,description:r.description,unit:r.unit,kind:r.kind,has_price:r.price!=null})),catalog_total:resources.length,catalog_sampled:narrowed.length,catalog_truncated:narrowed.length<resources.length,examples:ranked};
  const text=JSON.stringify(payload);if(new TextEncoder().encode(text).length>55000)throw new Error('La selección contextual para IA sigue siendo demasiado grande. Reducí los ejemplos o las partidas por consulta.');return text;
 }
 export function acuBatch({rows,context,estimate,newEstimate,batchId,asOf}){
