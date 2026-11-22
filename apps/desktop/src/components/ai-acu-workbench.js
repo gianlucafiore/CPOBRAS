@@ -344,7 +344,7 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
      const confirmed=(model.missingResourceSelections||[]).filter(selection=>chunk.some(seed=>seed.id===selection.line_id));
      const prompt=(model.operation==='append'?additionPrompt():'')+
       'Retomá SOLO estos ACU pendientes de la tarea original: '+model.brief+
-      (confirmed.length?'\\nINSUMOS SELECCIONADOS EXPLÍCITAMENTE POR EL USUARIO PARA ESTAS PARTIDAS: '+JSON.stringify(confirmed)+'. Usá esos resource_id solamente si son técnicamente compatibles; si no lo son, explicá el faltante sin sustituir materiales ni inventar conversiones.':'')+
+      (confirmed.length?'\nINSUMOS SELECCIONADOS EXPLÍCITAMENTE POR EL USUARIO PARA ESTAS PARTIDAS: '+JSON.stringify(confirmed)+'. Usá esos resource_id solamente si son técnicamente compatibles; si no lo son, explicá el faltante sin sustituir materiales ni inventar conversiones.':'')+
       '\\nRespondé JSON con acu_proposals para los targets. Usá IDs reales, consumos positivos en decimal texto, quantity_unit y consumption_support. Falta de materiales: missing_resources con objetos {description,unit,kind,action,reason}; create solo para productos concretos ausentes, specify para definiciones técnicas. No inventes precios ni insumos, no reemplaces equivalencias dudosas.';
      const result=await ask([{role:'user',content:prompt}],promptContext(chunk,resources,[]),'acu');
      if(token!==generation||currentScope!==scope())throw new Error('Cambió la vista durante la consulta.');
