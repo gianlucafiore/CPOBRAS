@@ -30,6 +30,19 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     canSave:()=>canSaveResources()&&!model.busy,
     onSaved:async resource=>{
       resource.saved=true;
+      // La aprobación de una vista previa no sirve si cambió el catálogo.
+      // Conservamos el borrador y exigimos revalidar los ACU.
+      const previewOwner=model.messages.find(message=>message.preview?.missingResources?.includes(resource));
+      if(previewOwner){
+        const previous=previewOwner.preview;
+        acuWorkbench.cancelPrepared();
+        delete previewOwner.preview;
+        previewOwner.approval={id:model.lastApprovedId,kind:'acu',state:'done',
+          message:'El catálogo cambió. Revalidá los ACU pendientes.',
+          result:{committed:false,prepared:previous.rows?.length||0,pending:previous.pending||1,
+            pendingReasons:previous.pendingReasons||[],missingResources:previous.missingResources||[]}};
+        previewOwner.answer='Insumo registrado. Reintentá los ACU pendientes para actualizar su composición.';
+      }
       let notice='Insumo «'+resource.description+'» guardado. La tarea de ACU sigue pendiente.';
       try{
         await reloadCatalog?.();
@@ -262,7 +275,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     if(run.kind==='plan')approvedPlans.cancel();else acuWorkbench.cancelApproved();
   }
   function missingResourceMarkup(message,index){
-    const items=message.approval?.result?.missingResources||[];
+    const items=message.preview?.missingResources||message.approval?.result?.missingResources||[];
     if(!items.length)return '';
     const pending=items.filter(item=>!item.saved).length;
     return `<div class="ai-missing-list"><strong>Insumos por resolver · ${pending}</strong>
@@ -299,7 +312,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       const sectionList=organized?`<div class="ai-ingredient-group"><strong>Partidas que cambiarán de rubro</strong><ul>${organized}</ul></div>`:'';
       const sectionPending=(preview.sectionPending||[]).map(item=>`<p class="ai-warning">Pendiente de clasificación: ${e(item)}</p>`).join('');
       const hasChanges=rows.length>0||(preview.movedSections||[]).length>0;
-      return `<div class="ai-ingredient-preview"><strong>Cambios preparados para el presupuesto</strong>${list}${sectionList}${pending}${sectionPending}${hasChanges?`<button type="button" class="ai-approve" data-ai="approve-load" data-index="${index}" ${canPlan()&&model.configured&&model.consent&&!model.busy?'':'disabled'}>Sí, aprobar y cargar esta lista</button>`:'<p>Sin cambios válidos para aprobar.</p>'}<button type="button" data-ai="discard-preview" data-index="${index}">Descartar</button></div>`;
+      return `<div class="ai-ingredient-preview"><strong>Propuesta para revisar</strong>${missingResourceMarkup(message,index)}<details><summary>Composición y detalles de ${rows.length} ACU</summary>${list}${sectionList}${pending}${sectionPending}</details>${hasChanges?`<button type="button" class="ai-approve" data-ai="approve-load" data-index="${index}" ${canPlan()&&model.configured&&model.consent&&!model.busy?'':'disabled'}>Sí, aprobar y cargar esta lista</button>`:'<p>Sin cambios válidos para aprobar.</p>'}<button type="button" data-ai="discard-preview" data-index="${index}">Descartar</button></div>`;
     }
     if(message.changeProposals)return '';
     const name=state.estimates.find(e=>e.id===state.estimateId)?.title||'un presupuesto nuevo de esta obra';
@@ -1508,7 +1521,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       }
       if(action==='create-missing-resource'&&!model.busy){
         const message=model.messages[Number(button.dataset.index)];
-        const resource=message?.approval?.result?.missingResources?.[Number(button.dataset.item)];
+        const resource=(message?.preview?.missingResources||message?.approval?.result?.missingResources)?.[Number(button.dataset.item)];
         if(resource)missingResourcePopup.open(resource);
         return;
       }
