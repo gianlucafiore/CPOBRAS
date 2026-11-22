@@ -287,13 +287,34 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
         ${item.saved?'<small>✓ '+e(item.selectedResourceName||'Seleccionado')+'</small>':''}<button type="button" data-ai="create-missing-resource" data-index="${index}" data-item="${i}" ${model.busy?'disabled':''}>${item.saved?'Cambiar':'Seleccionar insumo'}</button>
        </div>`).join('')}</div>`;
   }
+  function acuReviewTreeMarkup(message,index){
+    const tree=message.preview?.tree||message.approval?.result?.tree||[];
+    if(!tree.length)return missingResourceMarkup(message,index);
+    const missing=message.preview?.missingResources||message.approval?.result?.missingResources||[];
+    const lookup=(item)=>missing.findIndex(row=>row.description===item.requested);
+    const rows=tree.reduce((count,section)=>count+section.lines.length,0);
+    return `<div class="ai-acu-review-tree"><strong>Rubros, partidas e insumos · ${rows} partidas</strong>
+      ${tree.map(section=>`<details class="ai-acu-tree-section" open>
+       <summary><strong>${e(section.name)}</strong> <small>${section.lines.length} partidas</small></summary>
+       <ul>${section.lines.map(line=>`<li class="ai-acu-tree-line">
+        <details open><summary><b>${e(line.description)}</b> <small>${e(line.quantity)} ${e(line.unit)} · ${line.status==='ready'?'ACU listo para revisar':'ACU pendiente'}</small></summary>
+         <ul>${line.items.length?line.items.map(item=>{
+           const pointer=item.requested?lookup(item):-1;
+           return `<li class="ai-acu-tree-resource"><span>${e(item.description)}
+            <small>${item.quantity?e(item.quantity)+' '+e(item.unit)+' / '+e(line.unit):item.status==='selected'?'Insumo seleccionado · falta definir consumo':e(item.unit||'Unidad pendiente')+' · sin asignar'}</small></span>
+            ${pointer>=0?`<button type="button" data-ai="create-missing-resource" data-index="${index}" data-item="${pointer}" ${model.busy?'disabled':''}>${missing[pointer]?.saved?'Cambiar':'Seleccionar'}</button>`:''}</li>`;
+         }).join(''):'<li class="ai-acu-tree-resource">Sin composición; requiere insumos y consumos</li>'}</ul>
+         ${line.errors.length?`<details class="ai-acu-tree-errors"><summary>Ver ${line.errors.length} datos pendientes</summary><ul>${line.errors.map(problem=>`<li>${e(problem)}</li>`).join('')}</ul></details>`:''}
+        </details></li>`).join('')}</ul>
+       </details>`).join('')}</div>`;
+  }
   function approvalMarkup(message,index){
     const approval=message.approval;
     if(approval){
       const errors=approval.result?.pendingReasons||[];
       const showStatus=approval.message&&approval.message!==message.answer;
       return `${showStatus?`<p class="ai-approval-status" role="status">${e(approval.message)}</p>`:''}
-       ${missingResourceMarkup(message,index)}
+       ${acuReviewTreeMarkup(message,index)}
        ${errors.length||approval.result?.warnings?.length||approval.result?.error?`<details class="ai-pending-compact"><summary>Detalles técnicos y advertencias</summary>
        ${errors.length?`<ul class="ai-pending-reasons">${errors.map(item=>`<li>${e(item.description)}: ${item.reasons.map(e).join(' · ')}</li>`).join('')}</ul>`:''}
        ${approval.result?.error?`<p>${e(approval.result.error)}</p>`:''}
@@ -314,7 +335,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       const sectionList=organized?`<div class="ai-ingredient-group"><strong>Partidas que cambiarán de rubro</strong><ul>${organized}</ul></div>`:'';
       const sectionPending=(preview.sectionPending||[]).map(item=>`<p class="ai-warning">Pendiente de clasificación: ${e(item)}</p>`).join('');
       const hasChanges=rows.length>0||(preview.movedSections||[]).length>0;
-      return `<div class="ai-ingredient-preview"><strong>Propuesta para revisar</strong>${missingResourceMarkup(message,index)}<details><summary>Composición y detalles de ${rows.length} ACU</summary>${list}${sectionList}${pending}${sectionPending}</details>${hasChanges?`<button type="button" class="ai-approve" data-ai="approve-load" data-index="${index}" ${canPlan()&&model.configured&&model.consent&&!model.busy?'':'disabled'}>Sí, aprobar y cargar esta lista</button>`:'<p>Sin cambios válidos para aprobar.</p>'}<button type="button" data-ai="discard-preview" data-index="${index}">Descartar</button></div>`;
+      return `<div class="ai-ingredient-preview"><strong>Propuesta para revisar</strong>${acuReviewTreeMarkup(message,index)}<details><summary>Composición y detalles de ${rows.length} ACU</summary>${list}${sectionList}${pending}${sectionPending}</details>${hasChanges?`<button type="button" class="ai-approve" data-ai="approve-load" data-index="${index}" ${canPlan()&&model.configured&&model.consent&&!model.busy?'':'disabled'}>Sí, aprobar y cargar esta lista</button>`:'<p>Sin cambios válidos para aprobar.</p>'}<button type="button" data-ai="discard-preview" data-index="${index}">Descartar</button></div>`;
     }
     if(message.changeProposals)return '';
     const name=state.estimates.find(e=>e.id===state.estimateId)?.title||'un presupuesto nuevo de esta obra';
