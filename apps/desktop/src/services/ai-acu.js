@@ -203,7 +203,18 @@ export function acuTotals(row,resources){
   if(!c.quantity_unit)warnings.push('Unidad de consumo no declarada por IA: '+r.description+'. Revisá el consumo manualmente.');
   if(r.price==null){errors.push('Sin precio: '+r.description);continue;}
   if(compareDecimals(r.price,'0')===0)warnings.push('Precio cero: '+r.description);
-  try{const q=decimal(String(c.quantity),'Consumo');if(compareDecimals(q,'0')<=0)throw new Error();cost=sumDecimals([cost,multiplyDecimals(q,r.price)]);}catch{errors.push('Consumo inválido: '+r.description);}
+  try{
+   const q=decimal(String(c.quantity),'Consumo');if(compareDecimals(q,'0')<=0)throw new Error();
+   // Control dimensional general (sin nombres de materiales): una cantidad
+   // masiva total copiada como consumo por unidad de una partida nueva es
+   // sospechosa y requiere revisión explícita.
+   const total=String(row.seed?.quantity??'');
+   if(row.seed?.is_new&&total&&compareDecimals(total,'100')>=0&&
+      consumptionUnit(row.seed.unit)===consumptionUnit(c.quantity_unit||r.unit)&&
+      compareDecimals(q,total)===0)
+    errors.push('El consumo por unidad coincide con la cantidad total de la partida: '+r.description+'. Revisá el rendimiento antes de guardar.');
+   cost=sumDecimals([cost,multiplyDecimals(q,r.price)]);
+  }catch{errors.push('Consumo inválido: '+r.description);}
  }
  if(row.missing_resources.length&&!row.missing_resolved)errors.push('Hay faltantes indicados por IA pendientes de resolver');
  // La planificación establece requisitos que no pueden ocultarse marcando
