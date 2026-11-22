@@ -528,7 +528,7 @@ test('structured tool output never executes unknown or unsafe operations',()=>{
 });
 
 test('natural explicit approval routes to the pending write instead of an LLM acknowledgement',()=>{
- for(const text of ['listo cargalo','listo guardalo','sí cargalo','dale hacelo','perfecto aprobalo']){
+ for(const text of ['listo cargalo','listo correcto, cargar','listo, correcto, cargar','listo guardalo','sí cargalo','dale hacelo','perfecto aprobalo']){
   assert.equal(isApprovalReply(text),true,text);
  }
  for(const text of ['¿lo cargaste?','no cargues nada','listo para mañana','revisá antes de cargar']){
