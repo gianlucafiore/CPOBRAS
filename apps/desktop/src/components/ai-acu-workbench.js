@@ -1,6 +1,7 @@
 import {e,dateToday,kindName} from './helpers.js';
 import {collectMissingResourceItems} from '../services/ai-missing-resources.js';
 import {buildAcuReviewTree} from '../services/ai-acu-review-tree.js';
+import {rebasePendingAcuRows} from '../services/ai-acu-pending.js';
 import {componentKey,missingKey,excludedAcuRows,reviewSelectionState} from '../services/ai-review-exclusions.js';
 import {invokeReviewedAiAction} from '../services/ai-view-api-contracts.js';
 import {money,numeric,multiplyDecimals} from '../decimal.js';
@@ -17,7 +18,11 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
  const draftKey=()=>[state.projectId,state.estimateId||'new'].join(':');
  function keepDraft(){
   if(!model.draftKey)return;
-  const draft=model.applied&&model.remaining?.count?{...model,rows:model.remaining.rows,seeds:model.remaining.seeds,targetIds:new Set(model.remaining.targetIds),applied:false,remaining:null,resumeAfterApply:true,batchId:globalThis.crypto.randomUUID()}:model;
+  const draft=model.applied&&model.remaining?.count?{
+   ...model,rows:model.remaining.rows,seeds:[],targetIds:new Set(model.remaining.targetIds),
+   mode:'fill',context:model.remaining.context||model.context,applied:false,remaining:null,
+   resumeAfterApply:false,batchId:globalThis.crypto.randomUUID()
+  }:model;
   if(!draft.applied&&(draft.rows.length||draft.seeds.length||draft.targetIds.size||draft.brief.trim())){draft.busy=false;drafts.set(draft.draftKey,draft);if(drafts.size>5)drafts.delete(drafts.keys().next().value);}
  }
  const scope=()=>[state.view,state.projectId,state.estimateId].join(':');
@@ -289,7 +294,20 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
   catch(error){cancelApproved();throw error;}
  }
  function cancelPrepared(){return cancelApproved();}
- function targets(){return model.mode==='create'?model.seeds.filter(s=>model.targetIds.has(s.id)):model.context.lines.filter(l=>model.targetIds.has(l.id)&&(model.operation!=='append'||model.appendTargetIds.has(l.id))).map(acuSeed);}
+ function targets(){
+  if(model.mode==='create')return model.seeds.filter(seed=>model.targetIds.has(seed.id));
+  return model.context.lines.filter(line=>model.targetIds.has(line.id)&&
+   (model.operation!=='append'||model.appendTargetIds.has(line.id))).map(line=>{
+    // Preserve requested resources and selected choices when an incomplete
+    // ACU survives a structural-only save. Database line is authoritative.
+    const previous=model.rows.find(row=>row.id===line.id)?.seed;
+    return {...acuSeed(line),
+     work_result:previous?.work_result||'',
+     expected_resources:structuredClone(previous?.expected_resources||[]),
+     outline_issues:[...(previous?.outline_issues||[])],
+     section:previous?.section||line.section||''};
+  });
+ }
  function additionPrompt(){return 'OPERACIÓN ADITIVA: components debe contener SOLO los insumos adicionales de este pedido y sus incrementos, nunca la composición existente ni reemplazos. CPOBRAS preserva la composición original y suma esos incrementos. Para cada incremento informá quantity_scope:"per_unit" si es consumo por una unidad de partida, o "total" si quantity es una cantidad total explícita del pedido; CPOBRAS la dividirá por la cantidad actual de la partida. No confundas cantidades totales con consumos. quantity_unit debe ser la unidad real del catálogo. Si el pedido usa otra unidad y falta una conversión comprobable (por ejemplo m² frente a m), indicá el faltante y no asumas equivalencia. No cambies el rubro ni propongas mediciones. ';}
  function promptContext(seeds,resources,examples){const text=acuPromptContext(seeds,resources,examples,model.brief);return model.operation==='append'?JSON.stringify({...JSON.parse(text),operation:'append'}):text;}
  function pending(){const done=new Set(model.rows.map(r=>r.id));return targets().filter(s=>!done.has(s.id));}
@@ -336,7 +354,16 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
    throw new Error('Cambió la obra mientras se actualizaba el catálogo.');
   const before=new Set(saved.context.resources.map(resource=>resource.id));
   saved.context.resources=context.resources;
+  saved.context.lines=context.lines||saved.context.lines;
+  saved.context.sections=context.sections||saved.context.sections;
   for(const resource of context.resources)if(!before.has(resource.id))saved.resourceIds.add(resource.id);
+  // Rows created by the previous batch must be rebased onto real SQLite lines.
+  if(saved.mode==='fill'&&saved.targetIds.size){
+   const rebased=rebasePendingAcuRows({rows:saved.rows,seeds:saved.seeds,
+    targetIds:[...saved.targetIds],context:saved.context});
+   saved.rows=rebased.rows;
+   saved.targetIds=new Set([...rebased.targetIds,...rebased.missingLineIds]);
+  }
   saved.rows.forEach(row=>{row.selected=false;});
   saved.notice='Catálogo actualizado. Conservamos los ACU pendientes para continuar su composición.';
   drafts.set(saved.draftKey,saved);
