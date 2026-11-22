@@ -1,75 +1,89 @@
-import {e,dateToday} from './helpers.js';
-import {validatedResourceDraft} from '../services/ai-resource-chat.js';
-import {invokeReviewedAiAction} from '../services/ai-view-api-contracts.js';
+import {e} from './helpers.js';
+import {searchResources} from './resource-picker.js';
 
-// Formulario chico, abierto desde una tarjeta del chat. Nunca guarda por
-// iniciativa del modelo: requiere un clic explícito del usuario.
-export function createAiMissingResourcePopup({invoke,document,state,canSave,onSaved}){
+// Selector único del chat: primero elegir un insumo existente; si no existe,
+// abrir exactamente el formulario nativo "resource" del resto de CPOBRAS.
+export function createAiMissingResourcePopup({document,window,state,openModal,onResolved,onRestored}){
  const host=document.createElement('div');
  host.id='ai-missing-resource-popup';
  document.body.append(host);
- let item=null,form=null,busy=false,error='';
- const kinds=[['','Elegí tipo'],['material','Material'],['labor','Mano de obra'],['equipment','Equipo'],['subcontract','Subcontrato']];
- const active=()=>!!item;
+ let item=null,query='',error='',busy=false;
+ const kindName={material:'Material',labor:'Mano de obra',equipment:'Equipo',subcontract:'Subcontrato'};
+ const active=()=>Boolean(item);
  function paint(){
   if(!item){host.innerHTML='';return;}
-  host.innerHTML=`<div class="ai-missing-overlay">
-   <section class="ai-missing-dialog" role="dialog" aria-modal="true" aria-label="Completar insumo faltante">
-   <header><strong>${item.action==='specify'?'Especificar insumo':'Agregar insumo faltante'}</strong>
-   <button type="button" data-missing-action="close" aria-label="Cerrar" ${busy?'disabled':''}>×</button></header>
-   <p>La IA sugirió estos datos. Verificá la identidad y la unidad antes de agregar el insumo a la biblioteca.</p>
-   ${item.reason?`<p class="ai-missing-hint">${e(item.reason)}</p>`:''}
-   <label>Descripción<input data-missing-field="description" maxlength="500" value="${e(form.description)}" ${busy?'disabled':''}></label>
-   <div class="ai-missing-grid"><label>Tipo<select data-missing-field="kind" ${busy?'disabled':''}>${kinds.map(([value,label])=>`<option value="${value}" ${form.kind===value?'selected':''}>${label}</option>`).join('')}</select></label>
-   <label>Unidad<input data-missing-field="unit" maxlength="50" value="${e(form.unit)}" placeholder="ej. kg, m², unidad" ${busy?'disabled':''}></label></div>
-   <label>Precio unitario ARS (opcional)<input data-missing-field="price" value="${e(form.price)}" placeholder="Dejar vacío si no se conoce" ${busy?'disabled':''}></label>
-   <small>Se asignará código desde CPOBRAS. No se creará ningún ACU ni se inventará un precio.</small>
-   ${error?`<p class="ai-missing-error" role="alert">${e(error)}</p>`:''}
-   <footer><button type="button" data-missing-action="close" ${busy?'disabled':''}>Cancelar</button>
-   <button type="button" data-missing-action="save" class="ai-missing-primary" ${busy?'disabled':''}>${busy?'Guardando…':'Agregar a biblioteca'}</button></footer>
-   </section></div>`;
+  const results=searchResources(state.resources||[],query).slice(0,12);
+  host.innerHTML='<div class="ai-missing-overlay"><section class="ai-missing-dialog" role="dialog" aria-modal="true" aria-label="Seleccionar insumo faltante">'+
+   '<header><strong>Seleccionar insumo</strong><button type="button" data-missing-action="close" aria-label="Cerrar">×</button></header>'+
+   '<p>Buscá un insumo que ya esté en tu biblioteca. Si no existe, crealo con el formulario habitual de CPOBRAS.</p>'+
+   '<p class="ai-missing-hint"><b>Necesario:</b> '+e(item.description)+(item.unit?' · '+e(item.unit):'')+'</p>'+
+   '<label>Buscar en biblioteca<input id="ai-missing-search" data-missing-search value="'+e(query)+'" placeholder="Descripción, código o unidad" autocomplete="off"></label>'+
+   '<div class="ai-missing-results" role="listbox" aria-label="Resultados de insumos">'+
+    (results.length?results.map(resource=>
+      '<button type="button" role="option" data-missing-action="select" data-id="'+e(resource.id)+'" '+(busy?'disabled':'')+'>'+
+      '<span><b>'+e(resource.description)+'</b><small>'+e(resource.code||'')+' · '+e(kindName[resource.kind]||resource.kind||'')+' · '+e(resource.unit||'')+'</small></span><span>Seleccionar</span></button>'
+    ).join(''):'<p>No encontramos coincidencias con esta búsqueda. Podés buscar otro nombre o crear un insumo.</p>')+
+   '</div>'+
+   (error?'<p class="ai-missing-error" role="alert">'+e(error)+'</p>':'')+
+   '<footer><button type="button" data-missing-action="close" '+(busy?'disabled':'')+'>Cancelar</button>'+
+   '<button type="button" data-missing-action="create" class="ai-missing-primary" '+(busy?'disabled':'')+'>＋ Crear insumo nuevo</button></footer>'+
+   '</section></div>';
  }
  function open(resource){
   if(busy||!resource||resource.saved)return false;
-  if(!canSave())throw new Error('Abrí una obra local editable y cerrá otros formularios antes de crear insumos.');
-  item=resource;form={description:resource.description||'',unit:resource.unit||'',kind:resource.kind||'',price:''};error='';paint();
-  host.querySelector('[data-missing-field="description"]')?.focus();
-  return true;
+  item=resource;query=String(resource.description||'').split(/\s+/).filter(token=>token.length>3).slice(0,3).join(' ');
+  error='';paint();host.querySelector('#ai-missing-search')?.focus();return true;
  }
- function close(){if(busy)return false;item=null;form=null;error='';paint();return true;}
- async function save(){
+ function close(){
+  if(busy)return false;
+  item=null;query='';error='';paint();return true;
+ }
+ async function select(id){
   if(!item||busy)return;
-  if(!canSave())throw new Error('Cambió el contexto de la obra; no se agregó el insumo.');
-  busy=true;error='';paint();
-  const startingScope=JSON.stringify([state.database?.scope||null,state.projectId,state.estimateId,state.view]);
-  let attempted=false;
+  const resource=(state.resources||[]).find(row=>row.id===id&&row.active!==false);
+  if(!resource){error='El insumo seleccionado ya no está disponible. Actualizá el catálogo.';paint();return;}
+  if((item.unit&&resource.unit!==item.unit)||(item.kind&&resource.kind!==item.kind)){
+   const question='El insumo seleccionado tiene unidad o tipo distinto del sugerido por IA. ¿Seleccionarlo de todos modos para revisar los consumos del ACU?';
+   if(!window.confirm(question))return;
+  }
+  const selected=item;
+  busy=true;
   try{
-   if(item.action==='specify'&&(form.description.trim()===item.description.trim()||/\b(?:a definir|por definir|sin definir|pendiente)\b/i.test(form.description)))
-    throw new Error('Completá la especificación técnica en la descripción antes de crear el insumo.');
-   const catalog=await invoke('ai_catalog_context',{projectId:null,estimateId:null,currency:'ARS',asOf:dateToday()});
-   if(!canSave()||startingScope!==JSON.stringify([state.database?.scope||null,state.projectId,state.estimateId,state.view]))
-    throw new Error('Cambió la obra o la base. Revisá el insumo antes de cargarlo.');
-   const review=validatedResourceDraft([{...form,price:form.price||null}],catalog.resources||[]);
-   if(review.pending.length||review.ready.length!==1)throw new Error(review.rows[0]?.errors.join(' · ')||'Revisá la ficha antes de guardar.');
-   const row=review.ready[0];attempted=true;
-   const result=await invokeReviewedAiAction(invoke,'resources','import_resources',{
-    rows:[{code:'',description:row.description,kind:row.kind,unit:row.unit,price:row.price??null}],
-    effectiveDate:dateToday(),source:'Insumo faltante de ACU, revisado y aprobado desde CPOBRAS IA'
-   },{approved:true});
-   if(result.created!==1)throw new Error('La respuesta no confirmó el alta del insumo.');
-   const saved=item;item=null;form=null;paint();
-   await onSaved(saved,result);
-  }catch(caught){
-   error=(attempted?'El alta pudo realizarse; comprobá la biblioteca antes de reintentar. ':'')+String(caught);
-  }finally{busy=false;paint();}
+   await onResolved(selected,resource,{created:false});
+   busy=false;close();
+  }catch(caught){busy=false;error=String(caught);paint();}
  }
- host.addEventListener('input',event=>{const field=event.target?.dataset?.missingField;if(form&&['description','kind','unit','price'].includes(field))form[field]=event.target.value;});
- host.addEventListener('change',event=>{const field=event.target?.dataset?.missingField;if(form&&['description','kind','unit','price'].includes(field))form[field]=event.target.value;});
- host.addEventListener('click',async event=>{
-  const action=event.target.closest('[data-missing-action]')?.dataset?.missingAction;
-  if(action==='close')close();
-  if(action==='save')await save();
+ function create(){
+  if(!item||busy)return;
+  const selected=item;
+  close();
+  // La vista y el guardado son los mismos que usa "＋ Nuevo insumo".
+  openModal('resource',{
+    description:selected.description,
+    kind:selected.kind||'material',
+    unit:selected.unit||'',
+    price:'',
+    source:'Carga desde CPOBRAS IA'
+  },async saved=>{await onResolved(selected,saved,{created:true});},
+  ()=>{onRestored?.();});
+ }
+ host.addEventListener('input',event=>{
+  if(!event.target.matches?.('[data-missing-search]'))return;
+  const start=event.target.selectionStart;
+  query=event.target.value;paint();
+  const input=host.querySelector('#ai-missing-search');
+  input?.focus();input?.setSelectionRange(start,start);
  });
- host.addEventListener('keydown',event=>{if(event.key==='Escape'){event.stopPropagation();close();}});
+ host.addEventListener('click',async event=>{
+  const button=event.target.closest('[data-missing-action]');
+  if(!button||button.disabled)return;
+  const action=button.dataset.missingAction;
+  if(action==='close')close();
+  else if(action==='select')await select(button.dataset.id);
+  else if(action==='create')create();
+ });
+ host.addEventListener('keydown',event=>{
+  if(event.key==='Escape'&&item){event.stopPropagation();close();}
+ });
  return {open,close,active};
 }
