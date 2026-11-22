@@ -1,10 +1,12 @@
 import {buildCatalogContext} from './ai-catalog-context.js';
 import {normalize,importDecimal} from './ai-budget-import.js';
-import {multiplyDecimals,sumDecimals,compareDecimals} from '../decimal.js';
+import {missingResourceItems} from './ai-missing-resources.js';
+import {consumptionScaleErrors} from './ai-quantity-safety.js';
+import {multiplyDecimals,divideDecimals,sumDecimals,compareDecimals} from '../decimal.js';
 export const expectedLine=line=>({description:line.description,unit:line.unit,quantity:line.quantity,unit_cost:line.unit_cost,analysis_id:line.analysis_id||null});
 export function acuSeed(line){return {...line,is_new:false};}
-export function newAcuSeeds(rows){return rows.map(r=>({id:r.new_id||globalThis.crypto.randomUUID(),description:r.description,unit:r.unit,quantity:r.quantity??'0',section:r.section||'',section_id:null,is_new:true,components:[],takeoffs:[],formula:null,analysis_id:null,expected_recipe:null,unit_cost:'0'}));}
-export function emptyAcu(seed){return {id:seed.id,seed,selected:false,components:[],measurements:[],apply_measurements:false,section_id:seed.section_id||null,section_title:seed.section||'',assumptions:[],missing_resources:[],missing_resolved:false};}
+export function newAcuSeeds(rows){return rows.map(r=>({id:r.new_id||globalThis.crypto.randomUUID(),description:r.description,unit:r.unit,quantity:r.quantity??'0',quantity_status:r.quantity_status||'pending',quantity_source:r.quantity_source||null,section:r.section||'',section_id:null,is_new:true,components:[],takeoffs:[],formula:null,analysis_id:null,expected_recipe:null,unit_cost:'0',work_result:r.work_result||'',outline_issues:Array.isArray(r.outline_issues)?[...r.outline_issues]:[],expected_resources:Array.isArray(r.expected_resources)?structuredClone(r.expected_resources):[]}));}
+export function emptyAcu(seed){return {id:seed.id,seed,selected:false,components:[],measurements:[],apply_measurements:false,section_id:seed.section_id||null,section_title:seed.section||'',assumptions:[],missing_resources:[],missing_resource_drafts:[],missing_resolved:false};}
 function decimal(value,label){if(typeof value!=='string')throw new Error(`${label}: usá un decimal como texto`);const v=importDecimal(value.trim().replace(',','.'),'decimal',true);if(v==null)throw new Error(`${label}: falta el dato`);return v;}
 // Notes are explanatory text, not a write schema. Providers sometimes return a
 // string or descriptive objects despite the requested array format. Normalize
@@ -59,6 +61,10 @@ function consumptionUnit(value){
 }
 function componentEvidence(component){
  const evidence={};
+ if(component.quantity_scope!=null){
+  if(!['per_unit','total'].includes(component.quantity_scope))throw new Error('Alcance del consumo no reconocido');
+  evidence.quantity_scope=component.quantity_scope;
+ }
  for(const [field,label,max] of [['quantity_unit','Unidad del consumo',50],['requested_description','Descripción del insumo requerido',500],['consumption_support','Fundamento del consumo',1500],['source_unit','Unidad del consumo de origen',50]]){
   if(component[field]==null)continue;
   if(typeof component[field]!=='string'||component[field].length>max)throw new Error(`${label} inválida`);
@@ -71,8 +77,16 @@ function componentEvidence(component){
   const origin=component.source_quantity;
   const safeOrigin=typeof origin==='number'&&Number.isFinite(origin)&&origin>0&&!/[eE]/.test(String(origin))
     ?String(origin):origin;
-  evidence.source_quantity=decimal(safeOrigin,'Consumo de origen');
-  if(compareDecimals(evidence.source_quantity,'0')<=0)throw new Error('El consumo de origen debe ser mayor que cero');
+  // El origen es evidencia opcional. Un 0 espurio del modelo no debe abortar
+  // todas las partidas: se descarta junto con su unidad y se avisa que falta
+  // verificar la justificación, conservando intacto el consumo real positivo.
+  if(safeOrigin===0||/^0+(?:[.,]0+)?$/.test(String(safeOrigin).trim())){
+   delete evidence.source_unit;
+   evidence.consumption_support=((evidence.consumption_support||'')+' Origen cero no válido; corroborar el rendimiento.').trim().slice(0,1500);
+  }else{
+   evidence.source_quantity=decimal(safeOrigin,'Consumo de origen');
+   if(compareDecimals(evidence.source_quantity,'0')<=0)throw new Error('El consumo de origen debe ser mayor que cero');
+  }
  }
  return evidence;
 }
@@ -88,6 +102,40 @@ function masonryTarget(description){
  if(/\b(?:revoques?|revestimientos?|pinturas?|impermeabilizacion|azotados?|enlucidos?)\b/.test(text))return '';
  return /\b(?:mamposteria|pared|paredes|muros?|ladrillos?|bloques?)\b/.test(text)?masonryFamily(text):'';
 }
+function ceramicBrickThickness(description){
+ const text=String(description||'').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+ const brick=text.match(/\bladrillos?\s+ceramicos?(?:\s+huecos?)?\s+(?:de\s+)?(\d+)\s*(?:cm\b|[x×]\s*\d+\s*[x×]\s*\d+\s*cm\b)/);
+ return brick?.[1]||null;
+}
+function wallBrickThickness(description){
+ const text=normalize(description);
+ const wall=text.search(/\b(?:mamposteria|pared(?:es)?|muros?)\b/);
+ const finish=text.search(/\b(?:revoques?|revestimientos?|pinturas?|impermeabilizacion|azotados?|enlucidos?)\b/);
+ return wall>=0&&(finish<0||wall<finish)?ceramicBrickThickness(description):null;
+}
+export function acuResourceScopeConflict(seed,resource){
+ const work=normalize(seed.description),material=normalize(resource.description);
+ const masonry=wallBrickThickness(seed.description)||masonryTarget(seed.description);
+ const openings=/\b(?:aberturas?|carpinteria|puertas?|ventanas?)\b/.test(work)&&/\baluminio\b/.test(work);
+ const otherTrade=/\b(?:inodoros?|bidets?|bacha|lavatorios?|artefactos? de luz|luminarias?)\b/;
+ if((masonry||openings)&&otherTrade.test(material)&&!otherTrade.test(work))
+  return 'Insumo ajeno al trabajo: '+resource.description+' no corresponde a '+seed.description+'.';
+ if(masonry&&masonryFamily(seed.description)==='ceramic'&&
+   /\b(?:adhesivos?|pegamentos?)\b/.test(material)&&/\bhormigon celular\b/.test(material))
+  return 'Insumo ajeno al trabajo: '+resource.description+' está identificado para hormigón celular; verificá un ligante para ladrillo cerámico.';
+ if(masonry&&/\bpara (?:revoques?|enlucidos?)\b/.test(material)&&!/\b(?:revoques?|enlucidos?)\b/.test(work))
+  return 'Insumo ajeno al trabajo: '+resource.description+' corresponde al revoque. Definí esa terminación en su partida.';
+ return '';
+}
+function brickFaceArea(seed,resource){
+ const thickness=wallBrickThickness(seed.description);
+ if(!thickness||consumptionUnit(seed.unit)!=='m2'||consumptionUnit(resource.unit)!=='un'||
+    /\b(?:doble|multiple|capas|hojas)\b/.test(normalize(seed.description)))return null;
+ const label=String(resource.description||'').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+ const dimensions=label.match(/\bladrillos?\s+ceramicos?(?:\s+huecos?)?\s+(\d{1,3})\s*[x×]\s*(\d{1,3})\s*[x×]\s*(\d{1,3})\s*cm\b/);
+ if(!dimensions||dimensions[1]!==thickness||dimensions.slice(1).some(value=>Number(value)<=0))return null;
+ return multiplyDecimals(dimensions[2],dimensions[3]);
+}
 function catalogBagWeight(resource){
  // Read only an unambiguous package mass from the real catalog description.
  // A model-supplied conversion factor or package description is never trusted.
@@ -98,6 +146,8 @@ function catalogBagWeight(resource){
 }
 function componentSafetyErrors(row,component,resource){
  const errors=[],label=resource.description,unit=consumptionUnit(resource.unit);
+ const conflict=acuResourceScopeConflict(row.seed,resource);
+ if(conflict)errors.push(conflict);
  const declared=consumptionUnit(component.quantity_unit||'');
  if(declared&&declared!==unit)errors.push(`Unidad de consumo incompatible: ${label} declara ${component.quantity_unit}, pero el catálogo usa ${resource.unit}. Corregí el consumo en la unidad del catálogo.`);
  const sourceUnit=consumptionUnit(component.source_unit||''),sourceQuantity=component.source_quantity;
@@ -119,21 +169,54 @@ function componentSafetyErrors(row,component,resource){
  const actual=masonryFamily(resource.description);
  const requested=masonryFamily(component.requested_description||''),target=masonryTarget(row.seed.description);
  if(actual&&[requested,target].some(family=>family&&family!==actual))errors.push(`Material incompatible: ${label} no corresponde a la mampostería requerida en ${row.seed.description}. Elegí el insumo compatible; no se sustituye ladrillo cerámico por bloque de cemento u hormigón.`);
+ if(actual==='ceramic'){
+  const thickness=ceramicBrickThickness(label);
+  const required=[wallBrickThickness(row.seed.description),ceramicBrickThickness(component.requested_description)];
+  if(thickness&&required.some(value=>value&&value!==thickness))
+   errors.push(`Espesor de ladrillo incompatible: ${label} no coincide con el espesor especificado en ${row.seed.description}.`);
+ }
  return errors;
+}
+function resolveRequirementCoverage(seed,components,supplied,catalog){
+ const required=Array.isArray(seed.expected_resources)?seed.expected_resources:[];
+ const coverage=[...supplied];
+ const used=new Set(coverage.map(item=>item?.resource_id).filter(Boolean));
+ const uncovered=[];
+ for(const req of required){
+  const matches=coverage.filter(item=>item?.requirement_id===req.id);
+  const found=matches.length===1?matches[0]:null;
+  if(found?.resource_id&&components.some(component=>component.resource_id===found.resource_id))continue;
+  // Repair an omitted link only when the proposed component has an exact,
+  // unique match in the real catalog. Never replace an explicit decision.
+  if(!matches.length&&req.kind){
+   const exact=components.map(component=>catalog.get(component.resource_id)).filter(resource=>
+    resource&&!used.has(resource.id)&&resource.kind===req.kind&&normalize(resource.description)===normalize(req.description)&&
+    (!req.unit||consumptionUnit(resource.unit)===consumptionUnit(req.unit)));
+   if(exact.length===1){
+    coverage.push({requirement_id:req.id,resource_id:exact[0].id,unresolved_reason:''});
+    used.add(exact[0].id);
+    continue;
+   }
+  }
+  uncovered.push({description:req.description,unit:req.unit||'',kind:req.kind,
+   action:found?.unresolved_reason?'create':'specify',
+   reason:String(found?.unresolved_reason||'La propuesta no identificó este requisito con un insumo y consumo válido.').slice(0,300)});
+ }
+ return {coverage,uncovered};
 }
 export function parseAcuProposals(text,seeds,allowedResources){
  let value;try{value=JSON.parse(text.trim().replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,''));}catch{throw new Error('La respuesta de ACU está incompleta o no tiene el formato esperado. Acotá los criterios y volvé a solicitar las partidas pendientes');}
  if(!Array.isArray(value.acu_proposals)||!value.acu_proposals.length||value.acu_proposals.length>5)throw new Error('La IA no devolvió una lista completa de ACU (máximo 5 por consulta)');
- const allowed=new Set(allowedResources.map(r=>r.id)),seen=new Set();
+ const catalog=new Map(allowedResources.map(resource=>[resource.id,resource])),seen=new Set();
  const proposals=value.acu_proposals.map(p=>{
   const seed=seeds.find(s=>s.id===p.line_id);if(!seed||seen.has(p.line_id))throw new Error('La IA indicó una partida ajena a la consulta o repetida');seen.add(p.line_id);
   if(!Array.isArray(p.components)||p.components.length>100)throw new Error('Lista de insumos inválida');
   const resources=new Set();let unknown=false,repeated=false;const components=p.components.map(c=>{
    const quantity=decimal(c.quantity,'Consumo');if(compareDecimals(quantity,'0')<=0)throw new Error('Los consumos deben ser mayores que cero');
    const evidence=componentEvidence(c);
-   if(!allowed.has(c.resource_id)){
+   if(!catalog.has(c.resource_id)){
     unknown=true;
-    const hint=[c.description,c.resource_code,c.resource_id].find(value=>typeof value==='string'&&value.trim())||'Insumo pendiente de identificar';
+    const hint=[c.requested_description,c.description,c.resource_code,c.resource_id].find(value=>typeof value==='string'&&value.trim())||'Insumo pendiente de identificar';
     return {resource_id:'',quantity,description:hint.replace(/[\u0000-\u001F\u007F]/g,' ').trim().slice(0,500)||'Insumo pendiente de identificar',...evidence};
    }
    if(resources.has(c.resource_id))repeated=true;resources.add(c.resource_id);
@@ -149,8 +232,14 @@ export function parseAcuProposals(text,seeds,allowedResources){
   const review=[];
   if(unknown)review.push('La IA indicó insumos fuera del catálogo seleccionado. Elegí un insumo real para cada campo pendiente y revisá sus consumos antes de guardar.');
   if(repeated)review.push('La IA repitió insumos; sus consumos se conservaron por separado, sin sumarlos. Quitá o cambiá los repetidos después de revisarlos.');
-  const proposal={...emptyAcu(seed),components,measurements,assumptions:['Consumos propuestos por IA: revisar por unidad y condiciones de ejecución.',...review,...notes('assumptions')],missing_resources:notes('missing_resources')};
-  if(p.section&&normalize(p.section)!==normalize(seed.section)){proposal.section_id=null;proposal.section_title=p.section;}
+  // La cobertura de recursos es un contrato entre la planificación del
+  // trabajo y el ACU. La IA debe asociar cada requisito con un recurso real
+  // usado en la receta o dejarlo expresamente pendiente. No se comparan
+  // palabras clave de materiales ni se fabrican equivalencias.
+  const {coverage,uncovered}=resolveRequirementCoverage(seed,components,Array.isArray(p.requirement_coverage)?p.requirement_coverage:[],catalog);
+  const proposal={...emptyAcu(seed),components,measurements,requirement_coverage:coverage,
+   missing_resource_drafts:missingResourceItems([...(Array.isArray(p.missing_resources)?p.missing_resources:[]),...uncovered]),assumptions:['Consumos propuestos por IA: revisar por unidad y condiciones de ejecución.',...review,...notes('assumptions')],missing_resources:[...notes('missing_resources'),...uncovered.map(req=>req.description+': '+req.reason)]};
+  if(!seed.is_new&&p.section&&normalize(p.section)!==normalize(seed.section)){proposal.section_id=null;proposal.section_title=p.section;}
   return proposal;
  });
  for(const seed of seeds)if(!seen.has(seed.id))proposals.push({...emptyAcu(seed),missing_resources:['La IA no devolvió una receta para esta partida. Completala o descartá la propuesta y volvé a solicitarla.']});
@@ -177,9 +266,44 @@ export function acuTotals(row,resources){
   if(!c.quantity_unit)warnings.push('Unidad de consumo no declarada por IA: '+r.description+'. Revisá el consumo manualmente.');
   if(r.price==null){errors.push('Sin precio: '+r.description);continue;}
   if(compareDecimals(r.price,'0')===0)warnings.push('Precio cero: '+r.description);
-  try{const q=decimal(String(c.quantity),'Consumo');if(compareDecimals(q,'0')<=0)throw new Error();cost=sumDecimals([cost,multiplyDecimals(q,r.price)]);}catch{errors.push('Consumo inválido: '+r.description);}
+  try{
+   const q=decimal(String(c.quantity),'Consumo');if(compareDecimals(q,'0')<=0)throw new Error();
+   const face=brickFaceArea(row.seed,r);
+   // Referencia geométrica de una hoja antes de juntas. El margen sólo
+   // detecta excesos gruesos; no estima un porcentaje de desperdicio.
+   if(face&&compareDecimals(multiplyDecimals(q,face),'15000')>0)
+    errors.push(`Consumo incompatible con la cara del ladrillo: ${r.description} tiene ${face} cm² de cara (referencia geométrica: ${divideDecimals('10000',face,2)} un/m² sin juntas). Revisá el cálculo unitario.`);
+   errors.push(...consumptionScaleErrors({
+    partQuantity:row.seed?.quantity_status==='pending'?null:row.seed?.quantity,
+    partUnit:row.seed?.unit,componentQuantity:q,componentUnit:c.quantity_unit||r.unit,
+    quantityScope:c.quantity_scope
+   }).map(message=>r.description+': '+message));
+   cost=sumDecimals([cost,multiplyDecimals(q,r.price)]);
+  }catch{errors.push('Consumo inválido: '+r.description);}
  }
+ for(const issue of row.seed?.outline_issues||[])warnings.push('Planificación para revisar: '+issue);
  if(row.missing_resources.length&&!row.missing_resolved)errors.push('Hay faltantes indicados por IA pendientes de resolver');
+ // La planificación establece requisitos que no pueden ocultarse marcando
+ // "faltantes resueltos" sin vincular un insumo real y su consumo positivo.
+ const requirements=row.seed?.expected_resources||[];
+ for(const requirement of requirements){
+  const linked=(row.requirement_coverage||[]).filter(item=>item?.requirement_id===requirement.id);
+  if(linked.length!==1||!linked[0].resource_id||!row.components.some(item=>item.resource_id===linked[0].resource_id))
+   errors.push('Requisito sin consumo válido en el ACU: '+requirement.description);
+ }
+ if(requirements.length&&Array.isArray(row.requirement_coverage)){
+  const requiredById=new Map(requirements.map(requirement=>[requirement.id,requirement]));
+  for(const component of row.components){
+   const resource=map.get(component.resource_id);
+   if(!resource)continue;
+   const linked=row.requirement_coverage.filter(item=>item?.resource_id===resource.id&&requiredById.has(item.requirement_id));
+   if(!linked.length)errors.push('Insumo sin requisito en esta partida: '+resource.description);
+   else if(linked.some(item=>{
+    const kind=requiredById.get(item.requirement_id).kind;
+    return kind&&resource.kind&&kind!==resource.kind;
+   }))errors.push('Tipo de insumo incompatible con el requisito: '+resource.description);
+  }
+ }
  let quantity=row.seed.quantity||'0';
  if(row.apply_measurements){try{quantity=measurementQuantity(row.measurements);if(quantity==null||compareDecimals(quantity,'0')<0)throw new Error();}catch{errors.push('La medición está incompleta o su resultado es negativo');}}
  try{quantity=decimal(String(quantity),'Cantidad total');}catch{errors.push('Cantidad total inválida');quantity='0';}
@@ -191,8 +315,21 @@ export function acuPreapprovalErrors(row,resources){
  return [...new Set(acuTotals(row,resources).errors)];
 }
 export function copyAcuExample(seed,example){
- if(normalize(seed.unit)!==normalize(example.unit))throw new Error('La unidad de la receta no coincide con la partida. Adaptá los consumos explícitamente antes de reutilizarla');
+ if(!acuUnitsMatch(seed.unit,example.unit))throw new Error('La unidad de la receta no coincide con la partida. Adaptá los consumos explícitamente antes de reutilizarla');
  return {...emptyAcu(seed),components:example.components.map(c=>({resource_id:c.resource_id,quantity:c.quantity,description:c.description||''})),assumptions:[`Receta copiada de ${example.source_title||example.description||'referencia seleccionada'}. Revisar consumos, unidades actuales y condiciones de ejecución. Se usan los precios del presupuesto o catálogo actual.`]};
+}
+export function matchingLibraryAcu(seed,example,resources){
+ if(normalize(seed.description)!==normalize(example.description)||!acuUnitsMatch(seed.unit,example.unit))return null;
+ const row=copyAcuExample(seed,example);
+ const catalog=new Map(resources.map(resource=>[resource.id,resource]));
+ const {coverage,uncovered}=resolveRequirementCoverage(seed,row.components,[],catalog);
+ row.requirement_coverage=coverage;
+ if(uncovered.length||acuPreapprovalErrors(row,resources).length)return null;
+ row.reference_title=example.source_title||example.description;
+ return row;
+}
+export function acuUnitsMatch(left,right){
+ return !!consumptionUnit(left)&&consumptionUnit(left)===consumptionUnit(right);
 }
 /** Send only relevant real catalog rows to the model, retaining the full
  *  catalog locally for exact ID, price and safety validation. */
@@ -207,7 +344,7 @@ export function acuRelevantResources(seeds,resources,brief,limit=90){
  const work=seeds.map(s=>s.description).join(' ')+' '+brief;
  const related=/\b(?:revestimiento|porcelanato|ceramica|azulejo|bano)\b/i.test(normalize(work))
   ?' porcelanato ceramica adhesivo pegamento pastina junta colocacion mano de obra':'';
- const queries=[brief+related, ...seeds.map(s=>s.description+' '+brief)];
+ const queries=[...seeds.map(seed=>[seed.description,...(seed.expected_resources||[]).map(item=>item.description)].join(' ')),brief+related];
  const ranked=new Map();
  for(const query of queries){
   const data=JSON.parse(buildCatalogContext({question:query,resources}));
@@ -227,14 +364,20 @@ export function acuPromptContext(seeds,resources,examples,brief){
  const tokens=s=>new Set(normalize(s).split(' ').filter(x=>x.length>2));
  const words=tokens(seeds.map(s=>s.description).join(' ')+' '+brief);
  const ranked=examples.map(e=>({e,score:[...tokens(e.description)].filter(w=>words.has(w)).length+(seeds.some(s=>normalize(s.unit)===normalize(e.unit))?1:0)})).sort((a,b)=>b.score-a.score).slice(0,8).map(({e})=>({key:e.key,reference:e.source_title||e.description,description:e.description,unit:e.unit,section:e.section,components:e.components.map(c=>({resource_id:c.resource_id,description:c.description,quantity:c.quantity}))}));
- const narrowed=acuRelevantResources(seeds,resources,brief);
+ const byId=new Map(resources.map(resource=>[resource.id,resource]));
+ const preferredIds=new Set([
+  ...seeds.flatMap(seed=>(seed.components||[]).map(component=>component.resource_id)),
+  ...ranked.flatMap(example=>example.components.map(component=>component.resource_id)),
+  ...acuRelevantResources(seeds,resources,brief).map(resource=>resource.id)
+ ]);
+ const narrowed=[...preferredIds].map(id=>byId.get(id)).filter(resource=>resource&&seeds.some(seed=>!acuResourceScopeConflict(seed,resource))).slice(0,90);
  const resource_candidates=seeds.map(seed=>{
-  const found=JSON.parse(buildCatalogContext({question:seed.description+' '+brief,resources:narrowed}));
+  const found=JSON.parse(buildCatalogContext({question:[seed.description,...(seed.expected_resources||[]).map(item=>item.description)].join(' '),resources:narrowed.filter(resource=>!acuResourceScopeConflict(seed,resource))}));
   const primary=found.matches.slice(0,found.related.length?12:16);
   const suggestions=[...primary,...found.related.slice(0,16-primary.length)];
   return {line_id:seed.id,candidates:suggestions.map(item=>({resource_id:item.id,match:item.matched_by}))};
  });
- const payload={task:'acu',resource_candidates,candidate_rule:'Son sugerencias de búsqueda, NO equivalencias automáticas. Elegí solo recursos cuya identidad, oficio, material, unidad, dimensión y destino sean técnicamente compatibles; si hay dudas, informá el faltante. Los recursos disponibles están en resources.',targets:seeds.map(s=>({line_id:s.id,description:s.description,unit:s.unit,quantity:s.quantity,section:s.section,is_new:s.is_new,existing_components:s.components,existing_measurements:s.takeoffs?.map(m=>({note:m.note,factor:m.factor,length:m.length,width:m.width,height:m.height,sign:m.sign}))})),resources:narrowed.map(r=>({resource_id:r.id,code:r.code,description:r.description,unit:r.unit,kind:r.kind,has_price:r.price!=null})),catalog_total:resources.length,catalog_sampled:narrowed.length,catalog_truncated:narrowed.length<resources.length,examples:ranked};
+ const payload={task:'acu',quantity_rule:'Un metrado pendiente o cero no impide preparar un ACU por unidad si el consumo unitario es verificable. Conservá el metrado pendiente. Si la especificación necesaria para el consumo falta, detallala como pendiente.',resource_candidates,candidate_rule:'Son sugerencias de búsqueda, NO equivalencias automáticas. Elegí solo recursos cuya identidad, oficio, material, unidad, dimensión y destino sean técnicamente compatibles; si hay dudas, informá el faltante. Los recursos disponibles están en resources. Asociá cada componente a un requirement_id real del target cuando haya requisitos. Verificá el tipo y la especificación contra la descripción real del catálogo. Si aparece un requisito adicional necesario, informalo como pendiente en vez de asignarlo sin revisión. No traslades materiales ni oficios de otra partida, aunque estén en el alcance general.',targets:seeds.map(s=>({line_id:s.id,description:s.description,unit:s.unit,quantity:s.quantity,section:s.section,is_new:s.is_new,quantity_status:s.quantity_status||'pending',quantity_source:s.quantity_source||null,work_result:s.work_result||'',required_resources:s.expected_resources||[],existing_components:s.components,existing_measurements:s.takeoffs?.map(m=>({note:m.note,factor:m.factor,length:m.length,width:m.width,height:m.height,sign:m.sign}))})),resources:narrowed.map(r=>({resource_id:r.id,code:r.code,description:r.description,unit:r.unit,kind:r.kind,has_price:r.price!=null})),catalog_total:resources.length,catalog_sampled:narrowed.length,catalog_truncated:narrowed.length<resources.length,examples:ranked};
  const text=JSON.stringify(payload);if(new TextEncoder().encode(text).length>55000)throw new Error('La selección contextual para IA sigue siendo demasiado grande. Reducí los ejemplos o las partidas por consulta.');return text;
 }
 export function acuBatch({rows,context,estimate,newEstimate,batchId,asOf}){

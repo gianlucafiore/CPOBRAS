@@ -38,11 +38,11 @@ function acuMode(text,fallback='fill'){
 export function isApprovalReply(question){
  if(typeof question!=='string'||!question.trim()||/[¿?]/.test(question))return false;
  const affirmation='(?:si|dale|adelante|de acuerdo|confirmo|confirmado)';
- const lead='(?:(?:si|dale|adelante|de acuerdo|confirmo|confirmado|perfecto|bueno|ok|bien)\\s+)*';
+ const lead='(?:(?:si|dale|adelante|de acuerdo|confirmo|confirmado|perfecto|bueno|ok|bien|listo|hecho|correcto|ya esta)\\s+)*';
  const approve='(?:apruebo|aprobar|aproba(?:lo|la|los|las)?|aprobado)';
  const load='(?:carga(?:r|lo|la|los|las)?|aplica(?:r|lo|la|los|las)?|completa(?:r|lo|la|los|las)?|guarda(?:r|lo|la|los|las)?|hacelo|hazlo|procede)';
  const explicit=new RegExp('^(?:'+affirmation+'|'+lead+'(?:'+approve+'(?:\\s+(?:y\\s+)?'+load+')?|confirmado|'+load+')(?:\\s+directamente)?)(?:\\s+por favor)?$');
- return explicit.test(chatFold(question));
+ return explicit.test(chatFold(question).replace(/[,;:!.]+/g,' ').replace(/\s+/g,' ').trim());
 }
 // Resolve a fresh, explicit user confirmation against the last visible card.
 // This helper grants no permission: the caller must still verify the current

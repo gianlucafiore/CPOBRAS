@@ -198,7 +198,7 @@ export function createModalRenderer({
               dateToday(),
               'type="date" required',
             ) +
-            field("Fuente / proveedor", "source", "Carga manual") + '<p class="modal-help">Si todavía no conocés el precio, dejalo vacío. Podés registrarlo después desde la biblioteca.</p>');
+            field("Fuente / proveedor", "source", item.source || "Carga manual") + '<p class="modal-help">Si todavía no conocés el precio, dejalo vacío. Podés registrarlo después desde la biblioteca.</p>');
     } else if (kind === "price") {
       title = "Registrar precio";
       body =

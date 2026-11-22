@@ -1,5 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
+import {buildAcuReviewTree} from '../src/services/ai-acu-review-tree.js';
 import {acuSeed,emptyAcu,parseAcuProposals,measurementQuantity,acuTotals,acuPreapprovalErrors,copyAcuExample,acuPromptContext,acuBatch,acuRelevantResources} from '../src/services/ai-acu.js';
 const resource={id:'10000000-0000-4000-8000-000000000001',code:'MAT',description:'Mortero',unit:'kg',kind:'material',price:'20',price_source:'catálogo:price-1'};
 const seed=acuSeed({id:'10000000-0000-4000-8000-000000000002',description:'Revoque',unit:'m²',quantity:'10',unit_cost:'0',analysis_id:null,expected_recipe:null,section_id:null,section:'',takeoffs:[],formula:null,components:[]});
@@ -238,8 +239,15 @@ test('consumption metadata is optional but typed, bounded and preserved for prev
  const numericOrigin=evidenceRow({source_quantity:15,source_unit:'kg'});
  assert.equal(numericOrigin.components[0].source_quantity,'15');
  assert.ok(acuPreapprovalErrors(numericOrigin,[resource]).some(error=>error.includes('Consumo de origen incompatible')));
- for(const bad of [{quantity_unit:15},{quantity_unit:'u'.repeat(51)},{requested_description:'x'.repeat(501)},{consumption_support:{quantity:15,unit:'kg'}},{consumption_support:'x'.repeat(1501)},{source_quantity:'0'},{source_quantity:0},{source_quantity:1e100},{source_quantity:{num:15}}]){
+ for(const bad of [{quantity_unit:15},{quantity_unit:'u'.repeat(51)},{requested_description:'x'.repeat(501)},{consumption_support:{quantity:15,unit:'kg'}},{consumption_support:'x'.repeat(1501)},{source_quantity:1e100},{source_quantity:{num:15}}]){
   assert.throws(()=>evidenceRow(bad));
+ }
+ for(const origin of ['0','0.0',0]){
+  const pending=evidenceRow({source_quantity:origin,source_unit:'kg'});
+  assert.equal(pending.components[0].source_quantity,undefined);
+  assert.equal(pending.components[0].source_unit,undefined);
+  assert.match(pending.components[0].consumption_support,/Origen cero no válido/);
+  assert.equal(pending.components[0].quantity,'1');
  }
 });
 
@@ -276,4 +284,101 @@ test('509 catalog resources are narrowed to real construction candidates before 
  assert.equal(prompt.catalog_truncated,true);
  assert.ok(prompt.resources.length<=90);
  assert.ok(new TextEncoder().encode(JSON.stringify(prompt)).length<55000);
+});
+
+test('a wall specified in 18 cm cannot be approved with a 12 cm brick even when revoque is included',()=>{
+ const wall={...seed,description:'Construcción de muros en ladrillo cerámico hueco 18 cm con revoque ambas caras'};
+ const brick={...resource,unit:'un',description:'Ladrillo cerámico hueco 12 x 18 x 33 cm'};
+ assert.ok(acuPreapprovalErrors(evidenceRow({},brick,wall),[brick]).some(error=>error.includes('Espesor de ladrillo incompatible')));
+ const correct={...brick,description:'Ladrillo cerámico hueco 18 × 18 × 33 cm'};
+ assert.deepEqual(acuPreapprovalErrors(evidenceRow({},correct,wall),[correct]),[]);
+ const finish={...seed,description:'Revoque sobre muro de ladrillo cerámico hueco 18 cm'};
+ assert.deepEqual(acuPreapprovalErrors(evidenceRow({requested_description:'Recurso de prueba'},brick,finish),[brick]),[]);
+});
+
+test('a recipe of planned work blocks unlinked components and catalog kinds that contradict requirements',()=>{
+ const floor={...seed,description:'Colocación de piso de porcelanato',expected_resources:[
+  {id:'req-1',description:'Porcelanato para piso',kind:'material'}
+ ]};
+ const tile={...resource,description:'Piso porcelanato',kind:'material',unit:'m2'};
+ const unrelated={...resource,id:'unrelated',description:'Instalación de artefacto de luz',kind:'labor',unit:'un'};
+ const row=parseAcuProposals(JSON.stringify({acu_proposals:[{
+  line_id:floor.id,components:[{resource_id:tile.id,quantity:'1'},{resource_id:unrelated.id,quantity:'1'}],
+  requirement_coverage:[{requirement_id:'req-1',resource_id:tile.id}]
+ }]}),[floor],[tile,unrelated])[0];
+ assert.ok(acuPreapprovalErrors(row,[tile,unrelated]).some(error=>error.includes('Insumo sin requisito en esta partida')));
+ row.requirement_coverage[0].resource_id=unrelated.id;
+ assert.ok(acuPreapprovalErrors(row,[tile,unrelated]).some(error=>error.includes('Tipo de insumo incompatible')));
+ row.requirement_coverage[0].resource_id=tile.id;
+ row.components.pop();
+ assert.deepEqual(acuPreapprovalErrors(row,[tile,unrelated]),[]);
+});
+
+
+test('an unknown catalog UUID remains pending without exposing the identifier as a resource name',()=>{
+ const row=parseAcuProposals(JSON.stringify({acu_proposals:[{
+  line_id:seed.id,components:[{resource_id:'7b4d1caa-8247-4a11-893c-2b43c65eb6d7',quantity:'1'}]
+ }]}),[seed],[resource])[0];
+ const [group]=buildAcuReviewTree([row],[resource]);
+ assert.equal(group.lines[0].status,'pending');
+ assert.equal(group.lines[0].items[0].description,'Insumo por identificar');
+});
+
+test('a missing coverage link is recovered only for a single exact catalog match with compatible kind and unit',()=>{
+ const mortar={...resource,description:'Mortero',kind:'material',unit:'kg'};
+ const target={...seed,quantity:'0',quantity_status:'pending',expected_resources:[
+  {id:'required-mortar',description:'Mortero',kind:'material',unit:'kg'}
+ ]};
+ const parse=(resources,coverage)=>parseAcuProposals(JSON.stringify({acu_proposals:[{
+  line_id:target.id,
+  components:resources.map(item=>({resource_id:item.id,quantity:'0.25',quantity_unit:item.unit})),
+  requirement_coverage:coverage
+ }]}),[target],resources)[0];
+ const unique=parse([mortar]);
+ assert.deepEqual(unique.requirement_coverage,[{requirement_id:'required-mortar',resource_id:mortar.id,unresolved_reason:''}]);
+ assert.deepEqual(acuPreapprovalErrors(unique,[mortar]),[]);
+ assert.equal(acuTotals(unique,[mortar]).quantity,'0');
+
+ const second={...mortar,id:'second-mortar'};
+ for(const resources of [[mortar,second],[{...mortar,unit:'bolsa'}],[{...mortar,kind:'labor'}],[{...mortar,description:'Mortero de terminación'}]]){
+  assert.ok(acuPreapprovalErrors(parse(resources),resources).some(error=>error.includes('Requisito sin consumo válido')));
+ }
+ const unresolved=parse([mortar],[{requirement_id:'required-mortar',resource_id:'',unresolved_reason:'Falta especificar la mezcla'}]);
+ assert.ok(unresolved.missing_resources.some(reason=>reason.includes('Falta especificar la mezcla')));
+ assert.ok(acuPreapprovalErrors(unresolved,[mortar]).length);
+});
+
+test('ceramic masonry validates the unit count against the catalog brick face and rejects unrelated fixtures',()=>{
+ const target={...seed,unit:'m²',description:'Construcción de muros con ladrillo cerámico hueco 12 cm'};
+ const brick={...resource,description:'Ladrillo cerámico hueco 12 x 18 x 33 cm',kind:'material',unit:'un'};
+ const oversized=evidenceRow({quantity:'50'},brick,target);
+ assert.ok(acuPreapprovalErrors(oversized,[brick]).some(error=>error.includes('594 cm²')));
+ assert.deepEqual(acuPreapprovalErrors(evidenceRow({quantity:'16'},brick,target),[brick]),[]);
+ const light={...resource,description:'Instalación de artefacto de luz',kind:'labor',unit:'un'};
+ assert.ok(acuPreapprovalErrors(evidenceRow({},light,target),[light]).some(error=>error.includes('Insumo ajeno al trabajo')));
+ const aluminum={...target,description:'Colocación de aberturas de aluminio'};
+ const basin={...light,description:'Colocación de bacha de baño'};
+ assert.ok(acuPreapprovalErrors(evidenceRow({},basin,aluminum),[basin]).some(error=>error.includes('Insumo ajeno al trabajo')));
+ assert.deepEqual(acuPreapprovalErrors(evidenceRow({},basin,{...target,description:'Instalación sanitaria en baños'}),[basin]),[]);
+});
+
+test('library reuse is deterministic only for a unique compatible work without new technical instructions',async()=>{
+ const {createLibraryAcuSource}=await import('../src/services/ai-acu-library.js');
+ const target={...seed,description:'Revoque grueso',unit:'m²'};
+ const refs=[{key:'analysis:one',title:'Biblioteca ACU · REV-01 · Revoque grueso',description:'Revoque grueso',unit:'m2'}];
+ const invoke=async(_name,{key})=>[{key,description:target.description,unit:'m2',
+  components:[{resource_id:resource.id,description:resource.description,quantity:'0.35'}]}];
+
+ const resolve=(choices,brief,line=target)=>createLibraryAcuSource(choices,invoke,brief)([line],[resource]);
+ const direct=await resolve(refs,'Completá los ACU de las partidas existentes');
+ assert.equal(direct.rows[0].components[0].quantity,'0.35');
+ assert.equal(direct.rows[0].reference_title,refs[0].title);
+ for(const result of [
+  await resolve(refs,'Generá el ACU de la partida seleccionada con dosificación 1:3'),
+  await resolve([...refs,{...refs[0],key:'analysis:two'}],'Generá el ACU de la partida seleccionada'),
+  await resolve(refs,'Prepará el presupuesto',{...target,is_new:true,work_result:'Revoque grueso de 15 mm'})
+ ]){
+  assert.deepEqual(result.rows,[]);
+  assert.ok(result.examplesByLine.get(target.id)?.length);
+ }
 });

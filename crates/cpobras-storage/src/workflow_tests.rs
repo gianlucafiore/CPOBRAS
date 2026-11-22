@@ -5595,6 +5595,16 @@ fn assisted_acu_calculates_exact_catalog_cost_and_retry_does_not_duplicate() {
     assert!(saved.analysis_id.is_some());
     assert_eq!(s.list_budget_sections(e.id).unwrap()[0].title, "Revoques");
     s.apply_reviewed_budget_batch(&batch).unwrap();
+
+    // Another reviewed proposal based on the originally empty line is stale.
+    let mut stale = batch.clone();
+    stale.id = Uuid::new_v4();
+    stale.acus[0].components[0].quantity = Decimal::ONE;
+    assert!(s.apply_reviewed_budget_batch(&stale).is_err());
+    assert_eq!(
+        s.estimate_items(e.id).unwrap()[0].analysis_id,
+        saved.analysis_id
+    );
     assert_eq!(
         s.conn
             .query_row("SELECT COUNT(*) FROM line_analysis_snapshots", [], |r| r
@@ -5603,6 +5613,48 @@ fn assisted_acu_calculates_exact_catalog_cost_and_retry_does_not_duplicate() {
         1
     );
 }
+#[test]
+fn assisted_acu_saves_a_valid_recipe_next_to_an_uncomposed_line_with_pending_quantities() {
+    use crate::assisted_budget::NewLine;
+
+    let (mut store, project, estimate, original, material) = assisted_acu_fixture();
+    let mut batch = assisted_acu_batch(&store, &project, &estimate, &original, material);
+    let composed_id = Uuid::new_v4();
+    let pending_id = Uuid::new_v4();
+    batch.creates = vec![
+        NewLine {
+            id: composed_id,
+            description: "Revoque con consumo revisado".into(),
+            unit: "m²".into(),
+            quantity: Decimal::ZERO,
+            unit_price: Decimal::ZERO,
+            section: Some("Revoques".into()),
+        },
+        NewLine {
+            id: pending_id,
+            description: "Colocación de aberturas sin especificar".into(),
+            unit: "m²".into(),
+            quantity: Decimal::ZERO,
+            unit_price: Decimal::ZERO,
+            section: Some("Aberturas".into()),
+        },
+    ];
+    batch.acus[0].line_id = composed_id;
+    batch.acus[0].expected = None;
+
+    let result = store.apply_reviewed_budget_batch(&batch).unwrap();
+    assert_eq!((result.created, result.composed), (2, 1));
+    let lines = store.estimate_items(estimate.id).unwrap();
+    let composed = lines.iter().find(|line| line.id == composed_id).unwrap();
+    let pending = lines.iter().find(|line| line.id == pending_id).unwrap();
+    assert!(composed.analysis_id.is_some());
+    assert_eq!(composed.quantity, Decimal::ZERO);
+    assert_eq!(composed.unit_cost_snapshot, Decimal::new(87, 3));
+    assert!(pending.analysis_id.is_none());
+    assert_eq!(pending.quantity, Decimal::ZERO);
+    assert_eq!(pending.unit_cost_snapshot, Decimal::ZERO);
+}
+
 #[test]
 fn assisted_acu_rejects_changed_or_missing_prices_without_partial_writes() {
     use crate::resource_catalog::ResourcePrice;
@@ -5711,8 +5763,36 @@ fn assisted_acu_reuses_reference_consumption_but_not_historical_prices() {
     let examples = s
         .assisted_acu_reference(&format!("budget:{}", e.id))
         .unwrap();
+    let mut library = cpobras_core::UnitCostAnalysis {
+        id: Uuid::new_v4(),
+        code: "REV-01".into(),
+        description: target_line.description.clone(),
+        ..source.clone()
+    };
+    library
+        .components
+        .push(cpobras_core::ResourcePriceSnapshot {
+            resource_id: Uuid::new_v4(),
+            included: false,
+            ..library.components[0].clone()
+        });
+    s.save_analysis(&library).unwrap();
+    let key = format!("analysis:{}", library.id);
+    let choices = s.assisted_acu_references().unwrap();
+    let choice = choices.iter().find(|choice| choice.key == key).unwrap();
+    assert_eq!(
+        choice.description.as_deref(),
+        Some(target_line.description.as_str())
+    );
+    assert_eq!(choice.unit.as_deref(), Some(target_line.unit.as_str()));
+    let recipes = s.assisted_acu_reference(&key).unwrap();
+    assert_eq!(recipes[0].components.len(), 1);
+    assert_eq!(
+        recipes[0].components[0].quantity,
+        examples[0].components[0].quantity
+    );
     let mut batch = assisted_acu_batch(&s, &p, &target, &target_line, id);
-    batch.acus[0].components[0].quantity = examples[0].components[0].quantity;
+    batch.acus[0].components[0].quantity = recipes[0].components[0].quantity;
     s.apply_reviewed_budget_batch(&batch).unwrap();
     assert_eq!(
         s.estimate_items(target.id).unwrap()[0].unit_cost_snapshot,
@@ -5726,6 +5806,9 @@ fn assisted_acu_reuses_reference_consumption_but_not_historical_prices() {
             .unwrap(),
         20.into()
     );
+    let unchanged = s.get_analysis(library.id).unwrap().unwrap();
+    assert_eq!(unchanged.components[0].unit_price, 10.into());
+    assert!(!unchanged.components[1].included);
 }
 
 #[test]

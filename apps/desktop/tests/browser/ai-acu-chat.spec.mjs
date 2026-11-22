@@ -16,6 +16,20 @@ async function chatFixture(page,{reply='handoff'}={}){
   const resource={id:${JSON.stringify(resourceId)},code:'MAT-001',description:'Mortero',unit:'kg',kind:'material',price:'20',price_source:'catálogo:price-1'};
   const line=(id,description)=>({id,description,unit:'m²',quantity:'42',unit_cost:'0',analysis_id:null,expected_recipe:null,section_id:null,section:'',components:[],takeoffs:[],formula:null});
   const state={view:'workspace',projectId:'project-1',estimateId:'estimate-1',projects:[{id:'project-1',currency:'ARS'}],estimates:[{id:'estimate-1',title:'Presupuesto de prueba',currency:'ARS',issued:false}],lines:[line(${JSON.stringify(firstLineId)},'Revoque grueso'),line(${JSON.stringify(secondLineId)},'Revoque fino')],sections:[],assignments:{},selectedLineId:${JSON.stringify(firstLineId)},panel:'acu',search:''};
+  const structure=${JSON.stringify(reply==='structure')};
+  const extra={...resource,id:'unplanned',description:'Alquiler tijera elevadora',kind:'equipment',unit:'día'};
+  const house=${JSON.stringify(['house','library-house'].includes(reply))};
+  const libraryHouse=${JSON.stringify(reply==='library-house')};
+  const brick12={...resource,id:'brick12',description:'Ladrillo cerámico hueco 12 x 18 x 33 cm',unit:'un'};
+  const brick18={...brick12,id:'brick18',description:'Ladrillo cerámico hueco 18 x 18 x 33 cm'};
+  const light={...resource,id:'light',description:'Instalación de artefacto de luz',kind:'labor',unit:'un'};
+  const basin={...light,id:'basin',description:'Colocación de bacha de baño'};
+  const resources=house?[brick12,brick18,light,basin]:structure?[resource,extra]:[resource];
+  const libraryMode=libraryHouse||${JSON.stringify(['library','similar-library'].includes(reply))};
+  const similar=${JSON.stringify(reply==='similar-library')};
+  const libraryKey='analysis:library-revoque';
+  const libraryName=libraryHouse?'Construcción de muros con ladrillo cerámico hueco 12 cm':'Revoque grueso';
+  if(similar)state.lines[0].description='Revoque grueso interior';
   const calls=[],batches=[],loads=[];
   const harness={state,calls,batches,loads,ready:false};window.__aiAcuHarness=harness;
   const renderBudget=()=>{
@@ -28,12 +42,47 @@ async function chatFixture(page,{reply='handoff'}={}){
    if(name==='ai_status')return {configured:true,provider:'openai',model:'fixture-model'};
    if(name==='ai_cancel')return null;
    if(name==='ai_catalog_context')return {currency:'ARS',as_of:args.asOf,resources:[structuredClone(resource)]};
-   if(name==='assisted_acu_context')return {currency:'ARS',resources:[structuredClone(resource)],lines:structuredClone(state.lines),sections:[]};
-   if(name==='assisted_acu_references')return [];
+   if(name==='assisted_acu_context')return {currency:'ARS',resources:structuredClone(resources),lines:structuredClone(state.lines),sections:[]};
+   if(name==='assisted_acu_references')return libraryMode?
+    [{key:libraryKey,title:'Biblioteca ACU · REV-01 · '+libraryName,description:libraryName,unit:'m2'}]:[];
+   if(name==='assisted_acu_reference'&&args.key===libraryKey)return [{
+    key:libraryKey,description:libraryName,unit:'m2',section:'',
+    components:libraryHouse?[{resource_id:brick12.id,description:brick12.description,quantity:'16'}]:
+     [{resource_id:resource.id,description:resource.description,quantity:'0.35',unit_price:'1'}]
+   }];
    if(name==='ai_chat'){
+    if(house&&args.mode==='plan'){
+     const wall=(brick,thickness)=>({description:'Construcción de muros con ladrillo cerámico hueco '+thickness+' cm',
+      unit:'m²',quantity:null,work_result:'Muro terminado',resources:[
+       {name:brick.description,kind:'material',unit:'un'},
+       {name:light.description,kind:'labor',unit:'un'},
+       {name:'Lechada o adhesivo para revoque',kind:'material',unit:'kg'}
+      ]});
+     return {text:JSON.stringify({work_sections:[
+      {title:'Muros',partidas:[wall(brick12,12),wall(brick18,18)]},
+      {title:'Aberturas',partidas:[{description:'Colocación de aberturas de aluminio',unit:'m²',quantity:null,
+       work_result:'Aberturas colocadas',resources:[{name:'Abertura de aluminio',kind:'material',unit:'m²'}]}]}
+     ]})};
+    }
+    if(structure&&args.mode==='plan')return {text:JSON.stringify({work_sections:[{title:'Muros',partidas:[{
+     description:'Revoque con mortero',unit:'m²',quantity:null,work_result:'Muro revocado',
+     resources:[{name:'Mortero',kind:'material',unit:'kg'}]
+    }]}]})};
     if(args.mode==='acu'){
+     if(libraryHouse)throw Error('Proveedor no disponible');
      const context=JSON.parse(args.context);
-     return {text:JSON.stringify({answer:'Recetas para revisar',acu_proposals:context.targets.map(target=>({line_id:target.line_id,components:[{resource_id:${JSON.stringify(resourceId)},quantity:'0.25'}],measurements:[],assumptions:['Consumo estimativo por m² para revisar.'],missing_resources:[]}))}),input_tokens:50,output_tokens:50};
+     if(house)return {text:JSON.stringify({acu_proposals:context.targets.map(target=>{
+      const brick=target.description.includes('12 cm')?brick12:target.description.includes('18 cm')?brick18:null;
+      if(!brick)return context.previous_review?
+       {line_id:target.line_id,components:[],missing_resources:[{description:'Medidas y tipos de aberturas',action:'specify',reason:'No se indicaron dimensiones'}]}:
+       {line_id:target.line_id,components:[{resource_id:basin.id,quantity:'1'}]};
+      return {line_id:target.line_id,components:context.previous_review?[{resource_id:brick.id,quantity:'16'}]:
+       [{resource_id:brick.id,quantity:'50'},{resource_id:light.id,quantity:'0.2'}]};
+     })})};
+     return {text:JSON.stringify({answer:'Recetas para revisar',acu_proposals:context.targets.map(target=>({
+      line_id:target.line_id,components:[{resource_id:resource.id,quantity:'0.25'},...(structure&&target.is_new?[{resource_id:extra.id,quantity:'0.02'}]:[])],
+      measurements:[],assumptions:['Consumo estimativo por m² para revisar.'],missing_resources:[]
+     }))}),input_tokens:50,output_tokens:50};
     }
     const answer=${JSON.stringify(reply)}==='legacy'
      ? {answer:'Estos son los consumos de las partidas existentes.',proposal_lines:[{description:'Agregar material',unit:'gl',quantity:null,unit_price:null,section:'Insumos'}]}
@@ -42,6 +91,7 @@ async function chatFixture(page,{reply='handoff'}={}){
    }
    if(name==='apply_reviewed_budget_batch'){
     const batch=structuredClone(args.batch);batches.push(batch);
+    for(const created of batch.creates)state.lines.push({...created,components:[],analysis_id:null,unit_cost:created.unit_price});
     for(const acu of batch.acus){const existing=state.lines.find(item=>item.id===acu.line_id);if(!existing)throw new Error('The chat must not invent a target line');existing.components=structuredClone(acu.components);existing.unit_cost='5.00';existing.analysis_id='private-analysis-'+existing.id;}
     return {updated:batch.updates.length,created:batch.creates.length,deleted:batch.deletes.length,composed:batch.acus.length};
    }
@@ -70,6 +120,7 @@ test('a structured ACU handoff opens the exact existing targets and ignores an u
  await ask(page,'¿Qué recomendás revisar en este presupuesto?');
  const handoff=page.getByRole('button',{name:'Revisar antes de cargar',exact:true});
  await expect(handoff).toBeVisible();
+ await expect(page.locator('.ai-message.ai-user')).toContainText('¿Qué recomendás revisar en este presupuesto?');
  await expect(page.locator('.ai-transcript')).not.toContainText('La lista de partidas no es válida');
  await expect(page.locator('[data-ai=review-plan]')).toHaveCount(0);
  await handoff.click();
@@ -120,4 +171,167 @@ test('a handoff with a foreign line id clears the selection instead of generatin
  await expect(page.locator('[data-acu-proposal]')).toHaveCount(0);
  expect(await page.evaluate(()=>window.__aiAcuHarness.calls.filter(call=>call.name==='ai_chat').length)).toBe(1);
  expect(await page.evaluate(()=>window.__aiAcuHarness.batches)).toHaveLength(0);
+});
+
+test('clearing the chat preserves the budget and an already composed selection yields zero proposals',async({page})=>{
+ await chatFixture(page);
+ await ask(page,'¿Qué recomendás revisar en este presupuesto?');
+ await expect(page.getByRole('button',{name:'Revisar antes de cargar',exact:true})).toBeVisible();
+ await page.evaluate(()=>{
+  const line=window.__aiAcuHarness.state.lines[0];
+  line.analysis_id='existing-acu';
+  line.components=[{quantity:'3',resource_id:'existing-resource'}];
+ });
+ await page.getByTitle('Limpiar conversación').click();
+ await expect(page.locator('.ai-message')).toHaveCount(0);
+ await ask(page,'¿Qué recomendás revisar en este presupuesto?');
+ await expect(page.getByRole('button',{name:'Revisar antes de cargar',exact:true})).toBeVisible();
+ await ask(page,'perfecto, cargalos');
+ await expect(page.locator('.ai-transcript')).toContainText('0 propuestas: no hay partidas seleccionadas sin ACU');
+ const result=await page.evaluate(()=>{
+  const {state,calls,batches}=window.__aiAcuHarness;
+  return {composition:state.lines[0].components,acuCalls:calls.filter(call=>call.args.mode==='acu'),batches};
+ });
+ expect(result.composition).toEqual([{quantity:'3',resource_id:'existing-resource'}]);
+ expect(result.acuCalls).toEqual([]);
+ expect(result.batches).toEqual([]);
+});
+
+
+test('a structure-only save reports zero ACU and retries with the reason on the existing line',async({page})=>{
+ await chatFixture(page,{reply:'structure'});
+ const prompt='Prepará partidas nuevas con ACU para una casa con muros a revocar.';
+ await ask(page,prompt);
+ await expect(page.locator('.ai-message.ai-user').first()).toContainText(prompt);
+ await expect(page.locator('.ai-acu-tree-errors')).toContainText('Insumo sin requisito en esta partida: Alquiler tijera elevadora');
+ await ask(page,'sí, aprobado');
+ expect(await page.evaluate(()=>window.__aiAcuHarness.batches)).toHaveLength(0);
+ await page.getByRole('button',{name:'Guardar solo rubros y partidas (sin ACU)',exact:true}).click();
+ await expect(page.locator('.ai-approval-status')).toContainText('0 ACU guardados');
+ await expect(page.locator('.ai-message.ai-user').first()).toContainText(prompt);
+ await page.getByRole('button',{name:'Completar 1 ACU pendientes'}).click();
+ const preview=page.getByRole('button',{name:'Aprobar y guardar 1 ACU completos'});
+ await expect(preview).toBeVisible();
+
+ const before=await page.evaluate(()=>{
+  const {calls,batches}=window.__aiAcuHarness;
+  return {batches,contexts:calls.filter(call=>call.args.mode==='acu').map(call=>JSON.parse(call.args.context))};
+ });
+ expect(before.batches).toHaveLength(1);
+ expect(before.batches[0].acus).toEqual([]);
+ expect(before.contexts).toHaveLength(2);
+ const saved=before.batches[0].creates[0];
+ expect(saved.quantity).toBe('0');
+ expect(before.contexts[1].targets).toMatchObject([{line_id:saved.id,is_new:false}]);
+ expect(before.contexts[1].previous_review).toMatchObject([{
+  line_id:saved.id,errors:['Insumo sin requisito en esta partida: Alquiler tijera elevadora']
+ }]);
+
+ await preview.click();
+ const after=await page.evaluate(()=>window.__aiAcuHarness.batches);
+ expect(after).toHaveLength(2);
+ expect(after[1]).toMatchObject({creates:[],deletes:[],updates:[],acus:[{line_id:saved.id,measurements:null,
+  expected:{quantity:'0'},components:[{resource_id:resourceId,quantity:'0.25'}]}]});
+});
+
+
+
+test('mixed house proposals are corrected separately and a pending opening does not block valid wall ACU',async({page})=>{
+ await chatFixture(page,{reply:'house'});
+ await ask(page,'Prepará partidas nuevas con ACU para una casa de 120 m² con muros de ladrillo del 12 y 18 y aberturas de aluminio sin definir.');
+ const approve=page.getByRole('button',{name:'Aprobar y guardar 2 ACU completos · 1 pendientes',exact:true});
+ await expect(approve).toBeVisible();
+ const tree=page.locator('.ai-acu-review-tree');
+ await expect(tree.locator('.ai-acu-tree-line').filter({hasText:'12 cm'})).toContainText('16 un / m²');
+ await expect(tree.locator('.ai-acu-tree-line').filter({hasText:'aberturas de aluminio'})).toContainText('ACU pendiente');
+ await expect(tree).not.toContainText('Instalación de artefacto de luz');
+ await expect(tree).not.toContainText('Colocación de bacha de baño');
+ const contexts=await page.evaluate(()=>window.__aiAcuHarness.calls.filter(call=>call.args.mode==='acu').map(call=>JSON.parse(call.args.context)));
+ const corrections=contexts.filter(context=>context.previous_review);
+ expect(corrections).toHaveLength(3);
+ expect(corrections.every(context=>context.targets.length===1)).toBe(true);
+ for(const context of corrections.slice(0,2)){
+  expect(context.previous_review[0].errors.join(' ')).toContain('Consumo incompatible con la cara del ladrillo');
+  expect(context.resources.map(resource=>resource.resource_id)).not.toContain('light');
+ }
+ const initial=contexts.filter(context=>!context.previous_review);
+ expect(initial.map(context=>context.targets.length)).toEqual([1,1,1]);
+ expect(new Set(initial.flatMap(context=>context.targets[0].required_resources.map(requirement=>requirement.id))).size).toBe(3);
+ expect(await page.evaluate(()=>window.__aiAcuHarness.batches)).toHaveLength(0);
+
+ await approve.click();
+ await expect(page.locator('.ai-approval-status')).toContainText('2 ACU cargados y 3 partidas nuevas creadas; 1 pendiente');
+ const [batch]=await page.evaluate(()=>window.__aiAcuHarness.batches);
+ expect(batch.creates).toHaveLength(3);
+ expect(batch.creates.every(line=>line.quantity==='0')).toBe(true);
+ expect(batch.acus.map(acu=>acu.components.map(component=>[component.resource_id,component.quantity]))).toEqual([
+  [['brick12','16']],[['brick18','16']]
+ ]);
+ expect(batch.acus.every(acu=>acu.measurements===null)).toBe(true);
+});
+
+
+
+test('an existing line reuses a matching library ACU after reopening and keeps the current catalog price',async({page})=>{
+ await chatFixture(page,{reply:'library'});
+ await page.reload();
+ await page.locator('[data-ai=toggle]').click();
+ await page.locator('[name=ai-consent]').check();
+ await ask(page,'Generá el ACU de la partida seleccionada');
+ await expect(page.getByText(/Origen del ACU · Biblioteca ACU · REV-01/)).toBeVisible();
+ const approve=page.getByRole('button',{name:'Aprobar y guardar 1 ACU completos',exact:true});
+ await expect(approve).toBeVisible();
+ const before=await page.evaluate(()=>{
+  const {calls,batches}=window.__aiAcuHarness;
+  return {recipes:calls.filter(call=>call.name==='assisted_acu_reference'),provider:calls.filter(call=>call.name==='ai_chat'),batches};
+ });
+ expect(before.recipes.map(call=>call.args.key)).toEqual(['analysis:library-revoque']);
+ expect(before.provider).toEqual([]);
+ expect(before.batches).toEqual([]);
+ await approve.click();
+ await expect(page.locator('.ai-approval-status')).toContainText('1 ACU cargado');
+ const [batch]=await page.evaluate(()=>window.__aiAcuHarness.batches);
+ expect(batch.creates).toEqual([]);
+ expect(batch.acus).toMatchObject([{
+  line_id:firstLineId,measurements:null,expected:{quantity:'42'},components:[
+   {resource_id:resourceId,quantity:'0.35',expected_resource:{price:'20'}}
+  ]
+ }]);
+ expect(batch.acus[0].notes).toContain('REV-01');
+});
+
+test('a similar library ACU informs a proposal instead of being copied automatically',async({page})=>{
+ await chatFixture(page,{reply:'similar-library'});
+ await ask(page,'Generá el ACU de la partida seleccionada');
+ await expect(page.getByRole('button',{name:'Aprobar y guardar 1 ACU completos',exact:true})).toBeVisible();
+ const result=await page.evaluate(()=>{
+  const {calls,batches}=window.__aiAcuHarness;
+  return {queries:calls.filter(call=>call.name==='ai_chat').map(call=>JSON.parse(call.args.context)),batches};
+ });
+ expect(result.queries).toHaveLength(1);
+ expect(result.queries[0].examples).toMatchObject([{key:'analysis:library-revoque',components:[{resource_id:resourceId,quantity:'0.35'}]}]);
+ expect(result.queries[0].examples[0].components[0]).not.toHaveProperty('unit_price');
+ expect(result.batches).toEqual([]);
+});
+
+
+test('a budget draft keeps the matching library recipe when the provider cannot compose the other lines',async({page})=>{
+ await chatFixture(page,{reply:'library-house'});
+ await ask(page,'Prepará partidas nuevas con ACU para una casa con muros de ladrillo del 12 y 18 y aberturas de aluminio sin definir.');
+ const approve=page.getByRole('button',{name:'Aprobar y guardar 1 ACU completos · 2 pendientes',exact:true});
+ await expect(approve).toBeVisible();
+ const tree=page.locator('.ai-acu-review-tree');
+ await expect(tree.locator('.ai-acu-tree-line').filter({hasText:'12 cm'})).toContainText('Origen del ACU · Biblioteca ACU');
+ await expect(tree.locator('.ai-acu-tree-line').filter({hasText:'18 cm'})).toContainText('ACU pendiente');
+ const initial=await page.evaluate(()=>window.__aiAcuHarness.calls.filter(call=>call.name==='ai_chat').map(call=>JSON.parse(call.args.context)));
+ expect(initial[0].library_acu).toMatchObject([{description:'Construcción de muros con ladrillo cerámico hueco 12 cm'}]);
+ expect(initial[1].targets.map(target=>target.description)).toEqual(['Construcción de muros con ladrillo cerámico hueco 18 cm']);
+ expect(await page.evaluate(()=>window.__aiAcuHarness.batches)).toEqual([]);
+
+ await approve.click();
+ await expect(page.locator('.ai-approval-status')).toContainText('1 ACU cargado y 3 partidas nuevas creadas; 2 pendientes');
+ const [batch]=await page.evaluate(()=>window.__aiAcuHarness.batches);
+ expect(batch.creates).toHaveLength(3);
+ expect(batch.acus).toHaveLength(1);
+ expect(batch.acus[0].components[0]).toMatchObject({resource_id:'brick12',quantity:'16'});
 });

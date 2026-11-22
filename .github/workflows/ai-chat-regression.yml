@@ -2,6 +2,7 @@ name: AI chat regression
 on:
   push:
     paths:
+      - "crates/cpobras-storage/src/workflow_tests.rs"
       - "tools/ci-apt-mirror.py"
       - "apps/desktop/src/**"
       - "apps/desktop/tests/ai-*.test.mjs"
@@ -20,6 +21,7 @@ on:
       - "apps/desktop/tests/browser/ai-approved-load.spec.mjs"
       - "apps/desktop/tests/browser/ai-acu-chat.spec.mjs"
       - "apps/desktop/tests/browser/ai-library-acu.spec.mjs"
+      - "apps/desktop/tests/browser/ai-reviewed-structure.spec.mjs"
       - "crates/cpobras-storage/src/budget_sections.rs"
       - "crates/cpobras-storage/src/section_batches.rs"
       - "apps/desktop/src-tauri/src/commands/sections.rs"
@@ -29,6 +31,7 @@ on:
       - ".github/workflows/ai-chat-regression.yml"
   pull_request:
     paths:
+      - "crates/cpobras-storage/src/workflow_tests.rs"
       - "tools/ci-apt-mirror.py"
       - "apps/desktop/src/**"
       - "apps/desktop/tests/ai-*.test.mjs"
@@ -42,6 +45,7 @@ on:
       - "apps/desktop/tests/browser/ai-app-capabilities.spec.mjs"
       - "apps/desktop/tests/browser/ai-budget-preparation.spec.mjs"
       - "apps/desktop/tests/browser/ai-library-acu.spec.mjs"
+      - "apps/desktop/tests/browser/ai-reviewed-structure.spec.mjs"
       - "apps/desktop/tests/browser/ai-budget-sections.spec.mjs"
       - "crates/cpobras-storage/src/budget_sections.rs"
       - "crates/cpobras-storage/src/section_batches.rs"
@@ -77,6 +81,26 @@ jobs:
         working-directory: apps/desktop
         run: npm run test:browser -- ai-conversation-context.spec.mjs ai-budget-sections.spec.mjs ai-budget-preparation.spec.mjs ai-budget-copilot.spec.mjs ai-bathroom-preserve.spec.mjs ai-sanitario-append.spec.mjs ai-equipment-productivity.spec.mjs ai-selected-bathroom-preview.spec.mjs ai-acu-chat.spec.mjs ai-approved-load.spec.mjs ai-catalog-chat.spec.mjs ai-chat-create-approval.spec.mjs ai-full-budget-review.spec.mjs ai-app-capabilities.spec.mjs ai-library-acu.spec.mjs
 
+  acu-recovery:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+      - name: Install frontend dependencies
+        working-directory: apps/desktop
+        run: npm ci
+      - name: Verify ACU catalog and composition checks
+        working-directory: apps/desktop
+        run: node --test --test-isolation=none tests/ai-acu.test.mjs
+      - name: Install Chromium
+        working-directory: apps/desktop
+        run: npx playwright install --with-deps chromium
+      - name: Verify ACU recovery after clearing the chat or restarting
+        working-directory: apps/desktop
+        run: npm run test:browser -- ai-acu-chat.spec.mjs ai-reviewed-structure.spec.mjs
+
   section-native:
     runs-on: ubuntu-24.04
     steps:
@@ -89,6 +113,9 @@ jobs:
         run: cargo test -p cpobras-storage reviewed_section -- --nocapture
       - name: Validate unified atomic budget classification
         run: cargo test -p cpobras-storage reviewed_batch_moves_rubros_atomically_without_touching_prices -- --nocapture
+
+      - name: Verify ACU SQLite snapshot and stale approval checks
+        run: cargo test -p cpobras-storage --locked assisted_acu_
 
   desktop-native:
     runs-on: ubuntu-24.04

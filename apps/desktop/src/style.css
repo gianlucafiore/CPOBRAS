@@ -578,3 +578,92 @@ input[type=search]::-webkit-search-cancel-button{appearance:none}
 .print-memory-cover{padding:14px 0 22px}.print-quotation-break{border-top:2px dashed #bfcede;margin-top:18px;padding:20px 0 8px}
 
 .price-public-toggle{position:relative;display:inline-flex;align-items:center;flex:0 0 18px;margin:0;cursor:pointer}.price-public-toggle input{width:13px;height:13px;margin:0}.price-public-hint{position:absolute;right:0;bottom:calc(100% + 7px);z-index:20;white-space:nowrap;padding:6px 9px;background:#243e54;color:white;border-radius:4px;font-size:11px;box-shadow:0 2px 7px #142c4430;visibility:hidden;opacity:0;pointer-events:none}.price-row:hover .price-public-hint,.price-public-toggle input:focus-visible + .price-public-hint{visibility:visible;opacity:1}
+
+
+/* Alta puntual de insumos faltantes desde el chat IA. */
+#ai-missing-resource-popup{position:relative;z-index:2200;color:#e1ebf3;font:13px system-ui,sans-serif}
+.ai-missing-overlay{position:fixed;inset:0;background:rgba(5,12,20,.68);display:grid;place-items:center;padding:16px}
+.ai-missing-dialog{box-sizing:border-box;width:min(480px,100%);max-height:90vh;overflow:auto;background:#1b252f;border:1px solid #4b6477;border-radius:12px;box-shadow:0 15px 50px #0008;padding:18px;display:grid;gap:12px}
+.ai-missing-dialog header,.ai-missing-dialog footer{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.ai-missing-dialog header strong{font-size:16px}
+.ai-missing-dialog label{display:grid;gap:5px;color:#c7d8e5;font-weight:500}
+.ai-missing-dialog input,.ai-missing-dialog select{box-sizing:border-box;width:100%;min-width:0;padding:9px;background:#111b24;border:1px solid #51677a;border-radius:6px;color:#fff;font:inherit}
+.ai-missing-dialog button{padding:8px 12px;background:#243340;border:1px solid #526879;border-radius:6px;color:#e1ebf3;cursor:pointer}
+.ai-missing-dialog button:disabled{opacity:.55;cursor:default}
+.ai-missing-dialog button.ai-missing-primary{background:#dc7625;border-color:#dc7625;color:#fff}
+.ai-missing-dialog p{margin:0;line-height:1.5}.ai-missing-dialog small{color:#b2c5d1}
+.ai-missing-dialog .ai-missing-hint{padding:8px;background:#263c46;border-radius:6px}
+.ai-missing-dialog .ai-missing-error{color:#ffb4a9}
+.ai-missing-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(max-width:470px){.ai-missing-grid{grid-template-columns:1fr}}
+.ai-console .ai-missing-list{margin:9px 0;padding:9px;border:1px solid #415a65;border-radius:8px}
+.ai-console .ai-missing-list strong{display:block;margin-bottom:6px}
+.ai-console .ai-missing-item{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid #344550}
+.ai-console .ai-missing-item:first-of-type{border-top:0}
+.ai-console .ai-missing-item span{flex:1;min-width:0}
+.ai-console .ai-missing-item small{display:block;color:#a5b8c8;margin-top:2px}
+.ai-console .ai-missing-item button{flex-shrink:0}
+.ai-console .ai-missing-item.ai-missing-saved{opacity:.65}
+.ai-console .ai-pending-compact{margin-top:6px}
+
+/* Selector de faltantes de IA: buscar insumo existente o ir al alta nativa. */
+.ai-missing-dialog .ai-missing-results{max-height:min(300px,35vh);overflow:auto;border:1px solid #3f5465;border-radius:8px}
+.ai-missing-dialog .ai-missing-results>button{display:flex;gap:12px;align-items:center;justify-content:space-between;width:100%;text-align:left;border:0;border-radius:0;border-bottom:1px solid #354858;background:transparent;color:#e1ebf3}
+.ai-missing-dialog .ai-missing-results>button:last-child{border-bottom:0}
+.ai-missing-dialog .ai-missing-results>button:hover,.ai-missing-dialog .ai-missing-results>button:focus-visible{background:#304452}
+.ai-missing-dialog .ai-missing-results>button span:first-child{min-width:0;flex:1}
+.ai-missing-dialog .ai-missing-results>button span:last-child{color:#9fd5ec;font-size:12px}
+.ai-missing-dialog .ai-missing-results small{display:block;margin-top:3px;font-weight:400;color:#a7bdca}
+.ai-missing-dialog .ai-missing-results p{padding:12px}
+.ai-console .ai-missing-item{flex-wrap:wrap}
+.ai-console .ai-missing-item button{margin-left:auto}
+
+/* Revisión conversacional: rubro > partida > insumos, sin otra ventana grande. */
+.ai-console .ai-acu-review-tree{border:1px solid #405968;border-radius:8px;padding:10px;margin:10px 0;max-height:min(55vh,620px);overflow:auto}
+.ai-console .ai-acu-review-tree>strong{display:block;margin-bottom:8px}
+.ai-console .ai-acu-tree-section{border-top:1px solid #3d5361;padding:7px 0}
+.ai-console .ai-acu-tree-section>summary{cursor:pointer;font-size:14px}
+.ai-console .ai-acu-tree-section>summary small{margin-left:8px;color:#a7bccb;font-size:11px}
+.ai-console .ai-acu-tree-section>ul{padding:0 0 0 15px;margin:6px 0;list-style:none}
+.ai-console .ai-acu-tree-line{margin:5px 0;padding:5px 8px;border-left:2px solid #4a6474}
+.ai-console .ai-acu-tree-line>details>summary{cursor:pointer}
+.ai-console .ai-acu-tree-line>details>summary small{display:inline-block;margin-left:6px;color:#a6bbca;font-size:11px}
+.ai-console .ai-acu-tree-line>details>ul{list-style:none;padding:4px 0 2px 15px;margin:0}
+.ai-console .ai-acu-tree-resource{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:4px 0}
+.ai-console .ai-acu-tree-resource>span{flex:1;min-width:0}
+.ai-console .ai-acu-tree-resource small{display:block;color:#9fb6c6;margin-top:2px;font-size:11px}
+.ai-console .ai-acu-tree-resource button{flex-shrink:0;max-width:132px}
+.ai-console .ai-acu-tree-errors{font-size:11px;color:#e9be8a}
+.ai-console .ai-acu-tree-errors>summary{cursor:pointer}
+
+/* Espaciado contenido en la jerarquía: neutraliza pre-wrap del chat. */
+.ai-console .ai-acu-review-tree,.ai-console .ai-acu-review-tree *{white-space:normal;line-height:1.3}
+.ai-console .ai-acu-review-tree{margin:6px 0;padding:8px 10px;max-height:min(56vh,560px);overflow:auto}
+.ai-console .ai-acu-review-tree>strong{margin:0 0 6px;line-height:1.3}
+.ai-console .ai-acu-tree-section{padding:4px 0;border-top:1px solid #344b59}
+.ai-console .ai-acu-tree-section>summary{font-size:12px;font-weight:700;line-height:1.4}
+.ai-console .ai-acu-tree-section>summary small{font-size:10px}
+.ai-console .ai-acu-tree-section>ul{margin:0;padding:2px 0 2px 14px}
+.ai-console .ai-acu-tree-section li,.ai-console .ai-acu-tree-line{margin:0!important;line-height:1.3}
+.ai-console .ai-acu-tree-line{padding:2px 6px;border-left:1px solid #426077}
+.ai-console .ai-acu-tree-line>details>summary{padding:2px 0;font-size:11px}
+.ai-console .ai-acu-tree-line>details>summary small{font-size:10px;white-space:normal}
+.ai-console .ai-acu-tree-line>details>ul{padding:1px 0 1px 16px;margin:0}
+.ai-console .ai-acu-tree-resource{padding:2px 0;gap:6px;font-size:11px}
+.ai-console .ai-acu-tree-resource small{font-size:10px;line-height:1.25;margin:0}
+.ai-console .ai-acu-tree-resource button{font-size:10px;padding:3px 7px;max-width:none}
+.ai-console .ai-acu-tree-errors{margin:2px 0}
+.ai-console .ai-acu-tree-errors ul{margin:2px 0;padding-left:18px}
+
+/* Exclusión explícita de la propuesta (nunca borra registros de la biblioteca). */
+.ai-console .ai-acu-tree-line>details>summary{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+.ai-console .ai-acu-tree-line>details>summary>b{flex:0 1 auto}
+.ai-console .ai-acu-tree-line>details>summary>small{flex:1;min-width:100px}
+.ai-console button.ai-tree-exclude{width:22px;height:22px;min-width:22px;padding:0;margin-left:auto;
+ display:inline-grid;place-items:center;border:1px solid #536878;border-radius:4px;background:transparent;
+ color:#c2d4df;font-size:16px;line-height:1;flex-shrink:0}
+.ai-console button.ai-tree-exclude:hover:not(:disabled){color:#fff;background:#7b3f45;border-color:#97545b}
+.ai-console .ai-acu-tree-line.is-excluded>details>summary>b,
+.ai-console .ai-acu-tree-resource.is-excluded>span{opacity:.55;text-decoration:line-through}
+.ai-console .ai-acu-tree-line.is-excluded>details>ul{opacity:.45}
+.ai-console .ai-acu-tree-resource button.ai-tree-exclude{margin:0}
