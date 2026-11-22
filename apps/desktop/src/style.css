@@ -578,3 +578,30 @@ input[type=search]::-webkit-search-cancel-button{appearance:none}
 .print-memory-cover{padding:14px 0 22px}.print-quotation-break{border-top:2px dashed #bfcede;margin-top:18px;padding:20px 0 8px}
 
 .price-public-toggle{position:relative;display:inline-flex;align-items:center;flex:0 0 18px;margin:0;cursor:pointer}.price-public-toggle input{width:13px;height:13px;margin:0}.price-public-hint{position:absolute;right:0;bottom:calc(100% + 7px);z-index:20;white-space:nowrap;padding:6px 9px;background:#243e54;color:white;border-radius:4px;font-size:11px;box-shadow:0 2px 7px #142c4430;visibility:hidden;opacity:0;pointer-events:none}.price-row:hover .price-public-hint,.price-public-toggle input:focus-visible + .price-public-hint{visibility:visible;opacity:1}
+
+
+/* Alta puntual de insumos faltantes desde el chat IA. */
+#ai-missing-resource-popup{position:relative;z-index:2200;color:#e1ebf3;font:13px system-ui,sans-serif}
+.ai-missing-overlay{position:fixed;inset:0;background:rgba(5,12,20,.68);display:grid;place-items:center;padding:16px}
+.ai-missing-dialog{box-sizing:border-box;width:min(480px,100%);max-height:90vh;overflow:auto;background:#1b252f;border:1px solid #4b6477;border-radius:12px;box-shadow:0 15px 50px #0008;padding:18px;display:grid;gap:12px}
+.ai-missing-dialog header,.ai-missing-dialog footer{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.ai-missing-dialog header strong{font-size:16px}
+.ai-missing-dialog label{display:grid;gap:5px;color:#c7d8e5;font-weight:500}
+.ai-missing-dialog input,.ai-missing-dialog select{box-sizing:border-box;width:100%;min-width:0;padding:9px;background:#111b24;border:1px solid #51677a;border-radius:6px;color:#fff;font:inherit}
+.ai-missing-dialog button{padding:8px 12px;background:#243340;border:1px solid #526879;border-radius:6px;color:#e1ebf3;cursor:pointer}
+.ai-missing-dialog button:disabled{opacity:.55;cursor:default}
+.ai-missing-dialog button.ai-missing-primary{background:#dc7625;border-color:#dc7625;color:#fff}
+.ai-missing-dialog p{margin:0;line-height:1.5}.ai-missing-dialog small{color:#b2c5d1}
+.ai-missing-dialog .ai-missing-hint{padding:8px;background:#263c46;border-radius:6px}
+.ai-missing-dialog .ai-missing-error{color:#ffb4a9}
+.ai-missing-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(max-width:470px){.ai-missing-grid{grid-template-columns:1fr}}
+.ai-console .ai-missing-list{margin:9px 0;padding:9px;border:1px solid #415a65;border-radius:8px}
+.ai-console .ai-missing-list strong{display:block;margin-bottom:6px}
+.ai-console .ai-missing-item{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid #344550}
+.ai-console .ai-missing-item:first-of-type{border-top:0}
+.ai-console .ai-missing-item span{flex:1;min-width:0}
+.ai-console .ai-missing-item small{display:block;color:#a5b8c8;margin-top:2px}
+.ai-console .ai-missing-item button{flex-shrink:0}
+.ai-console .ai-missing-item.ai-missing-saved{opacity:.65}
+.ai-console .ai-pending-compact{margin-top:6px}
