@@ -178,5 +178,5 @@ test('a fully valid ACU is marked ready only with real catalog IDs, valid quanti
  }]}),[a],[resource]);
  const tree=buildAcuReviewTree(rows,[resource],[],[]);
  assert.equal(tree[0].lines[0].status,'ready');
- assert.equal(tree[0].lines[0].unit_cost,'3750.0');
+ assert.equal(Number(tree[0].lines[0].unit_cost),3750);
 });
