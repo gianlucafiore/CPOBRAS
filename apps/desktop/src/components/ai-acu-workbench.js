@@ -1,5 +1,6 @@
 import {e,dateToday,kindName} from './helpers.js';
 import {collectMissingResourceItems} from '../services/ai-missing-resources.js';
+import {buildAcuReviewTree} from '../services/ai-acu-review-tree.js';
 import {invokeReviewedAiAction} from '../services/ai-view-api-contracts.js';
 import {money,numeric,multiplyDecimals} from '../decimal.js';
 import {parsePlan,normalize,importDecimal} from '../services/ai-budget-import.js';
@@ -20,6 +21,10 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
  const scope=()=>[state.view,state.projectId,state.estimateId].join(':');
  function syncScope(){if((model.open||model.headless)&&(model.scope!==scope()||(model.headless&&approvedRun&&(state.modal||state.pageDirty||state.remoteProject||state.projects.find(project=>project.id===state.projectId)?.read_only||state.estimates.find(estimate=>estimate.id===state.estimateId)?.issued)))){cancelApproved();generation++;stop=true;request?.cancel();keepDraft();model.open=false;model.headless=false;paint();}}
  const selectedResources=()=>model.context.resources.filter(r=>model.resourceIds.has(r.id));
+ function getReviewTree(){
+  const saved=drafts.get(draftKey())||(!model.applied&&model.draftKey===draftKey()?model:null);
+  return saved?.context?buildAcuReviewTree(saved.rows||[],saved.context.resources||[],saved.context.sections||[],saved.missingResourceSelections||[]):[];
+ }
  const sectionLabel=row=>row.section_id?model.context.sections.find(s=>s.id===row.section_id)?.code+' · '+model.context.sections.find(s=>s.id===row.section_id)?.title:row.section_title||'';
  async function readContext(){return invoke('assisted_acu_context',{projectId:state.projectId,estimateId:state.estimateId||null,asOf:model.asOf});}
  async function open(brief='',outline=null,forceMode=null,lineIds=null,authorization=null,operation=null){
@@ -175,7 +180,7 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
      return {line_id:row.id,description:row.seed.description,unit:row.seed.unit,mode:model.operation||'fill',items,preserved:unchanged,warnings:[...(row.advisories||[]),...(acuTotals(row,model.context.resources).warnings||[])],unit_cost:acuTotals(row,model.context.resources).unit_cost};
     });
     if(previewRows.some(row=>!row.items.length))throw new Error('El listado no contiene modificaciones concretas para todas las partidas; no se habilitó una aprobación a ciegas.');
-    const preview={rows:previewRows,movedSections:reviewBudget?reviewPreviewRows(sectionMoves,model.context.sections,model.context.lines):[],sectionPending,pending:authorization.targetIds.size-batch.acus.length,missingResources:collectMissingResourceItems(model.rows.filter(row=>!row.selected)),
+    const preview={rows:previewRows,movedSections:reviewBudget?reviewPreviewRows(sectionMoves,model.context.sections,model.context.lines):[],sectionPending,pending:authorization.targetIds.size-batch.acus.length,tree:buildAcuReviewTree(model.rows,model.context.resources,model.context.sections,model.missingResourceSelections||[]),missingResources:collectMissingResourceItems(model.rows.filter(row=>!row.selected)),
      pendingReasons:model.rows.filter(row=>!row.selected).map(row=>({description:row.seed.description,reasons:[...(row.missing_resources||[]),...acuPreapprovalErrors(row,model.context.resources)].slice(0,6)})),
      estimateId:model.estimate.id,scope:authorization.scope,id:globalThis.crypto.randomUUID()};
     preparedApproval={authorization,batch,preview,commit:async()=>{
@@ -233,7 +238,7 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
    const snapshot=authorization.model,done=new Set(lineIds);
    const pendingReasons=(snapshot?.rows||[]).filter(row=>!done.has(row.id)).slice(0,8).map(row=>({description:row.seed.description,reasons:[...new Set([...(row.missing_resources||[]),...acuPreapprovalErrors(row,snapshot.context.resources)])].slice(0,10)}));
    const warnings=committed?(snapshot?.rows||[]).filter(row=>done.has(row.id)).flatMap(row=>row.advisories||[]):[];
-   return {saved,created,organized,prepared:snapshot?.receivedAcuCount??snapshot?.rows?.length??0,pending:Math.max(0,authorization.targetIds.size-saved),pendingReasons,missingResources:collectMissingResourceItems((snapshot?.rows||[]).filter(row=>!done.has(row.id))),warnings,sectionPending,projectId:authorization.projectId,estimateId:snapshot?.estimate.id,lineIds:[...lineIds],committed,cancelled,error};
+   return {saved,created,organized,tree:snapshot?.context?buildAcuReviewTree(snapshot.rows||[],snapshot.context.resources,snapshot.context.sections,snapshot.missingResourceSelections||[]):[],prepared:snapshot?.receivedAcuCount??snapshot?.rows?.length??0,pending:Math.max(0,authorization.targetIds.size-saved),pendingReasons,missingResources:collectMissingResourceItems((snapshot?.rows||[]).filter(row=>!done.has(row.id))),warnings,sectionPending,projectId:authorization.projectId,estimateId:snapshot?.estimate.id,lineIds:[...lineIds],committed,cancelled,error};
   }
   function finish(){
    if(approvedRun===authorization){
@@ -382,7 +387,7 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
     const reasons=[...new Set([...(row.missing_resources||[]),...acuPreapprovalErrors(row,model.context.resources)])];
     return reasons.length?[{description:seed.description,reasons:reasons.slice(0,8)}]:[];
    });
-   return {prepared:model.rows.length,pending:pendingReasons.length,pendingReasons,
+   return {prepared:model.rows.length,pending:pendingReasons.length,pendingReasons,tree:getReviewTree(),
     missingResources:collectMissingResourceItems(model.rows.filter(row=>pendingReasons.some(p=>p.description===row.seed.description))),
     warnings:failures,committed:false,error:failures.length?'Algunas consultas no pudieron completarse.':''};
   }finally{
@@ -552,5 +557,5 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
  });
  host.addEventListener('toggle',event=>{const t=event.target;if(!t.isConnected)return;if(t.dataset.acuProposal){const row=model.rows.find(r=>r.id===t.dataset.acuProposal);if(row)row.expanded=t.open;}if(t.dataset.acuMeasureDetail){const row=model.rows.find(r=>r.id===t.dataset.acuMeasureDetail);if(row)row.measurementExpanded=t.open;}if(t.dataset.acuDetail){if(t.open)model.details.add(t.dataset.acuDetail);else model.details.delete(t.dataset.acuDetail);}},true);
  host.addEventListener('keydown',event=>{event.stopPropagation();if(event.key==='Escape')void action('close',event.target);});
- paint();return {open,syncScope,resumeFromLibrary,isBusy:()=>Boolean(model.busy),hasDraft:()=>model.open || [...drafts.values()].some(draft=>!draft.applied),runApproved,commitPrepared,cancelPrepared,cancelApproved,refreshPendingCatalog,registerMissingResource,regeneratePending,showLatest:()=>open()};
+ paint();return {open,syncScope,resumeFromLibrary,isBusy:()=>Boolean(model.busy),hasDraft:()=>model.open || [...drafts.values()].some(draft=>!draft.applied),runApproved,commitPrepared,cancelPrepared,cancelApproved,refreshPendingCatalog,registerMissingResource,regeneratePending,getReviewTree,showLatest:()=>open()};
 }
