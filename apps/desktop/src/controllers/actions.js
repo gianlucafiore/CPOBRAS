@@ -4,6 +4,10 @@ async function handleSubmit(form) {
   const kind = form.dataset.kind;
   const data = new FormData(form), v = key => String(data.get(key) ?? "").trim();
   const item = state.modal?.record || {};
+  // La creación desde el chat utiliza el mismo guardado nativo que cualquier
+  // alta manual; el callback se ejecuta solo después de confirmar SQLite.
+  const onResourceSaved=kind==='resource'&&!item.id?state.modal?.onSaved:null;
+  let newlyCreatedResource=null;
   const estimateId = state.estimateId;
   if (kind === "backups") {
     state.backupSettings=await invoke("save_backup_settings",{settings:{directory:v("backupDirectory"),enabled:data.get("backupEnabled")==="on",interval_minutes:Number(v("backupInterval"))}});
@@ -44,6 +48,7 @@ async function handleSubmit(form) {
     } else {
       const created=await invoke("create_resource", { code:v("code"),description:v("description"),unit:v("unit"),kind:v("kind"),price:v("price"),effectiveDate:v("effectiveDate"),source:v("source")||null,dailyOutput:v("dailyOutput") });
       state.selectedResourceId=created.id;
+      newlyCreatedResource=created;
     }
   } else if (kind === "price") {
     await invoke("register_resource_price", { resourceId: item.id, amount: v("amount"), currency: v("currency"), effectiveDate: v("effectiveDate"), source: v("source") || null });
@@ -107,6 +112,14 @@ async function handleSubmit(form) {
   else render();
   state.message = "Cambios guardados";
   render();
+  if(newlyCreatedResource&&typeof onResourceSaved==='function'){
+    try{await onResourceSaved(newlyCreatedResource);}
+    catch(error){
+      // La escritura ya fue confirmada: no sugerir un segundo guardado.
+      state.message='Insumo guardado, pero falló la actualización de la tarea IA: '+String(error);
+      render();
+    }
+  }
 }
 
 async function refreshBackups(){
