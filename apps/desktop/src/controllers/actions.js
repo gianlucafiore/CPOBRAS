@@ -46,7 +46,7 @@ async function handleSubmit(form) {
         description: v("description"), unit: v("unit"), kind: v("kind"), active: v("active") === "true", dailyOutput:v("dailyOutput") });
       state.selectedResourceId = item.id;
     } else {
-      if(item.aiMissingSpecification && /\\b(?:a definir|por definir|sin definir|pendiente)\\b/i.test(v("description")))
+      if(item.aiMissingSpecification && /\b(?:a definir|por definir|sin definir|pendiente)\b/i.test(v("description")))
         throw new Error("Completá la especificación técnica del insumo antes de guardarlo.");
       const created=await invoke("create_resource", { code:v("code"),description:v("description"),unit:v("unit"),kind:v("kind"),price:v("price"),effectiveDate:v("effectiveDate"),source:v("source")||null,dailyOutput:v("dailyOutput") });
       state.selectedResourceId=created.id;
