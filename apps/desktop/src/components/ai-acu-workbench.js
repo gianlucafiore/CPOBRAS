@@ -115,7 +115,7 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
   keepDraft();
   const authorization={projectId:state.projectId,initialScope:scope(),onProgress,revoked:false,used:false,writing:false,targetIds:new Set(approvedLineIds)};approvedRun=authorization;stop=false;
   let saved=0,created=0,organized=0,error='',cancelled=false,committed=false,lineIds=[],previewReady=false,noTargets=false;
-  let sectionMoves=[],sectionPending=[];
+  let sectionMoves=[],sectionPending=[],corrections=0;
   approvedProgress(authorization,'preparing','Leyendo las partidas y los precios actuales para esta carga aprobada.');
   try{
    if(authorization.revoked||authorization.initialScope!==scope()){cancelled=true;return finish();}
@@ -165,10 +165,31 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
     approvedProgress(authorization,'generating',`Preparando ACU: consulta ${Math.floor(offset/2)+1} de ${Math.ceil(seeds.length/2)}. Todavía no se guardó ningún cambio.`,{prepared:model.rows.length,total:seeds.length});
     if(!approvalCurrent(authorization)){cancelled=true;return finish();}
     const additionInstruction=append?additionPrompt():'';
-    const result=await ask([{role:'user',content:additionInstruction+'Prepará ACU solo para los targets indicados. Criterios aprobados por el usuario: '+model.brief+'\nRespondé JSON con answer y acu_proposals, con IDs exactos y consumos decimales como texto. Usá exclusivamente resource_id del catálogo. Para cada consumo incluí quantity_unit (unidad exacta del insumo), requested_description (material requerido realmente), consumption_support (hipótesis y fundamento del consumo) y, si convertiste una cifra, source_quantity y source_unit. No sustituyas materiales diferentes ni inventes precios, insumos o medidas: dejá measurements vacío. quantity en components es consumo POR UNA unidad de partida, nunca la cantidad total del trabajo ni la superficie global del proyecto. Informá quantity_scope:"per_unit"; si una cifra solo está disponible como total y falta una cantidad de partida comprobable, no la pongas en components: indicá el consumo pendiente. Comprobá dimensiones, ancho útil, presentación comercial, rendimiento y unidades antes de proponer cantidades. En missing_resources devolvé una lista de objetos {description,unit,kind,action,reason}: action=create SOLO cuando falta un insumo concreto del catálogo; action=specify cuando falta una dimensión, sección o definición técnica. Proponé unidad y tipo material/labor/equipment/subcontract solo si están fundamentados, si no dejalos vacíos. Un mismo faltante no debe repetirse. Se conservarán las cantidades y los metrados actuales.'+' Para cada target con required_resources devolvé requirement_coverage:[{requirement_id,resource_id,unresolved_reason}]. Cada requirement_id debe aparecer exactamente una vez. Si el recurso se usa, resource_id debe ser el ID real presente en components y unresolved_reason vacío. Si no es verificable, resource_id vacío y unresolved_reason explica por qué falta. El requisito nunca se omite ni se convierte en una partida adicional; no inventes consumos.'}],promptContext(chunk,resources,[]),'acu');
+    const prompt=additionInstruction+'Prepará ACU solo para los targets indicados. Criterios aprobados por el usuario: '+model.brief+'\nRespondé JSON con answer y acu_proposals, con IDs exactos y consumos decimales como texto. Usá exclusivamente resource_id del catálogo. Para cada consumo incluí quantity_unit (unidad exacta del insumo), requested_description (material requerido realmente), consumption_support (hipótesis y fundamento del consumo) y, si convertiste una cifra, source_quantity y source_unit. No sustituyas materiales diferentes ni inventes precios, insumos o medidas: dejá measurements vacío. quantity en components es consumo POR UNA unidad de partida, nunca la cantidad total del trabajo ni la superficie global del proyecto. Informá quantity_scope:"per_unit"; si una cifra solo está disponible como total y falta una cantidad de partida comprobable, no la pongas en components: indicá el consumo pendiente. Comprobá dimensiones, ancho útil, presentación comercial, rendimiento y unidades antes de proponer cantidades. En missing_resources devolvé una lista de objetos {description,unit,kind,action,reason}: action=create SOLO cuando falta un insumo concreto del catálogo; action=specify cuando falta una dimensión, sección o definición técnica. Proponé unidad y tipo material/labor/equipment/subcontract solo si están fundamentados, si no dejalos vacíos. Un mismo faltante no debe repetirse. Se conservarán las cantidades y los metrados actuales.'+' Para cada target con required_resources devolvé requirement_coverage:[{requirement_id,resource_id,unresolved_reason}]. Cada requirement_id debe aparecer exactamente una vez. Si el recurso se usa, resource_id debe ser el ID real presente en components y unresolved_reason vacío. Si no es verificable, resource_id vacío y unresolved_reason explica por qué falta. El requisito nunca se omite ni se convierte en una partida adicional; no inventes consumos.';
+    const result=await ask([{role:'user',content:prompt}],promptContext(chunk,resources,[]),'acu');
     if(!approvalCurrent(authorization)){cancelled=true;return finish();}
     try{
      const rows=append?parseAcuAdditions(result.text,chunk,resources,model.brief).map(row=>mergeAcuAddition(row,resources,model.brief)):parseAcuProposals(result.text,chunk,resources);
+     if(!input.operation&&!reviewBudget)for(const [index,row] of rows.entries()){
+      const errors=acuPreapprovalErrors(row,resources);
+      if(corrections>=6||!needsIsolatedAcuReview(row,errors))continue;
+      corrections++;
+      approvedProgress(authorization,'generating','Corrigiendo por separado el ACU de «'+row.seed.description+'». Todavía no se guardó nada.');
+      if(!approvalCurrent(authorization)){cancelled=true;return finish();}
+      try{
+       const context=JSON.parse(promptContext([row.seed],resources,[]));
+       context.previous_review=[acuReviewFeedback(row,errors)];
+       const result=await ask([{role:'user',content:prompt+' Corregí previous_review únicamente para esta partida, con los recursos de su contexto. Si falta una especificación real, mantenela pendiente.'}],JSON.stringify(context),'acu');
+       if(!approvalCurrent(authorization)){cancelled=true;return finish();}
+       const available=new Set(context.resources.map(resource=>resource.resource_id));
+       const [corrected]=parseAcuProposals(result.text,[row.seed],resources.filter(resource=>available.has(resource.id)));
+       const remaining=acuPreapprovalErrors(corrected,resources);
+       if((corrected.components.length||corrected.missing_resource_drafts.length)&&!needsIsolatedAcuReview(corrected,remaining))rows[index]=corrected;
+      }catch{
+       if(!approvalCurrent(authorization)){cancelled=true;return finish();}
+       // Keep the original diagnostics when the corrective query fails.
+      }
+     }
      for(const row of rows){
       row.apply_measurements=false;row.selected=false;
       if(model.fillMissingOnly){row.section_id=row.seed.section_id;row.section_title='';}
@@ -187,6 +208,11 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
    for(const row of model.rows){
     row.apply_measurements=false;row.preapproval_errors=[...acuPreapprovalErrors(row,model.context.resources),...(model.mode==='fill'?nonDestructiveAcuErrors(row,model.operation):[]),...(append?additionPreservationErrors(row):[])];
     row.selected=authorization.targetIds.has(row.id)&&!acuTotals(row,model.context.resources).errors.length&&!row.preapproval_errors.length;
+   }
+   if(previewOnly&&model.mode==='create'){
+    // Review all planned lines together. Only validated recipes enter acus.
+    finish();
+    return preparePendingPreview(sectionPending);
    }
    const selected=model.rows.filter(row=>row.selected);
    if(!selected.length&&!sectionMoves.length){model.notice=`No hay cambios válidos para aprobar; ${authorization.targetIds.size} partidas necesitan revisión.`;return finish();}
@@ -411,7 +437,7 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
 
  // La vista ya revisada es suficiente para crear la estructura. No vuelve a
  // llamar al modelo: los ACU inválidos quedan pendientes y NO se inventan.
- function preparePendingPreview(){
+ function preparePendingPreview(sectionPending=[]){
   if(approvedRun||model.busy)throw new Error('Hay otra aprobación de ACU en curso.');
   if(!state.projectId||state.remoteProject||state.modal||state.pageDirty||state.projects.find(p=>p.id===state.projectId)?.read_only||state.estimates.find(e=>e.id===state.estimateId)?.issued)
    throw new Error('Abrí un presupuesto local editable antes de aprobar los cambios.');
@@ -472,7 +498,7 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
   approvedRun=authorization;
   const preview={id:globalThis.crypto.randomUUID(),scope:authorization.scope,
    estimateId:model.estimate.id,tree,missingResources,pendingReasons,
-   pending:remainingCount,sectionPending:[],movedSections:[],
+   pending:remainingCount,sectionPending,movedSections:[],
    structureLines:batch.creates.map(seed=>({id:seed.id,description:seed.description,section:seed.section,quantity_status:model.seeds.find(item=>item.id===seed.id)?.quantity_status||'pending',
     needsAcu:!ready.some(row=>row.id===seed.id)})),
    rows:ready.map(row=>({
@@ -491,6 +517,7 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
    if(!approvalCurrent(authorization))throw new Error('El presupuesto o la aprobación cambiaron. Revalidá antes de guardar.');
    let committed=false,counts={saved:0,created:0};
    authorization.used=true;authorization.writing=true;
+   approvedProgress(authorization,'saving','Guardando el lote revisado de partidas y ACU.');
    try{
     const result=await invokeReviewedAiAction(invoke,'workspace','apply_reviewed_budget_batch',{batch},{approved:true});
     committed=true;counts={saved:result.composed||0,created:result.created||0};
@@ -540,6 +567,13 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
   keepDraft();
   return {previewReady:true,preview,committed:false};
  }
+ function needsIsolatedAcuReview(row,errors){
+  return errors.some(error=>/^(?:Insumo ajeno al trabajo|Consumo incompatible con la cara del ladrillo|Espesor de ladrillo incompatible|Material incompatible|Hay un insumo no disponible)/.test(error))||
+   row.missing_resources.some(reason=>reason.startsWith('La IA no devolvió una receta para esta partida.'));
+ }
+ function acuReviewFeedback(row,errors){
+  return {line_id:row.id,errors:[...new Set([...errors,...row.missing_resources])].slice(0,8).map(reason=>reason.slice(0,300))};
+ }
  // Reintento explícito desde el chat: conserva IDs, partidas y ACU válidos.
  // Recalcula exclusivamente las composiciones todavía pendientes. No guarda.
  async function regeneratePending(input={}){
@@ -583,8 +617,12 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
   try{
    const resources=structuredClone(selectedResources());
    if(revisit.length&&!resources.length)throw new Error('La biblioteca no contiene insumos para generar ACU.');
-   for(let offset=0;offset<revisit.length&&!stop;offset+=2){
-    const chunk=revisit.slice(offset,offset+2);
+   const batchSize=revisit.some(seed=>{
+    const row=reviewById.get(seed.id);
+    return row&&needsIsolatedAcuReview(row,acuPreapprovalErrors(row,model.context.resources));
+   })?1:2;
+   for(let offset=0;offset<revisit.length&&!stop;offset+=batchSize){
+    const chunk=revisit.slice(offset,offset+batchSize);
     try{
      const confirmed=(model.missingResourceSelections||[]).filter(selection=>chunk.some(seed=>seed.id===selection.line_id));
      const prompt=(model.operation==='append'?additionPrompt():'')+
@@ -598,7 +636,7 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
       const row=reviewById.get(seed.id);
       if(!row)return [];
       const reasons=acuPreapprovalErrors(row,model.context.resources);
-      return reasons.length?[{line_id:seed.id,errors:reasons.slice(0,8).map(reason=>reason.slice(0,250))}]:[];
+      return reasons.length?[acuReviewFeedback(row,reasons)]:[];
      });
      if(previousReview.length)context.previous_review=previousReview;
      for(const selection of confirmed){

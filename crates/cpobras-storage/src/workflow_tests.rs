@@ -5614,6 +5614,48 @@ fn assisted_acu_calculates_exact_catalog_cost_and_retry_does_not_duplicate() {
     );
 }
 #[test]
+fn assisted_acu_saves_a_valid_recipe_next_to_an_uncomposed_line_with_pending_quantities() {
+    use crate::assisted_budget::NewLine;
+
+    let (mut store, project, estimate, original, material) = assisted_acu_fixture();
+    let mut batch = assisted_acu_batch(&store, &project, &estimate, &original, material);
+    let composed_id = Uuid::new_v4();
+    let pending_id = Uuid::new_v4();
+    batch.creates = vec![
+        NewLine {
+            id: composed_id,
+            description: "Revoque con consumo revisado".into(),
+            unit: "m²".into(),
+            quantity: Decimal::ZERO,
+            unit_price: Decimal::ZERO,
+            section: Some("Revoques".into()),
+        },
+        NewLine {
+            id: pending_id,
+            description: "Colocación de aberturas sin especificar".into(),
+            unit: "m²".into(),
+            quantity: Decimal::ZERO,
+            unit_price: Decimal::ZERO,
+            section: Some("Aberturas".into()),
+        },
+    ];
+    batch.acus[0].line_id = composed_id;
+    batch.acus[0].expected = None;
+
+    let result = store.apply_reviewed_budget_batch(&batch).unwrap();
+    assert_eq!((result.created, result.composed), (2, 1));
+    let lines = store.estimate_items(estimate.id).unwrap();
+    let composed = lines.iter().find(|line| line.id == composed_id).unwrap();
+    let pending = lines.iter().find(|line| line.id == pending_id).unwrap();
+    assert!(composed.analysis_id.is_some());
+    assert_eq!(composed.quantity, Decimal::ZERO);
+    assert_eq!(composed.unit_cost_snapshot, Decimal::new(87, 3));
+    assert!(pending.analysis_id.is_none());
+    assert_eq!(pending.quantity, Decimal::ZERO);
+    assert_eq!(pending.unit_cost_snapshot, Decimal::ZERO);
+}
+
+#[test]
 fn assisted_acu_rejects_changed_or_missing_prices_without_partial_writes() {
     use crate::resource_catalog::ResourcePrice;
     let (mut s, p, e, line, id) = assisted_acu_fixture();

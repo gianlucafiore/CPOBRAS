@@ -18,7 +18,12 @@ async function chatFixture(page,{reply='handoff'}={}){
   const state={view:'workspace',projectId:'project-1',estimateId:'estimate-1',projects:[{id:'project-1',currency:'ARS'}],estimates:[{id:'estimate-1',title:'Presupuesto de prueba',currency:'ARS',issued:false}],lines:[line(${JSON.stringify(firstLineId)},'Revoque grueso'),line(${JSON.stringify(secondLineId)},'Revoque fino')],sections:[],assignments:{},selectedLineId:${JSON.stringify(firstLineId)},panel:'acu',search:''};
   const structure=${JSON.stringify(reply==='structure')};
   const extra={...resource,id:'unplanned',description:'Alquiler tijera elevadora',kind:'equipment',unit:'día'};
-  const resources=structure?[resource,extra]:[resource];
+  const house=${JSON.stringify(reply==='house')};
+  const brick12={...resource,id:'brick12',description:'Ladrillo cerámico hueco 12 x 18 x 33 cm',unit:'un'};
+  const brick18={...brick12,id:'brick18',description:'Ladrillo cerámico hueco 18 x 18 x 33 cm'};
+  const light={...resource,id:'light',description:'Instalación de artefacto de luz',kind:'labor',unit:'un'};
+  const basin={...light,id:'basin',description:'Colocación de bacha de baño'};
+  const resources=house?[brick12,brick18,light,basin]:structure?[resource,extra]:[resource];
   const calls=[],batches=[],loads=[];
   const harness={state,calls,batches,loads,ready:false};window.__aiAcuHarness=harness;
   const renderBudget=()=>{
@@ -34,12 +39,33 @@ async function chatFixture(page,{reply='handoff'}={}){
    if(name==='assisted_acu_context')return {currency:'ARS',resources:structuredClone(resources),lines:structuredClone(state.lines),sections:[]};
    if(name==='assisted_acu_references')return [];
    if(name==='ai_chat'){
+    if(house&&args.mode==='plan'){
+     const wall=(brick,thickness)=>({description:'Construcción de muros con ladrillo cerámico hueco '+thickness+' cm',
+      unit:'m²',quantity:null,work_result:'Muro terminado',resources:[
+       {name:brick.description,kind:'material',unit:'un'},
+       {name:light.description,kind:'labor',unit:'un'},
+       {name:'Lechada o adhesivo para revoque',kind:'material',unit:'kg'}
+      ]});
+     return {text:JSON.stringify({work_sections:[
+      {title:'Muros',partidas:[wall(brick12,12),wall(brick18,18)]},
+      {title:'Aberturas',partidas:[{description:'Colocación de aberturas de aluminio',unit:'m²',quantity:null,
+       work_result:'Aberturas colocadas',resources:[{name:'Abertura de aluminio',kind:'material',unit:'m²'}]}]}
+     ]})};
+    }
     if(structure&&args.mode==='plan')return {text:JSON.stringify({work_sections:[{title:'Muros',partidas:[{
      description:'Revoque con mortero',unit:'m²',quantity:null,work_result:'Muro revocado',
      resources:[{name:'Mortero',kind:'material',unit:'kg'}]
     }]}]})};
     if(args.mode==='acu'){
      const context=JSON.parse(args.context);
+     if(house)return {text:JSON.stringify({acu_proposals:context.targets.map(target=>{
+      const brick=target.description.includes('12 cm')?brick12:target.description.includes('18 cm')?brick18:null;
+      if(!brick)return context.previous_review?
+       {line_id:target.line_id,components:[],missing_resources:[{description:'Medidas y tipos de aberturas',action:'specify',reason:'No se indicaron dimensiones'}]}:
+       {line_id:target.line_id,components:[{resource_id:basin.id,quantity:'1'}]};
+      return {line_id:target.line_id,components:context.previous_review?[{resource_id:brick.id,quantity:'16'}]:
+       [{resource_id:brick.id,quantity:'50'},{resource_id:light.id,quantity:'0.2'}]};
+     })})};
      return {text:JSON.stringify({answer:'Recetas para revisar',acu_proposals:context.targets.map(target=>({
       line_id:target.line_id,components:[{resource_id:resource.id,quantity:'0.25'},...(structure&&target.is_new?[{resource_id:extra.id,quantity:'0.02'}]:[])],
       measurements:[],assumptions:['Consumo estimativo por m² para revisar.'],missing_resources:[]
@@ -166,6 +192,7 @@ test('a structure-only save reports zero ACU and retries with the reason on the 
  await expect(page.locator('.ai-message.ai-user').first()).toContainText(prompt);
  await expect(page.locator('.ai-acu-tree-errors')).toContainText('Insumo sin requisito en esta partida: Alquiler tijera elevadora');
  await ask(page,'sí, aprobado');
+ expect(await page.evaluate(()=>window.__aiAcuHarness.batches)).toHaveLength(0);
  await page.getByRole('button',{name:'Guardar solo rubros y partidas (sin ACU)',exact:true}).click();
  await expect(page.locator('.ai-approval-status')).toContainText('0 ACU guardados');
  await expect(page.locator('.ai-message.ai-user').first()).toContainText(prompt);
@@ -192,4 +219,38 @@ test('a structure-only save reports zero ACU and retries with the reason on the 
  expect(after).toHaveLength(2);
  expect(after[1]).toMatchObject({creates:[],deletes:[],updates:[],acus:[{line_id:saved.id,measurements:null,
   expected:{quantity:'0'},components:[{resource_id:resourceId,quantity:'0.25'}]}]});
+});
+
+
+
+test('mixed house proposals are corrected separately and a pending opening does not block valid wall ACU',async({page})=>{
+ await chatFixture(page,{reply:'house'});
+ await ask(page,'Prepará partidas nuevas con ACU para una casa de 120 m² con muros de ladrillo del 12 y 18 y aberturas de aluminio sin definir.');
+ const approve=page.getByRole('button',{name:'Aprobar y guardar 2 ACU completos · 1 pendientes',exact:true});
+ await expect(approve).toBeVisible();
+ const tree=page.locator('.ai-acu-review-tree');
+ await expect(tree.locator('.ai-acu-tree-line').filter({hasText:'12 cm'})).toContainText('16 un / m²');
+ await expect(tree.locator('.ai-acu-tree-line').filter({hasText:'aberturas de aluminio'})).toContainText('ACU pendiente');
+ await expect(tree).not.toContainText('Instalación de artefacto de luz');
+ await expect(tree).not.toContainText('Colocación de bacha de baño');
+ const contexts=await page.evaluate(()=>window.__aiAcuHarness.calls.filter(call=>call.args.mode==='acu').map(call=>JSON.parse(call.args.context)));
+ const corrections=contexts.filter(context=>context.previous_review);
+ expect(corrections).toHaveLength(3);
+ expect(corrections.every(context=>context.targets.length===1)).toBe(true);
+ for(const context of corrections.slice(0,2)){
+  expect(context.previous_review[0].errors.join(' ')).toContain('Consumo incompatible con la cara del ladrillo');
+  expect(context.resources.map(resource=>resource.resource_id)).not.toContain('light');
+ }
+ expect(new Set(contexts[0].targets.flatMap(target=>target.required_resources.map(requirement=>requirement.id))).size).toBe(2);
+ expect(await page.evaluate(()=>window.__aiAcuHarness.batches)).toHaveLength(0);
+
+ await approve.click();
+ await expect(page.locator('.ai-approval-status')).toContainText('2 ACU cargados y 3 partidas nuevas creadas; 1 pendiente');
+ const [batch]=await page.evaluate(()=>window.__aiAcuHarness.batches);
+ expect(batch.creates).toHaveLength(3);
+ expect(batch.creates.every(line=>line.quantity==='0')).toBe(true);
+ expect(batch.acus.map(acu=>acu.components.map(component=>[component.resource_id,component.quantity]))).toEqual([
+  [['brick12','16']],[['brick18','16']]
+ ]);
+ expect(batch.acus.every(acu=>acu.measurements===null)).toBe(true);
 });

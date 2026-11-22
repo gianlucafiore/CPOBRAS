@@ -1,6 +1,7 @@
 // Contrato de planificación constructiva. La clasificación pertenece al
 // razonamiento del modelo, NO a un listado de nombres o palabras clave.
 import {validateWorkQuantity} from './ai-quantity-safety.js';
+import {acuResourceScopeConflict} from './ai-acu.js';
 const TYPES=new Set(['material','labor','equipment','subcontract']);
 const clean=(value,max)=>typeof value==='string'?value.trim().slice(0,max):'';
 const fold=value=>String(value).normalize('NFKD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase();
@@ -13,6 +14,7 @@ export const constructionOutlineInstruction=[
  'Respondé exclusivamente JSON con work_sections:[{title,partidas:[{description,unit,quantity,quantity_source,work_result,resources:[{name,kind,unit}]}]}]. resources es [] si no conocés los insumos y quantity es null si no conocés el metrado. No omitas claves ni uses un objeto donde se espera un array.',
  'title nombra el rubro de trabajo; work_result describe brevemente lo que se entrega o certifica, distinto de una mera compra. resources lista los insumos necesarios en esa partida (pueden faltar detalles).',
  'Comprobá que cada trabajo y especificación solicitados estén cubiertos. Separá variantes con distintos materiales, espesores, oficios o criterios de medición. Para ambientes repetidos, agrupá trabajos equivalentes y enumerá los trabajos específicos pedidos o imprescindibles para ese alcance. Si falta definir un sistema o dato técnico, dejalo explícitamente pendiente en lugar de elegir una solución, tipología o formato comercial.',
+ 'En instalaciones y terminaciones, separá actividades con sus propias unidades de medición. Evitá una partida genérica por ambiente para reunir trabajos que se miden de forma distinta, como cañerías, artefactos y revestimientos.',
  'Para cada lista de recursos, verificá que todos correspondan al trabajo de esa misma partida y preserven las especificaciones del usuario. No traslades recursos de otras partidas del proyecto.',
  'Metrado de partida != superficie general del proyecto != consumo por unidad del ACU. Nunca copies los m² de una vivienda a cubierta, pisos, paredes u otra partida sin medición específica: podrían ser diferentes.',
  'quantity_source es null si quantity es null. Para una cantidad literal de ESA partida: {kind:"explicit",quote:"fragmento literal del pedido que contiene cantidad, unidad y el trabajo referido"}. La cantidad debe estar realmente expresada por el usuario.',
@@ -66,11 +68,13 @@ export function parseConstructionOutline(text,originalBrief=''){
     const kind=TYPES.has(rawKind)?rawKind:'';
     const resourceUnit=clean(item?.unit??item?.unidad,30);
     if(!name){issues.push('Insumo '+(ri+1)+' sin nombre; requiere revisión');continue;}
+    const scopeConflict=acuResourceScopeConflict({description},{description:name});
+    if(scopeConflict){issues.push(scopeConflict);continue;}
     if(!kind)issues.push('Tipo pendiente para insumo «'+name+'»');
     const resourceKey=fold(name)+'|'+kind+'|'+fold(resourceUnit);
     if(resourceIds.has(resourceKey))continue;
     resourceIds.add(resourceKey);
-    requirements.push({id:'req-'+(requirements.length+1),description:name,kind,unit:resourceUnit});
+    requirements.push({id:'req-'+(rows.length+1)+'-'+(requirements.length+1),description:name,kind,unit:resourceUnit});
    }
    const evidence=validateWorkQuantity({
     quantity:part.quantity,unit,source:part.quantity_source||part.quantity_evidence,

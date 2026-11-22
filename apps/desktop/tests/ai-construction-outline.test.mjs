@@ -68,9 +68,9 @@ test('planned required inputs remain pending until mapped to actual consumed IDs
   {resource_id:'mat-1',quantity:'1',quantity_unit:'kg'},
   {resource_id:'labor-1',quantity:'0.03',quantity_unit:'jor'}
  ],requirement_coverage:[
-  {requirement_id:'req-1',resource_id:'mat-1',unresolved_reason:''},
-  {requirement_id:'req-2',resource_id:'labor-1',unresolved_reason:''},
-  {requirement_id:'req-3',resource_id:'',unresolved_reason:'Todavía no hay una fijación definida'}
+  {requirement_id:seed.expected_resources[0].id,resource_id:'mat-1',unresolved_reason:''},
+  {requirement_id:seed.expected_resources[1].id,resource_id:'labor-1',unresolved_reason:''},
+  {requirement_id:seed.expected_resources[2].id,resource_id:'',unresolved_reason:'Todavía no hay una fijación definida'}
  ],missing_resources:[]}]};
  const [row]=parseAcuProposals(JSON.stringify(proposal),[seed],catalog);
  assert.equal(row.missing_resource_drafts.length,1);
@@ -97,9 +97,9 @@ test('a fully mapped construction recipe is reviewable, and the ACU model cannot
    {resource_id:'fix-1',quantity:'0.5',quantity_unit:'un'}
   ],
   requirement_coverage:[
-   {requirement_id:'req-1',resource_id:'mat-1'},
-   {requirement_id:'req-2',resource_id:'labor-1'},
-   {requirement_id:'req-3',resource_id:'fix-1'}
+   {requirement_id:seed.expected_resources[0].id,resource_id:'mat-1'},
+   {requirement_id:seed.expected_resources[1].id,resource_id:'labor-1'},
+   {requirement_id:seed.expected_resources[2].id,resource_id:'fix-1'}
   ],missing_resources:[]}]};
  const [row]=parseAcuProposals(JSON.stringify(proposal),[seed],other);
  assert.deepEqual(acuTotals(row,other).errors,[]);
@@ -112,9 +112,9 @@ test('total structural quantity cannot masquerade as per-unit resource consumpti
  const misleading={acu_proposals:[{line_id:seed.id,components:[{
   resource_id:'mat-1',quantity:'900',quantity_unit:'kg'
  }],missing_resources:[],requirement_coverage:[
-  {requirement_id:'req-1',resource_id:'mat-1'},
-  {requirement_id:'req-2',unresolved_reason:'Pendiente'},
-  {requirement_id:'req-3',unresolved_reason:'Pendiente'}
+  {requirement_id:seed.expected_resources[0].id,resource_id:'mat-1'},
+  {requirement_id:seed.expected_resources[1].id,unresolved_reason:'Pendiente'},
+  {requirement_id:seed.expected_resources[2].id,unresolved_reason:'Pendiente'}
  ]}]};
  const [row]=parseAcuProposals(JSON.stringify(misleading),[seed],catalog);
  assert.ok(acuTotals(row,catalog).errors.some(error=>error.includes('Consumo desproporcionado')||error.includes('consumo unitario coincide numéricamente')));

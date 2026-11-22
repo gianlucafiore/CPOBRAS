@@ -1370,7 +1370,14 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       const pendingSection=model.messages.findLast(m=>m?.sectionPreview&&!m?.approval);
       if(pendingSection){model.question='';await approveSectionMessage(model.messages.indexOf(pendingSection));return;}
       const visiblePreview=model.messages.findLast(message=>!!message.preview);
-      if(visiblePreview){model.question='';await approveMessage(model.messages.indexOf(visiblePreview));return;}
+      if(visiblePreview){
+        model.question='';
+        if(!visiblePreview.preview.rows.length&&visiblePreview.preview.structureLines?.length){
+          model.notice='La propuesta tiene 0 ACU listos. Usá «Guardar solo rubros y partidas (sin ACU)» si querés guardar únicamente la estructura.';
+          paint();return;
+        }
+        await approveMessage(model.messages.indexOf(visiblePreview));return;
+      }
       const pendingAcu=model.messages.findLast(message=>message.approval?.kind==='acu'&&
        message.approval.id===model.lastApprovedId&&message.approval.result&&!message.approval.result.committed);
       if(pendingAcu){model.question='';await resumeAcuReview(pendingAcu,{commitNow:true});return;}

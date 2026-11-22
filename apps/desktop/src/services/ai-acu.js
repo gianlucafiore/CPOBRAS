@@ -2,7 +2,7 @@ import {buildCatalogContext} from './ai-catalog-context.js';
 import {normalize,importDecimal} from './ai-budget-import.js';
 import {missingResourceItems} from './ai-missing-resources.js';
 import {consumptionScaleErrors} from './ai-quantity-safety.js';
-import {multiplyDecimals,sumDecimals,compareDecimals} from '../decimal.js';
+import {multiplyDecimals,divideDecimals,sumDecimals,compareDecimals} from '../decimal.js';
 export const expectedLine=line=>({description:line.description,unit:line.unit,quantity:line.quantity,unit_cost:line.unit_cost,analysis_id:line.analysis_id||null});
 export function acuSeed(line){return {...line,is_new:false};}
 export function newAcuSeeds(rows){return rows.map(r=>({id:r.new_id||globalThis.crypto.randomUUID(),description:r.description,unit:r.unit,quantity:r.quantity??'0',quantity_status:r.quantity_status||'pending',quantity_source:r.quantity_source||null,section:r.section||'',section_id:null,is_new:true,components:[],takeoffs:[],formula:null,analysis_id:null,expected_recipe:null,unit_cost:'0',work_result:r.work_result||'',outline_issues:Array.isArray(r.outline_issues)?[...r.outline_issues]:[],expected_resources:Array.isArray(r.expected_resources)?structuredClone(r.expected_resources):[]}));}
@@ -113,6 +113,29 @@ function wallBrickThickness(description){
  const finish=text.search(/\b(?:revoques?|revestimientos?|pinturas?|impermeabilizacion|azotados?|enlucidos?)\b/);
  return wall>=0&&(finish<0||wall<finish)?ceramicBrickThickness(description):null;
 }
+export function acuResourceScopeConflict(seed,resource){
+ const work=normalize(seed.description),material=normalize(resource.description);
+ const masonry=wallBrickThickness(seed.description)||masonryTarget(seed.description);
+ const openings=/\b(?:aberturas?|carpinteria|puertas?|ventanas?)\b/.test(work)&&/\baluminio\b/.test(work);
+ const otherTrade=/\b(?:inodoros?|bidets?|bacha|lavatorios?|artefactos? de luz|luminarias?)\b/;
+ if((masonry||openings)&&otherTrade.test(material)&&!otherTrade.test(work))
+  return 'Insumo ajeno al trabajo: '+resource.description+' no corresponde a '+seed.description+'.';
+ if(masonry&&masonryFamily(seed.description)==='ceramic'&&
+   /\b(?:adhesivos?|pegamentos?)\b/.test(material)&&/\bhormigon celular\b/.test(material))
+  return 'Insumo ajeno al trabajo: '+resource.description+' está identificado para hormigón celular; verificá un ligante para ladrillo cerámico.';
+ if(masonry&&/\bpara (?:revoques?|enlucidos?)\b/.test(material)&&!/\b(?:revoques?|enlucidos?)\b/.test(work))
+  return 'Insumo ajeno al trabajo: '+resource.description+' corresponde al revoque. Definí esa terminación en su partida.';
+ return '';
+}
+function brickFaceArea(seed,resource){
+ const thickness=wallBrickThickness(seed.description);
+ if(!thickness||consumptionUnit(seed.unit)!=='m2'||consumptionUnit(resource.unit)!=='un'||
+    /\b(?:doble|multiple|capas|hojas)\b/.test(normalize(seed.description)))return null;
+ const label=String(resource.description||'').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+ const dimensions=label.match(/\bladrillos?\s+ceramicos?(?:\s+huecos?)?\s+(\d{1,3})\s*[x×]\s*(\d{1,3})\s*[x×]\s*(\d{1,3})\s*cm\b/);
+ if(!dimensions||dimensions[1]!==thickness||dimensions.slice(1).some(value=>Number(value)<=0))return null;
+ return multiplyDecimals(dimensions[2],dimensions[3]);
+}
 function catalogBagWeight(resource){
  // Read only an unambiguous package mass from the real catalog description.
  // A model-supplied conversion factor or package description is never trusted.
@@ -123,6 +146,8 @@ function catalogBagWeight(resource){
 }
 function componentSafetyErrors(row,component,resource){
  const errors=[],label=resource.description,unit=consumptionUnit(resource.unit);
+ const conflict=acuResourceScopeConflict(row.seed,resource);
+ if(conflict)errors.push(conflict);
  const declared=consumptionUnit(component.quantity_unit||'');
  if(declared&&declared!==unit)errors.push(`Unidad de consumo incompatible: ${label} declara ${component.quantity_unit}, pero el catálogo usa ${resource.unit}. Corregí el consumo en la unidad del catálogo.`);
  const sourceUnit=consumptionUnit(component.source_unit||''),sourceQuantity=component.source_quantity;
@@ -239,6 +264,11 @@ export function acuTotals(row,resources){
   if(compareDecimals(r.price,'0')===0)warnings.push('Precio cero: '+r.description);
   try{
    const q=decimal(String(c.quantity),'Consumo');if(compareDecimals(q,'0')<=0)throw new Error();
+   const face=brickFaceArea(row.seed,r);
+   // Referencia geométrica de una hoja antes de juntas. El margen sólo
+   // detecta excesos gruesos; no estima un porcentaje de desperdicio.
+   if(face&&compareDecimals(multiplyDecimals(q,face),'15000')>0)
+    errors.push(`Consumo incompatible con la cara del ladrillo: ${r.description} tiene ${face} cm² de cara (referencia geométrica: ${divideDecimals('10000',face,2)} un/m² sin juntas). Revisá el cálculo unitario.`);
    errors.push(...consumptionScaleErrors({
     partQuantity:row.seed?.quantity_status==='pending'?null:row.seed?.quantity,
     partUnit:row.seed?.unit,componentQuantity:q,componentUnit:c.quantity_unit||r.unit,
@@ -317,9 +347,9 @@ export function acuPromptContext(seeds,resources,examples,brief){
  const tokens=s=>new Set(normalize(s).split(' ').filter(x=>x.length>2));
  const words=tokens(seeds.map(s=>s.description).join(' ')+' '+brief);
  const ranked=examples.map(e=>({e,score:[...tokens(e.description)].filter(w=>words.has(w)).length+(seeds.some(s=>normalize(s.unit)===normalize(e.unit))?1:0)})).sort((a,b)=>b.score-a.score).slice(0,8).map(({e})=>({key:e.key,reference:e.source_title||e.description,description:e.description,unit:e.unit,section:e.section,components:e.components.map(c=>({resource_id:c.resource_id,description:c.description,quantity:c.quantity}))}));
- const narrowed=acuRelevantResources(seeds,resources,brief);
+ const narrowed=acuRelevantResources(seeds,resources,brief).filter(resource=>seeds.some(seed=>!acuResourceScopeConflict(seed,resource)));
  const resource_candidates=seeds.map(seed=>{
-  const found=JSON.parse(buildCatalogContext({question:[seed.description,...(seed.expected_resources||[]).map(item=>item.description)].join(' '),resources:narrowed}));
+  const found=JSON.parse(buildCatalogContext({question:[seed.description,...(seed.expected_resources||[]).map(item=>item.description)].join(' '),resources:narrowed.filter(resource=>!acuResourceScopeConflict(seed,resource))}));
   const primary=found.matches.slice(0,found.related.length?12:16);
   const suggestions=[...primary,...found.related.slice(0,16-primary.length)];
   return {line_id:seed.id,candidates:suggestions.map(item=>({resource_id:item.id,match:item.matched_by}))};

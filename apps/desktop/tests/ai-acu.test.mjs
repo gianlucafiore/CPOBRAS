@@ -347,3 +347,17 @@ test('a missing coverage link is recovered only for a single exact catalog match
  assert.ok(unresolved.missing_resources.some(reason=>reason.includes('Falta especificar la mezcla')));
  assert.ok(acuPreapprovalErrors(unresolved,[mortar]).length);
 });
+
+test('ceramic masonry validates the unit count against the catalog brick face and rejects unrelated fixtures',()=>{
+ const target={...seed,unit:'m²',description:'Construcción de muros con ladrillo cerámico hueco 12 cm'};
+ const brick={...resource,description:'Ladrillo cerámico hueco 12 x 18 x 33 cm',kind:'material',unit:'un'};
+ const oversized=evidenceRow({quantity:'50'},brick,target);
+ assert.ok(acuPreapprovalErrors(oversized,[brick]).some(error=>error.includes('594 cm²')));
+ assert.deepEqual(acuPreapprovalErrors(evidenceRow({quantity:'16'},brick,target),[brick]),[]);
+ const light={...resource,description:'Instalación de artefacto de luz',kind:'labor',unit:'un'};
+ assert.ok(acuPreapprovalErrors(evidenceRow({},light,target),[light]).some(error=>error.includes('Insumo ajeno al trabajo')));
+ const aluminum={...target,description:'Colocación de aberturas de aluminio'};
+ const basin={...light,description:'Colocación de bacha de baño'};
+ assert.ok(acuPreapprovalErrors(evidenceRow({},basin,aluminum),[basin]).some(error=>error.includes('Insumo ajeno al trabajo')));
+ assert.deepEqual(acuPreapprovalErrors(evidenceRow({},basin,{...target,description:'Instalación sanitaria en baños'}),[basin]),[]);
+});
