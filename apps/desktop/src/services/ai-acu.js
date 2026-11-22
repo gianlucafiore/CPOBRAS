@@ -1,10 +1,11 @@
 import {buildCatalogContext} from './ai-catalog-context.js';
 import {normalize,importDecimal} from './ai-budget-import.js';
+import {missingResourceItems} from './ai-missing-resources.js';
 import {multiplyDecimals,sumDecimals,compareDecimals} from '../decimal.js';
 export const expectedLine=line=>({description:line.description,unit:line.unit,quantity:line.quantity,unit_cost:line.unit_cost,analysis_id:line.analysis_id||null});
 export function acuSeed(line){return {...line,is_new:false};}
 export function newAcuSeeds(rows){return rows.map(r=>({id:r.new_id||globalThis.crypto.randomUUID(),description:r.description,unit:r.unit,quantity:r.quantity??'0',section:r.section||'',section_id:null,is_new:true,components:[],takeoffs:[],formula:null,analysis_id:null,expected_recipe:null,unit_cost:'0'}));}
-export function emptyAcu(seed){return {id:seed.id,seed,selected:false,components:[],measurements:[],apply_measurements:false,section_id:seed.section_id||null,section_title:seed.section||'',assumptions:[],missing_resources:[],missing_resolved:false};}
+export function emptyAcu(seed){return {id:seed.id,seed,selected:false,components:[],measurements:[],apply_measurements:false,section_id:seed.section_id||null,section_title:seed.section||'',assumptions:[],missing_resources:[],missing_resource_drafts:[],missing_resolved:false};}
 function decimal(value,label){if(typeof value!=='string')throw new Error(`${label}: usá un decimal como texto`);const v=importDecimal(value.trim().replace(',','.'),'decimal',true);if(v==null)throw new Error(`${label}: falta el dato`);return v;}
 // Notes are explanatory text, not a write schema. Providers sometimes return a
 // string or descriptive objects despite the requested array format. Normalize
@@ -71,8 +72,16 @@ function componentEvidence(component){
   const origin=component.source_quantity;
   const safeOrigin=typeof origin==='number'&&Number.isFinite(origin)&&origin>0&&!/[eE]/.test(String(origin))
     ?String(origin):origin;
-  evidence.source_quantity=decimal(safeOrigin,'Consumo de origen');
-  if(compareDecimals(evidence.source_quantity,'0')<=0)throw new Error('El consumo de origen debe ser mayor que cero');
+  // El origen es evidencia opcional. Un 0 espurio del modelo no debe abortar
+  // todas las partidas: se descarta junto con su unidad y se avisa que falta
+  // verificar la justificación, conservando intacto el consumo real positivo.
+  if(safeOrigin===0||String(safeOrigin).trim()==='0'){
+   delete evidence.source_unit;
+   evidence.consumption_support=((evidence.consumption_support||'')+' Origen cero no válido; corroborar el rendimiento.').trim().slice(0,1500);
+  }else{
+   evidence.source_quantity=decimal(safeOrigin,'Consumo de origen');
+   if(compareDecimals(evidence.source_quantity,'0')<=0)throw new Error('El consumo de origen debe ser mayor que cero');
+  }
  }
  return evidence;
 }
@@ -149,7 +158,7 @@ export function parseAcuProposals(text,seeds,allowedResources){
   const review=[];
   if(unknown)review.push('La IA indicó insumos fuera del catálogo seleccionado. Elegí un insumo real para cada campo pendiente y revisá sus consumos antes de guardar.');
   if(repeated)review.push('La IA repitió insumos; sus consumos se conservaron por separado, sin sumarlos. Quitá o cambiá los repetidos después de revisarlos.');
-  const proposal={...emptyAcu(seed),components,measurements,assumptions:['Consumos propuestos por IA: revisar por unidad y condiciones de ejecución.',...review,...notes('assumptions')],missing_resources:notes('missing_resources')};
+  const proposal={...emptyAcu(seed),components,measurements,assumptions:['Consumos propuestos por IA: revisar por unidad y condiciones de ejecución.',...review,...notes('assumptions')],missing_resources:notes('missing_resources'),missing_resource_drafts:missingResourceItems(p.missing_resources)};
   if(p.section&&normalize(p.section)!==normalize(seed.section)){proposal.section_id=null;proposal.section_title=p.section;}
   return proposal;
  });
