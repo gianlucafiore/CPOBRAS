@@ -44,6 +44,8 @@ export function createAiMissingResourcePopup({invoke,document,state,canSave,onSa
   const startingScope=JSON.stringify([state.database?.scope||null,state.projectId,state.estimateId,state.view]);
   let attempted=false;
   try{
+   if(item.action==='specify'&&(form.description.trim()===item.description.trim()||/\\b(?:a definir|por definir|sin definir|pendiente)\\b/i.test(form.description)))
+    throw new Error('Completá la especificación técnica en la descripción antes de crear el insumo.');
    const catalog=await invoke('ai_catalog_context',{projectId:null,estimateId:null,currency:'ARS',asOf:dateToday()});
    if(!canSave()||startingScope!==JSON.stringify([state.database?.scope||null,state.projectId,state.estimateId,state.view]))
     throw new Error('Cambió la obra o la base. Revisá el insumo antes de cargarlo.');
