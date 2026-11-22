@@ -238,8 +238,15 @@ test('consumption metadata is optional but typed, bounded and preserved for prev
  const numericOrigin=evidenceRow({source_quantity:15,source_unit:'kg'});
  assert.equal(numericOrigin.components[0].source_quantity,'15');
  assert.ok(acuPreapprovalErrors(numericOrigin,[resource]).some(error=>error.includes('Consumo de origen incompatible')));
- for(const bad of [{quantity_unit:15},{quantity_unit:'u'.repeat(51)},{requested_description:'x'.repeat(501)},{consumption_support:{quantity:15,unit:'kg'}},{consumption_support:'x'.repeat(1501)},{source_quantity:'0'},{source_quantity:0},{source_quantity:1e100},{source_quantity:{num:15}}]){
+ for(const bad of [{quantity_unit:15},{quantity_unit:'u'.repeat(51)},{requested_description:'x'.repeat(501)},{consumption_support:{quantity:15,unit:'kg'}},{consumption_support:'x'.repeat(1501)},{source_quantity:1e100},{source_quantity:{num:15}}]){
   assert.throws(()=>evidenceRow(bad));
+ }
+ for(const origin of ['0','0.0',0]){
+  const pending=evidenceRow({source_quantity:origin,source_unit:'kg'});
+  assert.equal(pending.components[0].source_quantity,undefined);
+  assert.equal(pending.components[0].source_unit,undefined);
+  assert.match(pending.components[0].consumption_support,/Origen cero no válido/);
+  assert.equal(pending.components[0].quantity,'1');
  }
 });
 
