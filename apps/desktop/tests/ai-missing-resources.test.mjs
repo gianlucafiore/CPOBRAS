@@ -5,6 +5,7 @@ import {acuSeed,parseAcuProposals,acuTotals} from '../src/services/ai-acu.js';
 import {createAiMissingResourcePopup} from '../src/components/ai-missing-resource-popup.js';
 import {createModalRenderer} from '../src/components/modal.js';
 import {createActions} from '../src/controllers/actions.js';
+import {buildAcuReviewTree} from '../src/services/ai-acu-review-tree.js';
 
 const resource={id:'10000000-0000-4000-8000-000000000001',description:'Caño estructural',code:'MAT',unit:'kg',kind:'material',price:'2500'};
 const seed=(id,description)=>acuSeed({id,description,unit:'kg',quantity:'900',unit_cost:'0',section:'Estructura',components:[]});
@@ -147,4 +148,35 @@ test('native resource form accepts AI-prefilled description and executes its sav
  assert.equal(callbackCalled,true);
  assert.equal(state.modal,null);
  assert.equal(state.selectedResourceId,'saved-resource');
+});
+
+test('chat review renders rubro, partida and its own insumos without inventing consumptions',()=>{
+ const rows=parseAcuProposals(proposals('1'),[a,b],[resource]);
+ const tree=buildAcuReviewTree(rows,[resource],[],[
+  {line_id:a.id,requested:'Tablillas de deck plástico',resource_id:'deck-1',description:'Deck plástico WPC',unit:'m²',kind:'material'}
+ ]);
+ assert.equal(tree.length,1);
+ assert.equal(tree[0].name,'Estructura');
+ assert.deepEqual(tree[0].lines.map(row=>row.description),['Estructura metálica','Casco de pileta']);
+ const steel=tree[0].lines[0];
+ assert.equal(steel.status,'pending');
+ assert.ok(steel.items.some(item=>item.description==='Caño estructural'&&item.quantity==='1.5'&&item.unit==='kg'));
+ const choice=steel.items.find(item=>item.status==='selected');
+ assert.equal(choice.description,'Deck plástico WPC');
+ assert.equal(choice.quantity,'');
+ assert.equal(choice.requested,'Tablillas de deck plástico');
+ assert.notEqual(steel.status,'ready');
+ const pool=tree[0].lines[1];
+ assert.equal(pool.status,'pending');
+ assert.ok(pool.items.some(item=>item.status==='missing'));
+ assert.ok(!pool.items.some(item=>item.status==='selected'));
+});
+
+test('a fully valid ACU is marked ready only with real catalog IDs, valid quantities and prices',()=>{
+ const rows=parseAcuProposals(JSON.stringify({acu_proposals:[{
+  line_id:a.id,components:[{resource_id:resource.id,quantity:'1.5',quantity_unit:'kg'}],missing_resources:[]
+ }]}),[a],[resource]);
+ const tree=buildAcuReviewTree(rows,[resource],[],[]);
+ assert.equal(tree[0].lines[0].status,'ready');
+ assert.equal(tree[0].lines[0].unit_cost,'3750.0');
 });
