@@ -117,7 +117,7 @@ test('total structural quantity cannot masquerade as per-unit resource consumpti
   {requirement_id:'req-3',unresolved_reason:'Pendiente'}
  ]}]};
  const [row]=parseAcuProposals(JSON.stringify(misleading),[seed],catalog);
- assert.ok(acuTotals(row,catalog).errors.some(error=>error.includes('consumo por unidad coincide con la cantidad total')));
+ assert.ok(acuTotals(row,catalog).errors.some(error=>error.includes('Consumo desproporcionado')||error.includes('consumo unitario coincide numéricamente')));
 });
 
 test('a partially malformed model response preserves valid work lines and reports exact omissions',()=>{
