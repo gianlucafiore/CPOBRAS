@@ -26,7 +26,9 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
  function getReviewTree(){
   const saved=drafts.get(draftKey())||(!model.applied&&model.draftKey===draftKey()?model:null);
   if(!saved?.context)return [];
-  const tree=buildAcuReviewTree(saved.rows||[],saved.context.resources||[],saved.context.sections||[],saved.missingResourceSelections||[]);
+  const present=new Set((saved.rows||[]).map(row=>row.id));
+  const reviewRows=[...(saved.rows||[]),...(saved.seeds||[]).filter(seed=>!present.has(seed.id)).map(seed=>emptyAcu(seed))];
+  const tree=buildAcuReviewTree(reviewRows,saved.context.resources||[],saved.context.sections||[],saved.missingResourceSelections||[]);
   for(const section of tree)for(const line of section.lines){
    line.excluded=Boolean(saved.excludedLineIds?.has(line.id));
    for(const item of line.items){
@@ -40,7 +42,7 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
   if(approvedRun?.writing)throw new Error('El lote ya se está guardando; no se puede modificar.');
   if(preparedApproval)cancelPrepared();
   const saved=drafts.get(draftKey())||(!model.applied&&model.draftKey===draftKey()?model:null);
-  if(!saved||!saved.rows?.some(row=>row.id===lineId))throw new Error('La partida no existe en el borrador actual.');
+  if(!saved||![...(saved.rows||[]).map(row=>row.id),...(saved.seeds||[]).map(seed=>seed.id)].includes(lineId))throw new Error('La partida no existe en el borrador actual.');
   // Los botones sólo pueden operar sobre entradas presentes en el árbol local.
   const tree=getReviewTree();
   const line=tree.flatMap(section=>section.lines).find(item=>item.id===lineId);
