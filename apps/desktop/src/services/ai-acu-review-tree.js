@@ -44,7 +44,7 @@ export function buildAcuReviewTree(rows=[],resources=[],sections=[],selections=[
   groups.get(sectionName).lines.push({
    id:row.id,description:row.seed?.description||'Partida',unit:row.seed?.unit||'',
    quantity:String(row.seed?.quantity??''),is_new:row.seed?.is_new===true,
-   quantityPending:row.seed?.is_new===true&&(row.seed?.quantity==null||String(row.seed.quantity)==='0'),
+   quantityPending:row.seed?.quantity_status==='pending'||(row.seed?.quantity==null||String(row.seed.quantity)==='0'),
    status:errors.length?'pending':'ready',errors:errors.slice(0,8),
    items:components.slice(0,100),unit_cost:totals.unit_cost
   });
