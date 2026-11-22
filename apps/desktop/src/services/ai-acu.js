@@ -75,7 +75,7 @@ function componentEvidence(component){
   // El origen es evidencia opcional. Un 0 espurio del modelo no debe abortar
   // todas las partidas: se descarta junto con su unidad y se avisa que falta
   // verificar la justificación, conservando intacto el consumo real positivo.
-  if(safeOrigin===0||String(safeOrigin).trim()==='0'){
+  if(safeOrigin===0||/^0+(?:[.,]0+)?$/.test(String(safeOrigin).trim())){
    delete evidence.source_unit;
    evidence.consumption_support=((evidence.consumption_support||'')+' Origen cero no válido; corroborar el rendimiento.').trim().slice(0,1500);
   }else{
