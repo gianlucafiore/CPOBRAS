@@ -1,6 +1,6 @@
 // Contrato de planificación constructiva. La clasificación pertenece al
 // razonamiento del modelo, NO a un listado de nombres o palabras clave.
-import {importDecimal} from './ai-budget-import.js';
+import {validateWorkQuantity} from './ai-quantity-safety.js';
 const TYPES=new Set(['material','labor','equipment','subcontract']);
 const clean=(value,max)=>typeof value==='string'?value.trim().slice(0,max):'';
 const fold=value=>String(value).normalize('NFKD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase();
@@ -10,9 +10,12 @@ export const constructionOutlineInstruction=[
  'PARTIDA: actividad o elemento construido que se puede medir/certificar en una unidad y tiene un resultado físico verificable. Debe describir ese trabajo, no uno de los productos que consume. Sólo crear una partida de suministro aislado cuando el usuario solicita expresamente una provisión independiente del montaje.',
  'INSUMO: recurso material, mano de obra, equipo o subcontrato necesario para ejecutar una partida. Un recurso utilizado en una partida va DENTRO de esa partida, no se crea por sí solo otra partida.',
  'Primero identificá los resultados de trabajo; luego sus recursos. Evitá la fragmentación artificial y no dupliques un recurso como partida y como insumo por la misma actividad.',
- 'Respondé exclusivamente JSON con work_sections:[{title,partidas:[{description,unit,quantity,work_result,resources:[{name,kind,unit}]}]}]. Cada partida DEBE incluir siempre todas las claves; resources es [] cuando aún no se conocen insumos, work_result es una frase sobre el resultado del trabajo y unit es su unidad medible. No omitas claves ni uses un objeto donde se espera un array.',
+ 'Respondé exclusivamente JSON con work_sections:[{title,partidas:[{description,unit,quantity,quantity_source,work_result,resources:[{name,kind,unit}]}]}]. resources es [] si no conocés los insumos y quantity es null si no conocés el metrado. No omitas claves ni uses un objeto donde se espera un array.',
  'title nombra el rubro de trabajo; work_result describe brevemente lo que se entrega o certifica, distinto de una mera compra. resources lista los insumos necesarios en esa partida (pueden faltar detalles).',
- 'kind debe ser material, labor, equipment o subcontract. Si una especificación o unidad no se conoce, usá cadena vacía. Para cantidad de la partida usá decimal como texto si la indicó el usuario, de lo contrario null.',
+ 'Metrado de partida != superficie general del proyecto != consumo por unidad del ACU. Nunca copies los m² de una vivienda a cubierta, pisos, paredes u otra partida sin medición específica: podrían ser diferentes.',
+ 'quantity_source es null si quantity es null. Para una cantidad literal de ESA partida: {kind:"explicit",quote:"fragmento literal del pedido que contiene cantidad, unidad y el trabajo referido"}. La cantidad debe estar realmente expresada por el usuario.',
+ 'Para cantidad deducida SOLO de dimensiones explícitas: {kind:"calculated",factors:[{value:"10",unit:"m",quote:"fragmento literal del pedido"},...]}. Producto de factores y dimensiones debe igualar quantity y su unidad; si faltan dimensiones, usá null. No inventes pendientes, alturas, anchos ni factores de desperdicio.',
+ 'kind de insumo debe ser material, labor, equipment o subcontract. Si falta una especificación o unidad del insumo usá cadena vacía. Siempre distinguí un presupuesto preliminar de un cómputo verificado.',
  'No inventes cantidades, precios ni consumos de recursos. Máximo 60 partidas en total, sin limitar arbitrariamente la cantidad de rubros. Respondé con el conjunto mínimo y suficiente de trabajos; no inventes partidas auxiliares que no estén justificadas.'
 ].join('\n');
 
@@ -20,7 +23,7 @@ export const constructionOutlineInstruction=[
 // válida se conserva; solo nombre/rubro y unidad medible son indispensables
 // para crear una partida sin inventar datos. El resto queda como advertencia.
 // Los avisos se asocian al resultado; nunca se convierten en altas de SQLite.
-export function parseConstructionOutline(text){
+export function parseConstructionOutline(text,originalBrief=''){
  let parsed;
  try{parsed=JSON.parse(text.trim().replace(/^\`\`\`(?:json)?\s*/i,'').replace(/\s*\`\`\`$/,''));}
  catch{throw new Error('La propuesta constructiva no contiene JSON válido de rubros, partidas e insumos.');}
@@ -67,16 +70,16 @@ export function parseConstructionOutline(text){
     resourceIds.add(resourceKey);
     requirements.push({id:'req-'+(requirements.length+1),description:name,kind,unit:resourceUnit});
    }
-   let quantity=null;
-   if(part.quantity!=null){
-    const raw=typeof part.quantity==='number'&&Number.isFinite(part.quantity)?String(part.quantity):part.quantity;
-    if(typeof raw==='string'){
-     try{quantity=importDecimal(raw,'decimal',true);}catch{quantity=null;}
-    }
-    if(quantity==null)issues.push('Cantidad no válida; queda pendiente de medir');
-   }
+   const evidence=validateWorkQuantity({
+    quantity:part.quantity,unit,source:part.quantity_source||part.quantity_evidence,
+    brief:originalBrief,description
+   });
+   const quantity=evidence.quantity;
+   if(evidence.issue)issues.push(evidence.issue);
    for(const issue of issues)warn('«'+description+'»',issue);
-   rows.push({description,unit,section:title,quantity,unit_price:null,work_result:workResult,
+   rows.push({description,unit,section:title,quantity,quantity_status:evidence.status,
+    quantity_source:evidence.status==='pending'?null:part.quantity_source||part.quantity_evidence,
+    unit_price:null,work_result:workResult,
     expected_resources:requirements,outline_issues:issues,new_id:globalThis.crypto.randomUUID()});
   }
  }
