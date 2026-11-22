@@ -346,7 +346,15 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
       'Retomá SOLO estos ACU pendientes de la tarea original: '+model.brief+
       (confirmed.length?'\nINSUMOS SELECCIONADOS EXPLÍCITAMENTE POR EL USUARIO PARA ESTAS PARTIDAS: '+JSON.stringify(confirmed)+'. Usá esos resource_id solamente si son técnicamente compatibles; si no lo son, explicá el faltante sin sustituir materiales ni inventar conversiones.':'')+
       '\\nRespondé JSON con acu_proposals para los targets. Usá IDs reales, consumos positivos en decimal texto, quantity_unit y consumption_support. Falta de materiales: missing_resources con objetos {description,unit,kind,action,reason}; create solo para productos concretos ausentes, specify para definiciones técnicas. No inventes precios ni insumos, no reemplaces equivalencias dudosas.';
-     const result=await ask([{role:'user',content:prompt}],promptContext(chunk,resources,[]),'acu');
+     // El catálogo puede recortarse para la IA; los recursos que el usuario
+     // eligió explícitamente nunca deben desaparecer de ese recorte.
+     const context=JSON.parse(promptContext(chunk,resources,[]));
+     for(const selection of confirmed){
+      const actual=resources.find(row=>row.id===selection.resource_id);
+      if(actual&&!context.resources.some(row=>row.resource_id===actual.id))
+       context.resources.push({resource_id:actual.id,code:actual.code,description:actual.description,unit:actual.unit,kind:actual.kind,has_price:actual.price!=null});
+     }
+     const result=await ask([{role:'user',content:prompt}],JSON.stringify(context),'acu');
      if(token!==generation||currentScope!==scope())throw new Error('Cambió la vista durante la consulta.');
      const rows=model.operation==='append'
       ?parseAcuAdditions(result.text,chunk,resources,model.brief).map(row=>mergeAcuAddition(row,resources,model.brief))
