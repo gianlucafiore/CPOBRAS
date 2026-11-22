@@ -340,7 +340,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       const sectionList=organized?`<div class="ai-ingredient-group"><strong>Partidas que cambiarán de rubro</strong><ul>${organized}</ul></div>`:'';
       const sectionPending=(preview.sectionPending||[]).map(item=>`<p class="ai-warning">Pendiente de clasificación: ${e(item)}</p>`).join('');
       const hasChanges=rows.length>0||(preview.movedSections||[]).length>0||(preview.structureLines||[]).length>0;
-      return `<div class="ai-ingredient-preview"><strong>Propuesta para revisar</strong>${preview.structureLines?.length?`<p>${preview.structureLines.length} partidas nuevas se crearán en sus rubros; ${preview.structureLines.filter(line=>line.needsAcu).length} quedarán con ACU pendiente.</p>`:''}${acuReviewTreeMarkup(message,index)}<details><summary>Composición y detalles de ${rows.length} ACU</summary>${list}${sectionList}${pending}${sectionPending}</details>${hasChanges?`<button type="button" class="ai-approve" data-ai="approve-load" data-index="${index}" ${canPlan()&&model.configured&&model.consent&&!model.busy?'':'disabled'}>Sí, aprobar y cargar esta lista</button>`:'<p>Sin cambios válidos para aprobar.</p>'}<button type="button" data-ai="discard-preview" data-index="${index}">Descartar</button></div>`;
+      return `<div class="ai-ingredient-preview"><strong>Propuesta para revisar</strong>${preview.structureLines?.length?`<p>${preview.structureLines.length} partidas nuevas se crearán en sus rubros; ${preview.structureLines.filter(line=>line.needsAcu).length} quedarán con ACU pendiente.</p>`:''}${acuReviewTreeMarkup(message,index)}<details><summary>Composición y detalles de ${rows.length} ACU</summary>${list}${sectionList}${pending}${sectionPending}</details>${hasChanges?`<button type="button" class="ai-approve" data-ai="approve-load" data-index="${index}" ${canPlan()&&model.configured&&model.consent&&!model.busy?'':'disabled'}>${preview.structureLines?.length&&rows.length===0?'Guardar solo rubros y partidas (sin ACU)':'Aprobar y guardar '+rows.length+' ACU completos'+(preview.pending?' · '+preview.pending+' pendientes':'')}</button>`:'<p>Sin cambios válidos para aprobar.</p>'}<button type="button" data-ai="discard-preview" data-index="${index}">Descartar</button></div>`;
     }
     if(message.changeProposals)return '';
     const name=state.estimates.find(e=>e.id===state.estimateId)?.title||'un presupuesto nuevo de esta obra';
@@ -409,9 +409,19 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       });
       const review=acuWorkbench.preparePendingPreview();
       if(review.previewReady){
-        if(commitNow){
-          // El usuario acaba de aprobar la estructura visible. El único lote
-          // autorizado es el revisado, sin generar partidas ni recursos nuevos.
+        if(commitNow&&review.preview.rows.length===0&&review.preview.structureLines?.length){
+          // No treat a generic "cargalo" as approval of an empty recipe.
+          // Show precisely what will be created and ask for explicit consent
+          // to save structure without assigning any catalog consumption.
+          message.preview={...review.preview,missingResources:retained};
+          delete message.approval;
+          message.answer='Todavía no hay ACU completos: los insumos visibles son requisitos o selecciones sin consumos aprobables. Podés guardar únicamente rubros y partidas y completar sus ACU después.';
+          message.content=JSON.stringify({answer:message.answer});
+          model.pendingAction=message;
+          model.notice=message.answer;
+        }else if(commitNow){
+          // The reviewed batch is the only authorized write: never generate
+          // another ACU or invent consumptions during final approval.
           const result=await acuWorkbench.commitPrepared(review.preview.id);
           const summary=result.committed?
             'Guardado confirmado: '+(result.created||0)+' partidas creadas y '+(result.saved||0)+' ACU completos. '+(result.pending||0)+' ACU pendientes.':
