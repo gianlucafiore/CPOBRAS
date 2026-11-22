@@ -40,7 +40,7 @@ const quotedUnit=(quote,unit)=>{
  const tokens=normalized.match(/(?:m2|m3|kg|tn|cm2|cm|mm|m|g|l|unidades?|metros?|kilogramos?|litros?)\b/g)||[];
  return tokens.some(token=>{
   const matched=unitDimension(token);
-  return matched?.dimension===target.dimension;
+  return matched?.dimension===target.dimension&&compareDecimals(matched.scale,target.scale)===0;
  });
 };
 const descriptorOverlap=(text,quote)=>{
