@@ -386,42 +386,55 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
 
   // La confirmación en lenguaje natural debe operar sobre una tarea real,
   // nunca limitarse a responder que recibió autorización.
-  async function resumeAcuReview(message){
+  // Una aprobación de lo que ya se vio NO llama de nuevo al proveedor.
+  // Sólo una solicitud explícita de reintento vuelve a generar recetas.
+  async function resumeAcuReview(message,{regenerate=false,commitNow=false}={}){
     if(!message?.approval?.result||message.approval.kind!=='acu'||message.approval.result.committed)return;
     if(!canPlan()||!model.configured||!model.consent||model.busy){
       model.error='Abrí un presupuesto local editable y habilitá la IA para continuar.';paint();return;
     }
-    const index=model.messages.indexOf(message);
-    if(index<0)return;
-    if(!message.approval.result.prepared){
-      delete message.approval;
-      model.notice='Reintentando la preparación original. No se guardará nada sin revisar los ACU.';
-      await approveMessage(index);return;
-    }
-    model.busy=true;model.retryingAcu=true;model.error='';
-    model.notice='Revalidando los ACU con los insumos seleccionados. Nada se guardó todavía.';paint();
+    model.retryingAcu=true;model.error='';
+    model.notice=regenerate?'Recalculando sólo los ACU pendientes. Todavía no se guardó nada.':
+      'Validando la estructura que aprobaste; no se repetirá la consulta de IA.';
+    paint();
     try{
       const prior=message.approval.result;
-      const updated=await acuWorkbench.regeneratePending();
+      const updated=regenerate?await acuWorkbench.regeneratePending():prior;
       const retained=(updated.missingResources||[]).map(item=>{
-        const saved=(prior.missingResources||[]).find(p=>p.saved&&p.description===item.description&&p.kind===item.kind);
-        return saved?{...item,saved:true,selectedResourceId:saved.selectedResourceId,selectedResourceName:saved.selectedResourceName}:item;
+        const chosen=(prior.missingResources||[]).find(row=>row.saved&&row.description===item.description&&row.kind===item.kind);
+        return chosen?{...item,saved:true,selectedResourceId:chosen.selectedResourceId,selectedResourceName:chosen.selectedResourceName}:item;
       });
       const review=acuWorkbench.preparePendingPreview();
       if(review.previewReady){
-        message.preview={...review.preview,missingResources:retained};
-        delete message.approval;
-        message.answer='Revisá el árbol de rubros, partidas e insumos. Los ACU completos ya pueden aprobarse y guardarse; el resto sigue pendiente.';
-        message.content=JSON.stringify({answer:message.answer});
-        model.pendingAction=message;
+        if(commitNow){
+          // El usuario acaba de aprobar la estructura visible. El único lote
+          // autorizado es el revisado, sin generar partidas ni recursos nuevos.
+          const result=await acuWorkbench.commitPrepared(review.preview.id);
+          const summary=result.committed?
+            'Guardado confirmado: '+(result.created||0)+' partidas creadas y '+(result.saved||0)+' ACU completos. '+(result.pending||0)+' ACU pendientes.':
+            'No se guardó nada: '+String(result.error||'La validación no habilitó la escritura.');
+          delete message.preview;
+          message.answer=summary;
+          message.approval={...message.approval,state:'done',message:summary,result};
+          message.content=JSON.stringify({answer:summary});
+          model.notice=summary;
+          if(result.committed){model.lastCatalogAdvice=null;pendingIntent=null;}
+        }else{
+          message.preview={...review.preview,missingResources:retained};
+          delete message.approval;
+          message.answer='Revisá el árbol: las partidas y los ACU válidos están listos para una aprobación final.';
+          message.content=JSON.stringify({answer:message.answer});
+          model.pendingAction=message;
+          model.notice=message.answer;
+        }
       }else{
         message.approval.result={...prior,...updated,...review,missingResources:retained};
-        message.answer='No se guardó nada: todavía faltan consumos o definiciones para completar los ACU. Revisá el árbol o editá el detalle.';
+        message.answer='No se guardó nada: '+String(review.error||'No hay cambios válidos para aplicar.');
         message.approval.message=message.answer;
         message.content=JSON.stringify({answer:message.answer});
+        model.notice=message.answer;
       }
-      model.notice=message.answer;
-    }catch(error){model.error='No se pudo continuar ni guardar la preparación: '+String(error);}
+    }catch(error){model.error='No se pudo guardar la tarea revisada: '+String(error);}
     finally{model.retryingAcu=false;model.busy=false;paint();}
   }
   async function approveMessage(index){
@@ -1291,7 +1304,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       if(visiblePreview){model.question='';await approveMessage(model.messages.indexOf(visiblePreview));return;}
       const pendingAcu=model.messages.findLast(message=>message.approval?.kind==='acu'&&
        message.approval.id===model.lastApprovedId&&message.approval.result&&!message.approval.result.committed);
-      if(pendingAcu){model.question='';await resumeAcuReview(pendingAcu);return;}
+      if(pendingAcu){model.question='';await resumeAcuReview(pendingAcu,{commitNow:true});return;}
     }
     const continuation=conversationAcuRequest(question,state,pendingIntent);
     if(continuation?.error){model.error=continuation.error;paint();return;}
@@ -1579,7 +1592,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     try{
       if(action==='retry-missing-acu'&&!model.busy){
         const message=model.messages[Number(button.dataset.index)];
-        if(message)await resumeAcuReview(message);
+        if(message)await resumeAcuReview(message,{regenerate:true});
         return;
       }
       if(action==='create-missing-resource'&&!model.busy){
