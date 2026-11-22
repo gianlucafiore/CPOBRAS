@@ -216,7 +216,7 @@ export function acuTotals(row,resources){
    cost=sumDecimals([cost,multiplyDecimals(q,r.price)]);
   }catch{errors.push('Consumo inválido: '+r.description);}
  }
- for(const issue of row.seed?.outline_issues||[])errors.push('Planificación incompleta: '+issue);
+ for(const issue of row.seed?.outline_issues||[])warnings.push('Planificación para revisar: '+issue);
  if(row.missing_resources.length&&!row.missing_resolved)errors.push('Hay faltantes indicados por IA pendientes de resolver');
  // La planificación establece requisitos que no pueden ocultarse marcando
  // "faltantes resueltos" sin vincular un insumo real y su consumo positivo.
