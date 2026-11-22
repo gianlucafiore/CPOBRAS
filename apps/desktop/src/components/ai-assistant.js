@@ -298,13 +298,13 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     return `<div class="ai-acu-review-tree"><strong>Rubros, partidas e insumos · ${rows} partidas</strong>
       ${tree.map(section=>`<details class="ai-acu-tree-section" open>
        <summary><strong>${e(section.name)}</strong> <small>${section.lines.length} partidas</small></summary>
-       <ul>${section.lines.map(line=>`<li class="ai-acu-tree-line">
-        <details open><summary><b>${e(line.description)}</b> <small>${line.quantityPending?'Cantidad por medir':e(line.quantity)+' '+e(line.unit)} · ${line.status==='ready'?'ACU listo para revisar':'ACU pendiente'}</small></summary>
+       <ul>${section.lines.map(line=>`<li class="ai-acu-tree-line ${line.excluded?'is-excluded':''}">
+        <details open><summary><b>${e(line.description)}</b> <small>${line.quantityPending?'Cantidad por medir':e(line.quantity)+' '+e(line.unit)} · ${line.excluded?'Excluida':line.status==='ready'?'ACU listo para revisar':'ACU pendiente'}</small><button type="button" class="ai-tree-exclude" title="${line.excluded?'Restaurar partida':'Excluir partida del lote'}" aria-label="${line.excluded?'Restaurar':'Excluir'} partida ${e(line.description)}" data-ai="exclude-review-line" data-index="${index}" data-line-id="${e(line.id)}" data-excluded="${line.excluded}">${line.excluded?'↶':'×'}</button></summary>
          <ul>${line.items.length?line.items.map(item=>{
            const pointer=item.requested?lookup(item):-1;
-           return `<li class="ai-acu-tree-resource"><span>${e(item.description)}
+           return `<li class="ai-acu-tree-resource ${item.excluded?'is-excluded':''}"><span>${e(item.description)}
             <small>${item.quantity?e(item.quantity)+' '+e(item.unit)+' / '+e(line.unit):item.status==='selected'?'Insumo seleccionado · falta definir consumo':e(item.unit||'Unidad pendiente')+' · sin asignar'}</small></span>
-            ${pointer>=0?`<button type="button" data-ai="create-missing-resource" data-index="${index}" data-item="${pointer}" ${model.busy?'disabled':''}>${missing[pointer]?.saved?'Cambiar':'Seleccionar'}</button>`:''}</li>`;
+            ${pointer>=0&&!line.excluded&&!item.excluded?`<button type="button" data-ai="create-missing-resource" data-index="${index}" data-item="${pointer}" ${model.busy?'disabled':''}>${missing[pointer]?.saved?'Cambiar':'Seleccionar'}</button>`:''}<button type="button" class="ai-tree-exclude" title="${item.excluded?'Restaurar insumo':'Excluir insumo de la partida'}" aria-label="${item.excluded?'Restaurar':'Excluir'} insumo ${e(item.description)}" data-ai="exclude-review-input" data-index="${index}" data-line-id="${e(line.id)}" data-item-key="${e(item.reviewKey)}" data-excluded="${item.excluded}" ${line.excluded?'disabled':''}>${item.excluded?'↶':'×'}</button></li>`;
          }).join(''):'<li class="ai-acu-tree-resource">Sin composición; requiere insumos y consumos</li>'}</ul>
          ${line.errors.length?`<details class="ai-acu-tree-errors"><summary>Ver ${line.errors.length} datos pendientes</summary><ul>${line.errors.map(problem=>`<li>${e(problem)}</li>`).join('')}</ul></details>`:''}
         </details></li>`).join('')}</ul>
@@ -1590,6 +1590,27 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     }
     model.error="";
     try{
+      if((action==='exclude-review-line'||action==='exclude-review-input')&&!model.busy){
+        event.preventDefault();
+        const index=Number(button.dataset.index),message=model.messages[index];
+        if(!message?.preview&&!message?.approval?.result)return;
+        const lineId=button.dataset.lineId;
+        const itemKey=action==='exclude-review-input'?button.dataset.itemKey:null;
+        const wasPreview=message.preview;
+        const result=acuWorkbench.setReviewExclusion(lineId,itemKey,button.dataset.excluded!=='true');
+        if(wasPreview){
+          // La lista aprobable quedó obsoleta por decisión del usuario.
+          // No puede aplicarse hasta recalcular la vista previa local.
+          delete message.preview;
+          message.approval={id:model.lastApprovedId,kind:'acu',state:'done',
+            message:'Cambió la selección: revalidá el lote antes de guardar.',
+            result:{committed:false,prepared:wasPreview.rows?.length||0,
+              pending:wasPreview.pending??0,tree:result.tree,
+              pendingReasons:wasPreview.pendingReasons||[],missingResources:wasPreview.missingResources||[]}};
+        }else message.approval.result.tree=result.tree;
+        model.notice=button.dataset.excluded==='true'?'Elemento restaurado en el borrador.':'Elemento excluido del lote; no se borró de la biblioteca.';
+        paint();return;
+      }
       if(action==='retry-missing-acu'&&!model.busy){
         const message=model.messages[Number(button.dataset.index)];
         if(message)await resumeAcuReview(message,{regenerate:true});
