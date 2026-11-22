@@ -176,7 +176,7 @@ export function parseAcuProposals(text,seeds,allowedResources){
   }
   const proposal={...emptyAcu(seed),components,measurements,requirement_coverage:coverage,
    missing_resource_drafts:missingResourceItems([...(Array.isArray(p.missing_resources)?p.missing_resources:[]),...uncovered]),assumptions:['Consumos propuestos por IA: revisar por unidad y condiciones de ejecución.',...review,...notes('assumptions')],missing_resources:[...notes('missing_resources'),...uncovered.map(req=>req.description+': '+req.reason)]};
-  if(p.section&&normalize(p.section)!==normalize(seed.section)){proposal.section_id=null;proposal.section_title=p.section;}
+  if(!seed.is_new&&p.section&&normalize(p.section)!==normalize(seed.section)){proposal.section_id=null;proposal.section_title=p.section;}
   return proposal;
  });
  for(const seed of seeds)if(!seen.has(seed.id))proposals.push({...emptyAcu(seed),missing_resources:['La IA no devolvió una receta para esta partida. Completala o descartá la propuesta y volvé a solicitarla.']});
@@ -206,6 +206,13 @@ export function acuTotals(row,resources){
   try{const q=decimal(String(c.quantity),'Consumo');if(compareDecimals(q,'0')<=0)throw new Error();cost=sumDecimals([cost,multiplyDecimals(q,r.price)]);}catch{errors.push('Consumo inválido: '+r.description);}
  }
  if(row.missing_resources.length&&!row.missing_resolved)errors.push('Hay faltantes indicados por IA pendientes de resolver');
+ // La planificación establece requisitos que no pueden ocultarse marcando
+ // "faltantes resueltos" sin vincular un insumo real y su consumo positivo.
+ for(const requirement of row.seed?.expected_resources||[]){
+  const linked=(row.requirement_coverage||[]).filter(item=>item?.requirement_id===requirement.id);
+  if(linked.length!==1||!linked[0].resource_id||!row.components.some(item=>item.resource_id===linked[0].resource_id))
+   errors.push('Requisito sin consumo válido en el ACU: '+requirement.description);
+ }
  let quantity=row.seed.quantity||'0';
  if(row.apply_measurements){try{quantity=measurementQuantity(row.measurements);if(quantity==null||compareDecimals(quantity,'0')<0)throw new Error();}catch{errors.push('La medición está incompleta o su resultado es negativo');}}
  try{quantity=decimal(String(quantity),'Cantidad total');}catch{errors.push('Cantidad total inválida');quantity='0';}
