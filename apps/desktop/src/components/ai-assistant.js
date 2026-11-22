@@ -26,32 +26,34 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
   const budgetImport=createAiBudgetImport({invoke,state,document,window,editable,loadEstimate,loadEstimates,openEstimate,canUseAi:()=>model.configured&&model.consent&&!model.busy});
   const acuWorkbench=createAcuWorkbench({invoke,state,document,window,loadEstimate,loadEstimates,openEstimate,openResourceLibrary,canUseAi:()=>model.configured&&model.consent&&(!model.busy||model.approvedRun?.running||model.retryingAcu)});
   const approvedPlans=createApprovedPlanRunner({invoke,state,loadEstimate,loadEstimates,openEstimate});
-  const missingResourcePopup=createAiMissingResourcePopup({invoke,document,state,
-    canSave:()=>canSaveResources()&&!model.busy,
-    onSaved:async resource=>{
-      resource.saved=true;
-      // La aprobación de una vista previa no sirve si cambió el catálogo.
-      // Conservamos el borrador y exigimos revalidar los ACU.
-      const previewOwner=model.messages.find(message=>message.preview?.missingResources?.includes(resource));
+  const missingResourcePopup=createAiMissingResourcePopup({document,window,state,openModal,
+    onResolved:async (missing,selected,{created})=>{
+      const resource=state.resources.find(row=>row.id===selected.id)||selected;
+      if(!resource?.id)throw new Error('No se pudo comprobar el insumo seleccionado en la biblioteca.');
+      const previewOwner=model.messages.find(message=>message.preview?.missingResources?.includes(missing));
       if(previewOwner){
         const previous=previewOwner.preview;
         acuWorkbench.cancelPrepared();
         delete previewOwner.preview;
         previewOwner.approval={id:model.lastApprovedId,kind:'acu',state:'done',
-          message:'El catálogo cambió. Revalidá los ACU pendientes.',
-          result:{committed:false,prepared:previous.rows?.length||0,pending:previous.pending||1,
+          message:'Se seleccionó un insumo. Revalidá la composición pendiente.',
+          result:{committed:false,prepared:previous.rows?.length||0,pending:Math.max(1,previous.pending||0),
             pendingReasons:previous.pendingReasons||[],missingResources:previous.missingResources||[]}};
-        previewOwner.answer='Insumo registrado. Reintentá los ACU pendientes para actualizar su composición.';
+        previewOwner.answer='Insumo seleccionado. Continuá los ACU pendientes para revisar los consumos.';
       }
-      let notice='Insumo «'+resource.description+'» guardado. La tarea de ACU sigue pendiente.';
+      let notice=(created?'Insumo creado':'Insumo existente seleccionado')+': '+resource.description+'. El ACU todavía no se guardó.';
       try{
-        await reloadCatalog?.();
+        if(created)await reloadCatalog?.();
         await acuWorkbench.refreshPendingCatalog();
-        render?.();
-      }catch(error){notice+=' No se pudo actualizar toda la vista: '+String(error)+'; reabrí los pendientes sin volver a crear el insumo.';}
+        const linked=acuWorkbench.registerMissingResource(missing,resource);
+        if(!linked.linked)notice+=' No había una receta pendiente vinculable; revisá los ACU en detalle.';
+      }catch(error){notice+=' No se pudo vincular automáticamente: '+String(error)+'. No repitas el alta; revisá el catálogo.';}
+      missing.saved=true;missing.selectedResourceId=resource.id;missing.selectedResourceName=resource.description;
       model.notice=notice;
+      model.open=true;
       paint();
-    }
+    },
+    onRestored:()=>{model.open=true;paint();}
   });
   // Match the 180-second native timeout for local inference. The previous
   // 65-second UI watchdog cancelled valid (but slower) LM Studio requests.
@@ -282,7 +284,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       ${items.map((item,i)=>`<div class="ai-missing-item ${item.saved?'ai-missing-saved':''}">
        <span><b>${e(item.description)}</b><small>${e([item.kind?({material:'Material',labor:'Mano de obra',equipment:'Equipo',subcontract:'Subcontrato'}[item.kind]||item.kind):'Tipo por definir',item.unit||'Unidad por definir'].join(' · '))}
        ${item.lines?.length?' · Para: '+e(item.lines.join(', ')):''}</small></span>
-       ${item.saved?'<small>✓ Agregado</small>':`<button type="button" data-ai="create-missing-resource" data-index="${index}" data-item="${i}" ${model.busy?'disabled':''}>${item.action==='specify'?'Especificar':'Crear insumo'}</button>`}
+       ${item.saved?'<small>✓ Seleccionado: '+e(item.selectedResourceName||item.description)+'</small>':`<button type="button" data-ai="create-missing-resource" data-index="${index}" data-item="${i}" ${model.busy?'disabled':''}>${'Seleccionar insumo'}</button>`}
        </div>`).join('')}</div>`;
   }
   function approvalMarkup(message,index){
