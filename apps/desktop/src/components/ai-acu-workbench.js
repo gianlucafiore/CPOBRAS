@@ -297,6 +297,26 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
   drafts.set(saved.draftKey,saved);
   return {refreshed:true,added:context.resources.filter(resource=>!before.has(resource.id)).length};
  }
+ // Una selección del usuario vincula el insumo real con las partidas donde
+ // fue señalado como faltante. No asigna cantidades ni guarda un ACU.
+ function registerMissingResource(item,resource){
+  if(!item?.description||!resource?.id)throw new Error('Falta identificar el insumo seleccionado.');
+  const saved=drafts.get(draftKey())||(!model.applied&&model.draftKey===draftKey()?model:null);
+  if(!saved)return {linked:0};
+  const actual=saved.context.resources.find(row=>row.id===resource.id);
+  if(!actual)throw new Error('El insumo elegido no figura en el catálogo actualizado.');
+  const norm=value=>String(value||'').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
+  const matching=saved.rows.filter(row=>(row.missing_resource_drafts||[]).some(entry=>norm(entry.description)===norm(item.description)));
+  saved.missingResourceSelections ||= [];
+  for(const row of matching){
+   saved.missingResourceSelections=saved.missingResourceSelections.filter(entry=>!(entry.line_id===row.id&&norm(entry.requested)===norm(item.description)));
+   saved.missingResourceSelections.push({line_id:row.id,requested:item.description,resource_id:actual.id,description:actual.description,kind:actual.kind,unit:actual.unit});
+   row.selected=false;
+  }
+  saved.resourceIds.add(actual.id);
+  drafts.set(saved.draftKey,saved);
+  return {linked:matching.length};
+ }
  // Reintento explícito desde el chat: conserva IDs, partidas y ACU válidos.
  // Recalcula exclusivamente las composiciones todavía pendientes. No guarda.
  async function regeneratePending(){
@@ -321,8 +341,10 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
    for(let offset=0;offset<revisit.length&&!stop;offset+=2){
     const chunk=revisit.slice(offset,offset+2);
     try{
+     const confirmed=(model.missingResourceSelections||[]).filter(selection=>chunk.some(seed=>seed.id===selection.line_id));
      const prompt=(model.operation==='append'?additionPrompt():'')+
       'Retomá SOLO estos ACU pendientes de la tarea original: '+model.brief+
+      (confirmed.length?'\\nINSUMOS SELECCIONADOS EXPLÍCITAMENTE POR EL USUARIO PARA ESTAS PARTIDAS: '+JSON.stringify(confirmed)+'. Usá esos resource_id solamente si son técnicamente compatibles; si no lo son, explicá el faltante sin sustituir materiales ni inventar conversiones.':'')+
       '\\nRespondé JSON con acu_proposals para los targets. Usá IDs reales, consumos positivos en decimal texto, quantity_unit y consumption_support. Falta de materiales: missing_resources con objetos {description,unit,kind,action,reason}; create solo para productos concretos ausentes, specify para definiciones técnicas. No inventes precios ni insumos, no reemplaces equivalencias dudosas.';
      const result=await ask([{role:'user',content:prompt}],promptContext(chunk,resources,[]),'acu');
      if(token!==generation||currentScope!==scope())throw new Error('Cambió la vista durante la consulta.');
@@ -513,5 +535,5 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
  });
  host.addEventListener('toggle',event=>{const t=event.target;if(!t.isConnected)return;if(t.dataset.acuProposal){const row=model.rows.find(r=>r.id===t.dataset.acuProposal);if(row)row.expanded=t.open;}if(t.dataset.acuMeasureDetail){const row=model.rows.find(r=>r.id===t.dataset.acuMeasureDetail);if(row)row.measurementExpanded=t.open;}if(t.dataset.acuDetail){if(t.open)model.details.add(t.dataset.acuDetail);else model.details.delete(t.dataset.acuDetail);}},true);
  host.addEventListener('keydown',event=>{event.stopPropagation();if(event.key==='Escape')void action('close',event.target);});
- paint();return {open,syncScope,resumeFromLibrary,isBusy:()=>Boolean(model.busy),hasDraft:()=>model.open || [...drafts.values()].some(draft=>!draft.applied),runApproved,commitPrepared,cancelPrepared,cancelApproved,refreshPendingCatalog,regeneratePending,showLatest:()=>open()};
+ paint();return {open,syncScope,resumeFromLibrary,isBusy:()=>Boolean(model.busy),hasDraft:()=>model.open || [...drafts.values()].some(draft=>!draft.applied),runApproved,commitPrepared,cancelPrepared,cancelApproved,refreshPendingCatalog,registerMissingResource,regeneratePending,showLatest:()=>open()};
 }
