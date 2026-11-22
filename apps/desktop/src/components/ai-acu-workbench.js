@@ -1,4 +1,5 @@
 import {e,dateToday,kindName} from './helpers.js';
+import {collectMissingResourceItems} from '../services/ai-missing-resources.js';
 import {invokeReviewedAiAction} from '../services/ai-view-api-contracts.js';
 import {money,numeric,multiplyDecimals} from '../decimal.js';
 import {parsePlan,normalize,importDecimal} from '../services/ai-budget-import.js';
@@ -117,7 +118,7 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
     approvedProgress(authorization,'generating',`Preparando ACU: consulta ${Math.floor(offset/2)+1} de ${Math.ceil(seeds.length/2)}. Todavía no se guardó ningún cambio.`,{prepared:model.rows.length,total:seeds.length});
     if(!approvalCurrent(authorization)){cancelled=true;return finish();}
     const additionInstruction=append?additionPrompt():'';
-    const result=await ask([{role:'user',content:additionInstruction+'Prepará ACU solo para los targets indicados. Criterios aprobados por el usuario: '+model.brief+'\nRespondé JSON con answer y acu_proposals, con IDs exactos y consumos decimales como texto. Usá exclusivamente resource_id del catálogo. Para cada consumo incluí quantity_unit (unidad exacta del insumo), requested_description (material requerido realmente), consumption_support (hipótesis y fundamento del consumo) y, si convertiste una cifra, source_quantity y source_unit. No sustituyas materiales diferentes ni inventes precios, insumos o medidas: dejá measurements vacío y explicá los faltantes en missing_resources. Se conservarán las cantidades y los metrados actuales.'}],promptContext(chunk,resources,[]),'acu');
+    const result=await ask([{role:'user',content:additionInstruction+'Prepará ACU solo para los targets indicados. Criterios aprobados por el usuario: '+model.brief+'\nRespondé JSON con answer y acu_proposals, con IDs exactos y consumos decimales como texto. Usá exclusivamente resource_id del catálogo. Para cada consumo incluí quantity_unit (unidad exacta del insumo), requested_description (material requerido realmente), consumption_support (hipótesis y fundamento del consumo) y, si convertiste una cifra, source_quantity y source_unit. No sustituyas materiales diferentes ni inventes precios, insumos o medidas: dejá measurements vacío. En missing_resources devolvé una lista de objetos {description,unit,kind,action,reason}: action=create SOLO cuando falta un insumo concreto del catálogo; action=specify cuando falta una dimensión, sección o definición técnica. Proponé unidad y tipo material/labor/equipment/subcontract solo si están fundamentados, si no dejalos vacíos. Un mismo faltante no debe repetirse. Se conservarán las cantidades y los metrados actuales.'}],promptContext(chunk,resources,[]),'acu');
     if(!approvalCurrent(authorization)){cancelled=true;return finish();}
     const rows=append?parseAcuAdditions(result.text,chunk,resources,model.brief).map(row=>mergeAcuAddition(row,resources,model.brief)):parseAcuProposals(result.text,chunk,resources);
     for(const row of rows){row.apply_measurements=false;row.selected=false;}
@@ -223,7 +224,7 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
    const snapshot=authorization.model,done=new Set(lineIds);
    const pendingReasons=(snapshot?.rows||[]).filter(row=>!done.has(row.id)).slice(0,8).map(row=>({description:row.seed.description,reasons:[...new Set([...(row.missing_resources||[]),...acuPreapprovalErrors(row,snapshot.context.resources)])].slice(0,10)}));
    const warnings=committed?(snapshot?.rows||[]).filter(row=>done.has(row.id)).flatMap(row=>row.advisories||[]):[];
-   return {saved,created,organized,pending:Math.max(0,authorization.targetIds.size-saved),pendingReasons,warnings,sectionPending,projectId:authorization.projectId,estimateId:snapshot?.estimate.id,lineIds:[...lineIds],committed,cancelled,error};
+   return {saved,created,organized,pending:Math.max(0,authorization.targetIds.size-saved),pendingReasons,missingResources:collectMissingResourceItems((snapshot?.rows||[]).filter(row=>!done.has(row.id))),warnings,sectionPending,projectId:authorization.projectId,estimateId:snapshot?.estimate.id,lineIds:[...lineIds],committed,cancelled,error};
   }
   function finish(){
    if(approvedRun===authorization){
@@ -278,6 +279,23 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
    model.priceDateDirty=false;
    model.notice='Se retomaron las propuestas y se actualizó la biblioteca, sin repetir la consulta de IA. Elegí los insumos reales en los campos pendientes, resolvé los faltantes y revisá otra vez los ACU antes de guardarlos.';
   }catch(error){if(token===generation)model.error=String(error);}finally{if(token===generation){model.busy=false;paint();}}
+ }
+ // Actualiza el borrador pendiente SIN abrir la revisión grande ni volver a
+ // llamar a la IA. El usuario conserva el pedido y puede seguir por el chat.
+ async function refreshPendingCatalog(){
+  const saved=drafts.get(draftKey())||(!model.applied&&model.draftKey===draftKey()?model:null);
+  if(!saved)return {refreshed:false};
+  if(approvedRun||saved.busy)throw new Error('Hay una preparación de ACU en curso.');
+  const original=[state.projectId,state.estimateId],context=await invoke('assisted_acu_context',{projectId:original[0],estimateId:original[1]||null,asOf:saved.asOf});
+  if(state.projectId!==original[0]||state.estimateId!==original[1]||!context||!Array.isArray(context.resources))
+   throw new Error('Cambió la obra mientras se actualizaba el catálogo.');
+  const before=new Set(saved.context.resources.map(resource=>resource.id));
+  saved.context.resources=context.resources;
+  for(const resource of context.resources)if(!before.has(resource.id))saved.resourceIds.add(resource.id);
+  saved.rows.forEach(row=>{row.selected=false;});
+  saved.notice='Catálogo actualizado. Conservamos los ACU pendientes para continuar su composición.';
+  drafts.set(saved.draftKey,saved);
+  return {refreshed:true,added:context.resources.filter(resource=>!before.has(resource.id)).length};
  }
  function priceSummary(row){const totals=acuTotals(row,model.context.resources);return totals.unit_cost==null?'ACU incompleto':money(totals.unit_cost)+' '+model.context.currency+' / '+row.seed.unit;}
  function proposalMarkup(row,index){
@@ -356,7 +374,7 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
     const seeds=todo.slice(offset,offset+2),resources=selectedResources();
     model.notice=`Generando ACU: consulta ${Math.floor(offset/2)+1} de ${Math.ceil(todo.length/2)}. Se guardarán solo después de revisar y confirmar.`;
     const context=promptContext(seeds,resources,model.examples.filter(ex=>model.referenceKeys.has(ex.source_key)));
-    const result=await ask([{role:'user',content:(model.operation==='append'?additionPrompt():'')+'Prepará ACU para los targets indicados. Criterios del usuario: '+(model.brief||'Completar sus insumos y consumos por unidad, usando ejemplos cuando correspondan.')+'\nRespondé JSON con answer y acu_proposals, con IDs exactos, consumos decimales como texto y supuestos explícitos. No devuelvas precios. Para cada componente incluí quantity_unit con la unidad exacta del catálogo, requested_description con el material realmente requerido y consumption_support con el fundamento del consumo; si convertiste una cantidad, incluí source_quantity y source_unit. No inventes dimensiones: si faltan, dejá measurements vacío. Usá exclusivamente resource_id incluidos en resources. Si falta un insumo necesario, indicalo por nombre y requisitos conocidos en missing_resources; no inventes IDs, unidades ni precios, y no uses otro insumo disponible como sustituto para ocultar el faltante.'}],context,'acu');
+    const result=await ask([{role:'user',content:(model.operation==='append'?additionPrompt():'')+'Prepará ACU para los targets indicados. Criterios del usuario: '+(model.brief||'Completar sus insumos y consumos por unidad, usando ejemplos cuando correspondan.')+'\nRespondé JSON con answer y acu_proposals, con IDs exactos, consumos decimales como texto y supuestos explícitos. No devuelvas precios. Para cada componente incluí quantity_unit con la unidad exacta del catálogo, requested_description con el material realmente requerido y consumption_support con el fundamento del consumo; si convertiste una cantidad, incluí source_quantity y source_unit. No inventes dimensiones: si faltan, dejá measurements vacío. Usá exclusivamente resource_id incluidos en resources. Si falta un insumo necesario, indicalo en missing_resources como objeto {description,unit,kind,action,reason}: create cuando falta un recurso concreto en catálogo y specify cuando la identidad o dimensión técnica no está definida. Proponé unidad y tipo solo si son justificables; dejalos vacíos si no. No inventes IDs, unidades ni precios, y no sustituyas materiales para ocultar faltantes.'}],context,'acu');
     if(token!==generation)return;addRows(model.operation==='append'?parseAcuAdditions(result.text,seeds,resources,model.brief).map(row=>mergeAcuAddition(row,resources,model.brief)):parseAcuProposals(result.text,seeds,resources));model.details.delete('targets');model.notice=`Propuestas recibidas: ${Math.min(offset+2,todo.length)} de ${todo.length}. Las propuestas nuevas quedan desmarcadas para revisar.`;paint();
    }}catch(error){if(token===generation)model.notice=`La generación se detuvo. Se conservaron ${model.rows.length} propuestas recibidas; no se guardó ningún cambio. La lista de partidas sigue disponible.`;throw error;}finally{if(token===generation){model.busy=false;request=null;paint();if(model.rows.length)showProposals();}}
   }
@@ -442,5 +460,5 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
  });
  host.addEventListener('toggle',event=>{const t=event.target;if(!t.isConnected)return;if(t.dataset.acuProposal){const row=model.rows.find(r=>r.id===t.dataset.acuProposal);if(row)row.expanded=t.open;}if(t.dataset.acuMeasureDetail){const row=model.rows.find(r=>r.id===t.dataset.acuMeasureDetail);if(row)row.measurementExpanded=t.open;}if(t.dataset.acuDetail){if(t.open)model.details.add(t.dataset.acuDetail);else model.details.delete(t.dataset.acuDetail);}},true);
  host.addEventListener('keydown',event=>{event.stopPropagation();if(event.key==='Escape')void action('close',event.target);});
- paint();return {open,syncScope,resumeFromLibrary,isBusy:()=>Boolean(model.busy),hasDraft:()=>model.open || [...drafts.values()].some(draft=>!draft.applied),runApproved,commitPrepared,cancelPrepared,cancelApproved,showLatest:()=>open()};
+ paint();return {open,syncScope,resumeFromLibrary,isBusy:()=>Boolean(model.busy),hasDraft:()=>model.open || [...drafts.values()].some(draft=>!draft.applied),runApproved,commitPrepared,cancelPrepared,cancelApproved,refreshPendingCatalog,showLatest:()=>open()};
 }
