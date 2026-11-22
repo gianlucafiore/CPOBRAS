@@ -137,7 +137,9 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
     if(!approvalCurrent(authorization)){cancelled=true;return finish();}
     const result=await ask([{role:'user',content:constructionOutlineInstruction+'\nALCANCE DEL USUARIO: '+model.brief}],JSON.stringify({task:'construction_outline',currency:model.context.currency,existing_lines:model.context.lines.slice(0,40).map(line=>({description:line.description,unit:line.unit}))}),'plan');
     if(!approvalCurrent(authorization)){cancelled=true;return finish();}
-    model.seeds=newAcuSeeds(parseConstructionOutline(result.text));model.targetIds=new Set(model.seeds.map(seed=>seed.id));
+    const parsed=parseConstructionOutline(result.text);
+    sectionPending.push(...parsed.warnings);
+    model.seeds=newAcuSeeds(parsed);model.targetIds=new Set(model.seeds.map(seed=>seed.id));
    }
    const seeds=targets().map(seed=>structuredClone(seed));authorization.targetIds=new Set(seeds.map(seed=>seed.id));
    if(!seeds.length&&!sectionMoves.length){model.notice='No hay partidas ni movimientos de rubros válidos para aprobar. No se guardó ningún cambio.';return finish();}
@@ -611,7 +613,9 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
    if(!model.brief.trim())throw new Error('Describí primero los trabajos de la obra');
    if(model.seeds.length&&!window.confirm('¿Reemplazar la lista de partidas nuevas y sus propuestas aún no aplicadas?'))return;
    model.busy=true;stop=false;paint();
-   try{const result=await ask([{role:'user',content:constructionOutlineInstruction+'\nALCANCE DEL USUARIO: '+model.brief}],JSON.stringify({task:'construction_outline',currency:model.context.currency,existing_lines:model.context.lines.slice(0,40).map(l=>({description:l.description,unit:l.unit}))}),'plan');if(token!==generation)return;model.seeds=newAcuSeeds(parseConstructionOutline(result.text));model.targetIds=new Set(model.seeds.map(s=>s.id));model.rows=[];model.batchId=globalThis.crypto.randomUUID();model.notice='Paso 1 completo: lista preparada, todavía sin guardar. Seguí con 2. Generar ACU.';}
+   try{const result=await ask([{role:'user',content:constructionOutlineInstruction+'\nALCANCE DEL USUARIO: '+model.brief}],JSON.stringify({task:'construction_outline',currency:model.context.currency,existing_lines:model.context.lines.slice(0,40).map(l=>({description:l.description,unit:l.unit}))}),'plan');if(token!==generation)return;const parsed=parseConstructionOutline(result.text);
+    model.seeds=newAcuSeeds(parsed);model.targetIds=new Set(model.seeds.map(s=>s.id));model.rows=[];
+    model.outlineWarnings=parsed.warnings;model.batchId=globalThis.crypto.randomUUID();model.notice='Paso 1 completo: '+model.seeds.length+' partidas propuestas. '+(model.outlineWarnings?.length?model.outlineWarnings.length+' observaciones pendientes; revisalas antes de guardar. ':'')+'Seguí con 2. Generar ACU.';}
    finally{if(token===generation){model.busy=false;paint();}}
   }
   if(action==='generate'){
