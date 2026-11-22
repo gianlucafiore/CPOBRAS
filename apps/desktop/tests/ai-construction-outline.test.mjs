@@ -153,3 +153,17 @@ test('accepts structural field aliases without guessing the work unit',()=>{
   {title:'Frente 1',partidas:[{description:'Trabajo sin unidad',resources:[]}]}
  ]})),/falta unidad medible/);
 });
+
+test('optional outline omissions stay visible but do not block an otherwise valid priced ACU',()=>{
+ const outline=parseConstructionOutline(JSON.stringify({work_sections:[{
+  title:'Obra exterior',partidas:[{description:'Montaje medible',unit:'kg',quantity:'12'}]
+ }]}));
+ const seed=newAcuSeeds(outline)[0];
+ const [row]=parseAcuProposals(JSON.stringify({acu_proposals:[{
+  line_id:seed.id,components:[{resource_id:'mat-1',quantity:'1',quantity_unit:'kg'}],
+  missing_resources:[]
+ }]}),[seed],catalog);
+ const result=acuTotals(row,catalog);
+ assert.equal(result.errors.length,0);
+ assert.ok(result.warnings.some(warning=>warning.includes('Planificación para revisar')));
+});
