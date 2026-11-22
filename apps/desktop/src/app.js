@@ -219,10 +219,10 @@ export function createWorkspaceApp({
       );
     });
   }
-  function openModal(kind, record = null, onSaved = null) {
+  function openModal(kind, record = null, onSaved = null, onClosed = null) {
     state.contextMenu = null;
     state.modalDirty = Boolean(kind === "analysis" && record?.aiWarnings);
-    state.modal = { kind, record, onSaved };
+    state.modal = { kind, record, onSaved, onClosed };
     state.acuComponents =
       ["analysis", "line-resources"].includes(kind) && record?.components
         ? record.components.map((row) => ({
@@ -244,9 +244,11 @@ export function createWorkspaceApp({
       !window.confirm("Tenés cambios sin guardar. ¿Descartarlos y cerrar?")
     )
       return false;
+    const onClosed=state.modal?.onClosed;
     state.modal = null;
     state.modalDirty = false;
     render();
+    onClosed?.();
     return true;
   }
   const routeViews = {
