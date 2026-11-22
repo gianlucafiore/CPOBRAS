@@ -11,7 +11,7 @@ export function rebasePendingAcuRows({rows=[],seeds=[],targetIds=[],composedIds=
   if(!actual){missing.push(id);continue;}
   const old=previous.get(id),base=old?.seed||original.get(id)||{};
   const seed={...actual,is_new:false,
-   work_result:base.work_result||'',
+   work_result:base.work_result||'',quantity_status:base.quantity_status||'pending',quantity_source:base.quantity_source||null,
    expected_resources:structuredClone(base.expected_resources||[]),
    outline_issues:[...(base.outline_issues||[])],
    section:base.section||actual.section||''};
