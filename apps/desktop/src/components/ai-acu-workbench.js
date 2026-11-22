@@ -361,84 +361,122 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
  // Convierte las recetas ya preparadas en una aprobación ejecutable sin
  // perder selecciones explícitas ni solicitar otra generación al modelo.
  // Una selección de insumo por sí sola NO aporta cantidad ni autoriza guardar.
+
+ // La vista ya revisada es suficiente para crear la estructura. No vuelve a
+ // llamar al modelo: los ACU inválidos quedan pendientes y NO se inventan.
  function preparePendingPreview(){
   if(approvedRun||model.busy)throw new Error('Hay otra aprobación de ACU en curso.');
   if(!state.projectId||state.remoteProject||state.modal||state.pageDirty||state.projects.find(p=>p.id===state.projectId)?.read_only||state.estimates.find(e=>e.id===state.estimateId)?.issued)
-   throw new Error('Abrí un presupuesto local editable antes de aprobar ACU.');
+   throw new Error('Abrí un presupuesto local editable antes de aprobar los cambios.');
   const saved=drafts.get(draftKey())||(!model.applied&&model.draftKey===draftKey()?model:null);
-  if(!saved?.rows?.length)throw new Error('Todavía no hay ninguna composición para revisar. Reintentá la preparación.');
+  if(!saved||(saved.rows?.length||0)===0&&(saved.seeds?.length||0)===0)
+   throw new Error('No hay una estructura de partidas revisable. Prepará una propuesta antes de guardar.');
   model=saved;model.scope=scope();model.open=false;model.headless=true;model.busy=false;stop=false;
-  const ready=[],pendingReasons=[];
-  for(const row of model.rows){
+  const omitted=model.excludedLineIds||new Set();
+  const includedTargets=new Set([...model.targetIds].filter(id=>!omitted.has(id)));
+  const effective=excludedAcuRows(model.rows||[],omitted,model.excludedInputKeys||new Map()).map(row=>({...row,selected:false}));
+  const pendingReasons=[],ready=[];
+  for(const row of effective){
    const errors=[...new Set([
     ...acuTotals(row,model.context.resources).errors,
     ...acuPreapprovalErrors(row,model.context.resources),
     ...(model.mode==='fill'?nonDestructiveAcuErrors(row,model.operation):[]),
     ...(model.operation==='append'?additionPreservationErrors(row):[])
    ])];
-   row.selected=errors.length===0;
    if(errors.length)pendingReasons.push({description:row.seed.description,reasons:errors.slice(0,8)});
-   else ready.push(row);
+   else {row.selected=true;ready.push(row);}
   }
-  const missingResources=collectMissingResourceItems(model.rows.filter(row=>!row.selected));
+  const includedSeeds=model.mode==='create'
+   ?model.seeds.filter(seed=>includedTargets.has(seed.id))
+   :[];
+  const allIds=new Set(effective.map(row=>row.id));
+  for(const seed of includedSeeds)if(!allIds.has(seed.id))
+   pendingReasons.push({description:seed.description,reasons:['No hay ACU preparado; la partida se puede guardar con composición pendiente.']});
+  const batch=ready.length
+   ?acuBatch({rows:effective,context:model.context,estimate:model.estimate,newEstimate:model.newEstimate,batchId:model.batchId,asOf:model.asOf})
+   :{id:model.batchId,estimate_id:model.estimate.id,currency:model.context.currency,new_estimate:model.newEstimate,
+     updates:[],creates:[],deletes:[],acus:[]};
+  if(model.mode==='create'){
+   // El backend permite un alta sin ACU y crea o reutiliza el rubro nombrado.
+   // El ID es único para esa partida; no se recrea en un reintento aprobado.
+   batch.creates=includedSeeds.map(seed=>({
+    id:seed.id,description:seed.description,unit:seed.unit,
+    quantity:String(seed.quantity??'0'),unit_price:'0',section:seed.section||null
+   }));
+  }
+  if(batch.creates.some(line=>!includedTargets.has(line.id))||
+     batch.acus.some(acu=>!includedTargets.has(acu.line_id)||acu.measurements!==null))
+   throw new Error('El lote propuesto excede las partidas autorizadas.');
+  const writeCount=batch.creates.length+batch.acus.length;
+  const remainingCount=[...includedTargets].filter(id=>!ready.some(row=>row.id===id)).length;
+  const missingResources=collectMissingResourceItems(effective.filter(row=>!row.selected));
   const tree=getReviewTree();
-  const total=model.targetIds?.size||model.rows.length;
-  if(!ready.length){
+  if(!writeCount){
    keepDraft();model.headless=false;
-   return {previewReady:false,prepared:model.rows.length,pending:total,pendingReasons,missingResources,tree,committed:false,
-    error:'No hay ACU completos para aprobar. Seleccionar un insumo no establece su consumo por unidad; completá las cantidades o reintentá las composiciones.'};
+   return {previewReady:false,prepared:model.receivedAcuCount||0,pending:remainingCount,
+    pendingReasons,missingResources,tree,committed:false,
+    error:'No hay partidas nuevas ni ACU completos para guardar. Los insumos sin consumo válido siguen pendientes.'};
   }
-  const batch=acuBatch({rows:model.rows,context:model.context,estimate:model.estimate,newEstimate:model.newEstimate,batchId:model.batchId,asOf:model.asOf});
-  if(batch.acus.length!==ready.length||batch.creates.some(line=>!model.targetIds.has(line.id))||batch.acus.some(acu=>!model.targetIds.has(acu.line_id)||acu.measurements!==null))
-   throw new Error('La nueva vista previa excede las partidas autorizadas.');
   const authorization={model,generation,scope:scope(),projectId:state.projectId,
-   targetIds:new Set(model.targetIds),revoked:false,used:false,writing:false};
+   targetIds:includedTargets,revoked:false,used:false,writing:false};
   approvedRun=authorization;
   const preview={id:globalThis.crypto.randomUUID(),scope:authorization.scope,
    estimateId:model.estimate.id,tree,missingResources,pendingReasons,
-   pending:Math.max(0,total-ready.length),sectionPending:[],
-   movedSections:[],rows:ready.map(row=>({
-    line_id:row.id,description:row.seed.description,unit:row.seed.unit,section:row.section_title||row.seed.section||'Sin rubro',
+   pending:remainingCount,sectionPending:[],movedSections:[],
+   structureLines:batch.creates.map(seed=>({id:seed.id,description:seed.description,section:seed.section,
+    needsAcu:!ready.some(row=>row.id===seed.id)})),
+   rows:ready.map(row=>({
+    line_id:row.id,description:row.seed.description,unit:row.seed.unit,
+    section:row.section_title||row.seed.section||'Sin rubro',
     items:row.components.map(component=>{
      const resource=model.context.resources.find(r=>r.id===component.resource_id);
      return {id:component.resource_id,description:resource?.description||'Insumo pendiente',
       unit:resource?.unit||'',kind:resource?.kind||'',quantity:String(component.quantity),
       price:resource?.price??null};
     }),
-    preserved:[],warnings:acuTotals(row,model.context.resources).warnings,unit_cost:acuTotals(row,model.context.resources).unit_cost
+    preserved:[],warnings:acuTotals(row,model.context.resources).warnings,
+    unit_cost:acuTotals(row,model.context.resources).unit_cost
    }))};
   preparedApproval={authorization,batch,preview,commit:async()=>{
-   if(!approvalCurrent(authorization))throw new Error('El proyecto, catálogo o presupuesto cambió. Revalidá antes de guardar.');
+   if(!approvalCurrent(authorization))throw new Error('El presupuesto o la aprobación cambiaron. Revalidá antes de guardar.');
    let committed=false,counts={saved:0,created:0};
    authorization.used=true;authorization.writing=true;
    try{
     const result=await invokeReviewedAiAction(invoke,'workspace','apply_reviewed_budget_batch',{batch},{approved:true});
     committed=true;counts={saved:result.composed||0,created:result.created||0};
-    const appliedIds=new Set(batch.acus.map(acu=>acu.line_id));
-    const remainingRows=model.rows.filter(row=>!appliedIds.has(row.id));
-    const remainingSeeds=model.seeds.filter(seed=>!appliedIds.has(seed.id));
-    const remainingTargets=[...model.targetIds].filter(id=>!appliedIds.has(id));
+    const composedIds=new Set(batch.acus.map(acu=>acu.line_id));
+    const writtenIds=new Set(batch.creates.map(line=>line.id));
+    const remainingIds=[...includedTargets].filter(id=>!composedIds.has(id));
     model.applied=true;drafts.delete(model.draftKey);
-    model.remaining={rows:remainingRows,seeds:remainingSeeds,targetIds:remainingTargets,
-     count:new Set([...remainingRows.map(row=>row.id),...remainingSeeds.map(seed=>seed.id),...remainingTargets]).size};
-    model.lastApplied={estimateId:model.estimate.id,lineIds:[...appliedIds]};
+    // Las partidas nuevas ya existen en SQLite. Nunca guardar nuevamente
+    // semillas is_new=true ni arriesgar una segunda creación de los mismos IDs.
+    if(writtenIds.size){
+     model.remaining={rows:[],seeds:[],targetIds:[],count:remainingIds.length};
+    }else{
+     model.remaining={rows:model.rows.filter(row=>remainingIds.includes(row.id)),
+      seeds:model.seeds.filter(seed=>remainingIds.includes(seed.id)),
+      targetIds:remainingIds,count:remainingIds.length};
+    }
+    model.lastApplied={estimateId:model.estimate.id,lineIds:[...composedIds],createdIds:[...writtenIds]};
     const wasNew=!!model.newEstimate;model.newEstimate=null;
     model.draftKey=[authorization.projectId,model.estimate.id].join(':');
-    if(wasNew){await loadEstimates();await openEstimate(model.estimate.id,[...appliedIds][0]);}
+    if(wasNew){await loadEstimates();await openEstimate(model.estimate.id,[...writtenIds][0]||[...composedIds][0]);}
     else if(state.view==='workspace')await loadEstimate();
-    else await openEstimate(model.estimate.id,[...appliedIds][0]);
-    return {committed:true,...counts,estimateId:model.estimate.id,lineIds:[...appliedIds],
-     pending:model.remaining.count,pendingReasons,tree,missingResources,error:''};
+    else await openEstimate(model.estimate.id,[...writtenIds][0]||[...composedIds][0]);
+    return {committed:true,...counts,estimateId:model.estimate.id,
+     lineIds:[...new Set([...writtenIds,...composedIds])],pending:remainingIds.length,
+     pendingReasons,tree,missingResources,error:''};
    }catch(error){
     if(committed)return {committed:true,...counts,estimateId:model.estimate.id,
-     lineIds:batch.acus.map(acu=>acu.line_id),pending:model.remaining?.count||0,
-     pendingReasons,tree,missingResources,error:'El lote se guardó, pero falló la actualización de la vista: '+String(error)};
+     lineIds:[...new Set([...batch.creates.map(line=>line.id),...batch.acus.map(acu=>acu.line_id)])],
+     pending:model.remaining?.count??remainingCount,pendingReasons,tree,missingResources,
+     error:'El lote se guardó, pero falló la actualización de la vista: '+String(error)};
     throw error;
    }finally{
     authorization.writing=false;authorization.revoked=true;
     preparedApproval=null;if(approvedRun===authorization)approvedRun=null;
     model.headless=false;model.busy=false;model.rows.forEach(row=>row.selected=false);
-    keepDraft();paint();
+    if(!committed)keepDraft();paint();
    }
   }};
   keepDraft();
