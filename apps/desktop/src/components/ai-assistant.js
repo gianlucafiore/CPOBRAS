@@ -459,7 +459,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       }
        const saved=result.saved||0,created=result.created||0,organized=result.organized||0,pending=result.pending||0;
       const counts=[saved?`${saved} ACU ${saved===1?'cargado':'cargados'}`:'',created?`${created} ${created===1?'partida nueva creada':'partidas nuevas creadas'}`:'',organized?`${organized} ${organized===1?'partida organizada por rubro':'partidas organizadas por rubro'}`:''].filter(Boolean).join(' y ');
-      const summary=result.committed?`Carga terminada: ${counts||'guardado confirmado'}${pending?`; ${pending} ACU pendientes`:''}.`:
+      const summary=result.committed?`Carga terminada: ${counts||'guardado confirmado'}${pending?`; ${pending} ${pending===1?'pendiente':'pendientes'}`:''}.`:
        `No hay un guardado confirmado: ${result.prepared??0} propuestas recibidas, ${pending} pendientes. Todavía no se guardó nada.`;
       const notice=[summary,...(result.warnings||[]).map(text=>'Advertencia: '+text),result.error?'Error de preparación: '+String(result.error).slice(0,240):'',result.refreshError].filter(Boolean).join(' ');
       message.answer=notice;message.approval={...message.approval,state:'done',message:notice,result};
