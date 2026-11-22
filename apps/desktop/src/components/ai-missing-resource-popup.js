@@ -31,6 +31,8 @@ export function createAiMissingResourcePopup({document,window,state,openModal,on
  }
  function open(resource){
   if(busy||!resource)return false;
+  if(state.remoteProject||state.navigating||state.modal||state.pageDirty)
+   throw new Error('Abrí un proyecto local editable y cerrá los formularios pendientes.');
   item=resource;query=String(resource.description||'').split(/\s+/).filter(token=>token.length>3).slice(0,3).join(' ');
   error='';paint();host.querySelector('#ai-missing-search')?.focus();return true;
  }
