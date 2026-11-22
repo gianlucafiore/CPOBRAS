@@ -121,3 +121,27 @@ test('a handoff with a foreign line id clears the selection instead of generatin
  expect(await page.evaluate(()=>window.__aiAcuHarness.calls.filter(call=>call.name==='ai_chat').length)).toBe(1);
  expect(await page.evaluate(()=>window.__aiAcuHarness.batches)).toHaveLength(0);
 });
+
+test('clearing the chat preserves the budget and an already composed selection yields zero proposals',async({page})=>{
+ await chatFixture(page);
+ await ask(page,'¿Qué recomendás revisar en este presupuesto?');
+ await expect(page.getByRole('button',{name:'Revisar antes de cargar',exact:true})).toBeVisible();
+ await page.evaluate(()=>{
+  const line=window.__aiAcuHarness.state.lines[0];
+  line.analysis_id='existing-acu';
+  line.components=[{quantity:'3',resource_id:'existing-resource'}];
+ });
+ await page.getByTitle('Limpiar conversación').click();
+ await expect(page.locator('.ai-message')).toHaveCount(0);
+ await ask(page,'¿Qué recomendás revisar en este presupuesto?');
+ await expect(page.getByRole('button',{name:'Revisar antes de cargar',exact:true})).toBeVisible();
+ await ask(page,'perfecto, cargalos');
+ await expect(page.locator('.ai-transcript')).toContainText('0 propuestas: no hay partidas seleccionadas sin ACU');
+ const result=await page.evaluate(()=>{
+  const {state,calls,batches}=window.__aiAcuHarness;
+  return {composition:state.lines[0].components,acuCalls:calls.filter(call=>call.args.mode==='acu'),batches};
+ });
+ expect(result.composition).toEqual([{quantity:'3',resource_id:'existing-resource'}]);
+ expect(result.acuCalls).toEqual([]);
+ expect(result.batches).toEqual([]);
+});

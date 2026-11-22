@@ -348,7 +348,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     const request=resolved.request,targets=request?.lineIds?.length?request.lineIds.map(id=>state.lines.find(line=>line.id===id)?.description||id):[];
     const planned=message.planRows||(message.proposal?.kind==='line'?[message.proposal]:[]);
     const planList=planned.length?`<div class="ai-ingredient-preview"><strong>Partidas que se crearán</strong><ul>${planned.slice(0,8).map(row=>`<li>${e(row.description)} · ${e(row.quantity??'cantidad pendiente')} ${e(row.unit)}</li>`).join('')}</ul>${planned.length>8?`<details><summary>Ver otras ${planned.length-8} partidas</summary><ul>${planned.slice(8).map(row=>`<li>${e(row.description)} · ${e(row.quantity??'cantidad pendiente')} ${e(row.unit)}</li>`).join('')}</ul></details>`:''}</div>`:'';
-    const scopeHint=isAcu?(request?.mode==='create'?'Se crearán partidas nuevas con su ACU.':targets.length?'Partidas indicadas: '+targets.join(', ')+(request.operation==='append'?'. Se agregarán los insumos solicitados conservando la composición actual.':request.operation==='productivity'?'. Se ajustará solo el consumo del equipo indicado; los demás insumos se conservan. Si la unidad del catálogo no coincide con el uso por día, se guardará una advertencia.':'. Si ya tienen ACU, se reemplazará su composición.'):'Se completarán las partidas que todavía no tengan ACU.'):'';
+    const scopeHint=isAcu?(request?.mode==='create'?'Se crearán partidas nuevas con su ACU.':targets.length?'Partidas indicadas: '+targets.join(', ')+(request.operation==='append'?'. Se agregarán los insumos solicitados conservando la composición actual.':request.operation==='productivity'?'. Se ajustará solo el consumo del equipo indicado; los demás insumos se conservan. Si la unidad del catálogo no coincide con el uso por día, se guardará una advertencia.':'. Se completarán solamente las que todavía estén sin ACU.'):'Se completarán las partidas que todavía no tengan ACU.'):'';
     return `<p>${isAcu?'Primero se generará una lista real de insumos, cantidades y advertencias. Se guardará solamente después de aprobarla.':'Revisá las partidas antes de crearlas.'} Destino: ${e(name)}. ${e(scopeHint)}</p>${isAcu?'':planList}<button type="button" class="ai-approve" data-ai="approve-load" data-index="${index}" ${canPlan()&&model.configured&&model.consent&&!model.busy?'':'disabled'}>${isAcu?'Preparar listado de insumos':'Sí, aprobar y crear partidas'}</button>`;
   }
   async function approveSectionMessage(index){
@@ -402,7 +402,13 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     paint();
     try{
       const prior=message.approval.result;
-      const updated=regenerate?await acuWorkbench.regeneratePending():prior;
+      const updated=regenerate?await acuWorkbench.regeneratePending(message.acuRequest):prior;
+      if(updated.noTargets){
+        message.approval.result={...prior,...updated,tree:[],missingResources:[],pendingReasons:[]};
+        message.answer=updated.message;message.approval.message=updated.message;
+        message.content=JSON.stringify({answer:updated.message});model.notice=updated.message;
+        return;
+      }
       const retained=(updated.missingResources||[]).map(item=>{
         const chosen=(prior.missingResources||[]).find(row=>row.saved&&row.description===item.description&&row.kind===item.kind);
         return chosen?{...item,saved:true,selectedResourceId:chosen.selectedResourceId,selectedResourceName:chosen.selectedResourceName}:item;
@@ -459,7 +465,12 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     model.notice='Consultando consumos para las partidas ya guardadas. No se crearán nuevas partidas.';
     paint();
     try{
-      const updated=await acuWorkbench.regeneratePending();
+      const updated=await acuWorkbench.regeneratePending(message.acuRequest?.mode==='fill'?message.acuRequest:undefined);
+      if(updated.noTargets){
+        addReply('Continuar ACU pendientes',{answer:updated.message});
+        model.notice=updated.message;
+        return;
+      }
       const review=acuWorkbench.preparePendingPreview();
       if(review.previewReady){
         if(review.preview.structureLines?.length)
@@ -519,7 +530,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       }
        const saved=result.saved||0,created=result.created||0,organized=result.organized||0,pending=result.pending||0;
       const counts=[saved?`${saved} ACU ${saved===1?'cargado':'cargados'}`:'',created?`${created} ${created===1?'partida nueva creada':'partidas nuevas creadas'}`:'',organized?`${organized} ${organized===1?'partida organizada por rubro':'partidas organizadas por rubro'}`:''].filter(Boolean).join(' y ');
-      const summary=result.committed?`Carga terminada: ${counts||'guardado confirmado'}${pending?`; ${pending} ${pending===1?'pendiente':'pendientes'}`:''}.`:
+      const summary=result.noTargets?result.message:result.committed?`Carga terminada: ${counts||'guardado confirmado'}${pending?`; ${pending} ${pending===1?'pendiente':'pendientes'}`:''}.`:
        `No hay un guardado confirmado: ${result.prepared??0} propuestas recibidas, ${pending} pendientes. Todavía no se guardó nada.`;
       const notice=[summary,...(result.warnings||[]).map(text=>'Advertencia: '+text),result.error?'Error de preparación: '+String(result.error).slice(0,240):'',result.refreshError].filter(Boolean).join(' ');
       message.answer=notice;message.approval={...message.approval,state:'done',message:notice,result};

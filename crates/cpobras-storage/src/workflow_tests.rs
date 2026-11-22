@@ -5595,6 +5595,13 @@ fn assisted_acu_calculates_exact_catalog_cost_and_retry_does_not_duplicate() {
     assert!(saved.analysis_id.is_some());
     assert_eq!(s.list_budget_sections(e.id).unwrap()[0].title, "Revoques");
     s.apply_reviewed_budget_batch(&batch).unwrap();
+
+    // Another reviewed proposal based on the originally empty line is stale.
+    let mut stale = batch.clone();
+    stale.id = Uuid::new_v4();
+    stale.acus[0].components[0].quantity = Decimal::ONE;
+    assert!(s.apply_reviewed_budget_batch(&stale).is_err());
+    assert_eq!(s.estimate_items(e.id).unwrap()[0].analysis_id, saved.analysis_id);
     assert_eq!(
         s.conn
             .query_row("SELECT COUNT(*) FROM line_analysis_snapshots", [], |r| r
