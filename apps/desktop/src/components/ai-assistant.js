@@ -299,7 +299,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       ${tree.map(section=>`<details class="ai-acu-tree-section" open>
        <summary><strong>${e(section.name)}</strong> <small>${section.lines.length} partidas</small></summary>
        <ul>${section.lines.map(line=>`<li class="ai-acu-tree-line">
-        <details open><summary><b>${e(line.description)}</b> <small>${e(line.quantity)} ${e(line.unit)} · ${line.status==='ready'?'ACU listo para revisar':'ACU pendiente'}</small></summary>
+        <details open><summary><b>${e(line.description)}</b> <small>${line.quantityPending?'Cantidad por medir':e(line.quantity)+' '+e(line.unit)} · ${line.status==='ready'?'ACU listo para revisar':'ACU pendiente'}</small></summary>
          <ul>${line.items.length?line.items.map(item=>{
            const pointer=item.requested?lookup(item):-1;
            return `<li class="ai-acu-tree-resource"><span>${e(item.description)}
