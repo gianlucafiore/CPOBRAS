@@ -49,10 +49,15 @@ test('planning contract distinguishes work group, measurable executed work, and 
 test('flat product lines and malformed work hierarchy do not silently become partidas',()=>{
  assert.throws(()=>parseConstructionOutline(JSON.stringify({proposal_lines:[
   {description:'Material aislado',unit:'kg',section:'Materiales'}]})),/rubros con partidas/);
- assert.throws(()=>parseConstructionOutline(JSON.stringify({work_sections:[
-  {title:'Área de trabajo',partidas:[{description:'Objeto',unit:'m²',resources:[]}]}]})),/resultado constructivo/);
- assert.throws(()=>parseConstructionOutline(JSON.stringify({work_sections:[
-  {title:'Área de trabajo',partidas:[{description:'Ejecución de muros',unit:'m²',work_result:'Muro terminado',resources:[{name:'Paneles',kind:'other',unit:'un'}]}]}]})),/tipo válido/);
+ const incomplete=parseConstructionOutline(JSON.stringify({work_sections:[
+  {title:'Área de trabajo',partidas:[{description:'Objeto construido',unit:'m²',resources:[]}]}]}));
+ assert.equal(incomplete.length,1);
+ assert.equal(incomplete[0].work_result,'');
+ assert.ok(incomplete.warnings.some(w=>w.includes('resultado constructivo')));
+ const invalidKind=parseConstructionOutline(JSON.stringify({work_sections:[
+  {title:'Área de trabajo',partidas:[{description:'Ejecución de muros',unit:'m²',work_result:'Muro terminado',resources:[{name:'Paneles',kind:'other',unit:'un'}]}]}]}));
+ assert.equal(invalidKind[0].expected_resources[0].kind,'');
+ assert.ok(invalidKind.warnings.some(w=>w.includes('Tipo pendiente')));
 });
 
 test('planned required inputs remain pending until mapped to actual consumed IDs, even with an explicit missing override',()=>{
@@ -111,4 +116,43 @@ test('total structural quantity cannot masquerade as per-unit resource consumpti
  ]}]};
  const [row]=parseAcuProposals(JSON.stringify(misleading),[seed],catalog);
  assert.ok(acuTotals(row,catalog).errors.some(error=>error.includes('consumo por unidad coincide con la cantidad total')));
+});
+
+test('a partially malformed model response preserves valid work lines and reports exact omissions',()=>{
+ const mixed={work_sections:[
+  {title:'Trabajos de terminación',partidas:[
+   {description:'Colocación de terminación',unit:'m²',quantity:null},
+   {description:'Partida sin unidad',work_result:'Elemento construido',resources:[]},
+   {description:'Montaje de soporte',unit:'kg',work_result:'Soporte instalado',resources:[{name:'Perfiles',kind:'material',unit:'kg'}]},
+   {description:'Monto no comprobado',unit:'un',quantity:'no informado',resources:[]}
+  ]},
+  {title:'Rubro sin partidas',partidas:[]}
+ ]};
+ const rows=parseConstructionOutline(JSON.stringify(mixed));
+ assert.equal(rows.length,3);
+ assert.deepEqual(rows.map(row=>row.description),[
+  'Colocación de terminación','Montaje de soporte','Monto no comprobado'
+ ]);
+ assert.equal(rows[0].work_result,'');
+ assert.deepEqual(rows[0].expected_resources,[]);
+ assert.ok(rows[0].outline_issues.some(w=>w.includes('insumos')));
+ assert.equal(rows[2].quantity,null);
+ assert.ok(rows.warnings.some(w=>w.includes('Partida sin unidad')));
+ assert.ok(rows.warnings.some(w=>w.includes('Rubro sin partidas')||w.includes('Rubro 2')));
+ assert.equal(newAcuSeeds(rows)[0].outline_issues.length,2);
+ assert.ok(acuTotals({...parseAcuProposals(JSON.stringify({acu_proposals:[{
+  line_id:newAcuSeeds(rows)[0].id,components:[],missing_resources:[]
+ }]}),[newAcuSeeds(rows)[0]],[])[0]},[]).errors.length>0);
+});
+
+test('accepts structural field aliases without guessing the work unit',()=>{
+ const rows=parseConstructionOutline(JSON.stringify({rubros:[{nombre:'Trabajos de montaje',
+  partidas:[{descripcion:'Armado de elemento',unidad:'kg',resultado_constructivo:'Elemento armado',
+   insumos:[{nombre:'Acero',tipo:'material',unidad:'kg'}]}]}]}));
+ assert.equal(rows[0].unit,'kg');
+ assert.equal(rows[0].expected_resources[0].description,'Acero');
+ assert.equal(rows.warnings.length,0);
+ assert.throws(()=>parseConstructionOutline(JSON.stringify({work_sections:[
+  {title:'Frente 1',partidas:[{description:'Trabajo sin unidad',resources:[]}]}
+ ]})),/falta unidad medible/);
 });
