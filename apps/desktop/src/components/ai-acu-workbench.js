@@ -34,7 +34,7 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
    paint();return;}
   const newEstimate=estimate?null:{project_id:state.projectId,title:'Presupuesto con ACU'};
   generation++;const token=generation;
-  host.innerHTML='';model={open:!authorization,headless:!!authorization,operation,appendTargetIds:new Set(operation==='append'?lineIds:[]),draftKey:draftKey(),details:new Set(['targets']),scope:scope(),asOf:dateToday(),brief,mode:forceMode||((outline||!estimate)?'create':'fill'),estimate:estimate?structuredClone(estimate):{id:globalThis.crypto.randomUUID(),title:newEstimate.title},newEstimate,context:{resources:[],lines:[],sections:[],currency:'ARS'},resourceIds:new Set(),targetIds:new Set(),seeds:[],rows:[],choices:[],referenceKeys:new Set(),examples:[],resourceSearch:'',targetSearch:'',referenceSearch:'',busy:true,loading:true,error:'',notice:'',applied:false,batchId:globalThis.crypto.randomUUID()};stop=false;
+  host.innerHTML='';model={open:!authorization,headless:!!authorization,operation,appendTargetIds:new Set(operation==='append'?lineIds:[]),draftKey:draftKey(),details:new Set(['targets']),scope:scope(),asOf:dateToday(),brief,mode:forceMode||((outline||!estimate)?'create':'fill'),estimate:estimate?structuredClone(estimate):{id:globalThis.crypto.randomUUID(),title:newEstimate.title},newEstimate,context:{resources:[],lines:[],sections:[],currency:'ARS'},resourceIds:new Set(),targetIds:new Set(),seeds:[],rows:[],receivedAcuCount:0,choices:[],referenceKeys:new Set(),examples:[],resourceSearch:'',targetSearch:'',referenceSearch:'',busy:true,loading:true,error:'',notice:'',applied:false,batchId:globalThis.crypto.randomUUID()};stop=false;
   if(authorization){authorization.model=model;authorization.generation=token;authorization.scope=model.scope;}
   paint();
   try{
@@ -123,7 +123,7 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
     try{
      const rows=append?parseAcuAdditions(result.text,chunk,resources,model.brief).map(row=>mergeAcuAddition(row,resources,model.brief)):parseAcuProposals(result.text,chunk,resources);
      for(const row of rows){row.apply_measurements=false;row.selected=false;}
-     addRows(rows);
+     addRows(rows);model.receivedAcuCount=(model.receivedAcuCount||0)+rows.length;
     }catch(error){
      // Un bloque de dos ACU inválido no debe destruir los borradores ya
      // generados ni dejar una tarea sin datos para reintentar.
@@ -233,7 +233,7 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
    const snapshot=authorization.model,done=new Set(lineIds);
    const pendingReasons=(snapshot?.rows||[]).filter(row=>!done.has(row.id)).slice(0,8).map(row=>({description:row.seed.description,reasons:[...new Set([...(row.missing_resources||[]),...acuPreapprovalErrors(row,snapshot.context.resources)])].slice(0,10)}));
    const warnings=committed?(snapshot?.rows||[]).filter(row=>done.has(row.id)).flatMap(row=>row.advisories||[]):[];
-   return {saved,created,organized,prepared:snapshot?.rows?.length||0,pending:Math.max(0,authorization.targetIds.size-saved),pendingReasons,missingResources:collectMissingResourceItems((snapshot?.rows||[]).filter(row=>!done.has(row.id))),warnings,sectionPending,projectId:authorization.projectId,estimateId:snapshot?.estimate.id,lineIds:[...lineIds],committed,cancelled,error};
+   return {saved,created,organized,prepared:snapshot?.receivedAcuCount??snapshot?.rows?.length??0,pending:Math.max(0,authorization.targetIds.size-saved),pendingReasons,missingResources:collectMissingResourceItems((snapshot?.rows||[]).filter(row=>!done.has(row.id))),warnings,sectionPending,projectId:authorization.projectId,estimateId:snapshot?.estimate.id,lineIds:[...lineIds],committed,cancelled,error};
   }
   function finish(){
    if(approvedRun===authorization){
