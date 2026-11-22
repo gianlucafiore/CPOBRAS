@@ -1,6 +1,7 @@
 import {e,dateToday,kindName} from './helpers.js';
 import {collectMissingResourceItems} from '../services/ai-missing-resources.js';
 import {buildAcuReviewTree} from '../services/ai-acu-review-tree.js';
+import {componentKey,missingKey,excludedAcuRows,reviewSelectionState} from '../services/ai-review-exclusions.js';
 import {invokeReviewedAiAction} from '../services/ai-view-api-contracts.js';
 import {money,numeric,multiplyDecimals} from '../decimal.js';
 import {parsePlan,normalize,importDecimal} from '../services/ai-budget-import.js';
@@ -24,7 +25,32 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
  const selectedResources=()=>model.context.resources.filter(r=>model.resourceIds.has(r.id));
  function getReviewTree(){
   const saved=drafts.get(draftKey())||(!model.applied&&model.draftKey===draftKey()?model:null);
-  return saved?.context?buildAcuReviewTree(saved.rows||[],saved.context.resources||[],saved.context.sections||[],saved.missingResourceSelections||[]):[];
+  if(!saved?.context)return [];
+  const tree=buildAcuReviewTree(saved.rows||[],saved.context.resources||[],saved.context.sections||[],saved.missingResourceSelections||[]);
+  for(const section of tree)for(const line of section.lines){
+   line.excluded=Boolean(saved.excludedLineIds?.has(line.id));
+   for(const item of line.items){
+    item.reviewKey=item.requested?missingKey(item.requested):componentKey(item.resource_id);
+    item.excluded=Boolean(saved.excludedInputKeys?.get(line.id)?.has(item.reviewKey));
+   }
+  }
+  return tree;
+ }
+ function setReviewExclusion(lineId,itemKey=null,excluded=true){
+  if(approvedRun?.writing)throw new Error('El lote ya se está guardando; no se puede modificar.');
+  if(preparedApproval)cancelPrepared();
+  const saved=drafts.get(draftKey())||(!model.applied&&model.draftKey===draftKey()?model:null);
+  if(!saved||!saved.rows?.some(row=>row.id===lineId))throw new Error('La partida no existe en el borrador actual.');
+  // Los botones sólo pueden operar sobre entradas presentes en el árbol local.
+  const tree=getReviewTree();
+  const line=tree.flatMap(section=>section.lines).find(item=>item.id===lineId);
+  if(itemKey!=null&&!line?.items.some(item=>item.reviewKey===itemKey))throw new Error('Insumo fuera del borrador revisado.');
+  saved.excludedLineIds ||= new Set();
+  saved.excludedInputKeys ||= new Map();
+  reviewSelectionState(saved.excludedLineIds,saved.excludedInputKeys,lineId,itemKey,excluded);
+  saved.rows.forEach(row=>row.selected=false);
+  drafts.set(saved.draftKey,saved);
+  return {tree:getReviewTree(),excludedLineCount:saved.excludedLineIds.size};
  }
  const sectionLabel=row=>row.section_id?model.context.sections.find(s=>s.id===row.section_id)?.code+' · '+model.context.sections.find(s=>s.id===row.section_id)?.title:row.section_title||'';
  async function readContext(){return invoke('assisted_acu_context',{projectId:state.projectId,estimateId:state.estimateId||null,asOf:model.asOf});}
@@ -40,7 +66,7 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
    paint();return;}
   const newEstimate=estimate?null:{project_id:state.projectId,title:'Presupuesto con ACU'};
   generation++;const token=generation;
-  host.innerHTML='';model={open:!authorization,headless:!!authorization,operation,appendTargetIds:new Set(operation==='append'?lineIds:[]),draftKey:draftKey(),details:new Set(['targets']),scope:scope(),asOf:dateToday(),brief,mode:forceMode||((outline||!estimate)?'create':'fill'),estimate:estimate?structuredClone(estimate):{id:globalThis.crypto.randomUUID(),title:newEstimate.title},newEstimate,context:{resources:[],lines:[],sections:[],currency:'ARS'},resourceIds:new Set(),targetIds:new Set(),seeds:[],rows:[],receivedAcuCount:0,choices:[],referenceKeys:new Set(),examples:[],resourceSearch:'',targetSearch:'',referenceSearch:'',busy:true,loading:true,error:'',notice:'',applied:false,batchId:globalThis.crypto.randomUUID()};stop=false;
+  host.innerHTML='';model={open:!authorization,headless:!!authorization,excludedLineIds:new Set(),excludedInputKeys:new Map(),operation,appendTargetIds:new Set(operation==='append'?lineIds:[]),draftKey:draftKey(),details:new Set(['targets']),scope:scope(),asOf:dateToday(),brief,mode:forceMode||((outline||!estimate)?'create':'fill'),estimate:estimate?structuredClone(estimate):{id:globalThis.crypto.randomUUID(),title:newEstimate.title},newEstimate,context:{resources:[],lines:[],sections:[],currency:'ARS'},resourceIds:new Set(),targetIds:new Set(),seeds:[],rows:[],receivedAcuCount:0,choices:[],referenceKeys:new Set(),examples:[],resourceSearch:'',targetSearch:'',referenceSearch:'',busy:true,loading:true,error:'',notice:'',applied:false,batchId:globalThis.crypto.randomUUID()};stop=false;
   if(authorization){authorization.model=model;authorization.generation=token;authorization.scope=model.scope;}
   paint();
   try{
@@ -644,5 +670,5 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
  });
  host.addEventListener('toggle',event=>{const t=event.target;if(!t.isConnected)return;if(t.dataset.acuProposal){const row=model.rows.find(r=>r.id===t.dataset.acuProposal);if(row)row.expanded=t.open;}if(t.dataset.acuMeasureDetail){const row=model.rows.find(r=>r.id===t.dataset.acuMeasureDetail);if(row)row.measurementExpanded=t.open;}if(t.dataset.acuDetail){if(t.open)model.details.add(t.dataset.acuDetail);else model.details.delete(t.dataset.acuDetail);}},true);
  host.addEventListener('keydown',event=>{event.stopPropagation();if(event.key==='Escape')void action('close',event.target);});
- paint();return {open,syncScope,resumeFromLibrary,isBusy:()=>Boolean(model.busy),hasDraft:()=>model.open || [...drafts.values()].some(draft=>!draft.applied),runApproved,commitPrepared,cancelPrepared,cancelApproved,refreshPendingCatalog,registerMissingResource,regeneratePending,preparePendingPreview,getReviewTree,showLatest:()=>open()};
+ paint();return {open,syncScope,resumeFromLibrary,isBusy:()=>Boolean(model.busy),hasDraft:()=>model.open || [...drafts.values()].some(draft=>!draft.applied),runApproved,commitPrepared,cancelPrepared,cancelApproved,refreshPendingCatalog,registerMissingResource,regeneratePending,preparePendingPreview,getReviewTree,setReviewExclusion,showLatest:()=>open()};
 }
