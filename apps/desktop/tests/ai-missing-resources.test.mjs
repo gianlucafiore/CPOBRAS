@@ -2,6 +2,9 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {missingResourceItems,collectMissingResourceItems} from '../src/services/ai-missing-resources.js';
 import {acuSeed,parseAcuProposals,acuTotals} from '../src/services/ai-acu.js';
+import {createAiMissingResourcePopup} from '../src/components/ai-missing-resource-popup.js';
+import {createModalRenderer} from '../src/components/modal.js';
+import {createActions} from '../src/controllers/actions.js';
 
 const resource={id:'10000000-0000-4000-8000-000000000001',description:'Caño estructural',code:'MAT',unit:'kg',kind:'material',price:'2500'};
 const seed=(id,description)=>acuSeed({id,description,unit:'kg',quantity:'900',unit_cost:'0',section:'Estructura',components:[]});
@@ -56,4 +59,92 @@ test('unstructured descriptions are not interpreted as ready-to-create catalog i
  assert.equal(list[0].action,'specify');
  assert.equal(list[1].kind,'');
  assert.equal(list[1].action,'create');
+});
+
+function popupHarness(confirm=true){
+ const handlers={},host={innerHTML:'',querySelector:()=>({focus(){},setSelectionRange(){}}),
+  addEventListener(name,handler){handlers[name]=handler;}};
+ const document={createElement:()=>host,body:{append(node){assert.equal(node,host);}}};
+ const window={confirm:()=>confirm};
+ const state={resources:[
+  {id:'resource-one',code:'MAT-1',description:'Tablilla WPC de deck',unit:'m',kind:'material',active:true},
+  {id:'resource-two',code:'MAT-2',description:'Listón plástico',unit:'m²',kind:'material',active:true}
+ ]};
+ let native=null,restored=false;const resolved=[];
+ const popup=createAiMissingResourcePopup({document,window,state,
+  openModal:(...args)=>{native=args;},
+  onResolved:async(item,resource,meta)=>{resolved.push({item,resource,meta});},
+  onRestored:()=>{restored=true;}
+ });
+ const click=async(action,id)=>handlers.click({target:{closest:()=>({dataset:{missingAction:action,id},disabled:false})}});
+ return {popup,state,host,click,resolved,getNative:()=>native,getRestored:()=>restored};
+}
+
+test('ACU faltante uses a single existing-resource picker rather than a second create form',async()=>{
+ const view=popupHarness();
+ const item={description:'Tablilla WPC de deck',unit:'m',kind:'material',action:'create'};
+ assert.equal(view.popup.open(item),true);
+ assert.match(view.host.innerHTML,/Seleccionar insumo/);
+ assert.match(view.host.innerHTML,/data-missing-action="create"/);
+ assert.match(view.host.innerHTML,/Tablilla WPC de deck/);
+ await view.click('select','resource-one');
+ assert.equal(view.resolved.length,1);
+ assert.equal(view.resolved[0].resource.id,'resource-one');
+ assert.deepEqual(view.resolved[0].meta,{created:false});
+ assert.equal(view.getNative(),null);
+ assert.equal(view.popup.active(),false);
+});
+
+test('new item opens the original resource modal with AI fields prefilled and no separate write',async()=>{
+ const view=popupHarness();
+ const item={description:'Perfil W a definir',unit:'kg',kind:'material',action:'specify'};
+ view.popup.open(item);
+ await view.click('create');
+ const [kind,record,onSaved,onClosed]=view.getNative();
+ assert.equal(kind,'resource');
+ assert.equal(record.description,'Perfil W a definir');
+ assert.equal(record.kind,'material');
+ assert.equal(record.unit,'kg');
+ assert.equal(record.aiMissingSpecification,item.description);
+ assert.equal(view.resolved.length,0);
+ await onSaved({id:'new-resource'});
+ assert.equal(view.resolved[0].resource.id,'new-resource');
+ assert.equal(view.resolved[0].meta.created,true);
+ onClosed();
+ assert.equal(view.getRestored(),true);
+});
+
+test('selecting an incompatible existing unit requires confirmation and no implicit conversion',async()=>{
+ const view=popupHarness(false);
+ view.popup.open({description:'Tablilla WPC de deck',unit:'m²',kind:'material',action:'create'});
+ await view.click('select','resource-one');
+ assert.equal(view.resolved.length,0);
+ assert.equal(view.popup.active(),true);
+});
+
+test('native resource form accepts AI-prefilled description and executes its save callback only after collection refresh',async()=>{
+ const modal={kind:'resource',record:{description:'Deck plástico',unit:'m',kind:'material',price:''},onSaved:()=>{}};
+ const state={modal,view:'resources',resources:[],clients:[],personClients:[],sections:[],selectedResourceId:null};
+ const markup=createModalRenderer({state,currentProject:()=>null,currentEstimate:()=>null,currentLine:()=>null,editable:()=>true,projectName:()=>'',clientName:()=>'',locked:()=>false,acuPickerMarkup:()=>''})();
+ assert.match(markup,/Agregar insumo/);
+ assert.match(markup,/value="Deck plástico"/);
+ assert.match(markup,/value="m"/);
+ assert.match(markup,/name="kind"/);
+ let collectionsReady=false,callbackCalled=false;
+ modal.onSaved=async created=>{
+  assert.equal(collectionsReady,true);
+  assert.equal(created.id,'saved-resource');
+  callbackCalled=true;
+ };
+ const entry={description:'Deck plástico',unit:'m',kind:'material',price:'',code:'',effectiveDate:'2026-11-21',source:'Carga desde CPOBRAS IA',dailyOutput:''};
+ const FormData=class{get(key){return entry[key]??null;}};
+ const actions=createActions({state,FormData,invoke:async command=>{
+   if(command==='create_resource')return {id:'saved-resource'};
+   throw Error('Unexpected native operation '+command);
+  },loadCollections:async()=>{collectionsReady=true;state.resources=[{id:'saved-resource',...entry}];},
+  refreshResource:async()=>{},render:()=>{},currentProject:()=>null,currentEstimate:()=>null,currentLine:()=>null});
+ await actions.handleSubmit({dataset:{kind:'resource'}});
+ assert.equal(callbackCalled,true);
+ assert.equal(state.modal,null);
+ assert.equal(state.selectedResourceId,'saved-resource');
 });
