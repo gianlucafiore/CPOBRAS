@@ -22,9 +22,9 @@ import {parseAiReply,draftFromProposal,lineProposalFromClarification,lineProposa
 const defaults={openai:"gpt-4.1-mini",anthropic:"claude-haiku-4-5",lmstudio:""};
 export function createAiAssistant({invoke,state,document,window,openModal,editable,loadEstimate,loadEstimates,openEstimate,openResourceLibrary,reloadCatalog,refreshAnalysis,render}) {
   const host=document.createElement("div");host.id="ai-assistant";document.body.append(host);
-  const model={open:false,settings:false,configured:false,provider:"openai",model:defaults.openai,localModels:[],localModelError:"",messages:[],question:"",busy:false,error:"",context:"",includeContext:true,contextMode:"screen",contextOpen:false,consent:false,scope:"",generation:0,usage:null,notice:"",approvedRun:null,lastApprovedId:null,lastAction:null,pendingAction:null,catalogLoading:false,focusLineId:null,lastCatalogAdvice:null,recentCreatedLineIds:[],recentCreatedEstimateId:null,resourceDraft:null,sessionView:null,taskInitialRequest:null,completedTaskReceipt:null};
+  const model={open:false,settings:false,configured:false,provider:"openai",model:defaults.openai,localModels:[],localModelError:"",messages:[],question:"",busy:false,error:"",context:"",includeContext:true,contextMode:"screen",contextOpen:false,consent:false,scope:"",generation:0,usage:null,notice:"",approvedRun:null,lastApprovedId:null,lastAction:null,pendingAction:null,catalogLoading:false,focusLineId:null,lastCatalogAdvice:null,recentCreatedLineIds:[],recentCreatedEstimateId:null,resourceDraft:null,sessionView:null,taskInitialRequest:null,completedTaskReceipt:null,retryingAcu:false};
   const budgetImport=createAiBudgetImport({invoke,state,document,window,editable,loadEstimate,loadEstimates,openEstimate,canUseAi:()=>model.configured&&model.consent&&!model.busy});
-  const acuWorkbench=createAcuWorkbench({invoke,state,document,window,loadEstimate,loadEstimates,openEstimate,openResourceLibrary,canUseAi:()=>model.configured&&model.consent&&(!model.busy||model.approvedRun?.running)});
+  const acuWorkbench=createAcuWorkbench({invoke,state,document,window,loadEstimate,loadEstimates,openEstimate,openResourceLibrary,canUseAi:()=>model.configured&&model.consent&&(!model.busy||model.approvedRun?.running||model.retryingAcu)});
   const approvedPlans=createApprovedPlanRunner({invoke,state,loadEstimate,loadEstimates,openEstimate});
   const missingResourcePopup=createAiMissingResourcePopup({invoke,document,state,
     canSave:()=>canSaveResources()&&!model.busy,
@@ -279,9 +279,12 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       const showStatus=approval.message&&approval.message!==message.answer;
       return `${showStatus?`<p class="ai-approval-status" role="status">${e(approval.message)}</p>`:''}
        ${missingResourceMarkup(message,index)}
-       ${errors.length?`<details class="ai-pending-compact"><summary>Ver detalles técnicos de ${errors.length} ACU pendientes</summary><ul class="ai-pending-reasons">${errors.map(item=>`<li>${e(item.description)}: ${item.reasons.map(e).join(' · ')}</li>`).join('')}</ul></details>`:''}
+       ${errors.length||approval.result?.warnings?.length||approval.result?.error?`<details class="ai-pending-compact"><summary>Detalles técnicos y advertencias</summary>
+       ${errors.length?`<ul class="ai-pending-reasons">${errors.map(item=>`<li>${e(item.description)}: ${item.reasons.map(e).join(' · ')}</li>`).join('')}</ul>`:''}
+       ${approval.result?.error?`<p>${e(approval.result.error)}</p>`:''}
+       ${(approval.result?.warnings||[]).map(item=>`<p>${e(item)}</p>`).join('')}</details>`:''}
        ${approval.state!=='running'&&approval.result?.committed&&approval.result.estimateId?`<button type="button" data-ai="approved-result" data-index="${index}" ${model.busy?'disabled':''}>Ver en presupuesto</button>`:''}
-       ${approval.state!=='running'&&approval.result?.pending&&approval.kind==='acu'&&approval.id===model.lastApprovedId?`<button type="button" data-ai="approved-pending" data-index="${index}" ${model.busy?'disabled':''}>Editar ACU en detalle</button>`:''}`;
+       ${approval.state!=='running'&&approval.result?.pending&&approval.kind==='acu'&&approval.id===model.lastApprovedId?`<button type="button" data-ai="retry-missing-acu" data-index="${index}" ${model.busy?'disabled':''}>Reintentar ACU pendientes</button><button type="button" data-ai="approved-pending" data-index="${index}" ${model.busy?'disabled':''}>Editar ACU en detalle</button>`:''}`;
     }
     if(message.sectionPreview){
       const plan=message.sectionPreview;
@@ -378,8 +381,9 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       }
        const saved=result.saved||0,created=result.created||0,organized=result.organized||0,pending=result.pending||0;
       const counts=[saved?`${saved} ACU ${saved===1?'cargado':'cargados'}`:'',created?`${created} ${created===1?'partida nueva creada':'partidas nuevas creadas'}`:'',organized?`${organized} ${organized===1?'partida organizada por rubro':'partidas organizadas por rubro'}`:''].filter(Boolean).join(' y ');
-      const summary=result.committed?`Carga terminada: ${counts||'guardado confirmado'}${pending?`; ${pending} ${pending===1?'pendiente':'pendientes'}`:''}.`:`${result.cancelled?'Carga detenida. ':''}No hay un guardado confirmado para este pedido${pending?`; ${pending} ${pending===1?'pendiente':'pendientes'}`:''}.`;
-      const notice=[summary,...(result.warnings||[]),...(result.sectionPending||[]).map(item=>'Pendiente: '+item),result.error,result.refreshError].filter(Boolean).join(' ');
+      const summary=result.committed?`Carga terminada: ${counts||'guardado confirmado'}${pending?`; ${pending} ACU pendientes`:''}.`:
+       `Preparación de ACU: ${result.prepared??0} propuestas recibidas, ${pending} pendientes. Todavía no se guardó nada.`;
+      const notice=[summary,result.error?'Hubo un problema de preparación; consultá los detalles técnicos.':'',result.refreshError].filter(Boolean).join(' ');
       message.answer=notice;message.approval={...message.approval,state:'done',message:notice,result};
       message.content=JSON.stringify({answer:message.answer+'\nResultado registrado por CPOBRAS: '+notice});model.notice=notice;
       // Partial batches with unresolved items remain an open task.
@@ -1483,6 +1487,25 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     }
     model.error="";
     try{
+      if(action==='retry-missing-acu'&&!model.busy){
+        const message=model.messages[Number(button.dataset.index)];
+        if(!message?.approval?.result?.pending)return;
+        model.busy=true;model.retryingAcu=true;model.notice='Reconsultando solo los ACU pendientes, sin guardar datos.';paint();
+        try{
+          const previous=message.approval.result;
+          const updated=await acuWorkbench.regeneratePending();
+          message.approval.result={...previous,...updated,missingResources:updated.missingResources.map(item=>{
+            const old=(previous.missingResources||[]).find(row=>row.saved&&row.description===item.description&&row.kind===item.kind);
+            return old?{...item,saved:true}:item;
+          })};
+          message.answer=`Revisé ${updated.prepared} ACU. Quedan ${updated.pending} con datos pendientes; no se guardó nada.`;
+          message.approval.message=message.answer;
+          message.content=JSON.stringify({answer:message.answer});
+          model.notice='Continuá completando los insumos desde el chat o revisá los ACU en detalle.';
+        }catch(error){model.error='No se pudo continuar la preparación: '+String(error);}
+        finally{model.retryingAcu=false;model.busy=false;paint();}
+        return;
+      }
       if(action==='create-missing-resource'&&!model.busy){
         const message=model.messages[Number(button.dataset.index)];
         const resource=message?.approval?.result?.missingResources?.[Number(button.dataset.item)];
