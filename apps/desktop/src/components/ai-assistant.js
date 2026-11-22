@@ -284,7 +284,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       ${items.map((item,i)=>`<div class="ai-missing-item ${item.saved?'ai-missing-saved':''}">
        <span><b>${e(item.description)}</b><small>${e([item.kind?({material:'Material',labor:'Mano de obra',equipment:'Equipo',subcontract:'Subcontrato'}[item.kind]||item.kind):'Tipo por definir',item.unit||'Unidad por definir'].join(' · '))}
        ${item.lines?.length?' · Para: '+e(item.lines.join(', ')):''}</small></span>
-       ${item.saved?'<small>✓ Seleccionado: '+e(item.selectedResourceName||item.description)+'</small>':`<button type="button" data-ai="create-missing-resource" data-index="${index}" data-item="${i}" ${model.busy?'disabled':''}>${'Seleccionar insumo'}</button>`}
+        ${item.saved?'<small>✓ '+e(item.selectedResourceName||'Seleccionado')+'</small>':''}<button type="button" data-ai="create-missing-resource" data-index="${index}" data-item="${i}" ${model.busy?'disabled':''}>${item.saved?'Cambiar':'Seleccionar insumo'}</button>
        </div>`).join('')}</div>`;
   }
   function approvalMarkup(message,index){
