@@ -314,12 +314,14 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     const approval=message.approval;
     if(approval){
       const errors=approval.result?.pendingReasons||[];
+      const outlineWarnings=approval.result?.sectionPending||[];
       const showStatus=approval.message&&(approval.state!=='running'||approval.message!==message.answer);
       return `${showStatus?`<p class="ai-approval-status" role="status">${e(approval.message)}</p>`:''}
        ${acuReviewTreeMarkup(message,index)}
-       ${errors.length||approval.result?.warnings?.length||approval.result?.error?`<details class="ai-pending-compact"><summary>Detalles técnicos y advertencias</summary>
+       ${errors.length||outlineWarnings.length||approval.result?.warnings?.length||approval.result?.error?`<details class="ai-pending-compact"><summary>Detalles técnicos y advertencias</summary>
        ${errors.length?`<ul class="ai-pending-reasons">${errors.map(item=>`<li>${e(item.description)}: ${item.reasons.map(e).join(' · ')}</li>`).join('')}</ul>`:''}
        ${approval.result?.error?`<p>${e(approval.result.error)}</p>`:''}
+       ${outlineWarnings.map(item=>`<p class="ai-warning">Partida pendiente de revisión: ${e(item)}</p>`).join('')}
        ${(approval.result?.warnings||[]).map(item=>`<p>${e(item)}</p>`).join('')}</details>`:''}
        ${approval.state!=='running'&&approval.result?.committed&&approval.result.estimateId?`<button type="button" data-ai="approved-result" data-index="${index}" ${model.busy?'disabled':''}>Ver en presupuesto</button>`:''}
        ${approval.state!=='running'&&approval.result&&!approval.result.committed&&approval.kind==='acu'&&approval.id===model.lastApprovedId?`<button type="button" data-ai="retry-missing-acu" data-index="${index}" ${model.busy?'disabled':''}>${approval.result.prepared>0?'Reintentar ACU pendientes':'Reintentar preparación'}</button>${approval.result.prepared>0?`<button type="button" data-ai="approved-pending" data-index="${index}" ${model.busy?'disabled':''}>Ver pendientes</button>`:''}`:''}`;
