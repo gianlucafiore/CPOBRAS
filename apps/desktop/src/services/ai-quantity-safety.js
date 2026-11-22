@@ -8,7 +8,7 @@ const U={
  m2:['area','1'],'m²':['area','1'],cm2:['area','0.0001'],'cm²':['area','0.0001'],
  m3:['volume','1'],'m³':['volume','1'],l:['volume','0.001'],litro:['volume','0.001'],litros:['volume','0.001'],
  kg:['mass','1'],kilogramo:['mass','1'],g:['mass','0.001'],tn:['mass','1000'],t:['mass','1000'],
- un:['count','1'],unidad:['count','1'],unidades:['count','1'],
+ un:['count','1'],unidad:['count','1'],unidades:['count','1'],mill:['count','1000'],millar:['count','1000'],millares:['count','1000'],docena:['count','12'],
  h:['time','1'],hora:['time','1'],horas:['time','1'],mes:['time','720'],meses:['time','720']
 };
 export function unitDimension(unit){
@@ -96,6 +96,10 @@ export function consumptionScaleErrors({partQuantity,partUnit,componentQuantity,
     errors.push('Consumo desproporcionado en la misma dimensión que la partida; verificá que no se haya copiado el metrado total.');
   }else if(part.dimension==='area'&&component.dimension==='length'&&compareDecimals(scaled,'10')>0){
    errors.push('Más de 10 metros lineales por m² de partida: falta justificar la geometría, la separación o el ancho útil.');
+  }else if(part.dimension==='area'&&component.dimension==='count'&&compareDecimals(scaled,'1000')>0){
+   errors.push('Más de 1000 unidades físicas por m² (incluida la conversión de paquetes o millares): revisá el consumo y la presentación comercial.');
+  }else if(part.dimension==='area'&&component.dimension==='time'&&compareDecimals(scaled,'24')>0){
+   errors.push('Más de 24 horas de recurso temporal por m² de partida: revisá rendimiento, período de alquiler y cantidad total.');
   }
  }
  if(total&&compareDecimals(total,'10')>=0&&compareDecimals(value,'10')>0&&compareDecimals(value,total)===0)
