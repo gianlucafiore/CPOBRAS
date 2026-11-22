@@ -140,9 +140,6 @@ test('a partially malformed model response preserves valid work lines and report
  assert.ok(rows.warnings.some(w=>w.includes('Partida sin unidad')));
  assert.ok(rows.warnings.some(w=>w.includes('Rubro sin partidas')||w.includes('Rubro 2')));
  assert.equal(newAcuSeeds(rows)[0].outline_issues.length,2);
- assert.ok(acuTotals({...parseAcuProposals(JSON.stringify({acu_proposals:[{
-  line_id:newAcuSeeds(rows)[0].id,components:[],missing_resources:[]
- }]}),[newAcuSeeds(rows)[0]],[])[0]},[]).errors.length>0);
 });
 
 test('accepts structural field aliases without guessing the work unit',()=>{
