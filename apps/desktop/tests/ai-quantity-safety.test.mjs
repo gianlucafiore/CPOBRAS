@@ -68,6 +68,11 @@ test('per-unit consumption safety detects global surface copied to a roof ACU ev
  assert.ok(consumptionScaleErrors({partQuantity:'135',partUnit:'m²',componentQuantity:'135',
   componentUnit:'m²',quantityScope:'total'}).length>=2);
  assert.deepEqual(unitDimension('m²'),unitDimension('m2'));
+ assert.ok(consumptionScaleErrors({partQuantity:null,partUnit:'m²',componentQuantity:'6000',
+  componentUnit:'Mill',quantityScope:'per_unit'}).some(issue=>issue.includes('1000 unidades')));
+ assert.ok(consumptionScaleErrors({partQuantity:null,partUnit:'m²',componentQuantity:'0.04',
+  componentUnit:'mes',quantityScope:'per_unit'}).some(issue=>issue.includes('24 horas')));
+
 });
 test('priced catalog resource with 120 linear meters per roof square meter cannot be marked as ready',()=>{
  const seed={id:'line-roof',description:'Ejecución de cubierta',unit:'m²',quantity:'0',
