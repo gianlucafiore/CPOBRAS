@@ -13,7 +13,7 @@ export const constructionOutlineInstruction=[
  'Respondé exclusivamente JSON con work_sections:[{title,partidas:[{description,unit,quantity,work_result,resources:[{name,kind,unit}]}]}].',
  'title nombra el rubro de trabajo; work_result describe brevemente lo que se entrega o certifica, distinto de una mera compra. resources lista los insumos necesarios en esa partida (pueden faltar detalles).',
  'kind debe ser material, labor, equipment o subcontract. Si una especificación o unidad no se conoce, usá cadena vacía. Para cantidad de la partida usá decimal como texto si la indicó el usuario, de lo contrario null.',
- 'No inventes cantidades, precios ni consumos de recursos. Máximo 60 partidas en no más de 20 rubros. Respondé con el conjunto mínimo y suficiente de trabajos; no inventes partidas auxiliares que no estén justificadas.'
+ 'No inventes cantidades, precios ni consumos de recursos. Máximo 60 partidas en total, sin limitar arbitrariamente la cantidad de rubros. Respondé con el conjunto mínimo y suficiente de trabajos; no inventes partidas auxiliares que no estén justificadas.'
 ].join('\n');
 
 export function parseConstructionOutline(text){
@@ -21,7 +21,7 @@ export function parseConstructionOutline(text){
  try{parsed=JSON.parse(text.trim().replace(/^\`\`\`(?:json)?\s*/i,'').replace(/\s*\`\`\`$/,''));}
  catch{throw new Error('La propuesta constructiva no contiene JSON válido de rubros, partidas e insumos.');}
  const sections=parsed?.work_sections;
- if(!Array.isArray(sections)||!sections.length||sections.length>20)
+ if(!Array.isArray(sections)||!sections.length||sections.length>60)
   throw new Error('La IA debe devolver rubros con partidas e insumos, no una lista plana de productos.');
  const rows=[],seen=new Set();
  for(const section of sections){
