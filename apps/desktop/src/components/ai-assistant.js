@@ -322,7 +322,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
        ${approval.result?.error?`<p>${e(approval.result.error)}</p>`:''}
        ${(approval.result?.warnings||[]).map(item=>`<p>${e(item)}</p>`).join('')}</details>`:''}
        ${approval.state!=='running'&&approval.result?.committed&&approval.result.estimateId?`<button type="button" data-ai="approved-result" data-index="${index}" ${model.busy?'disabled':''}>Ver en presupuesto</button>`:''}
-       ${approval.state!=='running'&&approval.result?.pending&&approval.kind==='acu'&&approval.id===model.lastApprovedId?`<button type="button" data-ai="retry-missing-acu" data-index="${index}" ${model.busy?'disabled':''}>${approval.result.prepared>0?'Reintentar ACU pendientes':'Reintentar preparación'}</button>${approval.result.prepared>0?`<button type="button" data-ai="approved-pending" data-index="${index}" ${model.busy?'disabled':''}>Editar ACU en detalle</button>`:''}`:''}`;
+       ${approval.state!=='running'&&approval.result&&!approval.result.committed&&approval.kind==='acu'&&approval.id===model.lastApprovedId?`<button type="button" data-ai="retry-missing-acu" data-index="${index}" ${model.busy?'disabled':''}>${approval.result.prepared>0?'Reintentar ACU pendientes':'Reintentar preparación'}</button>${approval.result.prepared>0?`<button type="button" data-ai="approved-pending" data-index="${index}" ${model.busy?'disabled':''}>Editar ACU en detalle</button>`:''}`:''}`;
     }
     if(message.sectionPreview){
       const plan=message.sectionPreview;
@@ -387,7 +387,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
   // La confirmación en lenguaje natural debe operar sobre una tarea real,
   // nunca limitarse a responder que recibió autorización.
   async function resumeAcuReview(message){
-    if(!message?.approval?.result?.pending||message.approval.kind!=='acu')return;
+    if(!message?.approval?.result||message.approval.kind!=='acu'||message.approval.result.committed)return;
     if(!canPlan()||!model.configured||!model.consent||model.busy){
       model.error='Abrí un presupuesto local editable y habilitá la IA para continuar.';paint();return;
     }
@@ -1290,7 +1290,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       const visiblePreview=model.messages.findLast(message=>!!message.preview);
       if(visiblePreview){model.question='';await approveMessage(model.messages.indexOf(visiblePreview));return;}
       const pendingAcu=model.messages.findLast(message=>message.approval?.kind==='acu'&&
-       message.approval.id===model.lastApprovedId&&message.approval.result?.pending>0&&!message.approval.result?.committed);
+       message.approval.id===model.lastApprovedId&&message.approval.result&&!message.approval.result.committed);
       if(pendingAcu){model.question='';await resumeAcuReview(pendingAcu);return;}
     }
     const continuation=conversationAcuRequest(question,state,pendingIntent);
