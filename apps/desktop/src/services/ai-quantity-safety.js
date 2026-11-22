@@ -5,8 +5,8 @@ import {importDecimal,normalize} from './ai-budget-import.js';
 
 const U={
  m:['length','1'],metro:['length','1'],metros:['length','1'],cm:['length','0.01'],mm:['length','0.001'],
- m2:['area','1'],'m²':['area','1'],cm2:['area','0.0001'],'cm²':['area','0.0001'],
- m3:['volume','1'],'m³':['volume','1'],l:['volume','0.001'],litro:['volume','0.001'],litros:['volume','0.001'],
+ m2:['area','1'],'m²':['area','1'],metrocuadrado:['area','1'],metroscuadrados:['area','1'],cm2:['area','0.0001'],'cm²':['area','0.0001'],
+ m3:['volume','1'],'m³':['volume','1'],metrocubico:['volume','1'],metroscubicos:['volume','1'],l:['volume','0.001'],litro:['volume','0.001'],litros:['volume','0.001'],
  kg:['mass','1'],kilogramo:['mass','1'],g:['mass','0.001'],tn:['mass','1000'],t:['mass','1000'],
  un:['count','1'],unidad:['count','1'],unidades:['count','1'],mill:['count','1000'],millar:['count','1000'],millares:['count','1000'],docena:['count','12'],
  h:['time','1'],hora:['time','1'],horas:['time','1'],mes:['time','720'],meses:['time','720']
@@ -37,7 +37,7 @@ const quotedUnit=(quote,unit)=>{
  const target=unitDimension(unit);
  if(!target)return false;
  const normalized=String(quote).toLowerCase().replace(/²/g,'2').replace(/³/g,'3');
- const tokens=normalized.match(/(?:m2|m3|kg|tn|cm2|cm|mm|m|g|l|unidades?|metros?|kilogramos?|litros?)\b/g)||[];
+ const tokens=normalized.match(/(?:metros? cuadrados?|metros? c[uú]bicos?|m2|m3|kg|tn|cm2|cm|mm|m|g|l|unidades?|metros?|kilogramos?|litros?)\b/g)||[];
  return tokens.some(token=>{
   const matched=unitDimension(token);
   return matched?.dimension===target.dimension&&compareDecimals(matched.scale,target.scale)===0;
