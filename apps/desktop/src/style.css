@@ -635,3 +635,22 @@ input[type=search]::-webkit-search-cancel-button{appearance:none}
 .ai-console .ai-acu-tree-resource button{flex-shrink:0;max-width:132px}
 .ai-console .ai-acu-tree-errors{font-size:11px;color:#e9be8a}
 .ai-console .ai-acu-tree-errors>summary{cursor:pointer}
+
+/* Espaciado contenido en la jerarquía: neutraliza pre-wrap del chat. */
+.ai-console .ai-acu-review-tree,.ai-console .ai-acu-review-tree *{white-space:normal;line-height:1.3}
+.ai-console .ai-acu-review-tree{margin:6px 0;padding:8px 10px;max-height:min(56vh,560px);overflow:auto}
+.ai-console .ai-acu-review-tree>strong{margin:0 0 6px;line-height:1.3}
+.ai-console .ai-acu-tree-section{padding:4px 0;border-top:1px solid #344b59}
+.ai-console .ai-acu-tree-section>summary{font-size:12px;font-weight:700;line-height:1.4}
+.ai-console .ai-acu-tree-section>summary small{font-size:10px}
+.ai-console .ai-acu-tree-section>ul{margin:0;padding:2px 0 2px 14px}
+.ai-console .ai-acu-tree-section li,.ai-console .ai-acu-tree-line{margin:0!important;line-height:1.3}
+.ai-console .ai-acu-tree-line{padding:2px 6px;border-left:1px solid #426077}
+.ai-console .ai-acu-tree-line>details>summary{padding:2px 0;font-size:11px}
+.ai-console .ai-acu-tree-line>details>summary small{font-size:10px;white-space:normal}
+.ai-console .ai-acu-tree-line>details>ul{padding:1px 0 1px 16px;margin:0}
+.ai-console .ai-acu-tree-resource{padding:2px 0;gap:6px;font-size:11px}
+.ai-console .ai-acu-tree-resource small{font-size:10px;line-height:1.25;margin:0}
+.ai-console .ai-acu-tree-resource button{font-size:10px;padding:3px 7px;max-width:none}
+.ai-console .ai-acu-tree-errors{margin:2px 0}
+.ai-console .ai-acu-tree-errors ul{margin:2px 0;padding-left:18px}
