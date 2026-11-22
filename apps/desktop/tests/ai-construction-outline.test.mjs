@@ -7,6 +7,7 @@ import {buildAcuReviewTree} from '../src/services/ai-acu-review-tree.js';
 const plan={
  work_sections:[{title:'Montaje de cerramiento exterior',partidas:[{
   description:'Ejecución de estructura portante',unit:'kg',quantity:'900',
+  quantity_source:{kind:'explicit',quote:'La ejecución de estructura portante requiere 900 kg de acero'},
   work_result:'Estructura metálica colocada y fijada',
   resources:[
    {name:'Perfil metálico hueco',kind:'material',unit:'kg'},
@@ -22,13 +23,14 @@ const plan={
   ]
  }]}]
 };
+const brief='La ejecución de estructura portante requiere 900 kg de acero';
 const catalog=[
  {id:'mat-1',description:'Perfil metálico hueco',unit:'kg',kind:'material',price:'1500'},
  {id:'labor-1',description:'Personal de montaje',unit:'jor',kind:'labor',price:'20000'}
 ];
 
 test('planning contract distinguishes work group, measurable executed work, and resources without keyword matching',()=>{
- const rows=parseConstructionOutline(JSON.stringify(plan));
+ const rows=parseConstructionOutline(JSON.stringify(plan),brief);
  assert.equal(rows.length,2);
  assert.deepEqual(rows.map(row=>row.section),['Montaje de cerramiento exterior','Montaje de cerramiento exterior']);
  assert.deepEqual(rows.map(row=>row.description),['Ejecución de estructura portante','Colocación del revestimiento']);
@@ -61,7 +63,7 @@ test('flat product lines and malformed work hierarchy do not silently become par
 });
 
 test('planned required inputs remain pending until mapped to actual consumed IDs, even with an explicit missing override',()=>{
- const seed=newAcuSeeds(parseConstructionOutline(JSON.stringify(plan)))[0];
+ const seed=newAcuSeeds(parseConstructionOutline(JSON.stringify(plan),brief))[0];
  const proposal={acu_proposals:[{line_id:seed.id,components:[
   {resource_id:'mat-1',quantity:'1',quantity_unit:'kg'},
   {resource_id:'labor-1',quantity:'0.03',quantity_unit:'jor'}
@@ -84,7 +86,7 @@ test('planned required inputs remain pending until mapped to actual consumed IDs
 });
 
 test('a fully mapped construction recipe is reviewable, and the ACU model cannot rewrite its rubric',()=>{
- const seed=newAcuSeeds(parseConstructionOutline(JSON.stringify(plan)))[0];
+ const seed=newAcuSeeds(parseConstructionOutline(JSON.stringify(plan),brief))[0];
  const chosen={...catalog[0]};
  const additional={id:'fix-1',description:'Fijación estructural',unit:'un',kind:'material',price:'90'};
  const other=[...catalog,additional];
@@ -106,7 +108,7 @@ test('a fully mapped construction recipe is reviewable, and the ACU model cannot
 });
 
 test('total structural quantity cannot masquerade as per-unit resource consumption',()=>{
- const seed=newAcuSeeds(parseConstructionOutline(JSON.stringify(plan)))[0];
+ const seed=newAcuSeeds(parseConstructionOutline(JSON.stringify(plan),brief))[0];
  const misleading={acu_proposals:[{line_id:seed.id,components:[{
   resource_id:'mat-1',quantity:'900',quantity_unit:'kg'
  }],missing_resources:[],requirement_coverage:[
