@@ -454,7 +454,7 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
   const preview={id:globalThis.crypto.randomUUID(),scope:authorization.scope,
    estimateId:model.estimate.id,tree,missingResources,pendingReasons,
    pending:remainingCount,sectionPending:[],movedSections:[],
-   structureLines:batch.creates.map(seed=>({id:seed.id,description:seed.description,section:seed.section,
+   structureLines:batch.creates.map(seed=>({id:seed.id,description:seed.description,section:seed.section,quantity_status:model.seeds.find(item=>item.id===seed.id)?.quantity_status||'pending',
     needsAcu:!ready.some(row=>row.id===seed.id)})),
    rows:ready.map(row=>({
     line_id:row.id,description:row.seed.description,unit:row.seed.unit,
