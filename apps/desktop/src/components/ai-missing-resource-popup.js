@@ -30,7 +30,7 @@ export function createAiMissingResourcePopup({document,window,state,openModal,on
    '</section></div>';
  }
  function open(resource){
-  if(busy||!resource||resource.saved)return false;
+  if(busy||!resource)return false;
   item=resource;query=String(resource.description||'').split(/\s+/).filter(token=>token.length>3).slice(0,3).join(' ');
   error='';paint();host.querySelector('#ai-missing-search')?.focus();return true;
  }
@@ -58,14 +58,17 @@ export function createAiMissingResourcePopup({document,window,state,openModal,on
   const selected=item;
   close();
   // La vista y el guardado son los mismos que usa "＋ Nuevo insumo".
-  openModal('resource',{
-    description:selected.description,
-    kind:selected.kind||'material',
-    unit:selected.unit||'',
-    price:'',
-    source:'Carga desde CPOBRAS IA'
-  },async saved=>{await onResolved(selected,saved,{created:true});},
-  ()=>{onRestored?.();});
+  try{
+   openModal('resource',{
+     description:selected.description,
+     kind:selected.kind||'material',
+     unit:selected.unit||'',
+     price:'',
+     source:'Carga desde CPOBRAS IA',
+     aiMissingSpecification:selected.action==='specify'?selected.description:null
+   },async saved=>{await onResolved(selected,saved,{created:true});},
+   ()=>{onRestored?.();});
+  }catch(caught){item=selected;error=String(caught);paint();}
  }
  host.addEventListener('input',event=>{
   if(!event.target.matches?.('[data-missing-search]'))return;
