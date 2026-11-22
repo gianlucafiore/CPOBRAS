@@ -299,7 +299,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
        ${approval.result?.error?`<p>${e(approval.result.error)}</p>`:''}
        ${(approval.result?.warnings||[]).map(item=>`<p>${e(item)}</p>`).join('')}</details>`:''}
        ${approval.state!=='running'&&approval.result?.committed&&approval.result.estimateId?`<button type="button" data-ai="approved-result" data-index="${index}" ${model.busy?'disabled':''}>Ver en presupuesto</button>`:''}
-       ${approval.state!=='running'&&approval.result?.pending&&approval.kind==='acu'&&approval.id===model.lastApprovedId?`<button type="button" data-ai="retry-missing-acu" data-index="${index}" ${model.busy?'disabled':''}>Reintentar ACU pendientes</button><button type="button" data-ai="approved-pending" data-index="${index}" ${model.busy?'disabled':''}>Editar ACU en detalle</button>`:''}`;
+       ${approval.state!=='running'&&approval.result?.pending&&approval.kind==='acu'&&approval.id===model.lastApprovedId?`<button type="button" data-ai="retry-missing-acu" data-index="${index}" ${model.busy?'disabled':''}>${approval.result.prepared>0?'Reintentar ACU pendientes':'Reintentar preparación'}</button>${approval.result.prepared>0?`<button type="button" data-ai="approved-pending" data-index="${index}" ${model.busy?'disabled':''}>Editar ACU en detalle</button>`:''}`:''}`;
     }
     if(message.sectionPreview){
       const plan=message.sectionPreview;
@@ -398,7 +398,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       const counts=[saved?`${saved} ACU ${saved===1?'cargado':'cargados'}`:'',created?`${created} ${created===1?'partida nueva creada':'partidas nuevas creadas'}`:'',organized?`${organized} ${organized===1?'partida organizada por rubro':'partidas organizadas por rubro'}`:''].filter(Boolean).join(' y ');
       const summary=result.committed?`Carga terminada: ${counts||'guardado confirmado'}${pending?`; ${pending} ACU pendientes`:''}.`:
        `Preparación de ACU: ${result.prepared??0} propuestas recibidas, ${pending} pendientes. Todavía no se guardó nada.`;
-      const notice=[summary,result.error?'Hubo un problema de preparación; consultá los detalles técnicos.':'',result.refreshError].filter(Boolean).join(' ');
+      const notice=[summary,result.error?'Error de preparación: '+String(result.error).slice(0,240):'',result.refreshError].filter(Boolean).join(' ');
       message.answer=notice;message.approval={...message.approval,state:'done',message:notice,result};
       message.content=JSON.stringify({answer:message.answer+'\nResultado registrado por CPOBRAS: '+notice});model.notice=notice;
       // Partial batches with unresolved items remain an open task.
@@ -1505,6 +1505,14 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       if(action==='retry-missing-acu'&&!model.busy){
         const message=model.messages[Number(button.dataset.index)];
         if(!message?.approval?.result?.pending)return;
+        // No se puede regenerar una composición que nunca se preparó.
+        // Repetir la preparación original, sin afirmar que existe un ACU.
+        if(!message.approval.result.prepared){
+          delete message.approval;
+          model.notice='Reintentando la preparación original. No se guardará nada sin aprobación.';
+          await approveMessage(Number(button.dataset.index));
+          return;
+        }
         model.busy=true;model.retryingAcu=true;model.notice='Reconsultando solo los ACU pendientes, sin guardar datos.';paint();
         try{
           const previous=message.approval.result;
