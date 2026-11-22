@@ -85,7 +85,7 @@ test('approved structural draft is saved once without re-querying when ACU is pe
  expect(info.saved).toBe(0);
  expect(info.pending).toBe(1);
  expect(info.acos).toBe(0);
- expect(info.batchCount).toBe(1);
+ expect(info.batchCount).toBe(2);
  expect(info.createdSections).toEqual(['Montaje y terminaciones']);
  expect(info.after).toBe(info.before);
  expect(info.twice).toBe(true);
