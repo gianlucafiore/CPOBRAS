@@ -4,7 +4,7 @@ import {missingResourceItems} from './ai-missing-resources.js';
 import {multiplyDecimals,sumDecimals,compareDecimals} from '../decimal.js';
 export const expectedLine=line=>({description:line.description,unit:line.unit,quantity:line.quantity,unit_cost:line.unit_cost,analysis_id:line.analysis_id||null});
 export function acuSeed(line){return {...line,is_new:false};}
-export function newAcuSeeds(rows){return rows.map(r=>({id:r.new_id||globalThis.crypto.randomUUID(),description:r.description,unit:r.unit,quantity:r.quantity??'0',section:r.section||'',section_id:null,is_new:true,components:[],takeoffs:[],formula:null,analysis_id:null,expected_recipe:null,unit_cost:'0',work_result:r.work_result||'',expected_resources:Array.isArray(r.expected_resources)?structuredClone(r.expected_resources):[]}));}
+export function newAcuSeeds(rows){return rows.map(r=>({id:r.new_id||globalThis.crypto.randomUUID(),description:r.description,unit:r.unit,quantity:r.quantity??'0',section:r.section||'',section_id:null,is_new:true,components:[],takeoffs:[],formula:null,analysis_id:null,expected_recipe:null,unit_cost:'0',work_result:r.work_result||'',outline_issues:Array.isArray(r.outline_issues)?[...r.outline_issues]:[],expected_resources:Array.isArray(r.expected_resources)?structuredClone(r.expected_resources):[]}));}
 export function emptyAcu(seed){return {id:seed.id,seed,selected:false,components:[],measurements:[],apply_measurements:false,section_id:seed.section_id||null,section_title:seed.section||'',assumptions:[],missing_resources:[],missing_resource_drafts:[],missing_resolved:false};}
 function decimal(value,label){if(typeof value!=='string')throw new Error(`${label}: usá un decimal como texto`);const v=importDecimal(value.trim().replace(',','.'),'decimal',true);if(v==null)throw new Error(`${label}: falta el dato`);return v;}
 // Notes are explanatory text, not a write schema. Providers sometimes return a
@@ -216,6 +216,7 @@ export function acuTotals(row,resources){
    cost=sumDecimals([cost,multiplyDecimals(q,r.price)]);
   }catch{errors.push('Consumo inválido: '+r.description);}
  }
+ for(const issue of row.seed?.outline_issues||[])errors.push('Planificación incompleta: '+issue);
  if(row.missing_resources.length&&!row.missing_resolved)errors.push('Hay faltantes indicados por IA pendientes de resolver');
  // La planificación establece requisitos que no pueden ocultarse marcando
  // "faltantes resueltos" sin vincular un insumo real y su consumo positivo.
