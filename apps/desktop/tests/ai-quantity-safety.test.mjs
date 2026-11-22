@@ -36,6 +36,15 @@ test('a specific mass stated by the user is persisted as the work quantity',()=>
  assert.equal(part.quantity_status,'provided');
  assert.equal(newAcuSeeds([part])[0].quantity,'900');
 });
+test('quoted value with another mass unit cannot be used without a verified conversion',()=>{
+ const attempted=validateWorkQuantity({
+  description:'Armado de estructura portante',unit:'kg',quantity:'900',
+  brief:'La estructura portante consume 900 g de refuerzo',
+  source:{kind:'explicit',quote:'estructura portante consume 900 g'}
+ });
+ assert.equal(attempted.quantity,null);
+ assert.equal(attempted.status,'pending');
+});
 test('roof dimensions are only calculated with factors verified in the source request',()=>{
  const brief='Techo de 10 m por 12 m. Chapa pendiente de definir.';
  const part={description:'Techo dimensionado',unit:'m²',quantity:'120',
