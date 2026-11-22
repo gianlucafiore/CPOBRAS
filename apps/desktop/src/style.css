@@ -605,3 +605,15 @@ input[type=search]::-webkit-search-cancel-button{appearance:none}
 .ai-console .ai-missing-item button{flex-shrink:0}
 .ai-console .ai-missing-item.ai-missing-saved{opacity:.65}
 .ai-console .ai-pending-compact{margin-top:6px}
+
+/* Selector de faltantes de IA: buscar insumo existente o ir al alta nativa. */
+.ai-missing-dialog .ai-missing-results{max-height:min(300px,35vh);overflow:auto;border:1px solid #3f5465;border-radius:8px}
+.ai-missing-dialog .ai-missing-results>button{display:flex;gap:12px;align-items:center;justify-content:space-between;width:100%;text-align:left;border:0;border-radius:0;border-bottom:1px solid #354858;background:transparent;color:#e1ebf3}
+.ai-missing-dialog .ai-missing-results>button:last-child{border-bottom:0}
+.ai-missing-dialog .ai-missing-results>button:hover,.ai-missing-dialog .ai-missing-results>button:focus-visible{background:#304452}
+.ai-missing-dialog .ai-missing-results>button span:first-child{min-width:0;flex:1}
+.ai-missing-dialog .ai-missing-results>button span:last-child{color:#9fd5ec;font-size:12px}
+.ai-missing-dialog .ai-missing-results small{display:block;margin-top:3px;font-weight:400;color:#a7bdca}
+.ai-missing-dialog .ai-missing-results p{padding:12px}
+.ai-console .ai-missing-item{flex-wrap:wrap}
+.ai-console .ai-missing-item button{margin-left:auto}
