@@ -22,7 +22,7 @@ export const constructionOutlineInstruction=[
 // Los avisos se asocian al resultado; nunca se convierten en altas de SQLite.
 export function parseConstructionOutline(text){
  let parsed;
- try{parsed=JSON.parse(text.trim().replace(/^\`\`\`(?:json)?\\s*/i,'').replace(/\\s*\`\`\`$/,''));}
+ try{parsed=JSON.parse(text.trim().replace(/^\`\`\`(?:json)?\s*/i,'').replace(/\s*\`\`\`$/,''));}
  catch{throw new Error('La propuesta constructiva no contiene JSON válido de rubros, partidas e insumos.');}
  const sections=parsed?.work_sections??parsed?.rubros;
  if(!Array.isArray(sections)||!sections.length||sections.length>60)
