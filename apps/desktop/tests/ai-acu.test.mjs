@@ -361,3 +361,24 @@ test('ceramic masonry validates the unit count against the catalog brick face an
  assert.ok(acuPreapprovalErrors(evidenceRow({},basin,aluminum),[basin]).some(error=>error.includes('Insumo ajeno al trabajo')));
  assert.deepEqual(acuPreapprovalErrors(evidenceRow({},basin,{...target,description:'Instalación sanitaria en baños'}),[basin]),[]);
 });
+
+test('library reuse is deterministic only for a unique compatible work without new technical instructions',async()=>{
+ const {createLibraryAcuSource}=await import('../src/services/ai-acu-library.js');
+ const target={...seed,description:'Revoque grueso',unit:'m²'};
+ const refs=[{key:'analysis:one',title:'Biblioteca ACU · REV-01 · Revoque grueso',description:'Revoque grueso',unit:'m2'}];
+ const invoke=async(_name,{key})=>[{key,description:target.description,unit:'m2',
+  components:[{resource_id:resource.id,description:resource.description,quantity:'0.35'}]}];
+
+ const resolve=(choices,brief,line=target)=>createLibraryAcuSource(choices,invoke,brief)([line],[resource]);
+ const direct=await resolve(refs,'Completá los ACU de las partidas existentes');
+ assert.equal(direct.rows[0].components[0].quantity,'0.35');
+ assert.equal(direct.rows[0].reference_title,refs[0].title);
+ for(const result of [
+  await resolve(refs,'Generá el ACU de la partida seleccionada con dosificación 1:3'),
+  await resolve([...refs,{...refs[0],key:'analysis:two'}],'Generá el ACU de la partida seleccionada'),
+  await resolve(refs,'Prepará el presupuesto',{...target,is_new:true,work_result:'Revoque grueso de 15 mm'})
+ ]){
+  assert.deepEqual(result.rows,[]);
+  assert.ok(result.examplesByLine.get(target.id)?.length);
+ }
+});

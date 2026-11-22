@@ -44,7 +44,7 @@ export function buildAcuReviewTree(rows=[],resources=[],sections=[],selections=[
   const totals=acuTotals(row,resources);
   const errors=[...new Set([...totals.errors,...acuPreapprovalErrors(row,resources)])];
   groups.get(sectionName).lines.push({
-   id:row.id,description:row.seed?.description||'Partida',unit:row.seed?.unit||'',
+   id:row.id,description:row.seed?.description||'Partida',unit:row.seed?.unit||'',reference_title:row.reference_title||'',
    quantity:String(row.seed?.quantity??''),is_new:row.seed?.is_new===true,
    quantityPending:row.seed?.quantity_status==='pending'||(row.seed?.quantity==null||String(row.seed.quantity)==='0'),
    status:errors.length?'pending':'ready',errors:errors.slice(0,8),

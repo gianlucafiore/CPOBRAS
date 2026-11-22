@@ -85,6 +85,10 @@ pub struct AcuContext {
 pub struct ReferenceChoice {
     pub key: String,
     pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unit: Option<String>,
 }
 #[derive(Serialize)]
 pub struct RecipeExample {
@@ -272,6 +276,8 @@ impl LocalStore {
                 refs.push(ReferenceChoice {
                     key: format!("budget:{id}"),
                     title,
+                    description: None,
+                    unit: None,
                 });
             }
         }
@@ -279,6 +285,8 @@ impl LocalStore {
             refs.push(ReferenceChoice {
                 key: format!("analysis:{}", a.id),
                 title: format!("Biblioteca ACU · {} · {}", a.code, a.description),
+                description: Some(a.description),
+                unit: Some(a.unit),
             });
         }
         Ok(refs)
@@ -315,6 +323,7 @@ impl LocalStore {
                                 components: analysis
                                     .components
                                     .into_iter()
+                                    .filter(|c| c.included && c.quantity_per_unit > D::ZERO)
                                     .map(|c| RecipeComponent {
                                         description: c.description,
                                         resource_id: c.resource_id,
@@ -341,6 +350,7 @@ impl LocalStore {
                 components: a
                     .components
                     .into_iter()
+                    .filter(|c| c.included && c.quantity_per_unit > D::ZERO)
                     .map(|c| RecipeComponent {
                         description: c.description,
                         resource_id: c.resource_id,

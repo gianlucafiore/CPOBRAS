@@ -18,12 +18,18 @@ async function chatFixture(page,{reply='handoff'}={}){
   const state={view:'workspace',projectId:'project-1',estimateId:'estimate-1',projects:[{id:'project-1',currency:'ARS'}],estimates:[{id:'estimate-1',title:'Presupuesto de prueba',currency:'ARS',issued:false}],lines:[line(${JSON.stringify(firstLineId)},'Revoque grueso'),line(${JSON.stringify(secondLineId)},'Revoque fino')],sections:[],assignments:{},selectedLineId:${JSON.stringify(firstLineId)},panel:'acu',search:''};
   const structure=${JSON.stringify(reply==='structure')};
   const extra={...resource,id:'unplanned',description:'Alquiler tijera elevadora',kind:'equipment',unit:'día'};
-  const house=${JSON.stringify(reply==='house')};
+  const house=${JSON.stringify(['house','library-house'].includes(reply))};
+  const libraryHouse=${JSON.stringify(reply==='library-house')};
   const brick12={...resource,id:'brick12',description:'Ladrillo cerámico hueco 12 x 18 x 33 cm',unit:'un'};
   const brick18={...brick12,id:'brick18',description:'Ladrillo cerámico hueco 18 x 18 x 33 cm'};
   const light={...resource,id:'light',description:'Instalación de artefacto de luz',kind:'labor',unit:'un'};
   const basin={...light,id:'basin',description:'Colocación de bacha de baño'};
   const resources=house?[brick12,brick18,light,basin]:structure?[resource,extra]:[resource];
+  const libraryMode=libraryHouse||${JSON.stringify(['library','similar-library'].includes(reply))};
+  const similar=${JSON.stringify(reply==='similar-library')};
+  const libraryKey='analysis:library-revoque';
+  const libraryName=libraryHouse?'Construcción de muros con ladrillo cerámico hueco 12 cm':'Revoque grueso';
+  if(similar)state.lines[0].description='Revoque grueso interior';
   const calls=[],batches=[],loads=[];
   const harness={state,calls,batches,loads,ready:false};window.__aiAcuHarness=harness;
   const renderBudget=()=>{
@@ -37,7 +43,13 @@ async function chatFixture(page,{reply='handoff'}={}){
    if(name==='ai_cancel')return null;
    if(name==='ai_catalog_context')return {currency:'ARS',as_of:args.asOf,resources:[structuredClone(resource)]};
    if(name==='assisted_acu_context')return {currency:'ARS',resources:structuredClone(resources),lines:structuredClone(state.lines),sections:[]};
-   if(name==='assisted_acu_references')return [];
+   if(name==='assisted_acu_references')return libraryMode?
+    [{key:libraryKey,title:'Biblioteca ACU · REV-01 · '+libraryName,description:libraryName,unit:'m2'}]:[];
+   if(name==='assisted_acu_reference'&&args.key===libraryKey)return [{
+    key:libraryKey,description:libraryName,unit:'m2',section:'',
+    components:libraryHouse?[{resource_id:brick12.id,description:brick12.description,quantity:'16'}]:
+     [{resource_id:resource.id,description:resource.description,quantity:'0.35',unit_price:'1'}]
+   }];
    if(name==='ai_chat'){
     if(house&&args.mode==='plan'){
      const wall=(brick,thickness)=>({description:'Construcción de muros con ladrillo cerámico hueco '+thickness+' cm',
@@ -57,6 +69,7 @@ async function chatFixture(page,{reply='handoff'}={}){
      resources:[{name:'Mortero',kind:'material',unit:'kg'}]
     }]}]})};
     if(args.mode==='acu'){
+     if(libraryHouse)throw Error('Proveedor no disponible');
      const context=JSON.parse(args.context);
      if(house)return {text:JSON.stringify({acu_proposals:context.targets.map(target=>{
       const brick=target.description.includes('12 cm')?brick12:target.description.includes('18 cm')?brick18:null;
@@ -241,7 +254,9 @@ test('mixed house proposals are corrected separately and a pending opening does 
   expect(context.previous_review[0].errors.join(' ')).toContain('Consumo incompatible con la cara del ladrillo');
   expect(context.resources.map(resource=>resource.resource_id)).not.toContain('light');
  }
- expect(new Set(contexts[0].targets.flatMap(target=>target.required_resources.map(requirement=>requirement.id))).size).toBe(2);
+ const initial=contexts.filter(context=>!context.previous_review);
+ expect(initial.map(context=>context.targets.length)).toEqual([1,1,1]);
+ expect(new Set(initial.flatMap(context=>context.targets[0].required_resources.map(requirement=>requirement.id))).size).toBe(3);
  expect(await page.evaluate(()=>window.__aiAcuHarness.batches)).toHaveLength(0);
 
  await approve.click();
@@ -253,4 +268,70 @@ test('mixed house proposals are corrected separately and a pending opening does 
   [['brick12','16']],[['brick18','16']]
  ]);
  expect(batch.acus.every(acu=>acu.measurements===null)).toBe(true);
+});
+
+
+
+test('an existing line reuses a matching library ACU after reopening and keeps the current catalog price',async({page})=>{
+ await chatFixture(page,{reply:'library'});
+ await page.reload();
+ await page.locator('[data-ai=toggle]').click();
+ await page.locator('[name=ai-consent]').check();
+ await ask(page,'Generá el ACU de la partida seleccionada');
+ await expect(page.getByText(/Origen del ACU · Biblioteca ACU · REV-01/)).toBeVisible();
+ const approve=page.getByRole('button',{name:'Aprobar y guardar 1 ACU completos',exact:true});
+ await expect(approve).toBeVisible();
+ const before=await page.evaluate(()=>{
+  const {calls,batches}=window.__aiAcuHarness;
+  return {recipes:calls.filter(call=>call.name==='assisted_acu_reference'),provider:calls.filter(call=>call.name==='ai_chat'),batches};
+ });
+ expect(before.recipes.map(call=>call.args.key)).toEqual(['analysis:library-revoque']);
+ expect(before.provider).toEqual([]);
+ expect(before.batches).toEqual([]);
+ await approve.click();
+ await expect(page.locator('.ai-approval-status')).toContainText('1 ACU cargado');
+ const [batch]=await page.evaluate(()=>window.__aiAcuHarness.batches);
+ expect(batch.creates).toEqual([]);
+ expect(batch.acus).toMatchObject([{
+  line_id:firstLineId,measurements:null,expected:{quantity:'42'},components:[
+   {resource_id:resourceId,quantity:'0.35',expected_resource:{price:'20'}}
+  ]
+ }]);
+ expect(batch.acus[0].notes).toContain('REV-01');
+});
+
+test('a similar library ACU informs a proposal instead of being copied automatically',async({page})=>{
+ await chatFixture(page,{reply:'similar-library'});
+ await ask(page,'Generá el ACU de la partida seleccionada');
+ await expect(page.getByRole('button',{name:'Aprobar y guardar 1 ACU completos',exact:true})).toBeVisible();
+ const result=await page.evaluate(()=>{
+  const {calls,batches}=window.__aiAcuHarness;
+  return {queries:calls.filter(call=>call.name==='ai_chat').map(call=>JSON.parse(call.args.context)),batches};
+ });
+ expect(result.queries).toHaveLength(1);
+ expect(result.queries[0].examples).toMatchObject([{key:'analysis:library-revoque',components:[{resource_id:resourceId,quantity:'0.35'}]}]);
+ expect(result.queries[0].examples[0].components[0]).not.toHaveProperty('unit_price');
+ expect(result.batches).toEqual([]);
+});
+
+
+test('a budget draft keeps the matching library recipe when the provider cannot compose the other lines',async({page})=>{
+ await chatFixture(page,{reply:'library-house'});
+ await ask(page,'Prepará partidas nuevas con ACU para una casa con muros de ladrillo del 12 y 18 y aberturas de aluminio sin definir.');
+ const approve=page.getByRole('button',{name:'Aprobar y guardar 1 ACU completos · 2 pendientes',exact:true});
+ await expect(approve).toBeVisible();
+ const tree=page.locator('.ai-acu-review-tree');
+ await expect(tree.locator('.ai-acu-tree-line').filter({hasText:'12 cm'})).toContainText('Origen del ACU · Biblioteca ACU');
+ await expect(tree.locator('.ai-acu-tree-line').filter({hasText:'18 cm'})).toContainText('ACU pendiente');
+ const initial=await page.evaluate(()=>window.__aiAcuHarness.calls.filter(call=>call.name==='ai_chat').map(call=>JSON.parse(call.args.context)));
+ expect(initial[0].library_acu).toMatchObject([{description:'Construcción de muros con ladrillo cerámico hueco 12 cm'}]);
+ expect(initial[1].targets.map(target=>target.description)).toEqual(['Construcción de muros con ladrillo cerámico hueco 18 cm']);
+ expect(await page.evaluate(()=>window.__aiAcuHarness.batches)).toEqual([]);
+
+ await approve.click();
+ await expect(page.locator('.ai-approval-status')).toContainText('1 ACU cargado y 3 partidas nuevas creadas; 2 pendientes');
+ const [batch]=await page.evaluate(()=>window.__aiAcuHarness.batches);
+ expect(batch.creates).toHaveLength(3);
+ expect(batch.acus).toHaveLength(1);
+ expect(batch.acus[0].components[0]).toMatchObject({resource_id:'brick12',quantity:'16'});
 });

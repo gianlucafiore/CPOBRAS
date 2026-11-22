@@ -177,6 +177,33 @@ function componentSafetyErrors(row,component,resource){
  }
  return errors;
 }
+function resolveRequirementCoverage(seed,components,supplied,catalog){
+ const required=Array.isArray(seed.expected_resources)?seed.expected_resources:[];
+ const coverage=[...supplied];
+ const used=new Set(coverage.map(item=>item?.resource_id).filter(Boolean));
+ const uncovered=[];
+ for(const req of required){
+  const matches=coverage.filter(item=>item?.requirement_id===req.id);
+  const found=matches.length===1?matches[0]:null;
+  if(found?.resource_id&&components.some(component=>component.resource_id===found.resource_id))continue;
+  // Repair an omitted link only when the proposed component has an exact,
+  // unique match in the real catalog. Never replace an explicit decision.
+  if(!matches.length&&req.kind){
+   const exact=components.map(component=>catalog.get(component.resource_id)).filter(resource=>
+    resource&&!used.has(resource.id)&&resource.kind===req.kind&&normalize(resource.description)===normalize(req.description)&&
+    (!req.unit||consumptionUnit(resource.unit)===consumptionUnit(req.unit)));
+   if(exact.length===1){
+    coverage.push({requirement_id:req.id,resource_id:exact[0].id,unresolved_reason:''});
+    used.add(exact[0].id);
+    continue;
+   }
+  }
+  uncovered.push({description:req.description,unit:req.unit||'',kind:req.kind,
+   action:found?.unresolved_reason?'create':'specify',
+   reason:String(found?.unresolved_reason||'La propuesta no identificó este requisito con un insumo y consumo válido.').slice(0,300)});
+ }
+ return {coverage,uncovered};
+}
 export function parseAcuProposals(text,seeds,allowedResources){
  let value;try{value=JSON.parse(text.trim().replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,''));}catch{throw new Error('La respuesta de ACU está incompleta o no tiene el formato esperado. Acotá los criterios y volvé a solicitar las partidas pendientes');}
  if(!Array.isArray(value.acu_proposals)||!value.acu_proposals.length||value.acu_proposals.length>5)throw new Error('La IA no devolvió una lista completa de ACU (máximo 5 por consulta)');
@@ -209,30 +236,7 @@ export function parseAcuProposals(text,seeds,allowedResources){
   // trabajo y el ACU. La IA debe asociar cada requisito con un recurso real
   // usado en la receta o dejarlo expresamente pendiente. No se comparan
   // palabras clave de materiales ni se fabrican equivalencias.
-  const required=Array.isArray(seed.expected_resources)?seed.expected_resources:[];
-  const coverage=Array.isArray(p.requirement_coverage)?[...p.requirement_coverage]:[];
-  const used=new Set(coverage.map(item=>item?.resource_id).filter(Boolean));
-  const uncovered=[];
-  for(const req of required){
-   const matches=coverage.filter(item=>item?.requirement_id===req.id);
-   const found=matches.length===1?matches[0]:null;
-   if(found?.resource_id&&components.some(component=>component.resource_id===found.resource_id))continue;
-   // Repair an omitted link only when the proposed component has an exact,
-   // unique match in the real catalog. Never replace an explicit decision.
-   if(!matches.length&&req.kind){
-    const exact=components.map(component=>catalog.get(component.resource_id)).filter(resource=>
-     resource&&!used.has(resource.id)&&resource.kind===req.kind&&normalize(resource.description)===normalize(req.description)&&
-     (!req.unit||consumptionUnit(resource.unit)===consumptionUnit(req.unit)));
-    if(exact.length===1){
-     coverage.push({requirement_id:req.id,resource_id:exact[0].id,unresolved_reason:''});
-     used.add(exact[0].id);
-     continue;
-    }
-   }
-   uncovered.push({description:req.description,unit:req.unit||'',kind:req.kind,
-    action:found?.unresolved_reason?'create':'specify',
-    reason:String(found?.unresolved_reason||'La propuesta no identificó este requisito con un insumo y consumo válido.').slice(0,300)});
-  }
+  const {coverage,uncovered}=resolveRequirementCoverage(seed,components,Array.isArray(p.requirement_coverage)?p.requirement_coverage:[],catalog);
   const proposal={...emptyAcu(seed),components,measurements,requirement_coverage:coverage,
    missing_resource_drafts:missingResourceItems([...(Array.isArray(p.missing_resources)?p.missing_resources:[]),...uncovered]),assumptions:['Consumos propuestos por IA: revisar por unidad y condiciones de ejecución.',...review,...notes('assumptions')],missing_resources:[...notes('missing_resources'),...uncovered.map(req=>req.description+': '+req.reason)]};
   if(!seed.is_new&&p.section&&normalize(p.section)!==normalize(seed.section)){proposal.section_id=null;proposal.section_title=p.section;}
@@ -311,8 +315,21 @@ export function acuPreapprovalErrors(row,resources){
  return [...new Set(acuTotals(row,resources).errors)];
 }
 export function copyAcuExample(seed,example){
- if(normalize(seed.unit)!==normalize(example.unit))throw new Error('La unidad de la receta no coincide con la partida. Adaptá los consumos explícitamente antes de reutilizarla');
+ if(!acuUnitsMatch(seed.unit,example.unit))throw new Error('La unidad de la receta no coincide con la partida. Adaptá los consumos explícitamente antes de reutilizarla');
  return {...emptyAcu(seed),components:example.components.map(c=>({resource_id:c.resource_id,quantity:c.quantity,description:c.description||''})),assumptions:[`Receta copiada de ${example.source_title||example.description||'referencia seleccionada'}. Revisar consumos, unidades actuales y condiciones de ejecución. Se usan los precios del presupuesto o catálogo actual.`]};
+}
+export function matchingLibraryAcu(seed,example,resources){
+ if(normalize(seed.description)!==normalize(example.description)||!acuUnitsMatch(seed.unit,example.unit))return null;
+ const row=copyAcuExample(seed,example);
+ const catalog=new Map(resources.map(resource=>[resource.id,resource]));
+ const {coverage,uncovered}=resolveRequirementCoverage(seed,row.components,[],catalog);
+ row.requirement_coverage=coverage;
+ if(uncovered.length||acuPreapprovalErrors(row,resources).length)return null;
+ row.reference_title=example.source_title||example.description;
+ return row;
+}
+export function acuUnitsMatch(left,right){
+ return !!consumptionUnit(left)&&consumptionUnit(left)===consumptionUnit(right);
 }
 /** Send only relevant real catalog rows to the model, retaining the full
  *  catalog locally for exact ID, price and safety validation. */
@@ -347,7 +364,13 @@ export function acuPromptContext(seeds,resources,examples,brief){
  const tokens=s=>new Set(normalize(s).split(' ').filter(x=>x.length>2));
  const words=tokens(seeds.map(s=>s.description).join(' ')+' '+brief);
  const ranked=examples.map(e=>({e,score:[...tokens(e.description)].filter(w=>words.has(w)).length+(seeds.some(s=>normalize(s.unit)===normalize(e.unit))?1:0)})).sort((a,b)=>b.score-a.score).slice(0,8).map(({e})=>({key:e.key,reference:e.source_title||e.description,description:e.description,unit:e.unit,section:e.section,components:e.components.map(c=>({resource_id:c.resource_id,description:c.description,quantity:c.quantity}))}));
- const narrowed=acuRelevantResources(seeds,resources,brief).filter(resource=>seeds.some(seed=>!acuResourceScopeConflict(seed,resource)));
+ const byId=new Map(resources.map(resource=>[resource.id,resource]));
+ const preferredIds=new Set([
+  ...seeds.flatMap(seed=>(seed.components||[]).map(component=>component.resource_id)),
+  ...ranked.flatMap(example=>example.components.map(component=>component.resource_id)),
+  ...acuRelevantResources(seeds,resources,brief).map(resource=>resource.id)
+ ]);
+ const narrowed=[...preferredIds].map(id=>byId.get(id)).filter(resource=>resource&&seeds.some(seed=>!acuResourceScopeConflict(seed,resource))).slice(0,90);
  const resource_candidates=seeds.map(seed=>{
   const found=JSON.parse(buildCatalogContext({question:[seed.description,...(seed.expected_resources||[]).map(item=>item.description)].join(' '),resources:narrowed.filter(resource=>!acuResourceScopeConflict(seed,resource))}));
   const primary=found.matches.slice(0,found.related.length?12:16);

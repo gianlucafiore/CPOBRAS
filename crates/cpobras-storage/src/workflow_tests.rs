@@ -5763,8 +5763,36 @@ fn assisted_acu_reuses_reference_consumption_but_not_historical_prices() {
     let examples = s
         .assisted_acu_reference(&format!("budget:{}", e.id))
         .unwrap();
+    let mut library = cpobras_core::UnitCostAnalysis {
+        id: Uuid::new_v4(),
+        code: "REV-01".into(),
+        description: target_line.description.clone(),
+        ..source.clone()
+    };
+    library
+        .components
+        .push(cpobras_core::ResourcePriceSnapshot {
+            resource_id: Uuid::new_v4(),
+            included: false,
+            ..library.components[0].clone()
+        });
+    s.save_analysis(&library).unwrap();
+    let key = format!("analysis:{}", library.id);
+    let choices = s.assisted_acu_references().unwrap();
+    let choice = choices.iter().find(|choice| choice.key == key).unwrap();
+    assert_eq!(
+        choice.description.as_deref(),
+        Some(target_line.description.as_str())
+    );
+    assert_eq!(choice.unit.as_deref(), Some(target_line.unit.as_str()));
+    let recipes = s.assisted_acu_reference(&key).unwrap();
+    assert_eq!(recipes[0].components.len(), 1);
+    assert_eq!(
+        recipes[0].components[0].quantity,
+        examples[0].components[0].quantity
+    );
     let mut batch = assisted_acu_batch(&s, &p, &target, &target_line, id);
-    batch.acus[0].components[0].quantity = examples[0].components[0].quantity;
+    batch.acus[0].components[0].quantity = recipes[0].components[0].quantity;
     s.apply_reviewed_budget_batch(&batch).unwrap();
     assert_eq!(
         s.estimate_items(target.id).unwrap()[0].unit_cost_snapshot,
@@ -5778,6 +5806,9 @@ fn assisted_acu_reuses_reference_consumption_but_not_historical_prices() {
             .unwrap(),
         20.into()
     );
+    let unchanged = s.get_analysis(library.id).unwrap().unwrap();
+    assert_eq!(unchanged.components[0].unit_price, 10.into());
+    assert!(!unchanged.components[1].included);
 }
 
 #[test]

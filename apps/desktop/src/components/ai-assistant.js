@@ -300,6 +300,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
        <summary><strong>${e(section.name)}</strong> <small>${section.lines.length} partidas</small></summary>
        <ul>${section.lines.map(line=>`<li class="ai-acu-tree-line ${line.excluded?'is-excluded':''}">
         <details open><summary><b>${e(line.description)}</b> <small>${line.quantityPending?'Cantidad por medir':e(line.quantity)+' '+e(line.unit)} · ${line.excluded?'Excluida':line.status==='ready'?'ACU listo para revisar':'ACU pendiente'}</small><button type="button" class="ai-tree-exclude" title="${line.excluded?'Restaurar partida':'Excluir partida del lote'}" aria-label="${line.excluded?'Restaurar':'Excluir'} partida ${e(line.description)}" data-ai="exclude-review-line" data-index="${index}" data-line-id="${e(line.id)}" data-excluded="${line.excluded}">${line.excluded?'↶':'×'}</button></summary>
+         ${line.reference_title?`<small>Origen del ACU · ${e(line.reference_title)}</small>`:''}
          <ul>${line.items.length?line.items.map(item=>{
            const pointer=item.requested?lookup(item):-1;
            return `<li class="ai-acu-tree-resource ${item.excluded?'is-excluded':''}"><span>${e(item.description)}
