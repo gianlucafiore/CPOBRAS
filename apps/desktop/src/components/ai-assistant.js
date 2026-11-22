@@ -6,6 +6,7 @@ import {validatedResourceDraft,resourceDraftSummary} from '../services/ai-resour
 import {readResourceModelDecision} from '../services/ai-resource-import.js';
 import {conversationStore,conversationAcuRequest,structuredConversationContext} from '../services/ai-conversation-context.js';
 import {createAcuWorkbench} from "./ai-acu-workbench.js";
+import {createAiMissingResourcePopup} from "./ai-missing-resource-popup.js";
 import {executeBudgetTool,budgetPreparationRequest} from '../services/ai-budget-tools.js';
 import {aiDomainContext,budgetReviewIntent} from '../services/ai-domain-context.js';
 import {focusedAppSnapshot} from '../services/ai-workspace-reader.js';
@@ -25,6 +26,20 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
   const budgetImport=createAiBudgetImport({invoke,state,document,window,editable,loadEstimate,loadEstimates,openEstimate,canUseAi:()=>model.configured&&model.consent&&!model.busy});
   const acuWorkbench=createAcuWorkbench({invoke,state,document,window,loadEstimate,loadEstimates,openEstimate,openResourceLibrary,canUseAi:()=>model.configured&&model.consent&&(!model.busy||model.approvedRun?.running)});
   const approvedPlans=createApprovedPlanRunner({invoke,state,loadEstimate,loadEstimates,openEstimate});
+  const missingResourcePopup=createAiMissingResourcePopup({invoke,document,state,
+    canSave:()=>canSaveResources()&&!model.busy,
+    onSaved:async resource=>{
+      resource.saved=true;
+      let notice='Insumo «'+resource.description+'» guardado. La tarea de ACU sigue pendiente.';
+      try{
+        await reloadCatalog?.();
+        await acuWorkbench.refreshPendingCatalog();
+        render?.();
+      }catch(error){notice+=' No se pudo actualizar toda la vista: '+String(error)+'; reabrí los pendientes sin volver a crear el insumo.';}
+      model.notice=notice;
+      paint();
+    }
+  });
   // Match the 180-second native timeout for local inference. The previous
   // 65-second UI watchdog cancelled valid (but slower) LM Studio requests.
   const providerAwareAiRequest=(args)=>createAiRequest(invoke,args,
@@ -93,7 +108,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     // fresh task and cannot silently inherit a pending approval from here.
     if(model.scope!==next||model.sessionView!==nextView){
       if(model.scope) { const [projectId,estimateId]=model.scope.split(":"); conversationStore(window.localStorage,projectId,estimateId,state.database?.scope).clear(); }
-      cancelApprovedRun();activeRequest?.cancel();activeRequest=null;queryToken++;if(!model.approvedRun)model.busy=false;model.catalogLoading=false;model.scope=next;model.sessionView=nextView;model.generation++;model.messages=[];model.lastAction=null;model.pendingAction=null;model.focusLineId=null;model.lastCatalogAdvice=null;model.recentCreatedLineIds=[];model.recentCreatedEstimateId=null;model.resourceDraft=null;model.taskInitialRequest=null;model.completedTaskReceipt=null;model.context="";model.includeContext=true;model.contextMode="screen";model.question="";model.error="";model.usage=null;model.notice="";
+      missingResourcePopup.close();cancelApprovedRun();activeRequest?.cancel();activeRequest=null;queryToken++;if(!model.approvedRun)model.busy=false;model.catalogLoading=false;model.scope=next;model.sessionView=nextView;model.generation++;model.messages=[];model.lastAction=null;model.pendingAction=null;model.focusLineId=null;model.lastCatalogAdvice=null;model.recentCreatedLineIds=[];model.recentCreatedEstimateId=null;model.resourceDraft=null;model.taskInitialRequest=null;model.completedTaskReceipt=null;model.context="";model.includeContext=true;model.contextMode="screen";model.question="";model.error="";model.usage=null;model.notice="";
       // Purge any legacy conversation saved by earlier CPObras versions.
       // A new screen starts a fresh task using the current selected data.
       store().clear();pendingIntent=null;
@@ -246,9 +261,28 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     const run=model.approvedRun;if(!run?.running)return;
     if(run.kind==='plan')approvedPlans.cancel();else acuWorkbench.cancelApproved();
   }
+  function missingResourceMarkup(message,index){
+    const items=message.approval?.result?.missingResources||[];
+    if(!items.length)return '';
+    const pending=items.filter(item=>!item.saved).length;
+    return `<div class="ai-missing-list"><strong>Insumos por resolver · ${pending}</strong>
+      ${items.map((item,i)=>`<div class="ai-missing-item ${item.saved?'ai-missing-saved':''}">
+       <span><b>${e(item.description)}</b><small>${e([item.kind?({material:'Material',labor:'Mano de obra',equipment:'Equipo',subcontract:'Subcontrato'}[item.kind]||item.kind):'Tipo por definir',item.unit||'Unidad por definir'].join(' · '))}
+       ${item.lines?.length?' · Para: '+e(item.lines.join(', ')):''}</small></span>
+       ${item.saved?'<small>✓ Agregado</small>':`<button type="button" data-ai="create-missing-resource" data-index="${index}" data-item="${i}" ${model.busy?'disabled':''}>${item.action==='specify'?'Especificar':'Crear insumo'}</button>`}
+       </div>`).join('')}</div>`;
+  }
   function approvalMarkup(message,index){
     const approval=message.approval;
-    if(approval)return `<p class="ai-approval-status" role="status">${e(approval.message||'Preparando carga…')}</p>${approval.result?.pendingReasons?.length?`<ul class="ai-pending-reasons">${approval.result.pendingReasons.map(item=>`<li>${e(item.description)}: ${item.reasons.map(e).join(' · ')}</li>`).join('')}</ul>`:''}${approval.state!=='running'&&approval.result?.committed&&approval.result.estimateId?`<button type="button" data-ai="approved-result" data-index="${index}" ${model.busy?'disabled':''}>Ver en presupuesto</button>`:''}${approval.state!=='running'&&approval.result?.pending&&approval.kind==='acu'&&approval.id===model.lastApprovedId?`<button type="button" data-ai="approved-pending" data-index="${index}" ${model.busy?'disabled':''}>Ver pendientes</button>`:''}`;
+    if(approval){
+      const errors=approval.result?.pendingReasons||[];
+      const showStatus=approval.message&&approval.message!==message.answer;
+      return `${showStatus?`<p class="ai-approval-status" role="status">${e(approval.message)}</p>`:''}
+       ${missingResourceMarkup(message,index)}
+       ${errors.length?`<details class="ai-pending-compact"><summary>Ver detalles técnicos de ${errors.length} ACU pendientes</summary><ul class="ai-pending-reasons">${errors.map(item=>`<li>${e(item.description)}: ${item.reasons.map(e).join(' · ')}</li>`).join('')}</ul></details>`:''}
+       ${approval.state!=='running'&&approval.result?.committed&&approval.result.estimateId?`<button type="button" data-ai="approved-result" data-index="${index}" ${model.busy?'disabled':''}>Ver en presupuesto</button>`:''}
+       ${approval.state!=='running'&&approval.result?.pending&&approval.kind==='acu'&&approval.id===model.lastApprovedId?`<button type="button" data-ai="approved-pending" data-index="${index}" ${model.busy?'disabled':''}>Editar ACU en detalle</button>`:''}`;
+    }
     if(message.sectionPreview){
       const plan=message.sectionPreview;
       return `<div class="ai-ingredient-preview"><strong>Rubros que se modificarán</strong><ul>${plan.display.map(item=>`<li>${e(item)}</li>`).join('')}</ul>${plan.warnings.map(item=>`<p class="ai-warning">⚠ ${e(item)}</p>`).join('')}<button type="button" class="ai-approve" data-ai="approve-section" data-index="${index}" ${canPlan()&&model.configured&&model.consent&&!model.busy?'':'disabled'}>Aprobar cambios de rubros</button><button type="button" data-ai="discard-section" data-index="${index}">Descartar</button></div>`;
@@ -1449,6 +1483,12 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     }
     model.error="";
     try{
+      if(action==='create-missing-resource'&&!model.busy){
+        const message=model.messages[Number(button.dataset.index)];
+        const resource=message?.approval?.result?.missingResources?.[Number(button.dataset.item)];
+        if(resource)missingResourcePopup.open(resource);
+        return;
+      }
       if (action === "approve-selected-acu-edit" && canDraftLibraryAcu() && !model.busy){
         const message=model.messages[Number(button.dataset.index)];
         if(message?.libraryEdit)await confirmSelectedAcuEdit("Aprobación de la propuesta visible",message);
