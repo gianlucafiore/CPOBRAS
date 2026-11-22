@@ -4,7 +4,7 @@ import {missingResourceItems} from './ai-missing-resources.js';
 import {multiplyDecimals,sumDecimals,compareDecimals} from '../decimal.js';
 export const expectedLine=line=>({description:line.description,unit:line.unit,quantity:line.quantity,unit_cost:line.unit_cost,analysis_id:line.analysis_id||null});
 export function acuSeed(line){return {...line,is_new:false};}
-export function newAcuSeeds(rows){return rows.map(r=>({id:r.new_id||globalThis.crypto.randomUUID(),description:r.description,unit:r.unit,quantity:r.quantity??'0',section:r.section||'',section_id:null,is_new:true,components:[],takeoffs:[],formula:null,analysis_id:null,expected_recipe:null,unit_cost:'0'}));}
+export function newAcuSeeds(rows){return rows.map(r=>({id:r.new_id||globalThis.crypto.randomUUID(),description:r.description,unit:r.unit,quantity:r.quantity??'0',section:r.section||'',section_id:null,is_new:true,components:[],takeoffs:[],formula:null,analysis_id:null,expected_recipe:null,unit_cost:'0',work_result:r.work_result||'',expected_resources:Array.isArray(r.expected_resources)?structuredClone(r.expected_resources):[]}));}
 export function emptyAcu(seed){return {id:seed.id,seed,selected:false,components:[],measurements:[],apply_measurements:false,section_id:seed.section_id||null,section_title:seed.section||'',assumptions:[],missing_resources:[],missing_resource_drafts:[],missing_resolved:false};}
 function decimal(value,label){if(typeof value!=='string')throw new Error(`${label}: usá un decimal como texto`);const v=importDecimal(value.trim().replace(',','.'),'decimal',true);if(v==null)throw new Error(`${label}: falta el dato`);return v;}
 // Notes are explanatory text, not a write schema. Providers sometimes return a
@@ -158,7 +158,24 @@ export function parseAcuProposals(text,seeds,allowedResources){
   const review=[];
   if(unknown)review.push('La IA indicó insumos fuera del catálogo seleccionado. Elegí un insumo real para cada campo pendiente y revisá sus consumos antes de guardar.');
   if(repeated)review.push('La IA repitió insumos; sus consumos se conservaron por separado, sin sumarlos. Quitá o cambiá los repetidos después de revisarlos.');
-  const proposal={...emptyAcu(seed),components,measurements,assumptions:['Consumos propuestos por IA: revisar por unidad y condiciones de ejecución.',...review,...notes('assumptions')],missing_resources:notes('missing_resources'),missing_resource_drafts:missingResourceItems(p.missing_resources)};
+  // La cobertura de recursos es un contrato entre la planificación del
+  // trabajo y el ACU. La IA debe asociar cada requisito con un recurso real
+  // usado en la receta o dejarlo expresamente pendiente. No se comparan
+  // palabras clave de materiales ni se fabrican equivalencias.
+  const required=Array.isArray(seed.expected_resources)?seed.expected_resources:[];
+  const coverage=Array.isArray(p.requirement_coverage)?p.requirement_coverage:[];
+  const mapped=new Set(),uncovered=[];
+  for(const req of required){
+   const matches=coverage.filter(item=>item?.requirement_id===req.id);
+   const found=matches.length===1?matches[0]:null;
+   const assigned=found?.resource_id&&components.some(component=>component.resource_id===found.resource_id);
+   if(assigned){mapped.add(req.id);continue;}
+   uncovered.push({description:req.description,unit:req.unit||'',kind:req.kind,
+    action:found?.unresolved_reason?'create':'specify',
+    reason:String(found?.unresolved_reason||'La propuesta no identificó este requisito con un insumo y consumo válido.').slice(0,300)});
+  }
+  const proposal={...emptyAcu(seed),components,measurements,requirement_coverage:coverage,
+   missing_resource_drafts:missingResourceItems([...(Array.isArray(p.missing_resources)?p.missing_resources:[]),...uncovered]),assumptions:['Consumos propuestos por IA: revisar por unidad y condiciones de ejecución.',...review,...notes('assumptions')],missing_resources:[...notes('missing_resources'),...uncovered.map(req=>req.description+': '+req.reason)]};
   if(p.section&&normalize(p.section)!==normalize(seed.section)){proposal.section_id=null;proposal.section_title=p.section;}
   return proposal;
  });
@@ -243,7 +260,7 @@ export function acuPromptContext(seeds,resources,examples,brief){
   const suggestions=[...primary,...found.related.slice(0,16-primary.length)];
   return {line_id:seed.id,candidates:suggestions.map(item=>({resource_id:item.id,match:item.matched_by}))};
  });
- const payload={task:'acu',resource_candidates,candidate_rule:'Son sugerencias de búsqueda, NO equivalencias automáticas. Elegí solo recursos cuya identidad, oficio, material, unidad, dimensión y destino sean técnicamente compatibles; si hay dudas, informá el faltante. Los recursos disponibles están en resources.',targets:seeds.map(s=>({line_id:s.id,description:s.description,unit:s.unit,quantity:s.quantity,section:s.section,is_new:s.is_new,existing_components:s.components,existing_measurements:s.takeoffs?.map(m=>({note:m.note,factor:m.factor,length:m.length,width:m.width,height:m.height,sign:m.sign}))})),resources:narrowed.map(r=>({resource_id:r.id,code:r.code,description:r.description,unit:r.unit,kind:r.kind,has_price:r.price!=null})),catalog_total:resources.length,catalog_sampled:narrowed.length,catalog_truncated:narrowed.length<resources.length,examples:ranked};
+ const payload={task:'acu',resource_candidates,candidate_rule:'Son sugerencias de búsqueda, NO equivalencias automáticas. Elegí solo recursos cuya identidad, oficio, material, unidad, dimensión y destino sean técnicamente compatibles; si hay dudas, informá el faltante. Los recursos disponibles están en resources.',targets:seeds.map(s=>({line_id:s.id,description:s.description,unit:s.unit,quantity:s.quantity,section:s.section,is_new:s.is_new,work_result:s.work_result||'',required_resources:s.expected_resources||[],existing_components:s.components,existing_measurements:s.takeoffs?.map(m=>({note:m.note,factor:m.factor,length:m.length,width:m.width,height:m.height,sign:m.sign}))})),resources:narrowed.map(r=>({resource_id:r.id,code:r.code,description:r.description,unit:r.unit,kind:r.kind,has_price:r.price!=null})),catalog_total:resources.length,catalog_sampled:narrowed.length,catalog_truncated:narrowed.length<resources.length,examples:ranked};
  const text=JSON.stringify(payload);if(new TextEncoder().encode(text).length>55000)throw new Error('La selección contextual para IA sigue siendo demasiado grande. Reducí los ejemplos o las partidas por consulta.');return text;
 }
 export function acuBatch({rows,context,estimate,newEstimate,batchId,asOf}){
