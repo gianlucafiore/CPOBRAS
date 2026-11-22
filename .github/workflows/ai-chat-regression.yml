@@ -91,6 +91,9 @@ jobs:
       - name: Install frontend dependencies
         working-directory: apps/desktop
         run: npm ci
+      - name: Verify ACU catalog and composition checks
+        working-directory: apps/desktop
+        run: node --test --test-isolation=none tests/ai-acu.test.mjs
       - name: Install Chromium
         working-directory: apps/desktop
         run: npx playwright install --with-deps chromium

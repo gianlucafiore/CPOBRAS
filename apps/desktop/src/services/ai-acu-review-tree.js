@@ -16,7 +16,9 @@ export function buildAcuReviewTree(rows=[],resources=[],sections=[],selections=[
   const chosen=selections.filter(selection=>selection.line_id===row.id);
   const components=(row.components||[]).map(component=>{
    const resource=catalog.get(component.resource_id);
-   return {description:resource?.description||component.description||'Insumo por identificar',
+   const hint=String(component.description||'').trim();
+   const isOpaqueId=/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(hint);
+   return {description:resource?.description||(!isOpaqueId&&hint)||'Insumo por identificar',
     unit:resource?.unit||component.quantity_unit||'',quantity:String(component.quantity||''),
     status:resource?'assigned':'missing',kind:resource?.kind||'',resource_id:resource?.id||null};
   });

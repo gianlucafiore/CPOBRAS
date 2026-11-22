@@ -102,6 +102,17 @@ function masonryTarget(description){
  if(/\b(?:revoques?|revestimientos?|pinturas?|impermeabilizacion|azotados?|enlucidos?)\b/.test(text))return '';
  return /\b(?:mamposteria|pared|paredes|muros?|ladrillos?|bloques?)\b/.test(text)?masonryFamily(text):'';
 }
+function ceramicBrickThickness(description){
+ const text=String(description||'').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+ const brick=text.match(/\bladrillos?\s+ceramicos?(?:\s+huecos?)?\s+(?:de\s+)?(\d+)\s*(?:cm\b|[x×]\s*\d+\s*[x×]\s*\d+\s*cm\b)/);
+ return brick?.[1]||null;
+}
+function wallBrickThickness(description){
+ const text=normalize(description);
+ const wall=text.search(/\b(?:mamposteria|pared(?:es)?|muros?)\b/);
+ const finish=text.search(/\b(?:revoques?|revestimientos?|pinturas?|impermeabilizacion|azotados?|enlucidos?)\b/);
+ return wall>=0&&(finish<0||wall<finish)?ceramicBrickThickness(description):null;
+}
 function catalogBagWeight(resource){
  // Read only an unambiguous package mass from the real catalog description.
  // A model-supplied conversion factor or package description is never trusted.
@@ -133,6 +144,12 @@ function componentSafetyErrors(row,component,resource){
  const actual=masonryFamily(resource.description);
  const requested=masonryFamily(component.requested_description||''),target=masonryTarget(row.seed.description);
  if(actual&&[requested,target].some(family=>family&&family!==actual))errors.push(`Material incompatible: ${label} no corresponde a la mampostería requerida en ${row.seed.description}. Elegí el insumo compatible; no se sustituye ladrillo cerámico por bloque de cemento u hormigón.`);
+ if(actual==='ceramic'){
+  const thickness=ceramicBrickThickness(label);
+  const required=[wallBrickThickness(row.seed.description),ceramicBrickThickness(component.requested_description)];
+  if(thickness&&required.some(value=>value&&value!==thickness))
+   errors.push(`Espesor de ladrillo incompatible: ${label} no coincide con el espesor especificado en ${row.seed.description}.`);
+ }
  return errors;
 }
 export function parseAcuProposals(text,seeds,allowedResources){
@@ -147,7 +164,7 @@ export function parseAcuProposals(text,seeds,allowedResources){
    const evidence=componentEvidence(c);
    if(!allowed.has(c.resource_id)){
     unknown=true;
-    const hint=[c.description,c.resource_code,c.resource_id].find(value=>typeof value==='string'&&value.trim())||'Insumo pendiente de identificar';
+    const hint=[c.requested_description,c.description,c.resource_code,c.resource_id].find(value=>typeof value==='string'&&value.trim())||'Insumo pendiente de identificar';
     return {resource_id:'',quantity,description:hint.replace(/[\u0000-\u001F\u007F]/g,' ').trim().slice(0,500)||'Insumo pendiente de identificar',...evidence};
    }
    if(resources.has(c.resource_id))repeated=true;resources.add(c.resource_id);
@@ -222,10 +239,24 @@ export function acuTotals(row,resources){
  if(row.missing_resources.length&&!row.missing_resolved)errors.push('Hay faltantes indicados por IA pendientes de resolver');
  // La planificación establece requisitos que no pueden ocultarse marcando
  // "faltantes resueltos" sin vincular un insumo real y su consumo positivo.
- for(const requirement of row.seed?.expected_resources||[]){
+ const requirements=row.seed?.expected_resources||[];
+ for(const requirement of requirements){
   const linked=(row.requirement_coverage||[]).filter(item=>item?.requirement_id===requirement.id);
   if(linked.length!==1||!linked[0].resource_id||!row.components.some(item=>item.resource_id===linked[0].resource_id))
    errors.push('Requisito sin consumo válido en el ACU: '+requirement.description);
+ }
+ if(requirements.length&&Array.isArray(row.requirement_coverage)){
+  const requiredById=new Map(requirements.map(requirement=>[requirement.id,requirement]));
+  for(const component of row.components){
+   const resource=map.get(component.resource_id);
+   if(!resource)continue;
+   const linked=row.requirement_coverage.filter(item=>item?.resource_id===resource.id&&requiredById.has(item.requirement_id));
+   if(!linked.length)errors.push('Insumo sin requisito en esta partida: '+resource.description);
+   else if(linked.some(item=>{
+    const kind=requiredById.get(item.requirement_id).kind;
+    return kind&&resource.kind&&kind!==resource.kind;
+   }))errors.push('Tipo de insumo incompatible con el requisito: '+resource.description);
+  }
  }
  let quantity=row.seed.quantity||'0';
  if(row.apply_measurements){try{quantity=measurementQuantity(row.measurements);if(quantity==null||compareDecimals(quantity,'0')<0)throw new Error();}catch{errors.push('La medición está incompleta o su resultado es negativo');}}
@@ -254,7 +285,7 @@ export function acuRelevantResources(seeds,resources,brief,limit=90){
  const work=seeds.map(s=>s.description).join(' ')+' '+brief;
  const related=/\b(?:revestimiento|porcelanato|ceramica|azulejo|bano)\b/i.test(normalize(work))
   ?' porcelanato ceramica adhesivo pegamento pastina junta colocacion mano de obra':'';
- const queries=[brief+related, ...seeds.map(s=>s.description+' '+brief)];
+ const queries=[...seeds.map(seed=>[seed.description,...(seed.expected_resources||[]).map(item=>item.description)].join(' ')),brief+related];
  const ranked=new Map();
  for(const query of queries){
   const data=JSON.parse(buildCatalogContext({question:query,resources}));
@@ -276,12 +307,12 @@ export function acuPromptContext(seeds,resources,examples,brief){
  const ranked=examples.map(e=>({e,score:[...tokens(e.description)].filter(w=>words.has(w)).length+(seeds.some(s=>normalize(s.unit)===normalize(e.unit))?1:0)})).sort((a,b)=>b.score-a.score).slice(0,8).map(({e})=>({key:e.key,reference:e.source_title||e.description,description:e.description,unit:e.unit,section:e.section,components:e.components.map(c=>({resource_id:c.resource_id,description:c.description,quantity:c.quantity}))}));
  const narrowed=acuRelevantResources(seeds,resources,brief);
  const resource_candidates=seeds.map(seed=>{
-  const found=JSON.parse(buildCatalogContext({question:seed.description+' '+brief,resources:narrowed}));
+  const found=JSON.parse(buildCatalogContext({question:[seed.description,...(seed.expected_resources||[]).map(item=>item.description)].join(' '),resources:narrowed}));
   const primary=found.matches.slice(0,found.related.length?12:16);
   const suggestions=[...primary,...found.related.slice(0,16-primary.length)];
   return {line_id:seed.id,candidates:suggestions.map(item=>({resource_id:item.id,match:item.matched_by}))};
  });
- const payload={task:'acu',resource_candidates,candidate_rule:'Son sugerencias de búsqueda, NO equivalencias automáticas. Elegí solo recursos cuya identidad, oficio, material, unidad, dimensión y destino sean técnicamente compatibles; si hay dudas, informá el faltante. Los recursos disponibles están en resources.',targets:seeds.map(s=>({line_id:s.id,description:s.description,unit:s.unit,quantity:s.quantity,section:s.section,is_new:s.is_new,quantity_status:s.quantity_status||'pending',quantity_source:s.quantity_source||null,work_result:s.work_result||'',required_resources:s.expected_resources||[],existing_components:s.components,existing_measurements:s.takeoffs?.map(m=>({note:m.note,factor:m.factor,length:m.length,width:m.width,height:m.height,sign:m.sign}))})),resources:narrowed.map(r=>({resource_id:r.id,code:r.code,description:r.description,unit:r.unit,kind:r.kind,has_price:r.price!=null})),catalog_total:resources.length,catalog_sampled:narrowed.length,catalog_truncated:narrowed.length<resources.length,examples:ranked};
+ const payload={task:'acu',resource_candidates,candidate_rule:'Son sugerencias de búsqueda, NO equivalencias automáticas. Elegí solo recursos cuya identidad, oficio, material, unidad, dimensión y destino sean técnicamente compatibles; si hay dudas, informá el faltante. Los recursos disponibles están en resources. Asociá cada componente a un requirement_id real del target cuando haya requisitos. Verificá el tipo y la especificación contra la descripción real del catálogo. Si aparece un requisito adicional necesario, informalo como pendiente en vez de asignarlo sin revisión. No traslades materiales ni oficios de otra partida, aunque estén en el alcance general.',targets:seeds.map(s=>({line_id:s.id,description:s.description,unit:s.unit,quantity:s.quantity,section:s.section,is_new:s.is_new,quantity_status:s.quantity_status||'pending',quantity_source:s.quantity_source||null,work_result:s.work_result||'',required_resources:s.expected_resources||[],existing_components:s.components,existing_measurements:s.takeoffs?.map(m=>({note:m.note,factor:m.factor,length:m.length,width:m.width,height:m.height,sign:m.sign}))})),resources:narrowed.map(r=>({resource_id:r.id,code:r.code,description:r.description,unit:r.unit,kind:r.kind,has_price:r.price!=null})),catalog_total:resources.length,catalog_sampled:narrowed.length,catalog_truncated:narrowed.length<resources.length,examples:ranked};
  const text=JSON.stringify(payload);if(new TextEncoder().encode(text).length>55000)throw new Error('La selección contextual para IA sigue siendo demasiado grande. Reducí los ejemplos o las partidas por consulta.');return text;
 }
 export function acuBatch({rows,context,estimate,newEstimate,batchId,asOf}){

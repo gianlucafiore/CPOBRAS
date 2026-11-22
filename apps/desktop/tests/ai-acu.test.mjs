@@ -1,5 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
+import {buildAcuReviewTree} from '../src/services/ai-acu-review-tree.js';
 import {acuSeed,emptyAcu,parseAcuProposals,measurementQuantity,acuTotals,acuPreapprovalErrors,copyAcuExample,acuPromptContext,acuBatch,acuRelevantResources} from '../src/services/ai-acu.js';
 const resource={id:'10000000-0000-4000-8000-000000000001',code:'MAT',description:'Mortero',unit:'kg',kind:'material',price:'20',price_source:'catálogo:price-1'};
 const seed=acuSeed({id:'10000000-0000-4000-8000-000000000002',description:'Revoque',unit:'m²',quantity:'10',unit_cost:'0',analysis_id:null,expected_recipe:null,section_id:null,section:'',takeoffs:[],formula:null,components:[]});
@@ -283,4 +284,42 @@ test('509 catalog resources are narrowed to real construction candidates before 
  assert.equal(prompt.catalog_truncated,true);
  assert.ok(prompt.resources.length<=90);
  assert.ok(new TextEncoder().encode(JSON.stringify(prompt)).length<55000);
+});
+
+test('a wall specified in 18 cm cannot be approved with a 12 cm brick even when revoque is included',()=>{
+ const wall={...seed,description:'Construcción de muros en ladrillo cerámico hueco 18 cm con revoque ambas caras'};
+ const brick={...resource,unit:'un',description:'Ladrillo cerámico hueco 12 x 18 x 33 cm'};
+ assert.ok(acuPreapprovalErrors(evidenceRow({},brick,wall),[brick]).some(error=>error.includes('Espesor de ladrillo incompatible')));
+ const correct={...brick,description:'Ladrillo cerámico hueco 18 × 18 × 33 cm'};
+ assert.deepEqual(acuPreapprovalErrors(evidenceRow({},correct,wall),[correct]),[]);
+ const finish={...seed,description:'Revoque sobre muro de ladrillo cerámico hueco 18 cm'};
+ assert.deepEqual(acuPreapprovalErrors(evidenceRow({requested_description:'Recurso de prueba'},brick,finish),[brick]),[]);
+});
+
+test('a recipe of planned work blocks unlinked components and catalog kinds that contradict requirements',()=>{
+ const floor={...seed,description:'Colocación de piso de porcelanato',expected_resources:[
+  {id:'req-1',description:'Porcelanato para piso',kind:'material'}
+ ]};
+ const tile={...resource,description:'Piso porcelanato',kind:'material',unit:'m2'};
+ const unrelated={...resource,id:'unrelated',description:'Instalación de artefacto de luz',kind:'labor',unit:'un'};
+ const row=parseAcuProposals(JSON.stringify({acu_proposals:[{
+  line_id:floor.id,components:[{resource_id:tile.id,quantity:'1'},{resource_id:unrelated.id,quantity:'1'}],
+  requirement_coverage:[{requirement_id:'req-1',resource_id:tile.id}]
+ }]}),[floor],[tile,unrelated])[0];
+ assert.ok(acuPreapprovalErrors(row,[tile,unrelated]).some(error=>error.includes('Insumo sin requisito en esta partida')));
+ row.requirement_coverage[0].resource_id=unrelated.id;
+ assert.ok(acuPreapprovalErrors(row,[tile,unrelated]).some(error=>error.includes('Tipo de insumo incompatible')));
+ row.requirement_coverage[0].resource_id=tile.id;
+ row.components.pop();
+ assert.deepEqual(acuPreapprovalErrors(row,[tile,unrelated]),[]);
+});
+
+
+test('an unknown catalog UUID remains pending without exposing the identifier as a resource name',()=>{
+ const row=parseAcuProposals(JSON.stringify({acu_proposals:[{
+  line_id:seed.id,components:[{resource_id:'7b4d1caa-8247-4a11-893c-2b43c65eb6d7',quantity:'1'}]
+ }]}),[seed],[resource])[0];
+ const [group]=buildAcuReviewTree([row],[resource]);
+ assert.equal(group.lines[0].status,'pending');
+ assert.equal(group.lines[0].items[0].description,'Insumo por identificar');
 });
