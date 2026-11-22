@@ -324,6 +324,7 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
        ${outlineWarnings.map(item=>`<p class="ai-warning">Partida pendiente de revisión: ${e(item)}</p>`).join('')}
        ${(approval.result?.warnings||[]).map(item=>`<p>${e(item)}</p>`).join('')}</details>`:''}
        ${approval.state!=='running'&&approval.result?.committed&&approval.result.estimateId?`<button type="button" data-ai="approved-result" data-index="${index}" ${model.busy?'disabled':''}>Ver en presupuesto</button>`:''}
+        ${approval.state!=='running'&&approval.kind==='acu'&&approval.result?.committed&&approval.result?.pending>0?`<button type="button" data-ai="continue-saved-acu" data-index="${index}" ${model.busy?'disabled':''}>Completar ${approval.result.pending} ACU pendientes</button>`:''}
        ${approval.state!=='running'&&approval.result&&!approval.result.committed&&approval.kind==='acu'&&approval.id===model.lastApprovedId?`<button type="button" data-ai="retry-missing-acu" data-index="${index}" ${model.busy?'disabled':''}>${approval.result.prepared>0?'Reintentar ACU pendientes':'Reintentar preparación'}</button>${approval.result.prepared>0?`<button type="button" data-ai="approved-pending" data-index="${index}" ${model.busy?'disabled':''}>Ver pendientes</button>`:''}`:''}`;
     }
     if(message.sectionPreview){
@@ -437,6 +438,40 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
         model.notice=message.answer;
       }
     }catch(error){model.error='No se pudo guardar la tarea revisada: '+String(error);}
+    finally{model.retryingAcu=false;model.busy=false;paint();}
+  }
+  async function continueSavedAcus(message){
+    if(!message?.approval?.result?.committed||!(message.approval.result.pending>0))return;
+    if(!canPlan()||!model.configured||!model.consent||model.busy){
+      model.error='Abrí el presupuesto editable y habilitá la IA para completar los ACU.';paint();return;
+    }
+    model.busy=true;model.retryingAcu=true;model.error='';
+    model.notice='Consultando consumos para las partidas ya guardadas. No se crearán nuevas partidas.';
+    paint();
+    try{
+      const updated=await acuWorkbench.regeneratePending();
+      const review=acuWorkbench.preparePendingPreview();
+      if(review.previewReady){
+        if(review.preview.structureLines?.length)
+          throw new Error('La continuación intentó crear partidas nuevas. Se descartó la propuesta.');
+        const next=addReply('Continuar ACU pendientes',{
+          answer:'Preparé composiciones para las partidas existentes. Revisá sus cantidades antes de aprobar. Ninguna partida se duplicará.',
+          preview:review.preview
+        });
+        model.pendingAction=next;
+        model.notice=next.answer;
+      }else{
+        const id=globalThis.crypto.randomUUID();
+        model.lastApprovedId=id;
+        const reason='Quedan '+updated.pending+' ACU sin consumos validados. Las partidas ya existen en el presupuesto; no se guardaron composiciones inventadas.';
+        const next=addReply('Continuar ACU pendientes',{
+          answer:reason,
+          approval:{id,kind:'acu',state:'done',message:reason,
+           result:{...updated,...review,committed:false}}
+        });
+        model.pendingAction=next;model.notice=reason;
+      }
+    }catch(error){model.error='No se pudieron completar los ACU existentes: '+String(error);}
     finally{model.retryingAcu=false;model.busy=false;paint();}
   }
   async function approveMessage(index){
@@ -1612,6 +1647,11 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
         }else message.approval.result.tree=result.tree;
         model.notice=button.dataset.excluded==='true'?'Elemento restaurado en el borrador.':'Elemento excluido del lote; no se borró de la biblioteca.';
         paint();return;
+      }
+      if(action==='continue-saved-acu'&&!model.busy){
+        const message=model.messages[Number(button.dataset.index)];
+        await continueSavedAcus(message);
+        return;
       }
       if(action==='retry-missing-acu'&&!model.busy){
         const message=model.messages[Number(button.dataset.index)];
