@@ -617,3 +617,21 @@ input[type=search]::-webkit-search-cancel-button{appearance:none}
 .ai-missing-dialog .ai-missing-results p{padding:12px}
 .ai-console .ai-missing-item{flex-wrap:wrap}
 .ai-console .ai-missing-item button{margin-left:auto}
+
+/* Revisión conversacional: rubro > partida > insumos, sin otra ventana grande. */
+.ai-console .ai-acu-review-tree{border:1px solid #405968;border-radius:8px;padding:10px;margin:10px 0;max-height:min(55vh,620px);overflow:auto}
+.ai-console .ai-acu-review-tree>strong{display:block;margin-bottom:8px}
+.ai-console .ai-acu-tree-section{border-top:1px solid #3d5361;padding:7px 0}
+.ai-console .ai-acu-tree-section>summary{cursor:pointer;font-size:14px}
+.ai-console .ai-acu-tree-section>summary small{margin-left:8px;color:#a7bccb;font-size:11px}
+.ai-console .ai-acu-tree-section>ul{padding:0 0 0 15px;margin:6px 0;list-style:none}
+.ai-console .ai-acu-tree-line{margin:5px 0;padding:5px 8px;border-left:2px solid #4a6474}
+.ai-console .ai-acu-tree-line>details>summary{cursor:pointer}
+.ai-console .ai-acu-tree-line>details>summary small{display:inline-block;margin-left:6px;color:#a6bbca;font-size:11px}
+.ai-console .ai-acu-tree-line>details>ul{list-style:none;padding:4px 0 2px 15px;margin:0}
+.ai-console .ai-acu-tree-resource{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:4px 0}
+.ai-console .ai-acu-tree-resource>span{flex:1;min-width:0}
+.ai-console .ai-acu-tree-resource small{display:block;color:#9fb6c6;margin-top:2px;font-size:11px}
+.ai-console .ai-acu-tree-resource button{flex-shrink:0;max-width:132px}
+.ai-console .ai-acu-tree-errors{font-size:11px;color:#e9be8a}
+.ai-console .ai-acu-tree-errors>summary{cursor:pointer}
