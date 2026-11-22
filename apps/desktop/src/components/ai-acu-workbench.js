@@ -120,9 +120,18 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
     const additionInstruction=append?additionPrompt():'';
     const result=await ask([{role:'user',content:additionInstruction+'Prepará ACU solo para los targets indicados. Criterios aprobados por el usuario: '+model.brief+'\nRespondé JSON con answer y acu_proposals, con IDs exactos y consumos decimales como texto. Usá exclusivamente resource_id del catálogo. Para cada consumo incluí quantity_unit (unidad exacta del insumo), requested_description (material requerido realmente), consumption_support (hipótesis y fundamento del consumo) y, si convertiste una cifra, source_quantity y source_unit. No sustituyas materiales diferentes ni inventes precios, insumos o medidas: dejá measurements vacío. En missing_resources devolvé una lista de objetos {description,unit,kind,action,reason}: action=create SOLO cuando falta un insumo concreto del catálogo; action=specify cuando falta una dimensión, sección o definición técnica. Proponé unidad y tipo material/labor/equipment/subcontract solo si están fundamentados, si no dejalos vacíos. Un mismo faltante no debe repetirse. Se conservarán las cantidades y los metrados actuales.'}],promptContext(chunk,resources,[]),'acu');
     if(!approvalCurrent(authorization)){cancelled=true;return finish();}
-    const rows=append?parseAcuAdditions(result.text,chunk,resources,model.brief).map(row=>mergeAcuAddition(row,resources,model.brief)):parseAcuProposals(result.text,chunk,resources);
-    for(const row of rows){row.apply_measurements=false;row.selected=false;}
-    addRows(rows);
+    try{
+     const rows=append?parseAcuAdditions(result.text,chunk,resources,model.brief).map(row=>mergeAcuAddition(row,resources,model.brief)):parseAcuProposals(result.text,chunk,resources);
+     for(const row of rows){row.apply_measurements=false;row.selected=false;}
+     addRows(rows);
+    }catch(error){
+     // Un bloque de dos ACU inválido no debe destruir los borradores ya
+     // generados ni dejar una tarea sin datos para reintentar.
+     const detail='Consulta '+(Math.floor(offset/2)+1)+': '+String(error).slice(0,400);
+     for(const seed of chunk){
+      addRows([{...emptyAcu(seed),missing_resources:[detail],assumptions:['La propuesta de IA no pasó la validación. No se guardó nada.']}]);
+     }
+    }
    }
    if(!approvalCurrent(authorization)){cancelled=true;return finish();}
    for(const row of model.rows){
@@ -324,7 +333,7 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
   if(!state.projectId||state.remoteProject||state.modal||state.pageDirty||state.projects.find(p=>p.id===state.projectId)?.read_only||state.estimates.find(e=>e.id===state.estimateId)?.issued)
    throw new Error('Abrí el presupuesto propio editable antes de continuar.');
   const saved=drafts.get(draftKey())||(!model.applied&&model.draftKey===draftKey()?model:null);
-  if(!saved?.rows?.length)throw new Error('No hay propuestas anteriores de ACU para continuar.');
+  if(!saved||(!saved.rows?.length&&!saved.seeds?.length&&!saved.targetIds?.size))throw new Error('No hay un borrador de ACU recuperable para esta tarea. Volvé a preparar las partidas.');
   const currentScope=scope(),token=++generation;
   model=saved;model.open=false;model.headless=true;model.busy=false;model.scope=currentScope;stop=false;
   await refreshPendingCatalog();
