@@ -99,3 +99,16 @@ test('a fully mapped construction recipe is reviewable, and the ACU model cannot
  assert.equal(row.section_title,seed.section);
  assert.equal(buildAcuReviewTree([row],other,[],[])[0].lines[0].status,'ready');
 });
+
+test('total structural quantity cannot masquerade as per-unit resource consumption',()=>{
+ const seed=newAcuSeeds(parseConstructionOutline(JSON.stringify(plan)))[0];
+ const misleading={acu_proposals:[{line_id:seed.id,components:[{
+  resource_id:'mat-1',quantity:'900',quantity_unit:'kg'
+ }],missing_resources:[],requirement_coverage:[
+  {requirement_id:'req-1',resource_id:'mat-1'},
+  {requirement_id:'req-2',unresolved_reason:'Pendiente'},
+  {requirement_id:'req-3',unresolved_reason:'Pendiente'}
+ ]}]};
+ const [row]=parseAcuProposals(JSON.stringify(misleading),[seed],catalog);
+ assert.ok(acuTotals(row,catalog).errors.some(error=>error.includes('consumo por unidad coincide con la cantidad total')));
+});
