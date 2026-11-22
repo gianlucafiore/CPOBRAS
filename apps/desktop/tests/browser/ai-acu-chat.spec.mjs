@@ -16,6 +16,9 @@ async function chatFixture(page,{reply='handoff'}={}){
   const resource={id:${JSON.stringify(resourceId)},code:'MAT-001',description:'Mortero',unit:'kg',kind:'material',price:'20',price_source:'catálogo:price-1'};
   const line=(id,description)=>({id,description,unit:'m²',quantity:'42',unit_cost:'0',analysis_id:null,expected_recipe:null,section_id:null,section:'',components:[],takeoffs:[],formula:null});
   const state={view:'workspace',projectId:'project-1',estimateId:'estimate-1',projects:[{id:'project-1',currency:'ARS'}],estimates:[{id:'estimate-1',title:'Presupuesto de prueba',currency:'ARS',issued:false}],lines:[line(${JSON.stringify(firstLineId)},'Revoque grueso'),line(${JSON.stringify(secondLineId)},'Revoque fino')],sections:[],assignments:{},selectedLineId:${JSON.stringify(firstLineId)},panel:'acu',search:''};
+  const structure=${JSON.stringify(reply==='structure')};
+  const extra={...resource,id:'unplanned',description:'Alquiler tijera elevadora',kind:'equipment',unit:'día'};
+  const resources=structure?[resource,extra]:[resource];
   const calls=[],batches=[],loads=[];
   const harness={state,calls,batches,loads,ready:false};window.__aiAcuHarness=harness;
   const renderBudget=()=>{
@@ -28,12 +31,19 @@ async function chatFixture(page,{reply='handoff'}={}){
    if(name==='ai_status')return {configured:true,provider:'openai',model:'fixture-model'};
    if(name==='ai_cancel')return null;
    if(name==='ai_catalog_context')return {currency:'ARS',as_of:args.asOf,resources:[structuredClone(resource)]};
-   if(name==='assisted_acu_context')return {currency:'ARS',resources:[structuredClone(resource)],lines:structuredClone(state.lines),sections:[]};
+   if(name==='assisted_acu_context')return {currency:'ARS',resources:structuredClone(resources),lines:structuredClone(state.lines),sections:[]};
    if(name==='assisted_acu_references')return [];
    if(name==='ai_chat'){
+    if(structure&&args.mode==='plan')return {text:JSON.stringify({work_sections:[{title:'Muros',partidas:[{
+     description:'Revoque con mortero',unit:'m²',quantity:null,work_result:'Muro revocado',
+     resources:[{name:'Mortero',kind:'material',unit:'kg'}]
+    }]}]})};
     if(args.mode==='acu'){
      const context=JSON.parse(args.context);
-     return {text:JSON.stringify({answer:'Recetas para revisar',acu_proposals:context.targets.map(target=>({line_id:target.line_id,components:[{resource_id:${JSON.stringify(resourceId)},quantity:'0.25'}],measurements:[],assumptions:['Consumo estimativo por m² para revisar.'],missing_resources:[]}))}),input_tokens:50,output_tokens:50};
+     return {text:JSON.stringify({answer:'Recetas para revisar',acu_proposals:context.targets.map(target=>({
+      line_id:target.line_id,components:[{resource_id:resource.id,quantity:'0.25'},...(structure&&target.is_new?[{resource_id:extra.id,quantity:'0.02'}]:[])],
+      measurements:[],assumptions:['Consumo estimativo por m² para revisar.'],missing_resources:[]
+     }))}),input_tokens:50,output_tokens:50};
     }
     const answer=${JSON.stringify(reply)}==='legacy'
      ? {answer:'Estos son los consumos de las partidas existentes.',proposal_lines:[{description:'Agregar material',unit:'gl',quantity:null,unit_price:null,section:'Insumos'}]}
@@ -42,6 +52,7 @@ async function chatFixture(page,{reply='handoff'}={}){
    }
    if(name==='apply_reviewed_budget_batch'){
     const batch=structuredClone(args.batch);batches.push(batch);
+    for(const created of batch.creates)state.lines.push({...created,components:[],analysis_id:null,unit_cost:created.unit_price});
     for(const acu of batch.acus){const existing=state.lines.find(item=>item.id===acu.line_id);if(!existing)throw new Error('The chat must not invent a target line');existing.components=structuredClone(acu.components);existing.unit_cost='5.00';existing.analysis_id='private-analysis-'+existing.id;}
     return {updated:batch.updates.length,created:batch.creates.length,deleted:batch.deletes.length,composed:batch.acus.length};
    }
@@ -70,6 +81,7 @@ test('a structured ACU handoff opens the exact existing targets and ignores an u
  await ask(page,'¿Qué recomendás revisar en este presupuesto?');
  const handoff=page.getByRole('button',{name:'Revisar antes de cargar',exact:true});
  await expect(handoff).toBeVisible();
+ await expect(page.locator('.ai-message.ai-user')).toContainText('¿Qué recomendás revisar en este presupuesto?');
  await expect(page.locator('.ai-transcript')).not.toContainText('La lista de partidas no es válida');
  await expect(page.locator('[data-ai=review-plan]')).toHaveCount(0);
  await handoff.click();
@@ -144,4 +156,40 @@ test('clearing the chat preserves the budget and an already composed selection y
  expect(result.composition).toEqual([{quantity:'3',resource_id:'existing-resource'}]);
  expect(result.acuCalls).toEqual([]);
  expect(result.batches).toEqual([]);
+});
+
+
+test('a structure-only save reports zero ACU and retries with the reason on the existing line',async({page})=>{
+ await chatFixture(page,{reply:'structure'});
+ const prompt='Prepará partidas nuevas con ACU para una casa con muros a revocar.';
+ await ask(page,prompt);
+ await expect(page.locator('.ai-message.ai-user').first()).toContainText(prompt);
+ await expect(page.locator('.ai-acu-tree-errors')).toContainText('Insumo sin requisito en esta partida: Alquiler tijera elevadora');
+ await ask(page,'sí, aprobado');
+ await page.getByRole('button',{name:'Guardar solo rubros y partidas (sin ACU)',exact:true}).click();
+ await expect(page.locator('.ai-approval-status')).toContainText('0 ACU guardados');
+ await expect(page.locator('.ai-message.ai-user').first()).toContainText(prompt);
+ await page.getByRole('button',{name:'Completar 1 ACU pendientes'}).click();
+ const preview=page.getByRole('button',{name:'Aprobar y guardar 1 ACU completos'});
+ await expect(preview).toBeVisible();
+
+ const before=await page.evaluate(()=>{
+  const {calls,batches}=window.__aiAcuHarness;
+  return {batches,contexts:calls.filter(call=>call.args.mode==='acu').map(call=>JSON.parse(call.args.context))};
+ });
+ expect(before.batches).toHaveLength(1);
+ expect(before.batches[0].acus).toEqual([]);
+ expect(before.contexts).toHaveLength(2);
+ const saved=before.batches[0].creates[0];
+ expect(saved.quantity).toBe('0');
+ expect(before.contexts[1].targets).toMatchObject([{line_id:saved.id,is_new:false}]);
+ expect(before.contexts[1].previous_review).toMatchObject([{
+  line_id:saved.id,errors:['Insumo sin requisito en esta partida: Alquiler tijera elevadora']
+ }]);
+
+ await preview.click();
+ const after=await page.evaluate(()=>window.__aiAcuHarness.batches);
+ expect(after).toHaveLength(2);
+ expect(after[1]).toMatchObject({creates:[],deletes:[],updates:[],acus:[{line_id:saved.id,measurements:null,
+  expected:{quantity:'0'},components:[{resource_id:resourceId,quantity:'0.25'}]}]});
 });

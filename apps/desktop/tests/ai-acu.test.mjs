@@ -323,3 +323,27 @@ test('an unknown catalog UUID remains pending without exposing the identifier as
  assert.equal(group.lines[0].status,'pending');
  assert.equal(group.lines[0].items[0].description,'Insumo por identificar');
 });
+
+test('a missing coverage link is recovered only for a single exact catalog match with compatible kind and unit',()=>{
+ const mortar={...resource,description:'Mortero',kind:'material',unit:'kg'};
+ const target={...seed,quantity:'0',quantity_status:'pending',expected_resources:[
+  {id:'required-mortar',description:'Mortero',kind:'material',unit:'kg'}
+ ]};
+ const parse=(resources,coverage)=>parseAcuProposals(JSON.stringify({acu_proposals:[{
+  line_id:target.id,
+  components:resources.map(item=>({resource_id:item.id,quantity:'0.25',quantity_unit:item.unit})),
+  requirement_coverage:coverage
+ }]}),[target],resources)[0];
+ const unique=parse([mortar]);
+ assert.deepEqual(unique.requirement_coverage,[{requirement_id:'required-mortar',resource_id:mortar.id,unresolved_reason:''}]);
+ assert.deepEqual(acuPreapprovalErrors(unique,[mortar]),[]);
+ assert.equal(acuTotals(unique,[mortar]).quantity,'0');
+
+ const second={...mortar,id:'second-mortar'};
+ for(const resources of [[mortar,second],[{...mortar,unit:'bolsa'}],[{...mortar,kind:'labor'}],[{...mortar,description:'Mortero de terminación'}]]){
+  assert.ok(acuPreapprovalErrors(parse(resources),resources).some(error=>error.includes('Requisito sin consumo válido')));
+ }
+ const unresolved=parse([mortar],[{requirement_id:'required-mortar',resource_id:'',unresolved_reason:'Falta especificar la mezcla'}]);
+ assert.ok(unresolved.missing_resources.some(reason=>reason.includes('Falta especificar la mezcla')));
+ assert.ok(acuPreapprovalErrors(unresolved,[mortar]).length);
+});

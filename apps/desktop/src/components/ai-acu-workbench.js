@@ -572,8 +572,12 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
    return {prepared:0,pending:0,committed:false,noTargets:true,
     message:model.fillMissingOnly?noFillTargets:'0 propuestas: no hay partidas pendientes seleccionadas.'};
   }
-  const previous=new Map(model.rows.map(row=>[row.id,row]));
-  const revisit=activeTargets().filter(seed=>!previous.has(seed.id)||acuTotals(previous.get(seed.id),model.context.resources).errors.length);
+  const selectedRows=excludedAcuRows(model.rows,model.excludedLineIds,model.excludedInputKeys);
+  const reviewById=new Map(selectedRows.map(row=>[row.id,row]));
+  const revisit=activeTargets().filter(seed=>{
+   const row=reviewById.get(seed.id);
+   return !row||acuTotals(row,model.context.resources).errors.length;
+  });
   model.busy=true;
   const failures=[];
   try{
@@ -590,12 +594,19 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
      // El catálogo puede recortarse para la IA; los recursos que el usuario
      // eligió explícitamente nunca deben desaparecer de ese recorte.
      const context=JSON.parse(promptContext(chunk,resources,[]));
+     const previousReview=chunk.flatMap(seed=>{
+      const row=reviewById.get(seed.id);
+      if(!row)return [];
+      const reasons=acuPreapprovalErrors(row,model.context.resources);
+      return reasons.length?[{line_id:seed.id,errors:reasons.slice(0,8).map(reason=>reason.slice(0,250))}]:[];
+     });
+     if(previousReview.length)context.previous_review=previousReview;
      for(const selection of confirmed){
       const actual=resources.find(row=>row.id===selection.resource_id);
       if(actual&&!context.resources.some(row=>row.resource_id===actual.id))
        context.resources.push({resource_id:actual.id,code:actual.code,description:actual.description,unit:actual.unit,kind:actual.kind,has_price:actual.price!=null});
      }
-     const result=await ask([{role:'user',content:prompt}],JSON.stringify(context),'acu');
+     const result=await ask([{role:'user',content:prompt+(previousReview.length?' Corregí los errores de previous_review para cada partida. Si no podés resolverlos con insumos y consumos verificables, detallá el faltante.':'')}],JSON.stringify(context),'acu');
      if(token!==generation||currentScope!==scope())throw new Error('Cambió la vista durante la consulta.');
      const rows=model.operation==='append'
       ?parseAcuAdditions(result.text,chunk,resources,model.brief).map(row=>mergeAcuAddition(row,resources,model.brief))
@@ -612,8 +623,9 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
      failures.push(chunk.map(seed=>seed.description).join(', ')+': '+String(error));
     }
    }
+   const reviewedRows=new Map(excludedAcuRows(model.rows,model.excludedLineIds,model.excludedInputKeys).map(row=>[row.id,row]));
    const pendingReasons=activeTargets().flatMap(seed=>{
-    const row=model.rows.find(item=>item.id===seed.id);
+    const row=reviewedRows.get(seed.id);
     if(!row)return [{description:seed.description,reasons:['Falta una composición preparada']}];
     const reasons=[...new Set([...(row.missing_resources||[]),...acuPreapprovalErrors(row,model.context.resources)])];
     return reasons.length?[{description:seed.description,reasons:reasons.slice(0,8)}]:[];

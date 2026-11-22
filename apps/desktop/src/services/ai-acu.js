@@ -155,14 +155,14 @@ function componentSafetyErrors(row,component,resource){
 export function parseAcuProposals(text,seeds,allowedResources){
  let value;try{value=JSON.parse(text.trim().replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,''));}catch{throw new Error('La respuesta de ACU está incompleta o no tiene el formato esperado. Acotá los criterios y volvé a solicitar las partidas pendientes');}
  if(!Array.isArray(value.acu_proposals)||!value.acu_proposals.length||value.acu_proposals.length>5)throw new Error('La IA no devolvió una lista completa de ACU (máximo 5 por consulta)');
- const allowed=new Set(allowedResources.map(r=>r.id)),seen=new Set();
+ const catalog=new Map(allowedResources.map(resource=>[resource.id,resource])),seen=new Set();
  const proposals=value.acu_proposals.map(p=>{
   const seed=seeds.find(s=>s.id===p.line_id);if(!seed||seen.has(p.line_id))throw new Error('La IA indicó una partida ajena a la consulta o repetida');seen.add(p.line_id);
   if(!Array.isArray(p.components)||p.components.length>100)throw new Error('Lista de insumos inválida');
   const resources=new Set();let unknown=false,repeated=false;const components=p.components.map(c=>{
    const quantity=decimal(c.quantity,'Consumo');if(compareDecimals(quantity,'0')<=0)throw new Error('Los consumos deben ser mayores que cero');
    const evidence=componentEvidence(c);
-   if(!allowed.has(c.resource_id)){
+   if(!catalog.has(c.resource_id)){
     unknown=true;
     const hint=[c.requested_description,c.description,c.resource_code,c.resource_id].find(value=>typeof value==='string'&&value.trim())||'Insumo pendiente de identificar';
     return {resource_id:'',quantity,description:hint.replace(/[\u0000-\u001F\u007F]/g,' ').trim().slice(0,500)||'Insumo pendiente de identificar',...evidence};
@@ -185,13 +185,25 @@ export function parseAcuProposals(text,seeds,allowedResources){
   // usado en la receta o dejarlo expresamente pendiente. No se comparan
   // palabras clave de materiales ni se fabrican equivalencias.
   const required=Array.isArray(seed.expected_resources)?seed.expected_resources:[];
-  const coverage=Array.isArray(p.requirement_coverage)?p.requirement_coverage:[];
-  const mapped=new Set(),uncovered=[];
+  const coverage=Array.isArray(p.requirement_coverage)?[...p.requirement_coverage]:[];
+  const used=new Set(coverage.map(item=>item?.resource_id).filter(Boolean));
+  const uncovered=[];
   for(const req of required){
    const matches=coverage.filter(item=>item?.requirement_id===req.id);
    const found=matches.length===1?matches[0]:null;
-   const assigned=found?.resource_id&&components.some(component=>component.resource_id===found.resource_id);
-   if(assigned){mapped.add(req.id);continue;}
+   if(found?.resource_id&&components.some(component=>component.resource_id===found.resource_id))continue;
+   // Repair an omitted link only when the proposed component has an exact,
+   // unique match in the real catalog. Never replace an explicit decision.
+   if(!matches.length&&req.kind){
+    const exact=components.map(component=>catalog.get(component.resource_id)).filter(resource=>
+     resource&&!used.has(resource.id)&&resource.kind===req.kind&&normalize(resource.description)===normalize(req.description)&&
+     (!req.unit||consumptionUnit(resource.unit)===consumptionUnit(req.unit)));
+    if(exact.length===1){
+     coverage.push({requirement_id:req.id,resource_id:exact[0].id,unresolved_reason:''});
+     used.add(exact[0].id);
+     continue;
+    }
+   }
    uncovered.push({description:req.description,unit:req.unit||'',kind:req.kind,
     action:found?.unresolved_reason?'create':'specify',
     reason:String(found?.unresolved_reason||'La propuesta no identificó este requisito con un insumo y consumo válido.').slice(0,300)});
@@ -312,7 +324,7 @@ export function acuPromptContext(seeds,resources,examples,brief){
   const suggestions=[...primary,...found.related.slice(0,16-primary.length)];
   return {line_id:seed.id,candidates:suggestions.map(item=>({resource_id:item.id,match:item.matched_by}))};
  });
- const payload={task:'acu',resource_candidates,candidate_rule:'Son sugerencias de búsqueda, NO equivalencias automáticas. Elegí solo recursos cuya identidad, oficio, material, unidad, dimensión y destino sean técnicamente compatibles; si hay dudas, informá el faltante. Los recursos disponibles están en resources. Asociá cada componente a un requirement_id real del target cuando haya requisitos. Verificá el tipo y la especificación contra la descripción real del catálogo. Si aparece un requisito adicional necesario, informalo como pendiente en vez de asignarlo sin revisión. No traslades materiales ni oficios de otra partida, aunque estén en el alcance general.',targets:seeds.map(s=>({line_id:s.id,description:s.description,unit:s.unit,quantity:s.quantity,section:s.section,is_new:s.is_new,quantity_status:s.quantity_status||'pending',quantity_source:s.quantity_source||null,work_result:s.work_result||'',required_resources:s.expected_resources||[],existing_components:s.components,existing_measurements:s.takeoffs?.map(m=>({note:m.note,factor:m.factor,length:m.length,width:m.width,height:m.height,sign:m.sign}))})),resources:narrowed.map(r=>({resource_id:r.id,code:r.code,description:r.description,unit:r.unit,kind:r.kind,has_price:r.price!=null})),catalog_total:resources.length,catalog_sampled:narrowed.length,catalog_truncated:narrowed.length<resources.length,examples:ranked};
+ const payload={task:'acu',quantity_rule:'Un metrado pendiente o cero no impide preparar un ACU por unidad si el consumo unitario es verificable. Conservá el metrado pendiente. Si la especificación necesaria para el consumo falta, detallala como pendiente.',resource_candidates,candidate_rule:'Son sugerencias de búsqueda, NO equivalencias automáticas. Elegí solo recursos cuya identidad, oficio, material, unidad, dimensión y destino sean técnicamente compatibles; si hay dudas, informá el faltante. Los recursos disponibles están en resources. Asociá cada componente a un requirement_id real del target cuando haya requisitos. Verificá el tipo y la especificación contra la descripción real del catálogo. Si aparece un requisito adicional necesario, informalo como pendiente en vez de asignarlo sin revisión. No traslades materiales ni oficios de otra partida, aunque estén en el alcance general.',targets:seeds.map(s=>({line_id:s.id,description:s.description,unit:s.unit,quantity:s.quantity,section:s.section,is_new:s.is_new,quantity_status:s.quantity_status||'pending',quantity_source:s.quantity_source||null,work_result:s.work_result||'',required_resources:s.expected_resources||[],existing_components:s.components,existing_measurements:s.takeoffs?.map(m=>({note:m.note,factor:m.factor,length:m.length,width:m.width,height:m.height,sign:m.sign}))})),resources:narrowed.map(r=>({resource_id:r.id,code:r.code,description:r.description,unit:r.unit,kind:r.kind,has_price:r.price!=null})),catalog_total:resources.length,catalog_sampled:narrowed.length,catalog_truncated:narrowed.length<resources.length,examples:ranked};
  const text=JSON.stringify(payload);if(new TextEncoder().encode(text).length>55000)throw new Error('La selección contextual para IA sigue siendo demasiado grande. Reducí los ejemplos o las partidas por consulta.');return text;
 }
 export function acuBatch({rows,context,estimate,newEstimate,batchId,asOf}){
