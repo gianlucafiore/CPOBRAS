@@ -297,6 +297,59 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
   drafts.set(saved.draftKey,saved);
   return {refreshed:true,added:context.resources.filter(resource=>!before.has(resource.id)).length};
  }
+ // Reintento explícito desde el chat: conserva IDs, partidas y ACU válidos.
+ // Recalcula exclusivamente las composiciones todavía pendientes. No guarda.
+ async function regeneratePending(){
+  if(approvedRun||model.busy)throw new Error('Hay una preparación de ACU en curso.');
+  if(!state.projectId||state.remoteProject||state.modal||state.pageDirty||state.projects.find(p=>p.id===state.projectId)?.read_only||state.estimates.find(e=>e.id===state.estimateId)?.issued)
+   throw new Error('Abrí el presupuesto propio editable antes de continuar.');
+  const saved=drafts.get(draftKey())||(!model.applied&&model.draftKey===draftKey()?model:null);
+  if(!saved?.rows?.length)throw new Error('No hay propuestas anteriores de ACU para continuar.');
+  const currentScope=scope(),token=++generation;
+  model=saved;model.open=false;model.headless=true;model.busy=false;model.scope=currentScope;stop=false;
+  await refreshPendingCatalog();
+  if(token!==generation||currentScope!==scope())throw new Error('Cambió la vista durante la actualización.');
+  const previous=new Map(model.rows.map(row=>[row.id,row]));
+  const revisit=targets().filter(seed=>!previous.has(seed.id)||acuTotals(previous.get(seed.id),model.context.resources).errors.length);
+  const keep=model.rows.filter(row=>!revisit.some(seed=>seed.id===row.id));
+  model.rows=keep;
+  model.busy=true;
+  const failures=[];
+  try{
+   const resources=structuredClone(selectedResources());
+   if(!resources.length)throw new Error('La biblioteca no contiene insumos para generar ACU.');
+   for(let offset=0;offset<revisit.length&&!stop;offset+=2){
+    const chunk=revisit.slice(offset,offset+2);
+    try{
+     const prompt=(model.operation==='append'?additionPrompt():'')+
+      'Retomá SOLO estos ACU pendientes de la tarea original: '+model.brief+
+      '\\nRespondé JSON con acu_proposals para los targets. Usá IDs reales, consumos positivos en decimal texto, quantity_unit y consumption_support. Falta de materiales: missing_resources con objetos {description,unit,kind,action,reason}; create solo para productos concretos ausentes, specify para definiciones técnicas. No inventes precios ni insumos, no reemplaces equivalencias dudosas.';
+     const result=await ask([{role:'user',content:prompt}],promptContext(chunk,resources,[]),'acu');
+     if(token!==generation||currentScope!==scope())throw new Error('Cambió la vista durante la consulta.');
+     const rows=model.operation==='append'
+      ?parseAcuAdditions(result.text,chunk,resources,model.brief).map(row=>mergeAcuAddition(row,resources,model.brief))
+      :parseAcuProposals(result.text,chunk,resources);
+     for(const row of rows)row.selected=false;
+     addRows(rows);
+    }catch(error){
+     if(token!==generation||currentScope!==scope())throw error;
+     failures.push(chunk.map(seed=>seed.description).join(', ')+': '+String(error));
+     for(const seed of chunk)if(previous.has(seed.id))addRows([previous.get(seed.id)]);
+    }
+   }
+   const pendingReasons=targets().flatMap(seed=>{
+    const row=model.rows.find(item=>item.id===seed.id);
+    if(!row)return [{description:seed.description,reasons:['Falta una composición preparada']}];
+    const reasons=[...new Set([...(row.missing_resources||[]),...acuPreapprovalErrors(row,model.context.resources)])];
+    return reasons.length?[{description:seed.description,reasons:reasons.slice(0,8)}]:[];
+   });
+   return {prepared:model.rows.length,pending:pendingReasons.length,pendingReasons,
+    missingResources:collectMissingResourceItems(model.rows.filter(row=>pendingReasons.some(p=>p.description===row.seed.description))),
+    warnings:failures,committed:false,error:failures.length?'Algunas consultas no pudieron completarse.':''};
+  }finally{
+   if(token===generation){model.busy=false;model.headless=false;model.rows.forEach(row=>row.selected=false);model.notice='ACU pendientes reconsultados. Nada se guardó sin aprobación.';keepDraft();paint();}
+  }
+ }
  function priceSummary(row){const totals=acuTotals(row,model.context.resources);return totals.unit_cost==null?'ACU incompleto':money(totals.unit_cost)+' '+model.context.currency+' / '+row.seed.unit;}
  function proposalMarkup(row,index){
   const totals=acuTotals(row,model.context.resources);let measure='';try{measure=measurementQuantity(row.measurements);}catch{measure='Medición incompleta';}
@@ -460,5 +513,5 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
  });
  host.addEventListener('toggle',event=>{const t=event.target;if(!t.isConnected)return;if(t.dataset.acuProposal){const row=model.rows.find(r=>r.id===t.dataset.acuProposal);if(row)row.expanded=t.open;}if(t.dataset.acuMeasureDetail){const row=model.rows.find(r=>r.id===t.dataset.acuMeasureDetail);if(row)row.measurementExpanded=t.open;}if(t.dataset.acuDetail){if(t.open)model.details.add(t.dataset.acuDetail);else model.details.delete(t.dataset.acuDetail);}},true);
  host.addEventListener('keydown',event=>{event.stopPropagation();if(event.key==='Escape')void action('close',event.target);});
- paint();return {open,syncScope,resumeFromLibrary,isBusy:()=>Boolean(model.busy),hasDraft:()=>model.open || [...drafts.values()].some(draft=>!draft.applied),runApproved,commitPrepared,cancelPrepared,cancelApproved,refreshPendingCatalog,showLatest:()=>open()};
+ paint();return {open,syncScope,resumeFromLibrary,isBusy:()=>Boolean(model.busy),hasDraft:()=>model.open || [...drafts.values()].some(draft=>!draft.applied),runApproved,commitPrepared,cancelPrepared,cancelApproved,refreshPendingCatalog,regeneratePending,showLatest:()=>open()};
 }
