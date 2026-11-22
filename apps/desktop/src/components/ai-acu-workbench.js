@@ -24,7 +24,7 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
  function syncScope(){if((model.open||model.headless)&&(model.scope!==scope()||(model.headless&&approvedRun&&(state.modal||state.pageDirty||state.remoteProject||state.projects.find(project=>project.id===state.projectId)?.read_only||state.estimates.find(estimate=>estimate.id===state.estimateId)?.issued)))){cancelApproved();generation++;stop=true;request?.cancel();keepDraft();model.open=false;model.headless=false;paint();}}
  const selectedResources=()=>model.context.resources.filter(r=>model.resourceIds.has(r.id));
  function getReviewTree(){
-  const saved=drafts.get(draftKey())||(!model.applied&&model.draftKey===draftKey()?model:null);
+  const saved=(!model.applied&&model.draftKey===draftKey()?model:null)||drafts.get(draftKey());
   if(!saved?.context)return [];
   const present=new Set((saved.rows||[]).map(row=>row.id));
   const reviewRows=[...(saved.rows||[]),...(saved.seeds||[]).filter(seed=>!present.has(seed.id)).map(seed=>emptyAcu(seed))];
@@ -41,7 +41,7 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
  function setReviewExclusion(lineId,itemKey=null,excluded=true){
   if(approvedRun?.writing)throw new Error('El lote ya se está guardando; no se puede modificar.');
   if(preparedApproval)cancelPrepared();
-  const saved=drafts.get(draftKey())||(!model.applied&&model.draftKey===draftKey()?model:null);
+  const saved=(!model.applied&&model.draftKey===draftKey()?model:null)||drafts.get(draftKey());
   if(!saved||![...(saved.rows||[]).map(row=>row.id),...(saved.seeds||[]).map(seed=>seed.id)].includes(lineId))throw new Error('La partida no existe en el borrador actual.');
   // Los botones sólo pueden operar sobre entradas presentes en el árbol local.
   const tree=getReviewTree();
@@ -209,7 +209,7 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
      return {line_id:row.id,description:row.seed.description,unit:row.seed.unit,mode:model.operation||'fill',items,preserved:unchanged,warnings:[...(row.advisories||[]),...(acuTotals(row,model.context.resources).warnings||[])],unit_cost:acuTotals(row,model.context.resources).unit_cost};
     });
     if(previewRows.some(row=>!row.items.length))throw new Error('El listado no contiene modificaciones concretas para todas las partidas; no se habilitó una aprobación a ciegas.');
-    const preview={rows:previewRows,movedSections:reviewBudget?reviewPreviewRows(sectionMoves,model.context.sections,model.context.lines):[],sectionPending,pending:authorization.targetIds.size-batch.acus.length,tree:buildAcuReviewTree(model.rows,model.context.resources,model.context.sections,model.missingResourceSelections||[]),missingResources:collectMissingResourceItems(model.rows.filter(row=>!row.selected)),
+    const preview={rows:previewRows,movedSections:reviewBudget?reviewPreviewRows(sectionMoves,model.context.sections,model.context.lines):[],sectionPending,pending:authorization.targetIds.size-batch.acus.length,tree:getReviewTree(),missingResources:collectMissingResourceItems(model.rows.filter(row=>!row.selected)),
      pendingReasons:model.rows.filter(row=>!row.selected).map(row=>({description:row.seed.description,reasons:[...(row.missing_resources||[]),...acuPreapprovalErrors(row,model.context.resources)].slice(0,6)})),
      estimateId:model.estimate.id,scope:authorization.scope,id:globalThis.crypto.randomUUID()};
     preparedApproval={authorization,batch,preview,commit:async()=>{
@@ -267,7 +267,7 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
    const snapshot=authorization.model,done=new Set(lineIds);
    const pendingReasons=(snapshot?.rows||[]).filter(row=>!done.has(row.id)).slice(0,8).map(row=>({description:row.seed.description,reasons:[...new Set([...(row.missing_resources||[]),...acuPreapprovalErrors(row,snapshot.context.resources)])].slice(0,10)}));
    const warnings=committed?(snapshot?.rows||[]).filter(row=>done.has(row.id)).flatMap(row=>row.advisories||[]):[];
-   return {saved,created,organized,tree:snapshot?.context?buildAcuReviewTree(snapshot.rows||[],snapshot.context.resources,snapshot.context.sections,snapshot.missingResourceSelections||[]):[],prepared:snapshot?.receivedAcuCount??snapshot?.rows?.length??0,pending:Math.max(0,authorization.targetIds.size-saved),pendingReasons,missingResources:collectMissingResourceItems((snapshot?.rows||[]).filter(row=>!done.has(row.id))),warnings,sectionPending,projectId:authorization.projectId,estimateId:snapshot?.estimate.id,lineIds:[...lineIds],committed,cancelled,error};
+   return {saved,created,organized,tree:getReviewTree(),prepared:snapshot?.receivedAcuCount??snapshot?.rows?.length??0,pending:Math.max(0,authorization.targetIds.size-saved),pendingReasons,missingResources:collectMissingResourceItems((snapshot?.rows||[]).filter(row=>!done.has(row.id))),warnings,sectionPending,projectId:authorization.projectId,estimateId:snapshot?.estimate.id,lineIds:[...lineIds],committed,cancelled,error};
   }
   function finish(){
    if(approvedRun===authorization){
@@ -326,7 +326,7 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
  // Actualiza el borrador pendiente SIN abrir la revisión grande ni volver a
  // llamar a la IA. El usuario conserva el pedido y puede seguir por el chat.
  async function refreshPendingCatalog(){
-  const saved=drafts.get(draftKey())||(!model.applied&&model.draftKey===draftKey()?model:null);
+  const saved=(!model.applied&&model.draftKey===draftKey()?model:null)||drafts.get(draftKey());
   if(!saved)return {refreshed:false};
   if(approvedRun||saved.busy)throw new Error('Hay una preparación de ACU en curso.');
   const original=[state.projectId,state.estimateId],context=await invoke('assisted_acu_context',{projectId:original[0],estimateId:original[1]||null,asOf:saved.asOf});
@@ -344,7 +344,7 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
  // fue señalado como faltante. No asigna cantidades ni guarda un ACU.
  function registerMissingResource(item,resource){
   if(!item?.description||!resource?.id)throw new Error('Falta identificar el insumo seleccionado.');
-  const saved=drafts.get(draftKey())||(!model.applied&&model.draftKey===draftKey()?model:null);
+  const saved=(!model.applied&&model.draftKey===draftKey()?model:null)||drafts.get(draftKey());
   if(!saved)return {linked:0};
   const actual=saved.context.resources.find(row=>row.id===resource.id);
   if(!actual)throw new Error('El insumo elegido no figura en el catálogo actualizado.');
@@ -370,7 +370,7 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
   if(approvedRun||model.busy)throw new Error('Hay otra aprobación de ACU en curso.');
   if(!state.projectId||state.remoteProject||state.modal||state.pageDirty||state.projects.find(p=>p.id===state.projectId)?.read_only||state.estimates.find(e=>e.id===state.estimateId)?.issued)
    throw new Error('Abrí un presupuesto local editable antes de aprobar los cambios.');
-  const saved=drafts.get(draftKey())||(!model.applied&&model.draftKey===draftKey()?model:null);
+  const saved=(!model.applied&&model.draftKey===draftKey()?model:null)||drafts.get(draftKey());
   if(!saved||(saved.rows?.length||0)===0&&(saved.seeds?.length||0)===0)
    throw new Error('No hay una estructura de partidas revisable. Prepará una propuesta antes de guardar.');
   model=saved;model.scope=scope();model.open=false;model.headless=true;model.busy=false;stop=false;
@@ -490,7 +490,7 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
   if(approvedRun||model.busy)throw new Error('Hay una preparación de ACU en curso.');
   if(!state.projectId||state.remoteProject||state.modal||state.pageDirty||state.projects.find(p=>p.id===state.projectId)?.read_only||state.estimates.find(e=>e.id===state.estimateId)?.issued)
    throw new Error('Abrí el presupuesto propio editable antes de continuar.');
-  const saved=drafts.get(draftKey())||(!model.applied&&model.draftKey===draftKey()?model:null);
+  const saved=(!model.applied&&model.draftKey===draftKey()?model:null)||drafts.get(draftKey());
   if(!saved||(!saved.rows?.length&&!saved.seeds?.length&&!saved.targetIds?.size))throw new Error('No hay un borrador de ACU recuperable para esta tarea. Volvé a preparar las partidas.');
   const currentScope=scope(),token=++generation;
   model=saved;model.open=false;model.headless=true;model.busy=false;model.scope=currentScope;stop=false;
