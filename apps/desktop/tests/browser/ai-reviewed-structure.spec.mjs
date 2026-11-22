@@ -26,8 +26,13 @@ test('approved structural draft is saved once without re-querying when ACU is pe
    if(args.mode==='acu'){
     const context=JSON.parse(args.context);
     return {text:JSON.stringify({acu_proposals:context.targets.map(target=>({
-     line_id:target.line_id,components:[],missing_resources:[],
-     requirement_coverage:target.required_resources.map(req=>({requirement_id:req.id,resource_id:'',unresolved_reason:'Falta consumo verificable'}))
+     line_id:target.line_id,
+     components:state.lines.length?[{resource_id:material,quantity:'1',quantity_unit:'kg'}]:[],
+     missing_resources:[],
+     requirement_coverage:target.required_resources.map(req=>({
+      requirement_id:req.id,resource_id:state.lines.length?material:'',
+      unresolved_reason:state.lines.length?'':'Falta consumo verificable'
+     }))
     }))})};
    }
   }
@@ -58,7 +63,16 @@ test('approved structural draft is saved once without re-querying when ACU is pe
   const result=await h.wb.commitPrepared(review.preview.id);
   let twice=false;
   try{await h.wb.commitPrepared(review.preview.id);}catch{twice=true;}
-  return {first,preview:review.preview,committed:result.committed,created:result.created,saved:result.saved,
+  // The same user-requested ACU is now completed on an existing persisted
+  // line. This must not issue a second CREATE or lose its expected resources.
+  const continued=await h.wb.regeneratePending();
+  const next=h.wb.preparePendingPreview();
+  if(!next.previewReady)throw Error('Pending draft did not resume against existing line IDs: '+next.error);
+  if(next.preview.structureLines?.length)throw Error('Resuming ACU tried to recreate a work line');
+  const second=await h.wb.commitPrepared(next.preview.id);
+  return {continued,second,secondCreates:h.batches[1]?.creates.length,
+   secondComposed:h.batches[1]?.acus.length,afterSecond:h.calls.filter(call=>call.name==='ai_chat').length,
+   first,preview:review.preview,committed:result.committed,created:result.created,saved:result.saved,
    pending:result.pending,createIds:h.batches[0]?.creates.map(line=>line.id),
    createdSections:h.batches[0]?.creates.map(line=>line.section),
    acos:h.batches[0]?.acus.length||0,batchCount:h.batches.length,
@@ -75,4 +89,12 @@ test('approved structural draft is saved once without re-querying when ACU is pe
  expect(info.createdSections).toEqual(['Montaje y terminaciones']);
  expect(info.after).toBe(info.before);
  expect(info.twice).toBe(true);
+ expect(info.continued.prepared).toBe(1);
+ expect(info.second.committed).toBe(true);
+ expect(info.second.created).toBe(0);
+ expect(info.second.saved).toBe(1);
+ expect(info.secondCreates).toBe(0);
+ expect(info.secondComposed).toBe(1);
+ expect(info.batchCount).toBe(1);
+ expect(info.afterSecond).toBe(info.before+1);
 });
