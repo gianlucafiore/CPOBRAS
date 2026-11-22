@@ -478,22 +478,30 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
     const composedIds=new Set(batch.acus.map(acu=>acu.line_id));
     const writtenIds=new Set(batch.creates.map(line=>line.id));
     const remainingIds=[...includedTargets].filter(id=>!composedIds.has(id));
+    // Preserve every unfinished recipe and its manually chosen resource IDs.
+    // These line IDs already exist after this commit: they must be resumed as
+    // FILL operations, never sent through "create" again.
+    const pendingRows=effective.filter(row=>remainingIds.includes(row.id));
+    const pendingSeeds=includedSeeds.filter(seed=>remainingIds.includes(seed.id));
     model.applied=true;drafts.delete(model.draftKey);
-    // Las partidas nuevas ya existen en SQLite. Nunca guardar nuevamente
-    // semillas is_new=true ni arriesgar una segunda creación de los mismos IDs.
-    if(writtenIds.size){
-     model.remaining={rows:[],seeds:[],targetIds:[],count:remainingIds.length};
-    }else{
-     model.remaining={rows:model.rows.filter(row=>remainingIds.includes(row.id)),
-      seeds:model.seeds.filter(seed=>remainingIds.includes(seed.id)),
-      targetIds:remainingIds,count:remainingIds.length};
-    }
+    model.remaining={rows:pendingRows,seeds:pendingSeeds,
+     targetIds:remainingIds,count:remainingIds.length,context:model.context};
     model.lastApplied={estimateId:model.estimate.id,lineIds:[...composedIds],createdIds:[...writtenIds]};
     const wasNew=!!model.newEstimate;model.newEstimate=null;
     model.draftKey=[authorization.projectId,model.estimate.id].join(':');
     if(wasNew){await loadEstimates();await openEstimate(model.estimate.id,[...writtenIds][0]||[...composedIds][0]);}
     else if(state.view==='workspace')await loadEstimate();
     else await openEstimate(model.estimate.id,[...writtenIds][0]||[...composedIds][0]);
+    if(remainingIds.length){
+     // Refresh from the authoritative database; no guessed new IDs, and no
+     // recipes silently discarded just because the structure was saved.
+     const actual=await readContext();
+     const rebased=rebasePendingAcuRows({rows:pendingRows,seeds:pendingSeeds,
+      targetIds:remainingIds,composedIds:[],context:actual});
+     model.remaining={...rebased,rows:rebased.rows,
+      targetIds:[...rebased.targetIds,...rebased.missingLineIds],context:actual};
+     if(rebased.missingLineIds.length)throw new Error('Se guardaron las partidas, pero todavía no aparecen todos sus IDs en la lectura del presupuesto. Revisá la obra antes de continuar.');
+    }
     return {committed:true,...counts,estimateId:model.estimate.id,
      lineIds:[...new Set([...writtenIds,...composedIds])],pending:remainingIds.length,
      pendingReasons,tree,missingResources,error:''};
@@ -507,7 +515,7 @@ export function createAcuWorkbench({invoke,state,document,window,loadEstimate,lo
     authorization.writing=false;authorization.revoked=true;
     preparedApproval=null;if(approvedRun===authorization)approvedRun=null;
     model.headless=false;model.busy=false;model.rows.forEach(row=>row.selected=false);
-    if(!committed)keepDraft();paint();
+    keepDraft();paint();
    }
   }};
   keepDraft();
