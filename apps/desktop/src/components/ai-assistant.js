@@ -1281,6 +1281,18 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
     if (canDraftLibraryAcu() && await handleLibraryTurn(question)) return;
     const statusQuestion=/^(?:no (?:la|lo|las|los) (?:veo|encuentro)|no (?:veo|encuentro) (?:la partida|el acu|el pedido)|no (?:me )?aparece(?: la partida| el acu| el pedido)?|(?:y )?(?:se guardo|se cargo|se creo|la creaste|lo cargaste|donde quedo|donde esta)(?: la partida| el acu| el pedido)?)(?: en (?:la lista|la tabla|el presupuesto))?$/.test(fold(question));
     if(statusQuestion){if(!showActionState(question)){addReply(question,{answer:'No hay un guardado registrado en este chat. Indicame qué partida buscás para identificarla; no se realizará otra carga al consultar su estado.'});paint();}return;}
+    // Resolver la aprobación local ANTES de cualquier inferencia de una tarea nueva.
+    // De otro modo «listo cargalo» puede convertirse en una respuesta del LLM
+    // sin llamar jamás al guardado validado de SQLite.
+    if(isApprovalReply(question)){
+      const pendingSection=model.messages.findLast(m=>m?.sectionPreview&&!m?.approval);
+      if(pendingSection){model.question='';await approveSectionMessage(model.messages.indexOf(pendingSection));return;}
+      const visiblePreview=model.messages.findLast(message=>!!message.preview);
+      if(visiblePreview){model.question='';await approveMessage(model.messages.indexOf(visiblePreview));return;}
+      const pendingAcu=model.messages.findLast(message=>message.approval?.kind==='acu'&&
+       message.approval.id===model.lastApprovedId&&message.approval.result?.pending>0&&!message.approval.result?.committed);
+      if(pendingAcu){model.question='';await resumeAcuReview(pendingAcu);return;}
+    }
     const continuation=conversationAcuRequest(question,state,pendingIntent);
     if(continuation?.error){model.error=continuation.error;paint();return;}
     const ready=model.messages.at(-1)?.preview;
@@ -1297,13 +1309,6 @@ export function createAiAssistant({invoke,state,document,window,openModal,editab
       model.question='';
       await approveSectionMessage(model.messages.indexOf(pendingSection));
       return;
-    }
-    if(isApprovalReply(question)){
-      const visiblePreview=model.messages.findLast(message=>!!message.preview);
-      if(visiblePreview){model.question='';await approveMessage(model.messages.indexOf(visiblePreview));return;}
-      const pendingAcu=model.messages.findLast(message=>message.approval?.kind==='acu'&&
-       message.approval.id===model.lastApprovedId&&message.approval.result?.pending>0&&!message.approval.result?.committed);
-      if(pendingAcu){model.question='';await resumeAcuReview(pendingAcu);return;}
     }
     const pendingApproval=resolvedPendingApproval(question,model.messages);
     if(pendingApproval!==null){model.question='';if(canPlan())await approveMessage(pendingApproval);else{model.error='Abrí un presupuesto propio en elaboración y cerrá los formularios pendientes para cargar este pedido.';paint();}return;}
