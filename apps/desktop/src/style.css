@@ -654,3 +654,16 @@ input[type=search]::-webkit-search-cancel-button{appearance:none}
 .ai-console .ai-acu-tree-resource button{font-size:10px;padding:3px 7px;max-width:none}
 .ai-console .ai-acu-tree-errors{margin:2px 0}
 .ai-console .ai-acu-tree-errors ul{margin:2px 0;padding-left:18px}
+
+/* Exclusión explícita de la propuesta (nunca borra registros de la biblioteca). */
+.ai-console .ai-acu-tree-line>details>summary{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+.ai-console .ai-acu-tree-line>details>summary>b{flex:0 1 auto}
+.ai-console .ai-acu-tree-line>details>summary>small{flex:1;min-width:100px}
+.ai-console button.ai-tree-exclude{width:22px;height:22px;min-width:22px;padding:0;margin-left:auto;
+ display:inline-grid;place-items:center;border:1px solid #536878;border-radius:4px;background:transparent;
+ color:#c2d4df;font-size:16px;line-height:1;flex-shrink:0}
+.ai-console button.ai-tree-exclude:hover:not(:disabled){color:#fff;background:#7b3f45;border-color:#97545b}
+.ai-console .ai-acu-tree-line.is-excluded>details>summary>b,
+.ai-console .ai-acu-tree-resource.is-excluded>span{opacity:.55;text-decoration:line-through}
+.ai-console .ai-acu-tree-line.is-excluded>details>ul{opacity:.45}
+.ai-console .ai-acu-tree-resource button.ai-tree-exclude{margin:0}
