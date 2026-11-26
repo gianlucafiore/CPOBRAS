@@ -24,6 +24,7 @@ pub(crate) struct DatabaseInfo {
     name: String,
     scope: Option<String>,
     warning: Option<String>,
+    recent: Vec<String>,
 }
 
 impl DatabaseSession {
@@ -31,7 +32,16 @@ impl DatabaseSession {
         let config = directory.join("active-database.json");
         let default = directory.join("cpobras.sqlite");
         let selected = (|| -> Result<Option<(PathBuf, LocalStore)>> {
-            let bytes = match fs::read(&config) {
+            let next = directory.join("next-database.json");
+            let preference = match fs::read(&next) {
+                Ok(bytes) => {
+                    fs::remove_file(&next).map_err(|e| e.to_string())?;
+                    Ok(bytes)
+                }
+                Err(error) if error.kind() == io::ErrorKind::NotFound => fs::read(&config),
+                Err(error) => Err(error),
+            };
+            let bytes = match preference {
                 Ok(bytes) => bytes,
                 Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
                 Err(error) => return Err(error.to_string()),
@@ -83,6 +93,24 @@ impl DatabaseSession {
         }
     }
 
+    fn recent_path(&self) -> PathBuf {
+        self.config.with_file_name("recent-databases.json")
+    }
+
+    fn recent(&self) -> Vec<PathBuf> {
+        fs::read(self.recent_path())
+            .ok()
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn recent_database(&self, path: &str) -> Result<PathBuf> {
+        self.recent()
+            .into_iter()
+            .find(|candidate| candidate.to_string_lossy() == path)
+            .ok_or_else(|| "La base ya no figura entre las recientes".into())
+    }
+
     pub(crate) fn info(&self) -> DatabaseInfo {
         DatabaseInfo {
             path: self.path.to_string_lossy().into_owned(),
@@ -94,10 +122,20 @@ impl DatabaseSession {
                 .into_owned(),
             scope: self.scope(),
             warning: self.warning.clone(),
+            recent: std::iter::once(self.path.clone())
+                .chain(self.recent().into_iter().filter(|path| path != &self.path))
+                .take(10)
+                .map(|path| path.to_string_lossy().into_owned())
+                .collect(),
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn select(&self, db: &crate::Db, path: PathBuf, create: bool) -> Result<bool> {
+        self.change(db, path, if create { "create" } else { "startup" })
+    }
+
+    pub(crate) fn change(&self, db: &crate::Db, path: PathBuf, mode: &str) -> Result<bool> {
         let mut switching = self.switching.lock().map_err(|e| e.to_string())?;
         if *switching {
             return Err("Ya se está cambiando la base de datos".into());
@@ -109,8 +147,23 @@ impl DatabaseSession {
         )
         .map_err(|e| e.to_string())?;
 
-        let path = if create {
+        let path = if mode == "create" {
             create_database(path)?
+        } else if mode == "import" {
+            let source = existing_file(&path)?;
+            let dir = self
+                .config
+                .with_file_name("imported-databases")
+                .join(uuid::Uuid::new_v4().to_string());
+            fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+            let target = dir.join(source.file_name().ok_or("Nombre de base inválido")?);
+            if let Err(error) = LocalStore::snapshot_file(&source, &target)
+                .and_then(|_| LocalStore::open_existing(&target).map(drop))
+            {
+                let _ = fs::remove_dir_all(&dir);
+                return Err(error.to_string());
+            }
+            target
         } else {
             let path = existing_file(&path)?;
             if path == self.path {
@@ -126,13 +179,39 @@ impl DatabaseSession {
         preference.flush().map_err(|e| e.to_string())?;
         preference.as_file().sync_all().map_err(|e| e.to_string())?;
 
+        let destination = if mode == "open" {
+            self.config.with_file_name("next-database.json")
+        } else {
+            self.config.clone()
+        };
+        let mut recent = vec![path, self.path.clone()];
+        recent.dedup();
+        for candidate in self.recent() {
+            if recent.len() >= 10 {
+                break;
+            }
+            if !recent.contains(&candidate) {
+                recent.push(candidate);
+            }
+        }
+        let mut recent_file = tempfile::NamedTempFile::new_in(
+            self.config
+                .parent()
+                .ok_or("Carpeta de configuración inválida")?,
+        )
+        .map_err(|e| e.to_string())?;
+        serde_json::to_writer(&mut recent_file, &recent).map_err(|e| e.to_string())?;
+
         // Drain any command already using the connection. The old process never
         // opens the selected database for application commands.
         let mut store = db.lock().map_err(|e| e.to_string())?;
         store
             .disconnect_after(|| {
+                recent_file
+                    .persist(self.recent_path())
+                    .map_err(|e| e.error)?;
                 preference
-                    .persist(&self.config)
+                    .persist(destination)
                     .map(|_| ())
                     .map_err(|e| e.error)
             })

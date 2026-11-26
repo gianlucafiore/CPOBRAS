@@ -1,7 +1,8 @@
-//! Manual, database-scoped reminders. Expiration is a local calendar date, not a timestamp.
+//! Database-scoped reminders with local calendar dates.
 use crate::{LocalStore, Result, StorageError};
-use chrono::{Datelike, NaiveDate};
+use chrono::{Datelike, Days, NaiveDate};
 use rusqlite::{params, OptionalExtension};
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -24,6 +25,18 @@ pub struct Reminder {
     pub data: ReminderInput,
     pub project_name: String,
     pub person_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub certificate: Option<CertificateReminder>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CertificateReminder {
+    estimate_id: Uuid,
+    operation_id: Option<Uuid>,
+    contract_id: Option<Uuid>,
+    draft_id: Option<Uuid>,
+    start: String,
+    end: String,
 }
 #[derive(Debug, Serialize)]
 pub struct ReminderPage {
@@ -71,29 +84,319 @@ fn row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Reminder> {
         },
         project_name: r.get(9)?,
         person_name: r.get(10)?,
+        certificate: None,
     })
 }
 const SELECT: &str = "SELECT r.id,r.title,r.due_date,r.kind,r.project_id,r.person_id,r.notes,r.completed,r.revision,COALESCE(p.name,r.project_name),COALESCE(c.name,r.person_name) FROM reminders r LEFT JOIN projects p ON p.id=r.project_id LEFT JOIN persons c ON c.id=r.person_id";
 impl LocalStore {
     pub fn reminders(&self, today: &str, page: u32) -> Result<ReminderPage> {
+        self.reminders_with_certificates(today, page, 3)
+    }
+
+    pub fn reminders_with_certificates(
+        &self,
+        today: &str,
+        page: u32,
+        lead: u32,
+    ) -> Result<ReminderPage> {
         date(today)?;
-        let total: u32 = self
+        let today_date =
+            NaiveDate::parse_from_str(today, "%Y-%m-%d").map_err(|_| invalid("Fecha inválida"))?;
+        let until = today_date
+            .checked_add_days(Days::new(u64::from(lead.min(90))))
+            .unwrap_or(today_date)
+            .to_string();
+        let mut items: Vec<Reminder> = self
             .conn
-            .query_row("SELECT COUNT(*) FROM reminders", [], |r| r.get(0))?;
-        let page = page.min(total.saturating_sub(1) / 20);
-        let sql=format!("{SELECT} ORDER BY CASE WHEN r.completed=1 THEN 2 WHEN r.due_date<?1 THEN 1 ELSE 0 END, CASE WHEN r.completed=0 AND r.due_date>=?1 THEN r.due_date END ASC, CASE WHEN r.completed=1 OR r.due_date<?1 THEN r.due_date END DESC,r.id LIMIT 20 OFFSET ?2");
-        let items = self
-            .conn
-            .prepare(&sql)?
-            .query_map(params![today, i64::from(page) * 20], row)?
+            .prepare(SELECT)?
+            .query_map([], row)?
             .collect::<std::result::Result<_, _>>()?;
+        items.extend(self.certificate_reminders(&until)?);
+        items.sort_by(|a, b| {
+            let rank = |r: &Reminder| {
+                if r.data.completed {
+                    2
+                } else if r.data.due_date.as_str() < today {
+                    1
+                } else {
+                    0
+                }
+            };
+            let left = rank(a);
+            left.cmp(&rank(b))
+                .then_with(|| {
+                    if left == 0 {
+                        a.data.due_date.cmp(&b.data.due_date)
+                    } else {
+                        b.data.due_date.cmp(&a.data.due_date)
+                    }
+                })
+                .then(a.data.id.cmp(&b.data.id))
+        });
+        let total = items.len() as u32;
+        let page = page.min(total.saturating_sub(1) / 20);
         Ok(ReminderPage {
-            items,
-            page,
+            items: items
+                .into_iter()
+                .skip(page as usize * 20)
+                .take(20)
+                .collect(),
             total,
+            page,
             page_size: 20,
         })
     }
+
+    fn certificate_reminders(&self, until: &str) -> Result<Vec<Reminder>> {
+        let mut reminders = Vec::new();
+        for project in self.list_projects()? {
+            let docs = self.operation_documents(Some(project.id))?;
+            let plan = self.project_plan(project.id)?.map(|saved| saved.plan);
+            let client = self
+                .get_client(project.client_id)?
+                .map(|client| client.name)
+                .unwrap_or_default();
+            let mut push = |title: String,
+                            kind: &str,
+                            due: &str,
+                            contact: String,
+                            target: CertificateReminder,
+                            notes: String| {
+                if due.is_empty() || due > until {
+                    return;
+                }
+                reminders.push(Reminder {
+                    data: ReminderInput {
+                        id: target
+                            .operation_id
+                            .or(target.draft_id)
+                            .or(target.contract_id)
+                            .or(Some(target.estimate_id)),
+                        revision: 0,
+                        title,
+                        due_date: due.into(),
+                        kind: kind.into(),
+                        project_id: Some(project.id),
+                        person_id: None,
+                        notes,
+                        completed: false,
+                    },
+                    project_name: project.name.clone(),
+                    person_name: contact,
+                    certificate: Some(target),
+                });
+            };
+            let partner_name = |id: Option<Uuid>| -> Result<String> {
+                Ok(match id {
+                    Some(id) => match self.management_record(id)? {
+                        Some(record) => record.name,
+                        None => self
+                            .person(id)?
+                            .map(|person| person.data.name)
+                            .unwrap_or_default(),
+                    },
+                    None => String::new(),
+                })
+            };
+            let estimates = self.list_project_estimates(project.id)?;
+            let primary = estimates
+                .iter()
+                .find(|estimate| estimate.issued)
+                .or_else(|| estimates.first())
+                .map(|estimate| estimate.id);
+            for estimate in estimates {
+                let relevant = |operation: &&crate::operations::Operation| {
+                    operation.estimate_id == Some(estimate.id)
+                };
+                let drafts = self.certificate_drafts(project.id, estimate.id)?;
+                let target = |start: &str, end: &str| CertificateReminder {
+                    estimate_id: estimate.id,
+                    operation_id: None,
+                    contract_id: None,
+                    draft_id: None,
+                    start: start.into(),
+                    end: end.into(),
+                };
+                let issued = docs
+                    .iter()
+                    .filter(relevant)
+                    .filter(|doc| doc.kind == "certificate")
+                    .collect::<Vec<_>>();
+                let last = issued
+                    .iter()
+                    .map(|doc| doc.period_end.as_str())
+                    .max()
+                    .unwrap_or("");
+                let client_draft = drafts
+                    .iter()
+                    .find(|draft| draft.kind == "certificate" && draft.issued_id.is_none());
+                if let Some(draft) = client_draft {
+                    let op = &draft.operation;
+                    let mut link = target(&op.period_start, &op.period_end);
+                    link.draft_id = Some(draft.id);
+                    push(
+                        "Emitir certificado al comitente".into(),
+                        "client_certificate",
+                        &op.period_end,
+                        client.clone(),
+                        link,
+                        String::new(),
+                    );
+                } else if let Some(plan) = plan
+                    .as_ref()
+                    .filter(|_| Some(estimate.id) == primary || !issued.is_empty())
+                {
+                    if let Some(cut) = plan
+                        .finance
+                        .cut_dates
+                        .iter()
+                        .filter(|cut| cut.as_str() > last)
+                        .min()
+                    {
+                        push(
+                            "Emitir certificado al comitente".into(),
+                            "client_certificate",
+                            cut,
+                            client.clone(),
+                            target(
+                                &NaiveDate::parse_from_str(last, "%Y-%m-%d")
+                                    .ok()
+                                    .and_then(|day| day.succ_opt())
+                                    .map(|day| day.to_string())
+                                    .unwrap_or_else(|| plan.calendar.start_date.clone()),
+                                cut,
+                            ),
+                            String::new(),
+                        );
+                    }
+                }
+                for contract in docs
+                    .iter()
+                    .filter(relevant)
+                    .filter(|doc| doc.kind == "subcontract")
+                {
+                    let draft = drafts.iter().find(|draft| {
+                        draft.issued_id.is_none()
+                            && draft.operation.reference_id == Some(contract.id)
+                    });
+                    let period = if let Some(draft) = draft {
+                        Some((
+                            draft.operation.period_start.clone(),
+                            draft.operation.period_end.clone(),
+                            Some(draft.id),
+                        ))
+                    } else if let Some(terms) = contract
+                        .contract_terms
+                        .as_ref()
+                        .filter(|terms| terms.frequency != "by_progress")
+                    {
+                        let previous = docs
+                            .iter()
+                            .filter(|doc| {
+                                doc.kind == "subcertificate"
+                                    && doc.reference_id == Some(contract.id)
+                            })
+                            .map(|doc| doc.period_end.as_str())
+                            .max();
+                        let start = previous
+                            .and_then(|day| {
+                                NaiveDate::parse_from_str(day, "%Y-%m-%d")
+                                    .ok()?
+                                    .succ_opt()
+                                    .map(|date| date.to_string())
+                            })
+                            .unwrap_or_else(|| {
+                                if terms.start.is_empty() {
+                                    contract.date.clone()
+                                } else {
+                                    terms.start.clone()
+                                }
+                            });
+                        if start.is_empty() || (!terms.end.is_empty() && start > terms.end) {
+                            None
+                        } else {
+                            let cut =
+                                crate::construction_workflow::pay_date(&start, &terms.frequency)?;
+                            let end = if terms.end.is_empty() {
+                                cut
+                            } else {
+                                cut.min(terms.end.clone())
+                            };
+                            Some((start, end, None))
+                        }
+                    } else {
+                        None
+                    };
+                    if let Some((start, end, draft_id)) = period {
+                        let mut link = target(&start, &end);
+                        link.contract_id = Some(contract.id);
+                        link.draft_id = draft_id;
+                        push(
+                            format!("Emitir certificado del contratista {}", contract.number),
+                            "contractor_certificate",
+                            &end,
+                            partner_name(contract.partner_id)?,
+                            link,
+                            String::new(),
+                        );
+                    }
+                }
+                for doc in docs
+                    .iter()
+                    .filter(relevant)
+                    .filter(|doc| matches!(doc.kind.as_str(), "certificate" | "subcertificate"))
+                {
+                    let incoming = doc.kind == "certificate";
+                    let movement = if incoming { "collection" } else { "payment" };
+                    let invoice = if incoming { "receivable" } else { "payable" };
+                    let settled = crate::construction_workflow::sum(
+                        docs.iter()
+                            .filter(|row| {
+                                row.kind == movement
+                                    && (row.reference_id == Some(doc.id)
+                                        || docs.iter().any(|bill| {
+                                            bill.kind == invoice
+                                                && bill.reference_id == Some(doc.id)
+                                                && Some(bill.id) == row.reference_id
+                                        }))
+                            })
+                            .map(|row| row.amount),
+                    )?;
+                    let balance = crate::construction_workflow::add(doc.amount, -settled)?;
+                    if balance <= Decimal::ZERO {
+                        continue;
+                    }
+                    let due = if doc.due_date.is_empty() {
+                        &doc.date
+                    } else {
+                        &doc.due_date
+                    };
+                    let mut link = target(&doc.period_start, &doc.period_end);
+                    link.operation_id = Some(doc.id);
+                    link.contract_id = doc.reference_id;
+                    let (verb, kind, contact) = if incoming {
+                        ("Cobrar", "client_certificate", client.clone())
+                    } else {
+                        (
+                            "Pagar",
+                            "contractor_certificate",
+                            partner_name(doc.partner_id)?,
+                        )
+                    };
+                    push(
+                        format!("{verb} certificado {}", doc.number),
+                        kind,
+                        due,
+                        contact,
+                        link,
+                        format!("Saldo pendiente {} {}", doc.currency, balance.normalize()),
+                    );
+                }
+            }
+        }
+        Ok(reminders)
+    }
+
     pub fn save_reminder(&mut self, input: &ReminderInput) -> Result<Reminder> {
         date(&input.due_date)?;
         if input.title.trim().is_empty()

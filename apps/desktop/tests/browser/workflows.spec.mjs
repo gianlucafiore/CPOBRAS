@@ -85,6 +85,8 @@ async function bridge(page, options={}) {
    if(command==='get_print_profile')return structuredClone(publicPrint);
    if(command==='save_print_profile'){if(args.revision!==publicPrint.revision)throw new Error('Recargá');publicPrint={revision:publicPrint.revision+1,profile:structuredClone(args.profile)};return structuredClone(publicPrint);}
    if(command==='save_export_file'){if(typeof args.openAfter!=='boolean')throw new Error('save_export_file requiere openAfter');return fixture.cancelSave?null:{path:'/elegido/'+args.name,open_error:fixture.readerFails?'No hay lector PDF asociado':null};}
+   if(command==='available_release')return fixture.releaseTag ? {tag:fixture.releaseTag} : null;
+   if(['preview_pdf','open_release','open_project_link'].includes(command))return null;
    if(command==='open_export_pdf'){if(fixture.readerFails)throw new Error('No hay lector PDF asociado');return null;}
    if(command==='get_budget_presentation')return structuredClone(presentations[args.estimateId]||{revision:0,data:{memory:'',print_options:{}}});
    if(command==='save_budget_presentation'){const old=presentations[args.estimateId]||{revision:0};if(args.revision!==old.revision)throw Error('La presentación cambió');return structuredClone(presentations[args.estimateId]={revision:old.revision+1,data:structuredClone(args.data)});}
@@ -407,7 +409,7 @@ test('materials view replaces generic document forms with guided requests and st
 test('production, certification, finances and dashboard screens expose their workflows',async({page})=>{
  await bridge(page,{issued:true});await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.locator('[data-action=manage-dashboard-budget]').first().click();await page.getByRole('button',{name:'Gestión de obra',exact:true}).click();
  await page.getByRole('button',{name:'Libro de obra',exact:true}).click();await page.getByLabel('Descripción del parte',{exact:true}).fill('Se completó el replanteo');await page.getByRole('button',{name:'Guardar borrador',exact:true}).click();
- await page.getByRole('button',{name:'Certificaciones',exact:true}).click();await page.getByRole('button',{name:'Modificar avances',exact:true}).click();await page.getByLabel('Avance acumulado Hormigón',{exact:true}).fill('50');page.once('dialog',d=>d.accept());await page.getByRole('button',{name:'Emitir certificado aprobado',exact:true}).click();await expect(page.getByRole('button',{name:'Ver certificado / PDF',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'Certificaciones',exact:true}).click();await page.getByRole('button',{name:'Modificar avances',exact:true}).click();await page.getByLabel('Avance acumulado Hormigón',{exact:true}).fill('50');page.once('dialog',d=>d.accept());await page.getByRole('button',{name:'Emitir certificado aprobado',exact:true}).click();await expect(page.getByRole('button',{name:'Ver PDF',exact:true}).first()).toBeVisible();
  await page.getByRole('button',{name:'Finanzas',exact:true}).click();await page.getByLabel('Número / referencia',{exact:true}).fill('FAC-001');await page.getByLabel('Importe',{exact:true}).fill('500');await page.getByRole('combobox',{name:'Contraparte',exact:true}).selectOption('supplier-1');await page.getByRole('button',{name:'Registrar factura por pagar',exact:true}).click();await page.keyboard.press('Escape');
  await page.getByRole('button',{name:'Tablero',exact:true}).click();await expect(page.getByRole('columnheader',{name:'Resultado esperado',exact:true})).toBeVisible();await page.getByRole('combobox',{name:'Contenido del informe',exact:true}).selectOption('summary');await page.getByRole('button',{name:'Informe PDF',exact:true}).click();await expect(page.getByRole('status').filter({hasText:'Guardado en'})).toBeVisible();
  const kinds=await page.evaluate(()=>window.__calls.filter(c=>c.command==='post_operation').map(c=>c.args.operation.kind));expect(kinds).toEqual(['payable']);expect(await page.evaluate(()=>window.__calls.some(c=>c.command==='issue_certificate_draft'))).toBe(true);
@@ -781,8 +783,8 @@ test('task segments conserve their source and expose separate durations and prog
  await page.getByRole('tab',{name:'Gantt',exact:true}).click();await expect(page.locator('.gantt-bar')).toHaveCount(2);
 });
 
-test('map opens over Argentina, selects a pin visually and saves coordinates to the current work',async({page})=>{
- await bridge(page);await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.locator('[data-action=manage-dashboard-budget]').first().click();await page.getByRole('button',{name:'← Volver al proyecto',exact:true}).click();await expect(page.locator('[data-work-map] .map-tile').first()).toHaveAttribute('src',/tile.openstreetmap.org\/4\//);
+test('map opens over South America, selects a pin visually and saves coordinates to the current work',async({page})=>{
+ await bridge(page);await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.locator('[data-action=manage-dashboard-budget]').first().click();await page.getByRole('button',{name:'← Volver al proyecto',exact:true}).click();await expect(page.locator('[data-work-map] .map-tile').first()).toHaveAttribute('src',/tile.openstreetmap.org\/2\//);
  await page.getByRole('button',{name:'📍 Elegir ubicación',exact:true}).click();const map=page.locator('[data-work-map]');await map.click({position:{x:120,y:150}});const pin=await page.locator('[data-map-pin]').boundingBox();await page.mouse.move(pin.x+pin.width/2,pin.y+pin.height/2);await page.mouse.down();await page.mouse.move(pin.x+pin.width/2+25,pin.y+pin.height/2-20,{steps:6});await page.mouse.up();await page.getByRole('button',{name:'Guardar ubicación',exact:true}).click();
  await expect.poll(()=>page.evaluate(()=>window.__calls.filter(c=>c.command==='save_management_record').length)).toBe(1);
  const saved=await page.evaluate(()=>window.__calls.filter(c=>c.command==='save_management_record').at(-1).args.record);expect(saved.kind).toBe('project_profile');expect(saved.attributes.address).toBe('Avenida de prueba 123');expect(saved.attributes.locality).toBe('Rosario');expect(Number(saved.attributes.latitude)).toBeLessThan(0);expect(Number(saved.attributes.longitude)).toBeLessThan(0);await expect(page.getByRole('button',{name:'📍 Elegir ubicación',exact:true})).toBeVisible();await expect(page.locator('[data-map-pin]')).toHaveCount(1);
@@ -866,7 +868,7 @@ test('planning starts in PERT and financial overview lives in management',async(
  await bridge(page,{certificationOverview:[{cut:'2026-11-20',amount:'1000',next_expenses:'600',remainder:'400',index_status:'Provisorio',collection_date:'2026-11-23',state:'Previsto'}]});await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.locator('[data-action=manage-dashboard-budget]').first().click();await page.getByRole('button',{name:'Planificación',exact:true}).click();await expect(page.getByRole('tab',{name:'PERT',exact:true})).toHaveAttribute('aria-selected','true');await expect(page.getByRole('heading',{name:'Certificaciones pactadas',exact:true})).toHaveCount(0);expect(await page.evaluate(()=>window.__calls.some(c=>c.command==='certification_overview'))).toBe(false);await page.getByRole('button',{name:'Gestión de obra',exact:true}).click();await page.getByRole('button',{name:'Certificaciones',exact:true}).click();await expect(page.getByRole('heading',{name:'Certificaciones pactadas',exact:true})).toBeVisible();await expect(page.getByRole('columnheader',{name:'Gastos próxima etapa',exact:true})).toBeVisible();
 });
 test('client draft saves extras and differences and generates preliminary without issuing',async({page})=>{
- await bridge(page,{issued:true,pendingDifferences:[{estimate_id:'estimate-1',source_id:'old-cert',source_number:'CERT-1',delta:'100'}]});await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.locator('[data-action=manage-dashboard-budget]').first().click();await page.getByRole('button',{name:'Gestión de obra',exact:true}).click();await page.getByRole('button',{name:'Certificaciones',exact:true}).click();await page.getByRole('button',{name:'Modificar avances',exact:true}).click();await page.getByLabel('Avance acumulado Hormigón',{exact:true}).fill('50');await page.getByText('Adicionales y diferencias de ajuste',{exact:true}).click();await page.getByRole('button',{name:'Agregar adicional puntual',exact:true}).click();await page.getByLabel('Descripción',{exact:true}).fill('Movilización extraordinaria');await page.getByLabel('Motivo',{exact:true}).fill('Cambio solicitado');await page.getByLabel('Autorización del comitente',{exact:true}).fill('Orden 18');await page.getByLabel('Importe completo',{exact:true}).fill('500');await page.getByLabel('Ajustar índices',{exact:true}).check();await page.getByLabel(/CERT-1 · Diferencia/).check();await page.getByRole('button',{name:'Generar PRELIMINAR PDF',exact:true}).click();await expect.poll(()=>page.evaluate(()=>window.__calls.filter(c=>c.command==='save_export_file').length)).toBe(1);const saved=await page.evaluate(()=>window.__calls.filter(c=>c.command==='save_certificate_draft').at(-1).args.draft);expect(saved.operation.reconcile_ids).toEqual(['old-cert']);expect(saved.operation.extras[0]).toMatchObject({description:'Movilización extraordinaria',amount:'500',adjustable:true});expect(await page.evaluate(()=>window.__calls.some(c=>c.command==='issue_certificate_draft'))).toBe(false);
+ await bridge(page,{issued:true,pendingDifferences:[{estimate_id:'estimate-1',source_id:'old-cert',source_number:'CERT-1',delta:'100'}]});await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.locator('[data-action=manage-dashboard-budget]').first().click();await page.getByRole('button',{name:'Gestión de obra',exact:true}).click();await page.getByRole('button',{name:'Certificaciones',exact:true}).click();await page.getByRole('button',{name:'Modificar avances',exact:true}).click();await page.getByLabel('Avance acumulado Hormigón',{exact:true}).fill('50');await page.getByText('Adicionales y diferencias de ajuste',{exact:true}).click();await page.getByRole('button',{name:'Agregar adicional puntual',exact:true}).click();await page.getByLabel('Descripción',{exact:true}).fill('Movilización extraordinaria');await page.getByLabel('Motivo',{exact:true}).fill('Cambio solicitado');await page.getByLabel('Autorización del comitente',{exact:true}).fill('Orden 18');await page.getByLabel('Importe completo',{exact:true}).fill('500');await page.getByLabel('Ajustar índices',{exact:true}).check();await page.getByLabel(/CERT-1 · Diferencia/).check();await page.getByRole('button',{name:'Generar PRELIMINAR PDF',exact:true}).click();await expect.poll(()=>page.evaluate(()=>window.__calls.filter(c=>c.command==='preview_pdf').length)).toBe(1);const saved=await page.evaluate(()=>window.__calls.filter(c=>c.command==='save_certificate_draft').at(-1).args.draft);expect(saved.operation.reconcile_ids).toEqual(['old-cert']);expect(saved.operation.extras[0]).toMatchObject({description:'Movilización extraordinaria',amount:'500',adjustable:true});expect(await page.evaluate(()=>window.__calls.some(c=>c.command==='issue_certificate_draft'))).toBe(false);
 });
 test('an existing certification cut moves with a drag and still deletes with one click',async({page})=>{
  await bridge(page,{now:'2026-11-08T12:00:00Z'});await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.locator('[data-action=manage-dashboard-budget]').first().click();await page.getByRole('button',{name:'Planificación',exact:true}).click();await page.getByRole('tab',{name:'Gantt',exact:true}).click();await page.getByRole('button',{name:'Marcar cortes de certificación',exact:true}).click();await page.locator('button[data-gantt-date="2026-11-12"]').click();
@@ -973,14 +975,14 @@ test('pending batch: closed calendar, return navigation and live certificate foo
  const editor=page.getByRole('dialog',{name:'Modificar avances',exact:true});await editor.getByLabel('Avance acumulado Hormigón',{exact:true}).fill('50');await expect(editor.locator('[data-certificate-totals]')).toContainText('100,00');
  expect(await page.evaluate(()=>window.__calls.filter(c=>c.command==='save_certificate_draft').length)).toBe(0);
  await expect(editor.locator('.certificate-body')).toHaveCSS('overflow-y','auto');await expect(editor.locator('[data-certificate-totals]')).toBeVisible();
- await editor.getByText('Adicionales y diferencias de ajuste',{exact:true}).click();await editor.getByRole('button',{name:'Agregar adicional puntual',exact:true}).click();await editor.getByRole('button',{name:'Guardar borrador',exact:true}).click();
+ await editor.getByText('Adicionales y diferencias de ajuste',{exact:true}).click();await editor.getByRole('button',{name:'Agregar adicional puntual',exact:true}).click();await editor.getByLabel('Avance acumulado Hormigón',{exact:true}).blur();
  await editor.getByRole('button',{name:'Cerrar',exact:true}).click();await page.getByRole('button',{name:'Modificar avances',exact:true}).click();await expect(editor).toBeVisible();
 });
 
 test('certificate regression: reopening recalculates saved percentages, measurements have columns and signed zero exports',async({page})=>{
  await bridge(page,{issued:true,signedZeroAdvance:true});await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.locator('[data-action=manage-dashboard-budget]').first().click();
  await page.getByRole('button',{name:'Gestión de obra',exact:true}).click();await page.getByRole('button',{name:'Certificaciones',exact:true}).click();await page.getByRole('button',{name:'Modificar avances',exact:true}).click();
- const editor=page.getByRole('dialog',{name:'Modificar avances',exact:true});await editor.getByLabel('Avance acumulado Hormigón',{exact:true}).fill('50');await editor.getByRole('button',{name:'Guardar borrador',exact:true}).click();await editor.getByRole('button',{name:'Cerrar',exact:true}).click();
+ const editor=page.getByRole('dialog',{name:'Modificar avances',exact:true});await editor.getByLabel('Avance acumulado Hormigón',{exact:true}).fill('50');await editor.getByLabel('Avance acumulado Hormigón',{exact:true}).blur();await editor.getByRole('button',{name:'Cerrar',exact:true}).click();
  await page.evaluate(()=>{const d=window.__certDrafts[0];d.operation.lines=[];d.operation.calculated={};d.operation.amount='0';});
  await page.getByRole('button',{name:'Modificar avances',exact:true}).click();
  await expect(editor.getByLabel('Avance acumulado Hormigón',{exact:true})).toHaveValue('50');
@@ -988,8 +990,8 @@ test('certificate regression: reopening recalculates saved percentages, measurem
  await expect(editor.getByRole('columnheader',{name:'Unidad',exact:true})).toBeVisible();await expect(editor.getByRole('columnheader',{name:'Cantidad contratada',exact:true})).toBeVisible();
  await expect(editor.locator('.certificate-quantity')).toHaveText('2');await expect(editor.locator('.certificate-unit')).toHaveText('m³');
  await editor.getByLabel('Avance acumulado Hormigón',{exact:true}).fill('70');await expect(editor.locator('[data-cert-amount]')).toHaveText('140,00');await expect(editor.locator('[data-cert-period]')).toHaveText('70');await expect(editor.locator('[data-certificate-totals]')).toContainText('140,00');
- await editor.getByRole('button',{name:'Generar PRELIMINAR PDF',exact:true}).click();await expect.poll(()=>page.evaluate(()=>window.__calls.filter(c=>c.command==='save_export_file').length)).toBe(1);
- page.once('dialog',d=>d.accept());await editor.getByRole('button',{name:'Emitir certificado aprobado',exact:true}).click();await expect.poll(()=>page.evaluate(()=>window.__calls.filter(c=>c.command==='issue_certificate_draft').length)).toBe(1);await expect.poll(()=>page.evaluate(()=>window.__calls.filter(c=>c.command==='save_export_file').length)).toBe(2);
+ await editor.getByRole('button',{name:'Generar PRELIMINAR PDF',exact:true}).click();await expect.poll(()=>page.evaluate(()=>window.__calls.filter(c=>c.command==='preview_pdf').length)).toBe(1);
+ page.once('dialog',d=>d.accept());await editor.getByRole('button',{name:'Emitir certificado aprobado',exact:true}).click();await expect.poll(()=>page.evaluate(()=>window.__calls.filter(c=>c.command==='issue_certificate_draft').length)).toBe(1);await expect(page.getByRole('heading',{name:'Certificados definitivos'})).toBeVisible();await page.getByRole('button',{name:'Ver PDF',exact:true}).last().click();await expect.poll(()=>page.evaluate(()=>window.__calls.filter(c=>c.command==='preview_pdf').length)).toBe(2);
 });
 
 test('procurement layout: compact unit and quantity columns preserve supplier space and item prices',async({page})=>{
@@ -1084,9 +1086,9 @@ test('certificate accumulated quantity and percentage sync both ways and survive
  await expect(quantity).toHaveValue('0.5');
  await quantity.fill('2');
  await expect(percent).toHaveValue('100');
- await page.getByRole('button',{name:'Guardar borrador',exact:true}).click();
+ await quantity.blur();
  await expect(quantity).toHaveValue('2');
- expect(await page.evaluate(()=>window.__calls.filter(c=>c.command==='save_certificate_draft').at(-1).args.draft.progress[0].accumulated_quantity)).toBe('2');
+ await expect.poll(()=>page.evaluate(()=>window.__calls.filter(c=>c.command==='save_certificate_draft').at(-1)?.args.draft.progress[0].accumulated_quantity)).toBe('2');
  await page.getByRole('button',{name:'Cerrar',exact:true}).click();
  await page.getByRole('button',{name:'Modificar avances',exact:true}).click();
  await expect(quantity).toHaveValue('2');
@@ -1105,13 +1107,14 @@ test('certificate shows two decimal places without changing exact accumulated qu
  const percent=page.getByLabel('Avance acumulado Hormigón',{exact:true});
  await quantity.fill('1');await expect(percent).toHaveValue('33.33');
  await expect(page.locator('[data-cert-period]')).toHaveText('33,33');
- await page.getByRole('button',{name:'Guardar borrador',exact:true}).click();
+ await quantity.blur();
  await expect(percent).toHaveValue('33.33');await expect(quantity).toHaveValue('1');
- await page.getByRole('button',{name:'Guardar borrador',exact:true}).click();
+ await expect.poll(()=>page.evaluate(()=>window.__calls.some(c=>c.command==='save_certificate_draft'))).toBe(true);
  const saved=await page.evaluate(()=>window.__calls.filter(c=>c.command==='save_certificate_draft').at(-1).args.draft.progress[0]);
  expect(saved.accumulated_quantity).toBe('1');expect(saved.accumulated_percent).toBe('33.3333333333333333');
  await percent.fill('33.33');await expect(quantity).toHaveValue('0.99');
- await page.getByRole('button',{name:'Guardar borrador',exact:true}).click();
+ await percent.blur();
+ await expect.poll(()=>page.evaluate(()=>window.__calls.filter(c=>c.command==='save_certificate_draft').at(-1)?.args.draft.progress[0].accumulated_percent)).toBe('33.33');
  const percentage=await page.evaluate(()=>window.__calls.filter(c=>c.command==='save_certificate_draft').at(-1).args.draft.progress[0]);
  expect(percentage.accumulated_quantity).toBeNull();expect(percentage.accumulated_percent).toBe('33.33');
 });
@@ -1640,4 +1643,23 @@ test('client printing defaults to memory and quotation and remembers a later exp
  const layout=page.getByRole('combobox',{name:'Contenido para el cliente',exact:true});await expect(layout).toHaveValue('memory_sheet_price');await layout.selectOption('sheet_price');
  await page.getByRole('button',{name:'Volver al presupuesto',exact:true}).click();await page.getByRole('button',{name:'Imprimir presupuesto',exact:true}).click();await expect(layout).toHaveValue('sheet_price');
  await page.getByRole('button',{name:'Volver al presupuesto',exact:true}).click();await page.getByRole('button',{name:'Herramientas / exportar',exact:true}).click();await page.getByRole('combobox',{name:'Presentación',exact:true}).selectOption('client');await expect(layout).toHaveValue('memory_sheet_price');
+});
+
+
+test('release notice opens the announced version and Options keep language and appearance', async ({page}) => {
+  await bridge(page, {releaseTag:"v26.2.0"});
+  await expect(page.getByRole("status").filter({hasText:"CP Obras 26.2.0 disponible"})).toBeVisible();
+  await page.getByRole("link",{name:"Abrir release y descargar"}).click();
+  await expect.poll(()=>page.evaluate(()=>window.__calls.find(c=>c.command==="open_release")?.args.tag)).toBe("v26.2.0");
+  await page.getByRole("button",{name:"Cerrar aviso de actualización"}).click();
+  await page.getByRole("button",{name:"Opciones",exact:true}).click();
+  await page.getByRole("radio",{name:"City Night"}).check();
+  await expect(page.locator("html")).toHaveAttribute("data-color-palette","city-night");
+  await page.getByRole("combobox",{name:"Idioma",exact:true}).selectOption("en");
+  await expect(page.getByRole("heading",{name:"Appearance",exact:true})).toBeVisible();
+  await page.getByRole("link",{name:"Suggestions and issues"}).click();
+  await expect.poll(()=>page.evaluate(()=>window.__calls.find(c=>c.command==="open_project_link")?.args.link)).toBe("issues");
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("lang","en");
+  await expect(page.locator("html")).toHaveAttribute("data-color-palette","city-night");
 });

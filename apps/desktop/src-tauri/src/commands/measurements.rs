@@ -73,7 +73,7 @@ pub(crate) fn save_takeoff(
     let result = takeoff_view(row.clone())?;
     db.lock()
         .map_err(|e| e.to_string())?
-        .save_takeoff_row(&row)
+        .save_applied_takeoff_row(&row)
         .map_err(|e| e.to_string())?;
     Ok(result)
 }

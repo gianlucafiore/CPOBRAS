@@ -5,12 +5,13 @@ import {
   validLocation,
 } from "../services/map-coordinates.js";
 export function createWorkMap({ document, state, onSave }) {
-  const argentina = { lat: -38.4161, lon: -63.6167 },
+  const southAmerica = { lat: -24, lon: -61 },
+    continentZoom = 2,
     model = {
       key: null,
       locationKey: null,
-      center: argentina,
-      zoom: 4,
+      center: southAmerica,
+      zoom: continentZoom,
       point: null,
       draft: null,
       editing: false,
@@ -25,15 +26,15 @@ export function createWorkMap({ document, state, onSave }) {
       model.key = key;
       model.locationKey = locationKey;
       model.point = point;
-      model.center = point || argentina;
-      model.zoom = point ? 14 : 4;
+      model.center = point || southAmerica;
+      model.zoom = point ? 14 : continentZoom;
       model.draft = null;
       model.editing = false;
       model.error = false;
     }
   }
   function markup(expanded = false) {
-    return `<div class="work-map" data-work-map aria-label="Mapa de ubicación de la obra" role="application" tabindex="0" style="height:${expanded ? "min(62vh,650px)" : "260px"}"></div><div class="map-controls"><button class="btn" data-action="manage-map-zoom-out" aria-label="Alejar mapa">−</button><button class="btn" data-action="manage-map-zoom-in" aria-label="Acercar mapa">+</button><button class="btn" data-action="manage-map-center">${model.point ? "Ver ubicación" : "Ver Argentina"}</button>${!expanded ? '<button class="btn" data-action="manage-map-expand">Ampliar mapa</button>' : ""}${!state.remoteProject ? (model.editing ? `<button class="btn primary" data-action="manage-map-save" ${model.saving ? "disabled" : ""}>${model.saving ? "Buscando dirección…" : "Guardar ubicación"}</button><button class="btn" data-action="manage-map-cancel" ${model.saving ? "disabled" : ""}>Cancelar ubicación</button>` : '<button class="btn" data-action="manage-map-edit">📍 Elegir ubicación</button>') : ""}</div><p class="map-help" role="status">${model.editing ? "Hacé clic para colocar el marcador o arrastrá el pin. Guardá para confirmar." : model.point ? "Ubicación guardada. Arrastrá el fondo para navegar." : "Vista aproximada de Argentina. Activá «Elegir ubicación» para colocar el marcador."}</p><small>© OpenStreetMap contributors · Requiere Internet</small>`;
+    return `<div class="work-map" data-work-map aria-label="Mapa de ubicación de la obra" role="application" tabindex="0" style="height:${expanded ? "min(62vh,650px)" : "260px"}"></div><div class="map-controls"><button class="btn" data-action="manage-map-zoom-out" aria-label="Alejar mapa">−</button><button class="btn" data-action="manage-map-zoom-in" aria-label="Acercar mapa">+</button><button class="btn" data-action="manage-map-center">${model.point ? "Ver ubicación" : "Ver Sudamérica"}</button>${!expanded ? '<button class="btn" data-action="manage-map-expand">Ampliar mapa</button>' : ""}${!state.remoteProject ? (model.editing ? `<button class="btn primary" data-action="manage-map-save" ${model.saving ? "disabled" : ""}>${model.saving ? "Buscando dirección…" : "Guardar ubicación"}</button><button class="btn" data-action="manage-map-cancel" ${model.saving ? "disabled" : ""}>Cancelar ubicación</button>` : '<button class="btn" data-action="manage-map-edit">📍 Elegir ubicación</button>') : ""}</div><p class="map-help" role="status">${model.editing ? "Hacé clic para colocar el marcador o arrastrá el pin. Guardá para confirmar." : model.point ? "Ubicación guardada. Arrastrá el fondo para navegar." : "Vista de Sudamérica. Activá «Elegir ubicación» para colocar el marcador."}</p><small>© OpenStreetMap contributors · Requiere Internet</small>`;
   }
   function draw() {
     for (const host of document.querySelectorAll("[data-work-map]")) {
@@ -204,8 +205,8 @@ export function createWorkMap({ document, state, onSave }) {
     if (action === "manage-map-zoom-out")
       model.zoom = Math.max(2, model.zoom - 1);
     if (action === "manage-map-center") {
-      model.center = model.point || argentina;
-      model.zoom = model.point ? 14 : 4;
+      model.center = model.point || southAmerica;
+      model.zoom = model.point ? 14 : continentZoom;
     }
     if (action === "manage-map-edit") {
       if (state.remoteProject) throw new Error("Obra externa de solo lectura");

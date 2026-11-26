@@ -1364,7 +1364,7 @@ fn upgrades_populated_schema_fifteen_and_deletes_its_preexisting_linked_line() {
             .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| r
                 .get::<_, i64>(0))
             .unwrap(),
-        40
+        41
     );
     upgraded.delete_estimate_item(e.id, line.id).unwrap();
     assert!(upgraded.estimate_items(e.id).unwrap().is_empty());
@@ -5102,15 +5102,15 @@ fn deleting_last_takeoff_restores_manual_quantity_after_reapply_and_roundtrip() 
         sign: 1,
         position: 0,
     };
-    s.save_takeoff_row(&row).unwrap();
-    s.apply_takeoff_to_line(e.id, line.id).unwrap();
+    s.save_applied_takeoff_row(&row).unwrap();
+    assert_eq!(s.estimate_items(e.id).unwrap()[0].quantity, 6.into());
     let second = TakeoffRow {
         id: Uuid::new_v4(),
         position: 1,
         ..row.clone()
     };
-    s.save_takeoff_row(&second).unwrap();
-    s.apply_takeoff_to_line(e.id, line.id).unwrap();
+    s.save_applied_takeoff_row(&second).unwrap();
+    assert_eq!(s.estimate_items(e.id).unwrap()[0].quantity, 12.into());
     let copy = s.duplicate_estimate(e.id, "Copia").unwrap();
     let exported = s.export_budget(e.id).unwrap();
     assert_eq!(exported.takeoff_previous_quantities[&line.id], manual);
@@ -5119,7 +5119,7 @@ fn deleting_last_takeoff_restores_manual_quantity_after_reapply_and_roundtrip() 
         let item = s.estimate_items(estimate).unwrap().remove(0);
         let rows = s.list_takeoff_rows(estimate, item.id).unwrap();
         s.delete_takeoff_row(rows[0].id).unwrap();
-        assert_eq!(s.estimate_items(estimate).unwrap()[0].quantity, 12.into());
+        assert_eq!(s.estimate_items(estimate).unwrap()[0].quantity, 6.into());
         assert_eq!(s.measured_lines(estimate).unwrap(), vec![item.id]);
         s.delete_takeoff_row(rows[1].id).unwrap();
         assert_eq!(s.estimate_items(estimate).unwrap()[0].quantity, manual);
@@ -5654,9 +5654,13 @@ fn assisted_acu_measurements_are_calculated_and_restore_previous_manual_quantity
     assert_eq!(s.estimate_items(e.id).unwrap()[0].quantity, 112.into());
     let rows = s.list_takeoff_rows(e.id, line.id).unwrap();
     assert_eq!(rows.len(), 2);
-    for row in rows {
-        s.delete_takeoff_row(row.id).unwrap();
-    }
+    let addition = rows.iter().find(|row| row.sign == 1).unwrap();
+    let deduction = rows.iter().find(|row| row.sign == -1).unwrap();
+    assert!(s.delete_takeoff_row(addition.id).is_err());
+    assert_eq!(s.estimate_items(e.id).unwrap()[0].quantity, 112.into());
+    s.delete_takeoff_row(deduction.id).unwrap();
+    assert_eq!(s.estimate_items(e.id).unwrap()[0].quantity, 120.into());
+    s.delete_takeoff_row(addition.id).unwrap();
     assert_eq!(s.estimate_items(e.id).unwrap()[0].quantity, line.quantity);
 }
 #[test]

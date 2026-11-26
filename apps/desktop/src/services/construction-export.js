@@ -605,10 +605,6 @@ export async function exportCertificate(invoke, s) {
       align: "right",
     });
   }
-  return save(
-    invoke,
-    `${s.preliminary ? "Preliminar" : "Certificado"} ${o.number || s.project_name} ${o.period_end}`,
-    new Uint8Array(pdf.output("arraybuffer")),
-    true,
-  );
+  const bytes = [...new Uint8Array(pdf.output("arraybuffer"))];
+  return invoke("preview_pdf", { bytes });
 }

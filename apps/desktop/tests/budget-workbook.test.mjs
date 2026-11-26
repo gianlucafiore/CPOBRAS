@@ -138,9 +138,15 @@ export function workbookFixture() {
 test("client prices exclude taxes, allocate rounding cents exactly, and keep gross total", () => {
   const d = workbookFixture();
   assert.deepEqual(publicPriceSummary(d), {
+    work_subtotal: "420.00",
     subtotal: "420.00",
     taxes: "88.20",
     total: "508.20",
+    charges: [],
+    rows: [
+      {kind: "subtotal", label: "Subtotal sin IVA", amount: "420.00"},
+      {kind: "tax", label: "IVA / impuestos", amount: "88.20"},
+    ],
   });
   assert.deepEqual(
     clientPrintData(d).lines.map((l) => l.sale_total),

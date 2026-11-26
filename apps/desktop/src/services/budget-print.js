@@ -225,6 +225,7 @@ export async function budgetReportPdf(
       p.trade_name || p.company_name || p.professional_name || "CPOBRAS",
     label = reportNames[mode];
   if (!label) throw new Error("Presentación desconocida");
+  const budgetNumber = "#" + (String(reference).trim().replace(/^#+/, "") || String(data.estimate.id).slice(0, 8));
   const heading = () => {
     pdf.setFillColor(32, 53, 73);
     pdf.rect(0, 0, width, 27, "F");
@@ -249,15 +250,18 @@ export async function budgetReportPdf(
     pdf.setTextColor(255);
     pdf.setFont("helvetica", "bold");
     pdf.setFontSize(12);
-    const lines = pdf.splitTextToSize(brand, usable - (x - left));
+    const lines = pdf.splitTextToSize(brand, usable - (x - left) - 48);
     pdf.text(lines.slice(0, 2), x, 10);
     pdf.setFontSize(8);
     pdf.setFont("helvetica", "normal");
-    pdf.text(
-      label + (data.estimate.issued ? " · EMITIDO" : " · BORRADOR"),
-      x,
-      23,
-    );
+    if (mode !== "client") pdf.text(label, x, 23);
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(10);
+    pdf.text(pdf.splitTextToSize(budgetNumber, 45).slice(0, 2), width - left, 10, {align:"right"});
+    if (!data.estimate.issued) {
+      pdf.setFontSize(8);
+      pdf.text("BORRADOR", width - left, 23, {align:"right"});
+    }
     pdf.setTextColor(38, 58, 76);
     y = 36;
   };
@@ -394,16 +398,9 @@ export async function budgetReportPdf(
     text(
       "Base de incidencia: total final del presupuesto. Los rubros son subtotales; no se suman nuevamente.",
     );
-  if (hasMemory(layout) && memory) {
+  if (hasMemory(layout)) {
     text("Memoria descriptiva", { bold: true, size: 11 });
     y=drawMemoryPdf(pdf,memory,{left,width:usable,top:y,bottom,nextPage:()=>{nextPage();return y;}});
-    if(memory.trim() && (hasSchedule(layout) || mode!=="client")){
-      nextPage();
-      text(mode==="client"?"Cotización":"Planilla de presupuesto",{bold:true,size:15});
-      text("Obra: "+data.project.name,{bold:true});
-      text("Cliente: "+data.client.name);
-      if(reference)text("Referencia: "+reference);
-    }
   }
   if (hasSchedule(layout) || mode !== "client") {
     if (y + 19 > bottom) nextPage();
@@ -486,7 +483,7 @@ export async function budgetReportPdf(
     pdf.setFontSize(8);
     pdf.setTextColor(86, 108, 127);
     pdf.text(
-      label + " · " + String(data.estimate.id).slice(0, 8),
+      (mode === "client" ? "Presupuesto" : label) + " · " + budgetNumber,
       left,
       bottom + 11,
     );

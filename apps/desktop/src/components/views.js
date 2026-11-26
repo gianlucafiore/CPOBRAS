@@ -1,9 +1,10 @@
+import { interfaceText } from "../services/interface-language.js";
 import {priceCostFactor,priceRowRate} from "../services/price-summary.js";
 import { budgetNumbering } from "../services/budget-numbering.js";
 import { entityActions } from "./entity-actions.js";
 const appLogo = new URL("../../src-tauri/icons/icon.png", import.meta.url).href;
 import { helpBox } from "./help.js";
-import { money, numeric, sumDecimals, absoluteDecimal } from "../decimal.js";
+import { money, numeric, sumDecimals, absoluteDecimal, compareDecimals } from "../decimal.js";
 import {
   e,
   dateToday,
@@ -31,7 +32,11 @@ export function createViews({
   memoryMarkup = () => "",
 }) {
   function chrome(content) {
+    const t = message => e(interfaceText(state.language, message));
     const work = Boolean(state.projectId);
+    const sectionName = {workspace:"Presupuesto", planning:"Planificación", management:"Datos de la obra",
+      operations:"Gestión de obra", "budget-tools":"Herramientas / exportar", "budget-printing":"Imprimir presupuesto",
+      "price-determination":"Determinación de precio"}[state.view];
     const budget =
       work && Boolean(state.estimateId) && state.view !== "management";
     const active =
@@ -47,12 +52,12 @@ export function createViews({
           : state.view;
     return `<div class="app">
     <header class="app-header">
-      <div class="brand"><img class="brand-mark" src="${appLogo}" alt="Yacaré de CPOBRAS"><b>CPOBRAS</b><small>estudio de costos</small></div>
+      <div class="brand"><img class="brand-mark" src="${appLogo}" alt="Yacaré de CPOBRAS"><b>CPOBRAS</b><small>${t("estudio de costos")}</small></div>
+      <nav class="history-nav" aria-label="${t("Historial de vistas")}"><button class="btn tiny" data-action="history-back" title="${t("Atrás")}" aria-label="${t("Atrás")}" ${state.canGoBack ? "" : "disabled"}>←</button><button class="btn tiny" data-action="history-forward" title="${t("Adelante")}" aria-label="${t("Adelante")}" ${state.canGoForward ? "" : "disabled"}>→</button></nav>
       <div class="context-title">${
         work
-          ? `<span>${e(currentProject()?.name)}</span>${budget ? `<i class="breadcrumb-arrow">›</i><b>${e(currentEstimate()?.title)}</b>` : ""}`
-          : `<b>${
-              {
+          ? `<span>${t("Inicio / Obras")}</span><i class="breadcrumb-arrow">›</i><span>${e(currentProject()?.name)}</span>${budget ? `<i class="breadcrumb-arrow">›</i><span>${e(currentEstimate()?.title)}</span>` : ""}${sectionName ? `<i class="breadcrumb-arrow">›</i><b>${t(sectionName)}</b>` : ""}`
+          : `<b>${t({
                 "price-determination": "Determinación de precio",
                 operations: "Gestión de obra",
                 portfolio: "Cartera de obras",
@@ -65,26 +70,26 @@ export function createViews({
                 "budget-printing": "Imprimir presupuesto",
                 projects: "Obras y presupuestos",
                 "app-options": "Opciones",
+                "system-settings": "Datos generales",
                 clients: "Directorio de clientes",
                 suppliers: "Directorio de proveedores",
                 resources: "Catálogo de insumos",
                 analyses: "Biblioteca de ACU",
-              }[state.view]
-            }</b>`
+              }[state.view] || "")}</b>`
       }</div>
       <div class="header-right">
-      ${!work && ["projects","app-options"].includes(state.view) ? `<button class="btn" data-action="app-options-open">Opciones</button>` : ""}
+      ${!work && ["projects","app-options"].includes(state.view) ? `<button class="btn" data-action="app-options-open">${t("Opciones")}</button>` : ""}
       ${
         work && currentEstimate()
-          ? `${state.remoteProject ? `<span class="status-pill">${currentEstimate().issued ? "● Emitido" : "● En elaboración"} · Solo lectura</span>` : `<select class="status-pill ${currentEstimate().issued ? "issued" : ""}" name="estimate-status" aria-label="Estado del presupuesto"><option value="draft" ${!currentEstimate().issued ? "selected" : ""}>● En elaboración</option><option value="issued" ${currentEstimate().issued ? "selected" : ""}>● Emitido</option></select>`}
+          ? `${state.remoteProject ? `<span class="status-pill">${t(currentEstimate().issued ? "● Emitido" : "● En elaboración")} · ${t("Solo lectura")}</span>` : `<select class="status-pill ${currentEstimate().issued ? "issued" : ""}" name="estimate-status" aria-label="${t("Estado del presupuesto")}"><option value="draft" ${!currentEstimate().issued ? "selected" : ""}>${t("● En elaboración")}</option><option value="issued" ${currentEstimate().issued ? "selected" : ""}>${t("● Emitido")}</option></select>`}
         <span class="total-head"><small>${state.view === "price-determination" && state.pricePreview?.dirty ? "VISTA PREVIA" : "TOTAL"}</small> ${e(currentEstimate()?.currency)} <strong>${state.view === "price-determination" && state.pricePreview ? (state.pricePreview.total == null ? "—" : money(state.pricePreview.total)) : state.totals?.pricing_error ? "—" : money(state.totals?.total)}</strong></span>`
-          : `<span class="connection">${state.remoteProject ? "Solo lectura · Obra externa" : "● SQLite local"}</span>`
+          : `<span class="connection">${t(state.remoteProject ? "Solo lectura · Obra externa" : "● SQLite local")}</span>`
       }</div>
     </header>
     <nav class="menu-bar" aria-label="Navegación principal">
       ${
         work
-          ? `<button class="menu-item" data-action="go-home">← Inicio</button>${[
+          ? `<button class="menu-item" data-action="go-home">${t("← Inicio")}</button>${[
               [
                 "open-management",
                 budget ? "← Volver al proyecto" : "Proyecto",
@@ -102,10 +107,10 @@ export function createViews({
               .filter(([, , view]) => budget || view === "management")
               .map(
                 ([action, label, view]) =>
-                  `<button class="menu-item ${state.view === view || (view === "workspace" && ["budget-tools", "budget-printing"].includes(state.view)) ? "active" : ""}" aria-current="${state.view === view || (view === "workspace" && ["budget-tools", "budget-printing"].includes(state.view)) ? "page" : "false"}" data-action="${action}" ${view === "price-determination" && !currentEstimate() ? "disabled" : ""}>${label}</button>`,
+                  `<button class="menu-item ${state.view === view || (view === "workspace" && ["budget-tools", "budget-printing"].includes(state.view)) ? "active" : ""}" aria-current="${state.view === view || (view === "workspace" && ["budget-tools", "budget-printing"].includes(state.view)) ? "page" : "false"}" data-action="${action}" ${view === "price-determination" && !currentEstimate() ? "disabled" : ""}>${t(label)}</button>`,
               )
               .join("")}`
-          : `<button class="menu-item ${state.view === "projects" ? "active" : ""}" aria-current="${state.view === "projects" ? "page" : "false"}" data-action="navigate" data-view="projects">Inicio / Obras</button>${[
+          : `<button class="menu-item ${state.view === "projects" ? "active" : ""}" aria-current="${state.view === "projects" ? "page" : "false"}" data-action="navigate" data-view="projects">${t("Inicio / Obras")}</button>${[
               ["clients", "Clientes"],
               ["suppliers", "Proveedores"],
               ["resources", "Insumos"],
@@ -113,12 +118,12 @@ export function createViews({
             ]
               .map(
                 ([view, label]) =>
-                  `<button class="menu-item ${active === view ? "active" : ""}" aria-current="${active === view ? "page" : "false"}" data-action="navigate" data-view="${view}">${label}</button>`,
+                  `<button class="menu-item ${active === view ? "active" : ""}" aria-current="${active === view ? "page" : "false"}" data-action="navigate" data-view="${view}">${t(label)}</button>`,
               )
               .join(
                 "",
-              )}<button class="menu-item ${active === "portfolio" ? "active" : ""}" aria-current="${active === "portfolio" ? "page" : "false"}" data-action="open-portfolio">Cartera de obras</button><button class="menu-item ${active === "organizations" ? "active" : ""}" aria-current="${active === "organizations" ? "page" : "false"}" data-action="open-organizations">Organizaciones</button><button class="menu-item ${active === "sharing" ? "active" : ""}" aria-current="${active === "sharing" ? "page" : "false"}" data-action="open-sharing">Vinculación P2P</button><button class="menu-item ${active === "system-settings" ? "active" : ""}" aria-current="${active === "system-settings" ? "page" : "false"}" data-action="open-system-settings">Datos generales</button><button class="menu-item ${active === "backups" ? "active" : ""}" aria-current="${active === "backups" ? "page" : "false"}" data-action="backups">Copias de seguridad</button>`
-      }<span class="grow"></span><span class="kbd-hint">ESC cierra ventanas</span>
+              )}<button class="menu-item ${active === "portfolio" ? "active" : ""}" aria-current="${active === "portfolio" ? "page" : "false"}" data-action="open-portfolio">${t("Cartera de obras")}</button><button class="menu-item ${active === "organizations" ? "active" : ""}" aria-current="${active === "organizations" ? "page" : "false"}" data-action="open-organizations">${t("Organizaciones")}</button><button class="menu-item ${active === "sharing" ? "active" : ""}" aria-current="${active === "sharing" ? "page" : "false"}" data-action="open-sharing">${t("Vinculación P2P")}</button><button class="menu-item ${active === "system-settings" ? "active" : ""}" aria-current="${active === "system-settings" ? "page" : "false"}" data-action="open-system-settings">${t("Datos generales")}</button><button class="menu-item ${active === "backups" ? "active" : ""}" aria-current="${active === "backups" ? "page" : "false"}" data-action="backups">${t("Copias de seguridad")}</button>`
+      }<span class="grow"></span><span class="kbd-hint">${t("ESC cierra ventanas")}</span>
     </nav>
 
     ${state.remoteProject ? `<div class="remote-context" role="status"><strong>Obra externa de solo lectura</strong> · ${e(currentProject()?.organization_name)} · Copia recibida ${e(new Date(state.remoteProject.received_at * 1000).toLocaleString("es-AR"))}${state.remoteProject.revoked ? " · Acceso revocado" : state.remoteProject.error ? " · Sin actualizar" : ""}. Las modificaciones corresponden al propietario.</div>` : ""}
@@ -250,7 +255,7 @@ export function createViews({
     if (state.panel === "direct-costs") return directCostsMarkup();
     if (state.panel === "summary") return summaryPane();
     if (state.panel === "resources")
-      return `<div class="detail-heading"><b>INSUMOS DEL PRESUPUESTO</b></div>
+      return `<div class="detail-heading"><b>INSUMOS DEL PRESUPUESTO</b><div class="heading-actions"><label><input type="checkbox" data-resources-export-prices> Incluir importes en PDF</label><button class="btn" data-action="budget-resources-xlsx">Descargar Excel</button><button class="btn" data-action="budget-resources-pdf">Descargar PDF</button></div></div>
     <div class="mini-scroll"><table class="mini-table"><thead><tr><th>TIPO</th><th>DESCRIPCIÓN</th><th>UND.</th><th class="number">CANT. TOTAL</th><th class="number">PRECIO TOTAL ${e(currentEstimate()?.currency || "ARS")}</th></tr></thead><tbody>
     ${(state.estimateResourceTotals||[]).map((r) => `<tr><td><span class="kind kind-${e(r.kind)}">${kindBadge(r.kind)}</span></td><td>${e(r.description)}</td><td>${e(r.unit)}</td><td class="number">${numeric(r.quantity)}</td><td class="number">${r.total==null?'—':money(r.total)}</td></tr>`).join("") || '<tr><td colspan="5" class="empty-cell">Todavía no hay insumos en este presupuesto. Cargalos en el ACU de una partida o en Gastos Directos.</td></tr>'}
     </tbody></table></div><div class="detail-footer"><span>Totales de los insumos de todas las partidas y de Gastos Directos. Para modificar su composición, abrí el ACU de la partida o Gastos Directos.</span></div>`;
@@ -286,12 +291,14 @@ export function createViews({
   }
   function takeoffPane(line) {
     const qty = sumDecimals(state.takeoffs.map((row) => row.quantity));
+    const hasUnappliedQuantity = state.takeoffs.length > 0 && compareDecimals(qty, line.quantity) !== 0;
     return `<div class="detail-heading"><div><strong>METRADOS · ${e(line.description)}</strong><span class="label-muted">Factor × Largo × Ancho × Alto</span></div>
-    <button class="btn tiny primary" data-action="modal-takeoff" ${locked()}>＋ Medición</button>
+    <div class="heading-actions">${hasUnappliedQuantity ? `<button class="btn tiny" data-action="apply-takeoffs" ${locked()}>Aplicar cantidad medida</button>` : ""}
+    <button class="btn tiny primary" data-action="modal-takeoff" ${locked()}>＋ Medición</button></div>
   </div><div class="mini-scroll"><table class="mini-table takeoff-table"><thead><tr><th>DESCRIPCIÓN</th><th class="number">F</th><th class="number">L</th><th class="number">A</th><th class="number">H</th><th class="number">CANT.</th><th></th></tr></thead><tbody>
   ${state.takeoffs.map((row) => `<tr><td><button class="link" data-action="edit-takeoff" data-id="${e(row.id)}">${e(row.note || "Medición")}</button></td><td class="number">${numeric(row.factor)}</td><td class="number">${numeric(row.length)}</td><td class="number">${numeric(row.width)}</td><td class="number">${numeric(row.height)}</td><td class="number ${row.sign < 0 ? "negative" : ""}">${row.sign < 0 ? "−" : "+"}${numeric(absoluteDecimal(row.quantity))}</td><td><button class="tiny-danger" data-action="delete-takeoff" data-id="${e(row.id)}" ${locked()}>×</button></td></tr>`).join("") || `<tr><td colspan="7" class="empty-cell">Todavía no hay mediciones.</td></tr>`}
   </tbody></table></div><div class="context-summary"><div><small>Cantidad medida</small><b>${numeric(qty)} ${e(line.unit)}</b></div><div><small>Presupuesto</small><b>${numeric(line.quantity)} ${e(line.unit)}</b></div></div>
-  <div class="detail-footer"><button class="btn primary" data-action="apply-takeoffs" ${locked()} ${state.takeoffs.length === 0 ? "disabled" : ""}>Aplicar cantidad medida</button><span class="muted-note">Las mediciones negativas descuentan vanos y aberturas.</span></div>`;
+  <div class="detail-footer muted-note">Las mediciones negativas descuentan vanos y aberturas.</div>`;
   }
   function summaryPane() {
     const t = state.totals || {};
@@ -346,7 +353,7 @@ export function createViews({
     } else if (state.view === "resources") {
       title = "Biblioteca de insumos";
       subtitle = "Materiales, mano de obra, equipos y subcontratos.";
-      action = btn("Descargar listado", "resource-import-template") + btn("Importar Excel", "resource-import-open") + btn("Preparar insumos con IA", "ai-resource-open") + btn("＋ Nuevo insumo", "modal-resource", "primary");
+      action = btn("Descargar listado", "resource-import-template") + btn("Importar Excel", "resource-import-open") + (state.aiEnabled ? btn("Preparar insumos con IA", "ai-resource-open") : "") + btn("＋ Nuevo insumo", "modal-resource", "primary");
       headers = ["CÓDIGO", "DESCRIPCIÓN", "TIPO", "UND.", "PRECIO ARS", ""];
       rows = state.resources
         .map(

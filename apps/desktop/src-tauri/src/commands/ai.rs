@@ -2,14 +2,27 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::time::Duration;
-use std::{collections::VecDeque, sync::Mutex};
+use std::{collections::VecDeque, sync::{Mutex, atomic::{AtomicBool, Ordering}}};
 use tokio::sync::oneshot;
 use uuid::Uuid;
 
 #[derive(Default)]
 pub struct AiSession {
+    disabled: AtomicBool,
     credentials: Mutex<CredentialState>,
     requests: Mutex<Requests>,
+}
+impl AiSession {
+    pub(crate) fn disable(&self) {
+        self.disabled.store(true, Ordering::Relaxed);
+    }
+    fn require_enabled(&self) -> Result<(), String> {
+        if self.disabled.load(Ordering::Relaxed) {
+            Err("La opción IA está desactivada en esta versión".into())
+        } else {
+            Ok(())
+        }
+    }
 }
 #[derive(Default)]
 struct Requests {
@@ -242,6 +255,7 @@ pub fn ai_configure(
     model: String,
     key: String,
 ) -> Result<AiStatus, String> {
+    session.require_enabled()?;
     let mut state = session
         .credentials
         .lock()
@@ -250,6 +264,7 @@ pub fn ai_configure(
 }
 #[tauri::command]
 pub fn ai_status(session: tauri::State<'_, AiSession>) -> Result<AiStatus, String> {
+    session.require_enabled()?;
     let mut state = session
         .credentials
         .lock()
@@ -308,7 +323,8 @@ fn parse_local_models(body: &Value) -> Vec<LocalAiModel> {
     result
 }
 #[tauri::command]
-pub async fn ai_local_models() -> Result<Vec<LocalAiModel>, String> {
+pub async fn ai_local_models(session: tauri::State<'_, AiSession>) -> Result<Vec<LocalAiModel>, String> {
+    session.require_enabled()?;
     let client = http_client()?;
     let response = client
         .get("http://127.0.0.1:1234/api/v1/models")
@@ -679,6 +695,7 @@ pub async fn ai_chat(
     context: String,
     mode: Option<String>,
 ) -> Result<AiReply, String> {
+    session.require_enabled()?;
     if mode.as_deref().is_some_and(|m| {
         ![
             "plan",
@@ -1359,12 +1376,14 @@ fn read_catalog_context(
 
 #[tauri::command]
 pub fn ai_catalog_context(
+    session: tauri::State<'_, AiSession>,
     db: tauri::State<'_, crate::Db>,
     project_id: Option<Uuid>,
     estimate_id: Option<Uuid>,
     as_of: String,
     currency: Option<String>,
 ) -> Result<AiCatalogContext, String> {
+    session.require_enabled()?;
     let store = db
         .lock()
         .map_err(|_| "No se pudo leer el catálogo de insumos")?;

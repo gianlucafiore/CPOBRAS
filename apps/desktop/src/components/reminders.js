@@ -1,4 +1,11 @@
 import { e, field, select, dateToday } from "./helpers.js";
+export function certificateReminderLead(window, scope) {
+  try {
+    const value = window.localStorage.getItem("cpobras:certificate-reminder-lead:" + scope);
+    if (value !== null && /^\d+$/.test(value)) return Math.min(90, Number(value));
+  } catch { /* Use the default when the preference is unavailable. */ }
+  return 3;
+}
 export const reminderKinds = {
   general: "General",
   materials: "Compra de materiales",
@@ -66,7 +73,7 @@ export function createReminders({
     const editor = d
       ? `<form id="reminder-form" class="reminder-editor"><h3>${d.id ? "Editar recordatorio" : "Nuevo recordatorio"}</h3>${field("Recordatorio", "reminder-title", d.title, 'required maxlength="300" placeholder="Qué necesitás recordar"')}${field("Fecha de vencimiento", "reminder-date", d.due_date, 'type="date" required')}${select("Tipo de recordatorio", "reminder-kind", Object.entries(reminderKinds), d.kind)}${select("Obra (opcional)", "reminder-project", options(projects, d.project_id, d.project_name), d.project_id || "")}${select("Cliente / contratista (opcional)", "reminder-person", options(contacts, d.person_id, d.person_name), d.person_id || "")}<label class="field"><span>Notas</span><textarea name="reminder-notes" rows="3" maxlength="5000">${e(d.notes)}</textarea></label><div class="reminder-buttons"><button class="btn primary" type="submit">Guardar recordatorio</button><button class="btn" type="button" data-action="reminder-cancel">Cancelar</button></div><p class="feature-error" role="alert"></p></form>`
       : "";
-    return `<aside class="reminders-panel" aria-label="Recordatorios"><div class="reminders-heading"><h2>Recordatorios</h2><button class="btn tiny primary" data-action="reminder-new">＋ Nuevo</button></div><p class="reminders-hint">Vigentes primero. Los vencidos y resueltos quedan en gris, al final.</p>${editor}${state.remindersError ? `<p class="feature-error" role="alert">No se pudieron cargar los recordatorios. ${e(state.remindersError)} <button class="btn tiny" data-action="reminder-refresh">Reintentar</button></p>` : ""}<div class="reminders-scroll"><table class="data-grid reminders-table"><thead><tr><th>Recordatorio</th><th>Vence</th><th></th></tr></thead><tbody>${
+    return `<aside class="reminders-panel" aria-label="Recordatorios"><div class="reminders-heading"><h2>Recordatorios</h2><button class="btn tiny primary" data-action="reminder-new">＋ Nuevo</button></div><p class="reminders-hint">Avisar por certificaciones <input type="number" data-reminder-lead min="0" max="90" step="1" value="${certificateReminderLead(window, scope())}" aria-label="Días de anticipación para certificaciones"> días antes. Los vencidos y resueltos quedan al final.</p>${editor}${state.remindersError ? `<p class="feature-error" role="alert">No se pudieron cargar los recordatorios. ${e(state.remindersError)} <button class="btn tiny" data-action="reminder-refresh">Reintentar</button></p>` : ""}<div class="reminders-scroll"><table class="data-grid reminders-table"><thead><tr><th>Recordatorio</th><th>Vence</th><th></th></tr></thead><tbody>${
       page.items
         .map((row) => {
           const expired = row.due_date < today,
@@ -78,7 +85,7 @@ export function createReminders({
               : row.due_date === today
                 ? "Vence hoy"
                 : "";
-          return `<tr class="${old ? "reminder-history" : ""}" data-reminder-id="${e(row.id)}"><td><strong>${e(row.title)}</strong><small>${e(reminderKinds[row.kind] || row.kind)}</small>${row.project_name ? `<small>Obra: ${e(row.project_name)}</small>` : ""}${row.person_name ? `<small>Contacto: ${e(row.person_name)}</small>` : ""}${row.notes ? `<details><summary>Notas</summary><p>${e(row.notes)}</p></details>` : ""}</td><td><time datetime="${e(row.due_date)}">${e(row.due_date.split("-").reverse().join("/"))}</time>${status ? `<small class="${!old ? "reminder-today" : ""}">${status}</small>` : ""}</td><td><div class="reminder-actions" role="group" aria-label="Acciones de recordatorio ${e(row.title)}"><button class="btn tiny" title="Editar" data-action="reminder-edit" data-id="${e(row.id)}" aria-label="Editar recordatorio ${e(row.title)}">✎</button><button class="btn tiny" title="${row.completed ? "Reabrir" : "Marcar como resuelto"}" data-action="reminder-toggle" data-id="${e(row.id)}" aria-label="${row.completed ? "Reabrir" : "Resolver"} recordatorio ${e(row.title)}">${row.completed ? "↶" : "✓"}</button><button class="btn tiny" title="Eliminar" data-action="reminder-delete" data-id="${e(row.id)}" aria-label="Eliminar recordatorio ${e(row.title)}">×</button></div></td></tr>`;
+          return `<tr class="${old ? "reminder-history" : ""}" data-reminder-id="${e(row.id)}"><td><strong>${e(row.title)}</strong><small>${e(reminderKinds[row.kind] || row.kind)}</small>${row.project_name ? `<small>Obra: ${e(row.project_name)}</small>` : ""}${row.person_name ? `<small>Contacto: ${e(row.person_name)}</small>` : ""}${row.certificate?.start ? `<small>${e(row.certificate.start.split("-").reverse().join("/"))} a ${e(row.certificate.end.split("-").reverse().join("/"))}</small>` : ""}${row.notes ? `<details><summary>Notas</summary><p>${e(row.notes)}</p></details>` : ""}</td><td><time datetime="${e(row.due_date)}">${e(row.due_date.split("-").reverse().join("/"))}</time>${status ? `<small class="${!old ? "reminder-today" : ""}">${status}</small>` : ""}</td><td><div class="reminder-actions" role="group" aria-label="Acciones de recordatorio ${e(row.title)}">${row.certificate ? `<button class="btn tiny reminder-open-certificate" data-action="open-certificate-reminder" data-id="${e(row.id)}" aria-label="Abrir certificado" title="Abrir certificado">Abrir</button>` : `<button class="btn tiny" title="Editar" data-action="reminder-edit" data-id="${e(row.id)}" aria-label="Editar recordatorio ${e(row.title)}">✎</button><button class="btn tiny" title="${row.completed ? "Reabrir" : "Marcar como resuelto"}" data-action="reminder-toggle" data-id="${e(row.id)}" aria-label="${row.completed ? "Reabrir" : "Resolver"} recordatorio ${e(row.title)}">${row.completed ? "↶" : "✓"}</button><button class="btn tiny" title="Eliminar" data-action="reminder-delete" data-id="${e(row.id)}" aria-label="Eliminar recordatorio ${e(row.title)}">×</button>`}</div></td></tr>`;
         })
         .join("") ||
       '<tr><td colspan="3" class="empty-cell">Sin recordatorios. Agregá compras, certificados o solicitudes de presupuesto para tenerlos presentes.</td></tr>'
@@ -88,7 +95,7 @@ export function createReminders({
     const before = scope(),
       today = dateToday();
     try {
-      const result = await invoke("list_reminders", { today, page });
+      const result = await invoke("list_reminders", { today, page, leadDays: certificateReminderLead(window, scope()) });
       if (before !== scope()) return;
       if (!result?.items)
         throw new Error("Respuesta inválida al cargar la lista");
@@ -117,7 +124,14 @@ export function createReminders({
     m.dirty = true;
     state.pageDirty = true;
   }
-  function change(target) {
+  async function change(target) {
+    if (target.matches?.("[data-reminder-lead]")) {
+      if (!target.value || !target.reportValidity()) return;
+      window.localStorage.setItem("cpobras:certificate-reminder-lead:" + scope(), target.value);
+      await refresh(0);
+      render();
+      return;
+    }
     input(target);
     if (target.name === "reminder-project" && m.draft) {
       const project = state.projects.find((p) => p.id === target.value);

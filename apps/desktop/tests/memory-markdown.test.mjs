@@ -21,25 +21,24 @@ test('memory supports basic formatting, preserves existing plain text and escape
  assert.equal(memoryInline('\\*literal\\*').map(r=>r.text).join(''),'*literal*');
 });
 
-test('client memory is a formatted presentation and quotation starts on the next page',async()=>{
+test('client memory is formatted and the quotation follows on the same page when it fits',async()=>{
  const data=fixture();data.document.lines[0].description='TABLE_SENTINEL';
  data.document.presentation={memory:'# SCOPE\n\nMEMORY_SENTINEL **STRONG** and *ITALIC*.\n\n- Included scope'};
  const result=pages(await budgetReportPdf(data));
- assert.equal(result.length,2);
- assert.match(result[0],/MEMORY_SENTINEL/);assert.doesNotMatch(result[0],/TABLE_SENTINEL|TOTAL ARS/);
- assert.match(result[1],/TABLE_SENTINEL/);assert.match(result[1],/TOTAL ARS/);assert.doesNotMatch(result[1],/MEMORY_SENTINEL/);
+ assert.equal(result.length,1);
+ assert.match(result[0],/MEMORY_SENTINEL[\s\S]*TABLE_SENTINEL[\s\S]*TOTAL ARS/);
  assert.match(result[0],/\/F2 10\.5 Tf[\s\S]*?\(STRONG\) Tj/);assert.match(result[0],/\/F3 10\.5 Tf[\s\S]*?\(ITALIC\) Tj/);
  assert.doesNotMatch(result[0],/\*\*STRONG\*\*|# SCOPE/);
 });
 
-test('long memory keeps its final paragraph before a separate quotation and retains all lines',async()=>{
+test('long memory retains its final paragraph before the quotation',async()=>{
  const data=fixture();data.document.lines[0].description='TABLE_SENTINEL';
  const memory=Array.from({length:150},(_,i)=>`**Etapa ${i+1}**: ${'Alcance y condiciones de la obra. '.repeat(4)}`).join('\n\n')+'\n\nEND_OF_MEMORY';
  const result=pages(await budgetReportPdf(data,{layout:'memory_sheet_price',memory}));
  const quotation=result.findIndex(p=>p.includes('TABLE_SENTINEL')),lastMemory=result.findIndex(p=>p.includes('END_OF_MEMORY'));
- assert.ok(quotation>2);assert.equal(lastMemory,quotation-1);
- assert.ok(result.slice(0,quotation).every(p=>!p.includes('TABLE_SENTINEL')));
- assert.doesNotMatch(result[quotation],/END_OF_MEMORY/);
+ assert.ok(quotation>2);
+ assert.ok(lastMemory === quotation || lastMemory === quotation-1);
+ if (lastMemory === quotation) assert.match(result[quotation],/END_OF_MEMORY[\s\S]*TABLE_SENTINEL/);
 });
 
 test('explicit sheet-only and memory-with-price layouts keep their requested contents',async()=>{

@@ -50,124 +50,33 @@ fn parse_decimal(value: String) -> Result<Decimal> {
 impl LocalStore {
     pub fn save_takeoff_row(&mut self, row: &TakeoffRow) -> Result<()> {
         row.measured_quantity()?;
-        self.conn.execute(
-            "INSERT INTO takeoff_rows(
-               id,estimate_id,line_id,note,factor,length,width,height,sign,position
-             ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)
-             ON CONFLICT(id) DO UPDATE SET
-               note=excluded.note,factor=excluded.factor,length=excluded.length,
-               width=excluded.width,height=excluded.height,sign=excluded.sign,
-               position=excluded.position",
-            params![
-                row.id.to_string(),
-                row.estimate_id.to_string(),
-                row.line_id.to_string(),
-                row.note,
-                row.factor.to_string(),
-                row.length.to_string(),
-                row.width.to_string(),
-                row.height.to_string(),
-                row.sign,
-                row.position,
-            ],
-        )?;
+        write_takeoff(&self.conn, row)
+    }
+
+    pub fn save_applied_takeoff_row(&mut self, row: &TakeoffRow) -> Result<()> {
+        row.measured_quantity()?;
+        let tx = self
+            .conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        write_takeoff(&tx, row)?;
+        apply_takeoff(&tx, row.estimate_id, row.line_id)?;
+        tx.commit()?;
         Ok(())
     }
 
     pub fn list_takeoff_rows(&self, estimate_id: Uuid, line_id: Uuid) -> Result<Vec<TakeoffRow>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id,note,factor,length,width,height,sign,position
-             FROM takeoff_rows WHERE estimate_id=?1 AND line_id=?2
-             ORDER BY position,id",
-        )?;
-        let rows = stmt.query_map(
-            params![estimate_id.to_string(), line_id.to_string()],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, String>(4)?,
-                    row.get::<_, String>(5)?,
-                    row.get::<_, i64>(6)?,
-                    row.get::<_, i64>(7)?,
-                ))
-            },
-        )?;
-        let mut result = Vec::new();
-        for row in rows {
-            let (id, note, factor, length, width, height, sign, position) = row?;
-            result.push(TakeoffRow {
-                id: Uuid::parse_str(&id)?,
-                estimate_id,
-                line_id,
-                note,
-                factor: parse_decimal(factor)?,
-                length: parse_decimal(length)?,
-                width: parse_decimal(width)?,
-                height: parse_decimal(height)?,
-                sign,
-                position,
-            });
-        }
-        Ok(result)
+        takeoff_rows(&self.conn, estimate_id, line_id)
     }
 
     pub fn measured_line_quantity(&self, estimate_id: Uuid, line_id: Uuid) -> Result<Decimal> {
-        let rows = self.list_takeoff_rows(estimate_id, line_id)?;
-        if rows.is_empty() {
-            return Err(StorageError::InvalidValue(
-                "line has no takeoff rows".into(),
-            ));
-        }
-        rows.into_iter().try_fold(Decimal::ZERO, |sum, row| {
-            sum.checked_add(row.measured_quantity()?)
-                .ok_or_else(|| StorageError::InvalidValue("takeoff arithmetic overflow".into()))
-        })
+        measured_quantity(&self.conn, estimate_id, line_id)
     }
 
     pub fn apply_takeoff_to_line(&mut self, estimate_id: Uuid, line_id: Uuid) -> Result<Decimal> {
-        let quantity = self.measured_line_quantity(estimate_id, line_id)?;
-        if quantity < Decimal::ZERO {
-            return Err(StorageError::InvalidValue("negative net takeoff".into()));
-        }
-        let tx = rusqlite::Transaction::new_unchecked(
-            &self.conn,
-            rusqlite::TransactionBehavior::Immediate,
-        )?;
-        let current: String = tx.query_row(
-            "SELECT quantity FROM estimate_lines WHERE id=?1 AND estimate_id=?2",
-            params![line_id.to_string(), estimate_id.to_string()],
-            |r| r.get(0),
-        )?;
-        let previous: Option<(String, Option<String>)> = tx
-            .query_row(
-                "SELECT source,previous_quantity FROM measured_lines WHERE line_id=?1",
-                [line_id.to_string()],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .optional()?;
-        let manual = match previous {
-            Some((source, value)) if source == "takeoff" => value,
-            _ => Some(current),
-        };
-        let changed = tx.execute(
-            "UPDATE estimate_lines SET quantity=?1 WHERE id=?2 AND estimate_id=?3",
-            params![
-                quantity.to_string(),
-                line_id.to_string(),
-                estimate_id.to_string()
-            ],
-        )?;
-        if changed != 1 {
-            return Err(StorageError::InvalidValue("Partida inexistente".into()));
-        }
-        crate::estimates::checked_budget_total(&tx, estimate_id)?;
-        tx.execute(
-            "INSERT OR REPLACE INTO measured_lines(line_id,source,previous_quantity) VALUES(?1,'takeoff',?2)",
-            params![line_id.to_string(),manual],
-        )?;
+        let tx = self
+            .conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let quantity = apply_takeoff(&tx, estimate_id, line_id)?;
         tx.commit()?;
         Ok(quantity)
     }
@@ -190,7 +99,16 @@ impl LocalStore {
             [&line],
             |r| r.get(0),
         )?;
-        if !remaining {
+        if remaining {
+            let applied: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM measured_lines WHERE line_id=?1 AND source='takeoff')",
+                [&line],
+                |r| r.get(0),
+            )?;
+            if applied {
+                apply_takeoff(&tx, Uuid::parse_str(&estimate)?, Uuid::parse_str(&line)?)?;
+            }
+        } else {
             let previous: Option<Option<String>> = tx.query_row("SELECT previous_quantity FROM measured_lines WHERE line_id=?1 AND source='takeoff'",[&line],|r|r.get(0)).optional()?;
             if let Some(previous) = previous {
                 if let Some(quantity) = previous {
@@ -209,6 +127,134 @@ impl LocalStore {
         tx.commit()?;
         Ok(())
     }
+}
+
+fn write_takeoff(conn: &rusqlite::Connection, row: &TakeoffRow) -> Result<()> {
+    conn.execute(
+        "INSERT INTO takeoff_rows(
+               id,estimate_id,line_id,note,factor,length,width,height,sign,position
+             ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)
+             ON CONFLICT(id) DO UPDATE SET
+               note=excluded.note,factor=excluded.factor,length=excluded.length,
+               width=excluded.width,height=excluded.height,sign=excluded.sign,
+               position=excluded.position",
+        params![
+            row.id.to_string(),
+            row.estimate_id.to_string(),
+            row.line_id.to_string(),
+            row.note,
+            row.factor.to_string(),
+            row.length.to_string(),
+            row.width.to_string(),
+            row.height.to_string(),
+            row.sign,
+            row.position,
+        ],
+    )?;
+    Ok(())
+}
+
+fn takeoff_rows(
+    conn: &rusqlite::Connection,
+    estimate_id: Uuid,
+    line_id: Uuid,
+) -> Result<Vec<TakeoffRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT id,note,factor,length,width,height,sign,position
+             FROM takeoff_rows WHERE estimate_id=?1 AND line_id=?2
+             ORDER BY position,id",
+    )?;
+    let rows = stmt.query_map(
+        params![estimate_id.to_string(), line_id.to_string()],
+        |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, i64>(6)?,
+                row.get::<_, i64>(7)?,
+            ))
+        },
+    )?;
+    let mut result = Vec::new();
+    for row in rows {
+        let (id, note, factor, length, width, height, sign, position) = row?;
+        result.push(TakeoffRow {
+            id: Uuid::parse_str(&id)?,
+            estimate_id,
+            line_id,
+            note,
+            factor: parse_decimal(factor)?,
+            length: parse_decimal(length)?,
+            width: parse_decimal(width)?,
+            height: parse_decimal(height)?,
+            sign,
+            position,
+        });
+    }
+    Ok(result)
+}
+
+fn measured_quantity(
+    conn: &rusqlite::Connection,
+    estimate_id: Uuid,
+    line_id: Uuid,
+) -> Result<Decimal> {
+    let rows = takeoff_rows(conn, estimate_id, line_id)?;
+    if rows.is_empty() {
+        return Err(StorageError::InvalidValue(
+            "line has no takeoff rows".into(),
+        ));
+    }
+    rows.into_iter().try_fold(Decimal::ZERO, |sum, row| {
+        sum.checked_add(row.measured_quantity()?)
+            .ok_or_else(|| StorageError::InvalidValue("takeoff arithmetic overflow".into()))
+    })
+}
+
+fn apply_takeoff(tx: &rusqlite::Connection, estimate_id: Uuid, line_id: Uuid) -> Result<Decimal> {
+    let quantity = measured_quantity(tx, estimate_id, line_id)?;
+    if quantity < Decimal::ZERO {
+        return Err(StorageError::InvalidValue(
+            "El total neto de los metrados no puede ser negativo".into(),
+        ));
+    }
+    let current: String = tx.query_row(
+        "SELECT quantity FROM estimate_lines WHERE id=?1 AND estimate_id=?2",
+        params![line_id.to_string(), estimate_id.to_string()],
+        |r| r.get(0),
+    )?;
+    let previous: Option<(String, Option<String>)> = tx
+        .query_row(
+            "SELECT source,previous_quantity FROM measured_lines WHERE line_id=?1",
+            [line_id.to_string()],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    let manual = match previous {
+        Some((source, value)) if source == "takeoff" => value,
+        _ => Some(current),
+    };
+    let changed = tx.execute(
+        "UPDATE estimate_lines SET quantity=?1 WHERE id=?2 AND estimate_id=?3",
+        params![
+            quantity.to_string(),
+            line_id.to_string(),
+            estimate_id.to_string()
+        ],
+    )?;
+    if changed != 1 {
+        return Err(StorageError::InvalidValue("Partida inexistente".into()));
+    }
+    crate::estimates::checked_budget_total(tx, estimate_id)?;
+    tx.execute(
+            "INSERT OR REPLACE INTO measured_lines(line_id,source,previous_quantity) VALUES(?1,'takeoff',?2)",
+            params![line_id.to_string(),manual],
+        )?;
+    Ok(quantity)
 }
 
 #[cfg(test)]

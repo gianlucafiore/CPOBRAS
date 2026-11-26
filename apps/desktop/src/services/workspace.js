@@ -1,4 +1,5 @@
 import {dateToday} from "../components/helpers.js";
+import {certificateReminderLead} from "../components/reminders.js";
 import {budgetResourceTotals,loadBudgetAnalyses} from "./budget-resources.js";
 import { sumDecimals } from "../decimal.js";
 export function createWorkspaceService({ invoke,globalInvoke=invoke, state, currentLine, render, window = globalThis.window }) {
@@ -36,7 +37,7 @@ export function createWorkspaceService({ invoke,globalInvoke=invoke, state, curr
       globalInvoke("list_persons", { role: "client" }),
       globalInvoke("list_persons", { role: "supplier" }),
       globalInvoke("p2p_projects").catch(error=>{state.externalProjectError=String(error);return [];}),
-      globalInvoke("list_reminders",{today:reminderToday,page:state.remindersData?.page||0}).then(result=>{if(!result?.items)throw new Error("Respuesta inválida");state.remindersError="";state.remindersToday=reminderToday;return result;}).catch(error=>{state.remindersError=String(error);return state.remindersData||{items:[],page:0,total:0,page_size:20};}),
+      globalInvoke("list_reminders",{today:reminderToday,page:state.remindersData?.page||0,leadDays:certificateReminderLead(window,reminderScope)}).then(result=>{if(!result?.items)throw new Error("Respuesta inválida");state.remindersError="";state.remindersToday=reminderToday;return result;}).catch(error=>{state.remindersError=String(error);return state.remindersData||{items:[],page:0,total:0,page_size:20};}),
     ]);
   }
   async function loadEstimates() {

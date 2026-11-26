@@ -77,7 +77,7 @@ export function createBudgetTools({
     ${field("Título", "title", o.title, "required")}
     ${field("Fecha", "date", o.date, 'type="date"')}${field("Referencia", "reference", o.reference)}
     <div ${o.kind === "client" ? "" : "hidden"}>${select("Contenido para el cliente", "layout", Object.entries(clientLayouts), o.layout)}</div>
-    </div><div ${o.kind === "incidences" || (o.kind === "client" && !hasMemory(o.layout)) ? "hidden" : ""}>${memoryEditor(o.memory,{name:"memory",label:"Memoria descriptiva inicial",rows:7,readonly:Boolean(current()?.issued || state.remoteProject),required:o.kind==="client"&&hasMemory(o.layout)})}</div>
+    </div><div ${o.kind === "incidences" || (o.kind === "client" && !hasMemory(o.layout)) ? "hidden" : ""}>${memoryEditor(o.memory,{name:"memory",label:"Memoria descriptiva inicial",rows:7,readonly:Boolean(current()?.issued || state.remoteProject)})}</div>
     <label class="field"><span>Condiciones comerciales y observaciones</span><textarea name="notes" rows="5" placeholder="Validez de la oferta, forma de pago, plazo de entrega, alcance y exclusiones…">${e(o.notes)}</textarea></label>
     ${select(
       "Hoja PDF",
@@ -332,12 +332,6 @@ export function createBudgetTools({
         ...model.options,
         landscape: value("orientation") === "landscape",
       };
-      if (
-        options.kind === "client" &&
-        hasMemory(options.layout) &&
-        !options.memory.trim()
-      )
-        throw new Error("Completá la memoria descriptiva inicial");
       const bytes = await exportBudget(invoke, state, options);
       model.lastExport = await invoke("write_export", {
         name: "presupuesto." + options.format,

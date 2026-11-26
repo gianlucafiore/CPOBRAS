@@ -1,3 +1,4 @@
+import { exportGantt, exportPert } from "../services/workspace-exports.js";
 import {
   criticalWalk,
   fitViewport,
@@ -393,7 +394,7 @@ export function createPlanningWorkspace({
       !model.projectId
         ? "<p>Seleccioná una obra para planificar.</p>"
         : `
-      <nav class="planning-tabs" aria-label="Vistas de planificación"><button class="btn ${model.tab === "pert" ? "active" : ""}" role="tab" aria-selected="${model.tab === "pert"}" data-action="plan-view" data-view="pert">PERT</button><button class="btn ${model.tab === "gantt" ? "active" : ""}" role="tab" aria-selected="${model.tab === "gantt"}" data-action="plan-view" data-view="gantt">Gantt</button></nav><div class="planning-overview-row"><details class="planning-options planning-calendar" ${model.calendarOpen ? "open" : ""}><summary>Calendario de la obra</summary><form id="planning-settings" class="feature-toolbar">${field("Inicio del proyecto", "start_date", model.plan.calendar.start_date, 'type="date" required')}${field("Fecha de seguimiento", "as_of", model.asOf, 'type="date" required')}<p>Los feriados generales se administran en Inicio → Datos generales. Aquí solo modificás esta obra.</p><label><input type="checkbox" name="custom_week" ${model.plan.calendar_overrides?.nonworking_weekdays ? "checked" : ""}> Personalizar semana laborable de esta obra</label><fieldset><legend>Días laborables (si se personaliza la semana)</legend>${["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"].map((day, index) => `<label><input type="checkbox" name="workday" value="${index}" ${model.plan.calendar.nonworking_weekdays.includes(index) ? "" : "checked"}>${day}</label>`).join("")}</fieldset><details><summary>Feriados heredados del calendario general</summary>${
+      <nav class="planning-tabs" aria-label="Vistas de planificación"><button class="btn ${model.tab === "pert" ? "active" : ""}" role="tab" aria-selected="${model.tab === "pert"}" data-action="plan-view" data-view="pert">PERT</button><button class="btn ${model.tab === "gantt" ? "active" : ""}" role="tab" aria-selected="${model.tab === "gantt"}" data-action="plan-view" data-view="gantt">Gantt</button>${model.tab === "gantt" ? '<label>Altura de PDF <select data-gantt-height><option value="210">A4 apaisada · 210 mm</option><option value="297">A3 apaisada · 297 mm</option><option value="420">A2 apaisada · 420 mm</option><option value="custom">Personalizada</option></select></label><label data-gantt-custom-field hidden><input type="number" data-gantt-custom-height aria-label="Altura personalizada en milímetros" min="80" max="5000" value="600"> mm</label>' : ""}<button class="btn" data-action="plan-export-pdf">Exportar PDF</button></nav><div class="planning-overview-row"><details class="planning-options planning-calendar" ${model.calendarOpen ? "open" : ""}><summary>Calendario de la obra</summary><form id="planning-settings" class="feature-toolbar">${field("Inicio del proyecto", "start_date", model.plan.calendar.start_date, 'type="date" required')}${field("Fecha de seguimiento", "as_of", model.asOf, 'type="date" required')}<p>Los feriados generales se administran en <button type="button" class="link" data-action="open-general-calendar">Datos generales</button>. Aquí solo modificás esta obra.</p><label><input type="checkbox" name="custom_week" ${model.plan.calendar_overrides?.nonworking_weekdays ? "checked" : ""}> Personalizar semana laborable de esta obra</label><fieldset><legend>Días laborables (si se personaliza la semana)</legend>${["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"].map((day, index) => `<label><input type="checkbox" name="workday" value="${index}" ${model.plan.calendar.nonworking_weekdays.includes(index) ? "" : "checked"}>${day}</label>`).join("")}</fieldset><details><summary>Feriados heredados del <button type="button" class="link" data-action="open-general-calendar">calendario general</button></summary>${
         Object.entries(model.generalCalendar.exceptions || {})
           .sort(([a], [b]) => a.localeCompare(b))
           .map(
@@ -462,6 +463,17 @@ export function createPlanningWorkspace({
   }
   async function act(button) {
     const action = button.dataset.action;
+    if (action === "plan-export-pdf") {
+      const title = state.projects.find(p => p.id === state.projectId)?.name || "Obra";
+      if (model.tab === "pert") await exportPert(invoke, title, model.plan, model.schedule, positions());
+      else {
+        const height = document.querySelector("[data-gantt-height]").value;
+        const millimeters = Number(height === "custom" ? document.querySelector("[data-gantt-custom-height]").value : height);
+        const baseline = model.baselines.find(item => item.id === model.baselineId);
+        await exportGantt(invoke, title, model.plan, model.schedule, millimeters, baseline?.schedule);
+      }
+      return;
+    }
     if (
       model.erasing &&
       !["plan-connect-cancel", "plan-erase-cancel", "plan-erase-edge"].includes(
@@ -872,6 +884,10 @@ export function createPlanningWorkspace({
     render();
   }
   async function change(target) {
+    if (target.matches?.("[data-gantt-height]")) {
+      document.querySelector("[data-gantt-custom-field]").hidden = target.value !== "custom";
+      return;
+    }
     if (calendarPicker.change(target)) return;
     if (target.name === "pert-query") {
       model.pertQuery = target.value;

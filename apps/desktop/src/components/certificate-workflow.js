@@ -92,10 +92,30 @@ export function createCertificateWorkflow({
     d.operation.reconcile_ids =
       d.kind === "certificate" ? f.getAll("reconcile_id").map(String) : [];
   }
+  let saving = null, editVersion = 0;
   async function save() {
-    read();
-    view.draft = await invoke("save_certificate_draft", { draft: view.draft });
-    view.dirty = false;
+    while (saving) await saving;
+    const form = document.querySelector("#certificate-workflow-form");
+    if (!form || !view.draft) return;
+    if (!form.reportValidity()) throw new Error("Revisá los campos del certificado.");
+    if (view.dirty) {
+      read();
+      const version = editVersion;
+      const snapshot = structuredClone(view.draft);
+      const request = invoke("save_certificate_draft", { draft: snapshot }).then(saved => {
+        if (view.draft?.id === saved.id) {
+          view.draft = saved;
+          view.dirty = editVersion !== version;
+        }
+      });
+      saving = request;
+      try { await request; }
+      finally { if (saving === request) saving = null; }
+    }
+  }
+  async function savedPreview() {
+    await save();
+    while (view.dirty) await save();
     clearTimeout(previewTimer);
     ++previewGeneration;
     try {
@@ -113,7 +133,7 @@ export function createCertificateWorkflow({
   async function openEditorPreview() {
     clearTimeout(previewTimer);
     ++previewGeneration;
-    view.draft.operation.date = dateToday();
+    if (!view.draft.revision) view.draft.operation.date = dateToday();
     try {
       view.sheet = await invoke("calculate_certificate_preview", {
         draft: structuredClone(view.draft),
@@ -174,7 +194,14 @@ export function createCertificateWorkflow({
       }
     }, 180);
   }
-  function overview() {
+  function issuedDocuments() {
+    const documents = model.docs.filter(d => d.estimate_id === model.estimateId && ["certificate", "subcertificate"].includes(d.kind));
+    if (!documents.length) return "";
+    return `<section class="workflow-card"><h2>Certificados definitivos</h2><table class="data-grid"><thead><tr><th>Certificado</th><th>Período</th><th>Emisión</th><th>PDF</th></tr></thead><tbody>${documents.map(d =>
+      `<tr><td>${d.kind === "certificate" ? "Comitente" : "Contratista"} · ${e(d.number)}</td><td>${e(d.period_start)} a ${e(d.period_end)}</td><td>${e(d.date)}</td><td><button class="btn" data-action="ops-cert-pdf" data-id="${e(d.id)}">Ver PDF</button></td></tr>`
+    ).join("")}</tbody></table></section>`;
+  }
+  function overview({ compact = false } = {}) {
     const drafts = view.drafts.filter(
         (d) => d.kind === "certificate" && !d.issued_id,
       ),
@@ -235,18 +262,38 @@ export function createCertificateWorkflow({
       : rows.find(
           (r) => !r.document && r.state !== "Emitido" && r.cut > lastIssued,
         );
-    return `<section class="workflow-card"><div class="feature-toolbar"><h2>Certificaciones pactadas</h2><button class="btn" data-action="agreement-open">Acuerdo, anticipo y reparo del presupuesto</button><button class="btn" data-action="ops-cert-refresh">Actualizar previsión</button></div><p>Los períodos provienen de los cortes del Gantt. Solo se edita el certificado abierto; al emitirlo se habilita el siguiente. Los cobros previstos no son cobros registrados.</p><table class="data-grid"><thead><tr><th>Período / certificado</th><th>Estado</th><th>Cobro previsto / emitido</th><th>Gastos próxima etapa</th><th>Resto</th><th>Índice</th><th>Cobro</th><th></th></tr></thead><tbody>${
-      rows
-        .map((r) => {
-          const current = r === active;
-          return `<tr><td>${e(r.start || "")} → ${e(r.cut)}${r.document ? "<small>" + e(r.document.number) + "</small>" : ""}</td><td>${r.document || r.state === "Emitido" ? "Emitido" : current ? "Abierto" : "Pendiente"}</td><td>${money(r.document?.amount || r.amount)}</td><td>${money(r.next_expenses || "0")}</td><td>${money(r.remainder || "0")}</td><td>${e(r.index_status || "")}</td><td>${e(r.collection_date || "")}</td><td>${r.document ? `<button class="btn" data-action="ops-cert-pdf" data-id="${r.document.id}">Ver certificado / PDF</button>` : current && !state.remoteProject ? `<button class="btn primary" data-action="${open ? "ops-cert-resume" : "ops-cert-next"}" ${open ? 'data-id="' + open.id + '"' : ""}>Modificar avances</button>` : ""}</td></tr>`;
-        })
-        .join("") ||
-      '<tr><td colspan="8">Marcá los cortes de certificación en el Gantt para comenzar.</td></tr>'
-    }</tbody></table></section>`;
+    const headings = compact
+      ? ["Período / certificado", "Estado", "Importe", "Fecha de cobro", ""]
+      : ["Período / certificado", "Estado", "Cobro previsto / emitido", "Gastos próxima etapa", "Resto", "Índice", "Cobro", ""];
+    const body = rows.map((r) => {
+      const current = r === active;
+      const status = r.document || r.state === "Emitido" ? "Emitido" : current ? "Abierto" : "Pendiente";
+      const action = r.document
+        ? `<button class="btn" data-action="ops-cert-pdf" data-id="${e(r.document.id)}">Ver PDF</button>`
+        : current && !state.remoteProject
+          ? `<button class="btn primary" data-action="${open ? "ops-cert-resume" : "ops-cert-next"}" ${open ? 'data-id="' + e(open.id) + '"' : ""}>Modificar avances</button>`
+          : "";
+      const detail = compact ? `<details><summary>Gastos e índice</summary>
+        <small>Gastos próxima etapa: ${money(r.next_expenses || "0")}</small>
+        <small>Resto: ${money(r.remainder || "0")}</small>
+        <small>${e(r.index_status || "Sin índice")}</small></details>` : "";
+      return `<tr><td>${r.start ? e(r.start) + " → " : ""}${e(r.cut)}${r.document ? "<small>" + e(r.document.number) + "</small>" : ""}${detail}</td>
+        <td>${status}</td><td>${money(r.document?.amount || r.amount)}${compact ? `<small>${status === "Emitido" ? "Emitido" : "Previsto"}</small>` : ""}</td>
+        ${compact ? "" : `<td>${money(r.next_expenses || "0")}</td><td>${money(r.remainder || "0")}</td><td>${e(r.index_status || "")}</td>`}
+        <td>${e(r.collection_date || "—")}</td><td>${action}</td></tr>`;
+    }).join("");
+    return `<section class="workflow-card ${compact ? "finance-certificates" : ""}">
+      <div class="feature-toolbar"><h2>Certificaciones pactadas</h2><button class="btn" data-action="agreement-open">Acuerdo, anticipo y reparo</button><button class="btn" data-action="ops-cert-refresh">Actualizar previsión</button></div>
+      <p>${compact ? "Períodos según los cortes del Gantt." : "Los períodos provienen de los cortes del Gantt. Solo se edita el certificado abierto; al emitirlo se habilita el siguiente. Los cobros previstos no son cobros registrados."}</p>
+      <div class="finance-table-scroll"><table class="data-grid"><thead><tr>${headings.map(label => `<th>${label}</th>`).join("")}</tr></thead><tbody>
+      ${body || `<tr><td colspan="${headings.length}">Marcá los cortes de certificación en el Gantt para comenzar.</td></tr>`}
+      </tbody></table></div></section>`;
+  }
+  function editors() {
+    return editor() + paymentEditor();
   }
   function markup() {
-    return overview() + editor() + paymentEditor();
+    return overview() + issuedDocuments() + editors();
   }
   function contracts() {
     if (!view.contractId) return "";
@@ -281,7 +328,7 @@ export function createCertificateWorkflow({
     if (!view.draft || !view.sheet) return "";
     const d = view.draft,
       o = d.operation;
-    return `<section class="workflow-editor certificate-editor" role="dialog" aria-modal="true" aria-label="Modificar avances"><form id="certificate-workflow-form"><div class="feature-toolbar"><h2>Modificar avances · ${o.kind === "certificate" ? "Comitente" : "Contratista"}</h2><button type="button" class="btn" data-action="ops-cert-close">Cerrar</button><button type="submit" class="btn">Guardar borrador</button><button type="button" class="btn" data-action="ops-cert-preliminary">Generar PRELIMINAR PDF</button><button type="button" class="btn primary" data-action="ops-cert-issue">Emitir certificado aprobado</button></div><div class="workflow-grid">${field("Fecha de emisión / preparación", "date", o.date, 'type="date" required')}${field("Desde", "period_start", o.period_start, o.kind === "certificate" ? 'type="date" readonly' : 'type="date" required')}${field("Hasta", "period_end", o.period_end, o.kind === "certificate" ? 'type="date" readonly' : 'type="date" required')}${o.kind === "subcertificate" ? field("Jornadas / horas (solo contratos por tiempo)", "work_units", o.work_units || "0", 'type="number" min="0" step="any"') : ""}</div><p>Ingresá el porcentaje o la cantidad acumulada; ambos se sincronizan automáticamente. El período es la diferencia con lo emitido anteriormente. Los avances aprobados de contratistas se incorporan al borrador, sin emitir automáticamente.</p>${o.kind === "certificate" ? '<button type="button" class="btn" data-action="ops-cert-approved">Incorporar avances aprobados de contratistas</button>' : ""}<div class="certificate-body"><div class="workflow-scroll"><table class="data-grid"><thead><tr><th>Ítem / partida</th><th>Unidad</th><th>Cantidad contratada</th><th>Anterior %</th><th>Acumulado %</th><th>Cantidad acumulada</th><th>Período %</th><th>Restante %</th><th>Importe período base</th></tr></thead><tbody>${view.sheet.rows
+    return `<section class="workflow-editor certificate-editor" role="dialog" aria-modal="true" aria-label="Modificar avances"><form id="certificate-workflow-form"><div class="feature-toolbar"><h2>Modificar avances · ${o.kind === "certificate" ? "Comitente" : "Contratista"}</h2><button type="button" class="btn" data-action="ops-cert-close">Cerrar</button><button type="button" class="btn" data-action="ops-cert-preliminary">Generar PRELIMINAR PDF</button><button type="button" class="btn primary" data-action="ops-cert-issue">Emitir certificado aprobado</button></div><div class="workflow-grid">${field("Fecha de emisión / preparación", "date", o.date, 'type="date" required')}${field("Desde", "period_start", o.period_start, o.kind === "certificate" ? 'type="date" readonly' : 'type="date" required')}${field("Hasta", "period_end", o.period_end, o.kind === "certificate" ? 'type="date" readonly' : 'type="date" required')}${o.kind === "subcertificate" ? field("Jornadas / horas (solo contratos por tiempo)", "work_units", o.work_units || "0", 'type="number" min="0" step="any"') : ""}</div><p>Ingresá el porcentaje o la cantidad acumulada; ambos se sincronizan automáticamente. El período es la diferencia con lo emitido anteriormente. Los avances aprobados de contratistas se incorporan al borrador, sin emitir automáticamente.</p>${o.kind === "certificate" ? '<button type="button" class="btn" data-action="ops-cert-approved">Incorporar avances aprobados de contratistas</button>' : ""}<div class="certificate-body"><div class="workflow-scroll"><table class="data-grid"><thead><tr><th>Ítem / partida</th><th>Unidad</th><th>Cantidad contratada</th><th>Anterior %</th><th>Acumulado %</th><th>Cantidad acumulada</th><th>Período %</th><th>Restante %</th><th>Importe período base</th></tr></thead><tbody>${view.sheet.rows
       .map((r) => {
         const progress = d.progress.find((p) => p.line_id === r.line_id);
         const v = progress?.accumulated_percent || r.previous_percent;
@@ -325,6 +372,17 @@ export function createCertificateWorkflow({
   async function act(b) {
     const a = b.dataset.action;
     if (!a.startsWith("ops-cert-")) return false;
+    const editor = document.querySelector("#certificate-workflow-form");
+    if (editor && ["ops-cert-close", "ops-cert-preliminary", "ops-cert-issue", "ops-cert-approved", "ops-cert-add-extra", "ops-cert-remove-extra"].includes(a)) {
+      if (!editor.reportValidity()) return true;
+      try {
+        do { await save(); } while (view.dirty);
+      } catch (error) {
+        const status = editor.querySelector("[data-preview-status]");
+        if (status) status.textContent = String(error);
+        return true;
+      }
+    }
     if (
       state.remoteProject &&
       ![
@@ -337,8 +395,7 @@ export function createCertificateWorkflow({
       throw new Error("Obra de solo lectura");
     if (a === "ops-cert-refresh") await load();
     if (a === "ops-cert-contract-close") {
-      if (view.dirty && !window.confirm("¿Descartar los cambios sin guardar?"))
-        return true;
+      await save();
       view.contractId = null;
     }
     if (a === "ops-cert-contract") {
@@ -390,8 +447,6 @@ export function createCertificateWorkflow({
       await openEditorPreview();
     }
     if (a === "ops-cert-close") {
-      if (view.dirty && !window.confirm("¿Cerrar sin guardar los cambios?"))
-        return true;
       clearTimeout(previewTimer);
       ++previewGeneration;
       view.draft = null;
@@ -441,16 +496,16 @@ export function createCertificateWorkflow({
       view.dirty = true;
     }
     if (a === "ops-cert-preliminary") {
-      await save();
-      model.lastExport = await exportCertificate(invoke, view.sheet);
+      await savedPreview();
+      await exportCertificate(invoke, view.sheet);
     }
     if (a === "ops-cert-pdf")
-      model.lastExport = await exportCertificate(
+      await exportCertificate(
         invoke,
         await invoke("issued_certificate_sheet", { id: b.dataset.id }),
       );
     if (a === "ops-cert-issue") {
-      await save();
+      await savedPreview();
       if (
         !window.confirm(
           `¿El certificado está aprobado y querés emitirlo formalmente por ${money(view.sheet.operation.amount)}? Quedará cerrado y actualizará el avance oficial.`,
@@ -459,7 +514,7 @@ export function createCertificateWorkflow({
         render();
         return true;
       }
-      const issued = await invoke("issue_certificate_draft", {
+      await invoke("issue_certificate_draft", {
         id: view.draft.id,
         revision: view.draft.revision,
         date: view.draft.operation.date,
@@ -469,10 +524,7 @@ export function createCertificateWorkflow({
       view.dirty = false;
       await refresh();
       await load();
-      model.lastExport = await exportCertificate(
-        invoke,
-        await invoke("issued_certificate_sheet", { id: issued.id }),
-      );
+      state.message = "Certificado emitido. El PDF está disponible en Certificaciones.";
     }
     render();
     if (
@@ -491,6 +543,7 @@ export function createCertificateWorkflow({
     markup,
     contracts,
     overview,
+    editors,
     act,
     submit: async (form) => {
       if (form?.id === "certificate-payment-form") {
@@ -517,12 +570,23 @@ export function createCertificateWorkflow({
         return;
       }
       await save();
-      render();
     },
     input: (t) => {
       if (t.matches?.("[data-cert-percent],[data-cert-quantity]")) {
         const row = t.closest("[data-cert-progress]");
         try {
+          const cap = t.matches("[data-cert-quantity]") ? row.dataset.contractQuantity : "100";
+          if (t.value && compareDecimals(t.value, cap) > 0) {
+            const message = "El avance acumulado no puede superar el 100 % de lo contratado.";
+            t.setCustomValidity(message);
+            const status = document.querySelector("[data-preview-status]");
+            if (status) status.textContent = message;
+            clearTimeout(previewTimer);
+            ++previewGeneration;
+            return;
+          }
+          t.setCustomValidity("");
+          row.querySelector(t.matches("[data-cert-quantity]") ? "[data-cert-percent]" : "[data-cert-quantity]").setCustomValidity("");
           const value = truncateDecimals(t.value || "0");
           if (t.value && /[.,]\d{3,}/.test(t.value)) t.value = value;
           if (t.matches("[data-cert-quantity]")) {
@@ -540,17 +604,34 @@ export function createCertificateWorkflow({
       }
       if (t.closest?.("#certificate-workflow-form")) {
         view.dirty = true;
+        ++editVersion;
         livePreview();
       }
     },
-    protect: () => {
-      if (!view.dirty) return true;
-      if (!window.confirm("Hay avances sin guardar. ¿Descartarlos?"))
-        return false;
-      view.dirty = false;
-      view.draft = null;
-      view.sheet = null;
-      return true;
+    focusout: async (target) => {
+      const editor = target.closest?.("#certificate-workflow-form");
+      if (!editor) return;
+      if (target.validity && !target.validity.valid) {
+        target.reportValidity();
+        return;
+      }
+      if (!view.dirty) return;
+      try {
+        await save();
+        const status = document.querySelector("[data-preview-status]");
+        if (status && !view.dirty) status.textContent = "Borrador guardado";
+      } catch (error) {
+        const status = document.querySelector("[data-preview-status]");
+        if (status) status.textContent = String(error);
+      }
     },
+    protect: async () => {
+      try {
+        await save();
+        while (view.dirty && document.querySelector("#certificate-workflow-form")) await save();
+        return true;
+      } catch { return false; }
+    },
+    isSaving: () => Boolean(saving),
   };
 }

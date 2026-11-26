@@ -106,6 +106,25 @@ pub(crate) fn open_export_pdf(
     let path = owned_pdf(&root, std::path::Path::new(&path))?;
     open_saved_pdf(&path)
 }
+#[tauri::command]
+pub(crate) async fn preview_pdf(bytes: Vec<u8>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use std::io::Write;
+        if !bytes.starts_with(b"%PDF-") || bytes.len() > 50_000_000 {
+            return Err("PDF inválido".into());
+        }
+        let mut file = tempfile::Builder::new()
+            .prefix("cpobras-")
+            .suffix(".pdf")
+            .tempfile()
+            .map_err(|e| e.to_string())?;
+        file.write_all(&bytes).map_err(|e| e.to_string())?;
+        let path = file.into_temp_path().keep().map_err(|e| e.to_string())?;
+        open_saved_pdf(&path)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
 pub(crate) fn open_saved_pdf(path: &std::path::Path) -> Result<(), String> {
     let mut command = pdf_command(path);
     let status = command

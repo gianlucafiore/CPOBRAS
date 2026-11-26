@@ -1,5 +1,59 @@
-import {e} from './helpers.js';
-import metadata from '../../package.json' with {type:'json'};
-export function optionsMarkup(state) {
-  return `<section class="list-page"><div class="list-top"><h1>Opciones</h1><button class="btn" data-action="navigate" data-view="projects">Volver a Inicio</button></div><section class="project-card"><h2>Base de datos</h2><p>Para usar una base que te pasaron o recuperar una copia, elegí <strong>Abrir base de datos…</strong> y seleccioná el archivo. <strong>Nueva base de datos…</strong> crea una base vacía en un archivo nuevo.</p>${state.database ? `<p class="database-menu-path" title="${e(state.database.path)}">Base activa · ${e(state.database.name)}</p><p>${e(state.database.path)}</p><div class="heading-actions"><button class="btn" data-action="database-new">Nueva base de datos…</button><button class="btn" data-action="database-open">Abrir base de datos…</button></div>` : '<p>Base de datos local.</p>'}</section><section class="project-card"><h2>Acerca de…</h2><p><strong>CPOBRAS</strong> · Estudio de costos y gestión de obras</p><p>Versión ${e(metadata.version)}</p><p>Autor: Gianluca Fiore</p><p>Año: 2026</p></section></section>`;
+import { e } from "./helpers.js";
+import { colorThemes } from "../services/appearance.js";
+import { interfaceText, languages } from "../services/interface-language.js";
+import metadata from "../../package.json" with { type: "json" };
+
+function appearanceMarkup(t, language, { theme = "default", followSystem = false } = {}) {
+  return `<section class="project-card appearance-card">
+    <h2>${t("Apariencia")}</h2>
+    <label class="field options-language"><span>${t("Idioma")}</span>
+      <select name="interface-language">${languages.map(([code, name]) =>
+        `<option value="${code}" lang="${code}" ${code === language ? "selected" : ""}>${e(name)}</option>`
+      ).join("")}</select>
+    </label>
+    <p class="muted-note">${t("Traducción disponible en la navegación y las opciones.")}</p>
+    <label class="theme-system"><input type="checkbox" name="follow-system-theme" ${followSystem ? "checked" : ""}> ${t("Seguir al sistema")}</label>
+    <fieldset data-theme-choices ${followSystem ? "disabled" : ""}>
+      <legend>${t("Tema de colores")}</legend>
+      <div class="theme-choices">
+      ${colorThemes.map(([key, name]) => `<label class="theme-choice">
+        <input type="radio" name="color-theme" value="${key}" ${key === theme ? "checked" : ""}>
+        <span class="theme-preview" data-color-palette="${key}" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span>${t(name)}</span>
+      </label>`).join("")}
+      </div>
+    </fieldset>
+  </section>`;
+}
+
+const repository = "https://github.com/gianlucafiore/CPOBRAS";
+const projectLinks = [
+  ["repository", repository, "Repositorio"],
+  ["issues", repository + "/issues", "Sugerencias y problemas"],
+  ["support", "https://gianlucafiore.github.io/CPOBRAS/#patrocinio", "Donaciones y apoyo"],
+];
+
+export function optionsMarkup(state, appearance) {
+  const language = state.language || "es-AR";
+  const t = message => e(interfaceText(language, message));
+  const db = state.database;
+  return `<section class="list-page options-page">
+    <div class="list-top"><h1>${t("Opciones")}</h1><button class="btn" data-action="navigate" data-view="projects">${t("Volver a Inicio")}</button></div>
+    ${appearanceMarkup(t, language, appearance)}
+    <section class="project-card"><h2>${t("Base de datos")}</h2>
+      <p>${t("Abrir usa el archivo en su ubicación original durante esta sesión.")} ${t("Importar guarda una copia en la carpeta de datos de CP Obras y la abre automáticamente al iniciar.")}</p>
+      ${db ? `<p class="database-menu-path" title="${e(db.path)}">${t("Base activa")} · ${e(db.name)}</p><p>${e(db.path)}</p>
+      <div class="heading-actions">
+        <button class="btn" data-action="database-new">${t("Nueva base de datos…")}</button>
+        <button class="btn" data-action="database-open">${t("Abrir base de datos…")}</button>
+        <button class="btn" data-action="database-import">${t("Importar base de datos…")}</button>
+      </div><h3>${t("Bases recientes")}</h3>
+      <ul>${(db.recent || []).map(path => `<li><button class="link" data-action="database-recent" data-path="${e(path)}" ${path === db.path ? "disabled" : ""}>${e(path.replaceAll(String.fromCharCode(92), "/").split("/").at(-1))}</button> <small>${e(path)}</small></li>`).join("")}</ul>` : `<p>${t("Base de datos local.")}</p>`}
+    </section>
+    <section class="project-card"><h2>${t("Acerca de…")}</h2>
+      <p><strong>CPOBRAS</strong> · ${t("Estudio de costos y gestión de obras")}</p>
+      <p>${t("Versión")} ${e(metadata.version)} · ${t("Autor")} Gianluca Fiore · 2026</p>
+      <ul class="about-links">${projectLinks.map(([id, href, label]) => `<li><a class="link" href="${href}" data-action="open-project-link" data-link="${id}">${t(label)}</a></li>`).join("")}</ul>
+    </section>
+  </section>`;
 }

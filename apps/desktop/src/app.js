@@ -35,6 +35,9 @@ import { createViews } from "./components/views.js";
 import { createModalRenderer } from "./components/modal.js";
 import { createActions } from "./controllers/actions.js";
 import { e } from "./components/helpers.js";
+import { exportResources } from "./services/workspace-exports.js";
+import { createAppearance } from "./services/appearance.js";
+import { createInterfaceLanguage } from "./services/interface-language.js";
 
 export function createWorkspaceApp({
   invoke,
@@ -42,10 +45,15 @@ export function createWorkspaceApp({
   window = globalThis.window,
   FormData = globalThis.FormData,
   databaseSwitching = false,
+  aiEnabled = true,
 }) {
   const root = document.querySelector("#app");
   createClearSearch({document,window});
   const state = createState();
+  state.aiEnabled = aiEnabled;
+  const appearance = createAppearance(document, window);
+  const language = createInterfaceLanguage(document, window);
+  state.language = language.current;
   const originalInvoke = invoke;
   let pendingCommands = 0;
   let switchingDatabase = false;
@@ -83,8 +91,8 @@ export function createWorkspaceApp({
     FormData,
   };
   let resourceLibraryOrigin = null, resourceLibraryBrief = "";
-  const aiAssistant = createAiAssistant({...context,invoke:nativeInvoke,openResourceLibrary});
-  const aiResourceImport = createAiResourceImport({...context,invoke:nativeInvoke,onSaved:async()=>{render();},onConfigure:()=>aiAssistant.configure(),isChatBusy:()=>aiAssistant.isBusy()});
+  const aiAssistant = aiEnabled ? createAiAssistant({...context,invoke:nativeInvoke,openResourceLibrary}) : null;
+  const aiResourceImport = aiEnabled ? createAiResourceImport({...context,invoke:nativeInvoke,onSaved:async()=>{render();},onConfigure:()=>aiAssistant.configure(),isChatBusy:()=>aiAssistant.isBusy()}) : null;
   const unitPicker = createUnitPicker(context);
   const resourcePicker = createResourcePicker(context);
   const resourceImport = createResourceImport(context);
@@ -148,6 +156,61 @@ export function createWorkspaceApp({
       );
     detail.innerHTML = helpBox(state.panel, true) + rightPanel();
   }
+  const history = [];
+  let historyIndex = -1, restoringHistory = false;
+  const historyActions = {
+    management: "open-management", planning: "open-planning", operations: "open-operations",
+    "price-determination": "open-price-determination", "budget-printing": "open-budget-printing",
+    "budget-tools": "open-budget-tools", organizations: "open-organizations",
+    "system-settings": "open-system-settings", sharing: "open-sharing", costing: "open-costing",
+    portfolio: "open-portfolio",
+  };
+  async function restoreHistory(step) {
+    const target = history[historyIndex + step];
+    if (!target || !(await protectContext())) return;
+    restoringHistory = true;
+    state.navigating = true;
+    try {
+      if (target.remote && state.remoteProject?.id !== target.remote) {
+        await openExternalProject(target.remote);
+      } else if (!target.remote && state.remoteProject) {
+        state.remoteProject = null;
+        await service.loadCollections();
+      }
+      if (target.projectId && state.projectId !== target.projectId) await service.openProject(target.projectId);
+      if (!target.projectId) {
+        service.clearBudget();
+        state.projectId = null;
+        state.estimates = [];
+      } else if (target.estimateId) {
+        await service.openEstimate(target.estimateId, target.lineId);
+      } else {
+        service.clearBudget();
+      }
+      state.organizationId = target.organizationId;
+      state.search = "";
+      state.view = "";
+      const action = historyActions[target.view];
+      if (action === "open-operations") await operations.act({dataset:{action}});
+      else if (action === "open-planning") await planning.act({dataset:{action}});
+      else if (action === "open-management") await management.act({dataset:{action}});
+      else if (action === "open-price-determination") await pricing.act({dataset:{action}});
+      else if (action === "open-budget-printing") await printing.act({dataset:{action}});
+      else if (action === "open-budget-tools") await budgetTools.act({dataset:{action}});
+      else if (action === "open-organizations") await organizations.act({dataset:{action}});
+      else if (action === "open-system-settings") await systemSettings.act({dataset:{action}});
+      else if (action === "open-sharing") await sharing.act({dataset:{action}});
+      else if (action === "open-costing") await costing.act({dataset:{action}});
+      else if (action === "open-portfolio") await operations.act({dataset:{action}});
+      else state.view = target.view;
+      if (target.view === "projects") await service.loadCollections();
+      historyIndex += step;
+    } finally {
+      state.navigating = false;
+      restoringHistory = false;
+      render();
+    }
+  }
   let renderedContext='';
   function render() {
     if (state.navigating) {
@@ -158,13 +221,26 @@ export function createWorkspaceApp({
       return;
     }
     const contextKey=[state.view,state.projectId,state.estimateId].join(':');
+    if (!restoringHistory && history[historyIndex]?.key !== contextKey) {
+      history.splice(historyIndex + 1);
+      history.push({
+        key:contextKey, view:state.view, projectId:state.projectId, estimateId:state.estimateId,
+        organizationId:state.organizationId, lineId:state.selectedLineId, remote:state.remoteProject?.id,
+      });
+      if (history.length > 60) history.shift();
+      historyIndex = history.length - 1;
+    } else if (history[historyIndex]) {
+      history[historyIndex].lineId = state.selectedLineId;
+    }
+    state.canGoBack = historyIndex > 0;
+    state.canGoForward = historyIndex + 1 < history.length;
     const scrollSelectors=['.feature-page','.table-scroll','.gantt-scroll','.pert-source-list','.app'];
     const offsets=renderedContext===contextKey?scrollSelectors.flatMap(selector=>Array.from(root.querySelectorAll(selector)).map((el,index)=>({selector,index,top:el.scrollTop,left:el.scrollLeft}))):[];
     const top = document.querySelector(".table-scroll");
     const position = top?.scrollTop || 0;
     root.innerHTML = ["clients", "suppliers"].includes(state.view)
       ? chrome(people.markup())
-      : state.view === "app-options" ? chrome(optionsMarkup(state))
+      : state.view === "app-options" ? chrome(optionsMarkup(state, appearance.preference))
       : state.view === "system-settings" ? chrome(systemSettings.markup() + costing.markup("system-settings"))
       : state.view === "sharing" ? chrome(sharing.markup())
       : state.view === "organizations"
@@ -266,6 +342,7 @@ export function createWorkspaceApp({
     "open-organizations": "organizations",
     "open-sharing": "sharing",
     "open-system-settings": "system-settings",
+    "open-general-calendar": "system-settings",
     "open-external-project": "workspace",
     "open-budget-printing": "budget-printing",
   };
@@ -287,10 +364,10 @@ export function createWorkspaceApp({
     state.pageDirty = false;
     return true;
   }
-  async function switchDatabase(create) {
+  async function switchDatabase({create, importCopy, recentPath}) {
     if (!databaseSwitching || switchingDatabase || state.projectId || state.view !== "app-options") return;
-    if (pendingCommands || aiAssistant.isBusy() || resourceImport.model.busy ||
-        aiResourceImport.isBusy() || operations.isSaving()) {
+    if (pendingCommands || aiAssistant?.isBusy() || resourceImport.model.busy ||
+        aiResourceImport?.isBusy() || operations.isSaving()) {
       state.databaseError="Esperá a que termine la operación en curso antes de cambiar de base.";
       render();
       return;
@@ -298,7 +375,7 @@ export function createWorkspaceApp({
     const unsaved = state.modalDirty || state.pageDirty || planning.model.dirty ||
       pricing.model.dirty || pricing.model.modal?.dirty || operations.hasUnsaved() ||
       people.model.modal?.dirty || agreement.model.dirty || resourceImport.model.rows.length ||
-      patterns.model.active || aiAssistant.hasDraft() || aiResourceImport.hasDraft() ||
+      patterns.model.active || aiAssistant?.hasDraft() || aiResourceImport?.hasDraft() ||
       Array.from(document.querySelectorAll("form input, form textarea, form select")).some(field => {
         if (field.disabled || field.type === "hidden") return false;
         if (field.type === "checkbox" || field.type === "radio") {
@@ -322,11 +399,11 @@ export function createWorkspaceApp({
     document.body.inert = true;
     try {
       state.databaseError="";
-      const result=await originalInvoke("switch_database", { create });
+      const result=await originalInvoke("switch_database", {create, ...(importCopy ? {importCopy} : {}), ...(recentPath ? {recentPath} : {})});
       if(result==="unchanged")state.message="La base seleccionada ya está activa.";
       if(result==="cancelled")state.message="No se seleccionó un archivo. La base activa se conserva.";
     } catch (error) {
-      state.databaseError=(create ? "No se pudo crear la base de datos. " : "No se pudo abrir la base de datos. ") + String(error);
+      state.databaseError=(create ? "No se pudo crear la base de datos. " : importCopy ? "No se pudo importar la base de datos. " : "No se pudo abrir la base de datos. ") + String(error);
     } finally {
       document.body.inert = false;
       switchingDatabase = false;
@@ -352,7 +429,7 @@ export function createWorkspaceApp({
       else await management.act({dataset:{action:'open-management'}});
       resourceLibraryOrigin=null;resourceLibraryBrief='';
     }finally{state.navigating=false;root.inert=false;render();}
-    await aiAssistant.resumeAcuFromLibrary();
+    await aiAssistant?.resumeAcuFromLibrary();
   }
   async function route(button) {
     const action = button.dataset.action;
@@ -399,7 +476,7 @@ export function createWorkspaceApp({
     root.inert = true;
     render();
     try {
-      if (action === "go-home") {
+      if (action === "go-home" || action === "open-general-calendar") {
         if(state.remoteProject){state.remoteProject=null;state.projects=[];state.clients=[];state.resources=[];state.analyses=[];state.organizations=[];}
 
         Object.assign(state, {
@@ -421,6 +498,7 @@ export function createWorkspaceApp({
           contextMenu: null,
         });
         await service.loadCollections();
+        if (action === "open-general-calendar") await systemSettings.act({dataset:{action:"open-system-settings"}});
         render();
       } else if (action === "open-workspace") {
         state.view = "workspace";
@@ -552,6 +630,12 @@ export function createWorkspaceApp({
     if (evt.target.matches?.(".resource-search"))
       resourcePicker.toggle(evt.target);
     if (!button || button.disabled || switchingDatabase || state.busy || state.navigating) return;
+    if (button.dataset.action === "open-project-link") {
+      evt.preventDefault();
+      try { await nativeInvoke("open_project_link", { link: button.dataset.link }); }
+      catch (error) { state.message = String(error); render(); }
+      return;
+    }
     if (button.dataset.action === "app-options-open") {
       if (!state.projectId && await protectContext()) { state.view="app-options"; render(); }
       return;
@@ -566,8 +650,8 @@ export function createWorkspaceApp({
       }
       return;
     }
-    if (button.dataset.action === "database-new" || button.dataset.action === "database-open") {
-      await switchDatabase(button.dataset.action === "database-new");
+    if (["database-new", "database-open", "database-import", "database-recent"].includes(button.dataset.action)) {
+      await switchDatabase({create:button.dataset.action==="database-new", importCopy:button.dataset.action==="database-import", recentPath:button.dataset.path});
       return;
     }
     if (
@@ -623,9 +707,46 @@ export function createWorkspaceApp({
       state.pageDirty = false;
     }
     try {
+      if (button.dataset.action === "history-back" || button.dataset.action === "history-forward") {
+        await restoreHistory(button.dataset.action === "history-back" ? -1 : 1);
+        return;
+      }
       if(!remoteActionAllowed(state,button))return;
+      if (["budget-resources-xlsx", "budget-resources-pdf"].includes(button.dataset.action)) {
+        const format = button.dataset.action.endsWith("xlsx") ? "xlsx" : "pdf";
+        const includePrices = format === "xlsx" || Boolean(document.querySelector("[data-resources-export-prices]")?.checked);
+        await exportResources(invoke, state, format, includePrices);
+        return;
+      }
+      if (button.dataset.action === "open-certificate-reminder") {
+        const reminder = state.remindersData?.items.find(row => row.id === button.dataset.id && row.certificate);
+        if (!reminder || !(await protectContext())) return;
+        const certificate = reminder.certificate;
+        state.navigating = true;
+        try {
+          await service.openProject(reminder.project_id);
+          await service.openEstimate(certificate.estimate_id);
+          await operations.act({dataset:{action:"open-operations"}});
+          await operations.act({dataset:{action:"ops-tab",tab:certificate.contract_id ? "contracts" : "certificates"}});
+          if (certificate.operation_id) {
+            if (certificate.contract_id) await operations.act({dataset:{action:"ops-cert-contract",contract:certificate.contract_id}});
+            await operations.act({dataset:{action:"ops-cert-pdf",id:certificate.operation_id}});
+          } else if (certificate.contract_id) {
+            await operations.act({dataset:{action:"ops-cert-contract",contract:certificate.contract_id}});
+            await operations.act({dataset:{action:"ops-cert-open",contract:certificate.contract_id,start:certificate.start,cut:certificate.end}});
+          } else if (certificate.draft_id) {
+            await operations.act({dataset:{action:"ops-cert-resume",id:certificate.draft_id}});
+          } else {
+            await operations.act({dataset:{action:"ops-cert-next"}});
+          }
+        } finally {
+          state.navigating = false;
+          render();
+        }
+        return;
+      }
       if(memoryEditorAction(button))return;
-      if(button.dataset.action==='ai-resource-open'){await aiResourceImport.open(resourceLibraryBrief);return;}
+      if(button.dataset.action==='ai-resource-open'){await aiResourceImport?.open(resourceLibraryBrief);return;}
       if(button.dataset.action==='acu-library-return'){await returnToAcu();return;}
       if(['issue','delete-section-tree'].includes(button.dataset.action)){await presentation.flush();await pricing.flush();}
       if(button.dataset.action==='presentation-save'){await presentation.flush();return;}
@@ -833,6 +954,14 @@ export function createWorkspaceApp({
     if(evt.target.isConnected && evt.target.matches?.(".planning-calendar")) planning.model.calendarOpen=evt.target.open;
   },true);
   document.addEventListener("change", async (evt) => {
+    if (appearance.change(evt.target)) return;
+    if (evt.target.name === "interface-language") {
+      language.select(evt.target.value);
+      state.language = language.current;
+      render();
+      root.querySelector('[name="interface-language"]')?.focus();
+      return;
+    }
     if (evt.target.name === "analysis-action") {
       const { value: action, dataset: { id, label } } = evt.target;
       evt.target.value = "";
@@ -874,7 +1003,7 @@ export function createWorkspaceApp({
     try {
       if (state.modal?.kind === "from-acu" && evt.target.name === "sectionId") state.modal.sectionId=evt.target.value;
       homeCash.change(evt.target);
-      reminders.change(evt.target);
+      await reminders.change(evt.target);
       await people.change(evt.target);
       await resourceImport.change(evt.target);
       await pricing.change(evt.target);
@@ -915,6 +1044,7 @@ export function createWorkspaceApp({
     }
   });
   document.addEventListener("focusout", (evt) => {
+    operations.focusout(evt.target);
     if(evt.target.closest?.("#budget-print-form") || evt.target.name==="budget-memory" || evt.target.closest?.("#budget-export-form"))
       presentation.flush().catch(()=>{});
   });

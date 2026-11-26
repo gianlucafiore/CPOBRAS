@@ -6,10 +6,11 @@ pub(crate) fn list_reminders(
     db: tauri::State<'_, Db>,
     today: String,
     page: u32,
+    lead_days: Option<u32>,
 ) -> Result<ReminderPage, String> {
     db.lock()
         .map_err(|e| e.to_string())?
-        .reminders(&today, page)
+        .reminders_with_certificates(&today, page, lead_days.unwrap_or(3))
         .map_err(|e| e.to_string())
 }
 #[tauri::command]

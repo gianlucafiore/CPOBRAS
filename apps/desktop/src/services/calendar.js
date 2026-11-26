@@ -1,5 +1,18 @@
 const DAY = 86400000;
 export const DAY_WIDTH = 32;
+export const MONTHS = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+export const WEEKDAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
+
+export function calendarGroups(days, key) {
+  const spans = [];
+  for (const day of days) {
+    const value = day[key], last = spans.at(-1);
+    if (last?.value === value) last.end = day.day + 1;
+    else spans.push({ value, start: day.day, end: day.day + 1, day });
+  }
+  return spans;
+}
 export function dayNumber(iso) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) throw new Error("Fecha inválida");
   const ms = Date.parse(iso + "T00:00:00Z");

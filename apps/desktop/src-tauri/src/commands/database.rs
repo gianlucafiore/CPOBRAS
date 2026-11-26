@@ -14,10 +14,18 @@ pub(crate) fn active_database(session: tauri::State<'_, DatabaseSession>) -> Dat
 pub(crate) async fn switch_database<R: tauri::Runtime>(
     window: WebviewWindow<R>,
     create: bool,
+    import_copy: Option<bool>,
+    recent_path: Option<String>,
 ) -> Result<&'static str, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let app = window.app_handle();
         let session = app.state::<DatabaseSession>();
+        if let Some(path) = recent_path {
+            if session.change(&app.state::<Db>(), session.recent_database(&path)?, "open")? {
+                app.restart();
+            }
+            return Ok("unchanged");
+        }
         let info = session.info();
         let mut dialog = window
             .dialog()
@@ -34,7 +42,11 @@ pub(crate) async fn switch_database<R: tauri::Runtime>(
                 .blocking_save_file()
         } else {
             dialog
-                .set_title("Abrir base de datos de CPOBRAS")
+                .set_title(if import_copy == Some(true) {
+                    "Importar base de datos de CPOBRAS"
+                } else {
+                    "Abrir base de datos de CPOBRAS"
+                })
                 .add_filter("Todos los archivos", &["*"])
                 .blocking_pick_file()
         };
@@ -43,7 +55,17 @@ pub(crate) async fn switch_database<R: tauri::Runtime>(
                 .into_path()
                 .map_err(|e| format!("No se pudo interpretar la ruta seleccionada: {e}"))?;
             if session
-                .select(&app.state::<Db>(), path.clone(), create)
+                .change(
+                    &app.state::<Db>(),
+                    path.clone(),
+                    if create {
+                        "create"
+                    } else if import_copy == Some(true) {
+                        "import"
+                    } else {
+                        "open"
+                    },
+                )
                 .map_err(|error| format!("Archivo seleccionado: {}. {error}", path.display()))?
             {
                 app.restart();

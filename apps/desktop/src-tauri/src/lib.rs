@@ -14,6 +14,11 @@ struct BackupDirectory(std::path::PathBuf);
 pub fn run() {
     configure(tauri::Builder::default())
         .setup(|app| {
+            app.state::<commands::ai::AiSession>().disable();
+            #[cfg(target_os = "linux")]
+            if let (Some(window), Some(icon)) = (app.get_webview_window("main"), app.default_window_icon()) {
+                window.set_icon(icon.clone())?;
+            }
             let directory = app.path().app_data_dir()?;
             std::fs::create_dir_all(&directory)?;
             let (session, store) =
@@ -57,6 +62,9 @@ pub(crate) fn configure<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri:
             commands::reminders::save_reminder,
             commands::reminders::delete_reminder,
             commands::database::active_database,
+            commands::releases::available_release,
+            commands::releases::open_release,
+            commands::releases::open_project_link,
             commands::database::switch_database,
             commands::ai::ai_configure,
             commands::ai::ai_status,
@@ -97,6 +105,7 @@ pub(crate) fn configure<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri:
             commands::printing::save_budget_presentation,
             commands::printing::get_budget_presentation,
             commands::printing::open_export_pdf,
+            commands::printing::preview_pdf,
             commands::price_determination::get_price_definition,
             commands::price_determination::calculate_price_definition,
             commands::price_determination::save_price_definition,

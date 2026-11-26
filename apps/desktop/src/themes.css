@@ -1,0 +1,268 @@
+/* Palette variables are also used by the swatches in Opciones. */
+[data-color-palette="city-light"] {
+  color-scheme: light;
+  --theme-bg: #eaf0f4;
+  --theme-surface: #fff;
+  --theme-raised: #f2f6f9;
+  --theme-recessed: #e3ebf1;
+  --theme-hover: #dceff1;
+  --theme-border: #aabec9;
+  --theme-line: #cbd8e0;
+  --theme-text: #203744;
+  --theme-muted: #4c6473;
+  --theme-header: #2b4355;
+  --theme-nav: #37566a;
+  --theme-table-header: #42647a;
+  --theme-on-chrome: #f5f9ff;
+  --theme-accent: #00747a;
+  --theme-accent-hover: #005d65;
+  --theme-accent-ink: #fff;
+  --theme-accent-text: #00676b;
+  --theme-selection: #ccebed;
+  --theme-link: #005a64;
+  --theme-focus: #00777e;
+}
+[data-color-palette="city-night"] {
+  color-scheme: dark;
+  --theme-bg: #141d25;
+  --theme-surface: #1e2b36;
+  --theme-raised: #253644;
+  --theme-recessed: #2b3e4c;
+  --theme-hover: #304959;
+  --theme-border: #587484;
+  --theme-line: #3b5262;
+  --theme-text: #edf5fa;
+  --theme-muted: #bacbd5;
+  --theme-header: #152430;
+  --theme-nav: #213948;
+  --theme-table-header: #284958;
+  --theme-on-chrome: #f1f8fb;
+  --theme-accent: #6cdbe4;
+  --theme-accent-hover: #a0eef3;
+  --theme-accent-ink: #102b33;
+  --theme-accent-text: #84e6ed;
+  --theme-selection: #234e58;
+  --theme-link: #96e7ef;
+  --theme-focus: #81e5ef;
+}
+[data-color-palette="dracula"] {
+  color-scheme: dark;
+  --theme-bg: #20212e;
+  --theme-surface: #282a36;
+  --theme-raised: #313342;
+  --theme-recessed: #383b4c;
+  --theme-hover: #414359;
+  --theme-border: #777b97;
+  --theme-line: #4f536a;
+  --theme-text: #f8f8f2;
+  --theme-muted: #c5c8de;
+  --theme-header: #242333;
+  --theme-nav: #352e4b;
+  --theme-table-header: #44385d;
+  --theme-on-chrome: #f8f8f2;
+  --theme-accent: #bd93f9;
+  --theme-accent-hover: #d5b7ff;
+  --theme-accent-ink: #271f38;
+  --theme-accent-text: #d5b7ff;
+  --theme-selection: #45365d;
+  --theme-link: #d7baff;
+  --theme-focus: #d6b2ff;
+}
+[data-color-palette="malva"] {
+  color-scheme: light;
+  --theme-bg: #f1eaf4;
+  --theme-surface: #fffaff;
+  --theme-raised: #f8f1f9;
+  --theme-recessed: #ebdfef;
+  --theme-hover: #f1e0ef;
+  --theme-border: #bda7c2;
+  --theme-line: #dfcede;
+  --theme-text: #39263f;
+  --theme-muted: #654d6a;
+  --theme-header: #4a2d50;
+  --theme-nav: #604066;
+  --theme-table-header: #705176;
+  --theme-on-chrome: #fff7ff;
+  --theme-accent: #99476f;
+  --theme-accent-hover: #803756;
+  --theme-accent-ink: #fff;
+  --theme-accent-text: #813256;
+  --theme-selection: #efd7e7;
+  --theme-link: #763967;
+  --theme-focus: #8a3a78;
+}
+[data-color-palette="contrast"] {
+  color-scheme: light;
+  --theme-bg: #edf0f4;
+  --theme-surface: #fff;
+  --theme-raised: #f4f6f8;
+  --theme-recessed: #e2e8ed;
+  --theme-hover: #daeaff;
+  --theme-border: #43576a;
+  --theme-line: #667787;
+  --theme-text: #0b1724;
+  --theme-muted: #324355;
+  --theme-header: #101b27;
+  --theme-nav: #19314a;
+  --theme-table-header: #233d58;
+  --theme-on-chrome: #fff;
+  --theme-accent: #124b91;
+  --theme-accent-hover: #0d3b72;
+  --theme-accent-ink: #fff;
+  --theme-accent-text: #104784;
+  --theme-selection: #c8e2ff;
+  --theme-link: #073f7d;
+  --theme-focus: #004f9b;
+}
+
+:is([data-color-palette="city-light"], [data-color-palette="malva"], [data-color-palette="contrast"]) {
+  --theme-danger: #9e2f34;
+  --theme-danger-surface: #fae2e3;
+  --theme-warning: #704500;
+  --theme-warning-surface: #fff0ca;
+  --theme-success: #216040;
+  --theme-success-surface: #e2f2e9;
+  --theme-info: #245780;
+  --theme-info-surface: #e3effa;
+}
+:is([data-color-palette="city-night"], [data-color-palette="dracula"]) {
+  --theme-danger: #ffacb0;
+  --theme-danger-surface: #4e2932;
+  --theme-warning: #ffdc95;
+  --theme-warning-surface: #493923;
+  --theme-success: #9ee2bd;
+  --theme-success-surface: #243c34;
+  --theme-info: #a5d6fa;
+  --theme-info-surface: #243a50;
+}
+
+:root[data-color-palette]:not([data-color-palette="default"]) {
+  accent-color: var(--theme-accent);
+}
+:root[data-color-palette]:not([data-color-palette="default"]) :focus-visible {
+  outline: 2px solid var(--theme-focus);
+  outline-offset: 2px;
+}
+:root[data-color-palette]:not([data-color-palette="default"]) :is(input:not([type=checkbox],[type=radio],[type=color],[type=range]), select, textarea) {
+  background-color: var(--theme-surface);
+  color: var(--theme-text);
+  border-color: var(--theme-border);
+}
+:root[data-color-palette]:not([data-color-palette="default"]) ::placeholder {
+  color: var(--theme-muted);
+  opacity: 1;
+}
+:root[data-color-palette]:not([data-color-palette="default"]) a {
+  color: var(--theme-link);
+}
+:root[data-color-palette]:not([data-color-palette="default"]) :is(.btn.primary,.btn.orange,.detail-tabs .tab.active,.launch-button) {
+  background: var(--theme-accent);
+  border-color: var(--theme-accent);
+  color: var(--theme-accent-ink);
+}
+:root[data-color-palette]:not([data-color-palette="default"]) :is(.btn.primary,.btn.orange):hover:not(:disabled) {
+  background: var(--theme-accent-hover);
+  color: var(--theme-accent-ink);
+}
+:root[data-color-palette="contrast"] :focus-visible { outline-width: 3px; }
+
+.appearance-card fieldset {
+  margin: 12px 0 0;
+  padding: 0;
+  border: 0;
+}
+.appearance-card legend { margin-bottom: 8px; font-weight: 650; }
+.theme-system { display: inline-flex; gap: 6px; align-items: center; }
+.theme-choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+  gap: 8px;
+}
+.theme-choice {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 6px 9px;
+  border: 1px solid var(--theme-border, #c9d3df);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.theme-choice:has(input:checked) {
+  background: var(--theme-selection, #fff0da);
+  border-color: var(--theme-accent, #f28b35);
+}
+.theme-choice:has(input:disabled) { opacity: .6; cursor: default; }
+.theme-preview { display: flex; gap: 1px; border: 1px solid var(--theme-border, #9cacbe); padding: 1px; border-radius: 3px; }
+.theme-preview i { width: 7px; height: 12px; background: var(--theme-header, #233448); }
+.theme-preview i:nth-child(2) { background: var(--theme-surface, #fff); }
+.theme-preview i:nth-child(3) { background: var(--theme-accent, #f28b35); }
+
+.release-notice {
+  position: fixed;
+  z-index: 32;
+  inset: auto auto 16px 16px;
+  max-width: min(380px, calc(100vw - 32px));
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 15px;
+  padding: 12px;
+  border: 1px solid var(--theme-border, #adbed0);
+  border-left: 3px solid var(--theme-accent, #f28b35);
+  border-radius: 5px;
+  background: var(--theme-surface, #fff);
+  box-shadow: 0 6px 22px #10263b38;
+  color: var(--theme-text, #26354a);
+}
+.release-notice p { margin: 0 0 6px; }
+.release-notice [role="alert"] { margin: 4px 0 0; color: var(--theme-danger, #a63636); }
+
+.options-page { flex: 1; min-height: 0; overflow: auto; }
+:root[data-color-palette]:not([data-color-palette="default"]) .menu-item.active {
+  background: var(--theme-selection);
+  color: var(--theme-text);
+  box-shadow: inset 0 -4px var(--theme-accent);
+}
+:root[data-color-palette]:not([data-color-palette="default"]) .status-pill {
+  background: var(--theme-warning-surface);
+  color: var(--theme-warning);
+}
+:root[data-color-palette]:not([data-color-palette="default"]) .status-pill.issued {
+  background: var(--theme-success-surface);
+  color: var(--theme-success);
+}
+:root[data-color-palette]:not([data-color-palette="default"]) :is(.app-header, .dialog-header, .menu-item, .data-grid th, .mini-table th, .budget-grid th) {
+  color: var(--theme-on-chrome);
+}
+:root[data-color-palette]:not([data-color-palette="default"]) #ai-assistant {
+  --ai-bg: var(--theme-bg);
+  --ai-panel: var(--theme-surface);
+  --ai-border: var(--theme-border);
+  --ai-ink: var(--theme-text);
+  --ai-muted: var(--theme-muted);
+}
+:root[data-color-palette]:not([data-color-palette="default"]) .ai-console button:hover:not(:disabled) {
+  background: var(--theme-hover);
+}
+
+/* The printed document preview uses the document palette. */
+.print-preview {
+  color-scheme: light;
+  color: #26354a;
+  --theme-surface: initial;
+  --theme-raised: initial;
+  --theme-recessed: initial;
+  --theme-hover: initial;
+  --theme-border: initial;
+  --theme-line: initial;
+  --theme-text: initial;
+  --theme-muted: initial;
+  --theme-table-header: initial;
+  --theme-on-chrome: #eef4f9;
+}
+
+.options-language { width: min(240px, 100%); }
+.about-links { display: flex; flex-wrap: wrap; gap: 8px 16px; list-style: none; padding: 0; }
+
+.brand img.brand-mark { background: transparent; }

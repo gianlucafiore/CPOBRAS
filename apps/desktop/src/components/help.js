@@ -90,7 +90,7 @@ const panels = {
   ],
   takeoffs: [
     "Metrados",
-    "Cargá factor, largo, ancho y alto. Usá Descontar para huecos o aberturas; «Aplicar cantidad medida» lleva el resultado a la partida seleccionada.",
+    "Cargá factor, largo, ancho y alto. Usá Descontar para huecos o aberturas. Al guardar la medición se actualiza la cantidad de la partida.",
   ],
   summary: [
     "Resumen económico",

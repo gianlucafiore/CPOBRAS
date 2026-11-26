@@ -4,6 +4,9 @@ import {
   dayNumber,
   dayISO,
   calendarDays,
+  calendarGroups,
+  MONTHS,
+  WEEKDAYS,
   isWorkingDate,
   weekday,
   addDays,
@@ -67,14 +70,7 @@ export function createGantt({ state, model, document, save, render }) {
     );
   }
   function groups(days, key, label) {
-    const spans = [];
-    for (const d of days) {
-      const value = d[key],
-        last = spans.at(-1);
-      if (last?.value === value) last.end = d.day + 1;
-      else spans.push({ value, start: d.day, end: d.day + 1, day: d });
-    }
-    return spans
+    return calendarGroups(days, key)
       .map(
         (s) =>
           `<span class="gantt-header-group" style="left:${(s.start - camera.day) * CELL + camera.offset}px;width:${(s.end - s.start) * CELL}px" title="${e(label(s.day))}">${e(label(s.day))}</span>`,
@@ -82,23 +78,8 @@ export function createGantt({ state, model, document, save, render }) {
       .join("");
   }
   function content(width) {
-    const days = calendarDays(camera.day - 1, visibleCount(width) + 1),
-      months = [
-        "Enero",
-        "Febrero",
-        "Marzo",
-        "Abril",
-        "Mayo",
-        "Junio",
-        "Julio",
-        "Agosto",
-        "Septiembre",
-        "Octubre",
-        "Noviembre",
-        "Diciembre",
-      ],
-      weekdays = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
-    const header = `<div class="gantt-calendar-header"><div class="gantt-header-tier" aria-label="Años">${groups(days, "year", (d) => String(d.year))}</div><div class="gantt-header-tier" aria-label="Meses">${groups(days, "month", (d) => months[Number(d.month.slice(5)) - 1])}</div><div class="gantt-header-tier" aria-label="Semanas ISO">${groups(days, "weekKey", (d) => "Sem. " + d.week + " · " + d.weekYear)}</div><div class="gantt-header-days">${days.map((d) => `<${model.cutMode ? "button" : "span"} ${model.cutMode ? 'type="button" data-action="plan-cut-date"' : ""} class="gantt-date ${classes(d.iso)} ${(model.plan.finance?.cut_dates || []).includes(d.iso) ? "is-certification-cut" : ""}" data-gantt-date="${d.iso}" data-date="${d.iso}" title="${e(dateTitle(d.iso))}" style="left:${(d.day - camera.day) * CELL + camera.offset}px;width:${CELL}px"><small>${weekdays[d.weekday]}</small><b>${Number(d.iso.slice(8))}</b></${model.cutMode ? "button" : "span"}>`).join("")}</div></div>`;
+    const days = calendarDays(camera.day - 1, visibleCount(width) + 1);
+    const header = `<div class="gantt-calendar-header"><div class="gantt-header-tier" aria-label="Años">${groups(days, "year", (d) => String(d.year))}</div><div class="gantt-header-tier" aria-label="Meses">${groups(days, "month", (d) => MONTHS[Number(d.month.slice(5)) - 1])}</div><div class="gantt-header-tier" aria-label="Semanas ISO">${groups(days, "weekKey", (d) => "Sem. " + d.week + " · " + d.weekYear)}</div><div class="gantt-header-days">${days.map((d) => `<${model.cutMode ? "button" : "span"} ${model.cutMode ? 'type="button" data-action="plan-cut-date"' : ""} class="gantt-date ${classes(d.iso)} ${(model.plan.finance?.cut_dates || []).includes(d.iso) ? "is-certification-cut" : ""}" data-gantt-date="${d.iso}" data-date="${d.iso}" title="${e(dateTitle(d.iso))}" style="left:${(d.day - camera.day) * CELL + camera.offset}px;width:${CELL}px"><small>${WEEKDAYS[d.weekday]}</small><b>${Number(d.iso.slice(8))}</b></${model.cutMode ? "button" : "span"}>`).join("")}</div></div>`;
     const baseline = model.baselines.find((b) => b.id === model.baselineId);
     return (
       header +

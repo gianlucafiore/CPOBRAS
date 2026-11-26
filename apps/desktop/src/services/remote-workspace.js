@@ -218,6 +218,7 @@ export function createRemoteInvoke(nativeInvoke, state) {
         "write_export",
         "save_export_file",
         "open_export_pdf",
+        "preview_pdf",
       ].includes(command)
     )
       return nativeInvoke(command, args);
@@ -250,6 +251,9 @@ const viewActions = new Set(["memory-preview",
   "price-close-modal",
   "plan-edit",
   "plan-view",
+  "plan-export-pdf",
+  "budget-resources-xlsx",
+  "budget-resources-pdf",
   "plan-gantt-prev",
   "plan-gantt-next",
   "plan-gantt-start",
@@ -299,7 +303,8 @@ export function remoteActionAllowed(state, button) {
   if(a === "agreement-open" && !p.price)return false;
   if(["plan-finance-conditions","plan-overview-refresh"].includes(a) && !p.accounting)return false;
   if (a === "open-price-determination" && !p.price) return false;
-  if (a === "open-planning" && !p.planning) return false;
+  if (["open-planning", "plan-export-pdf"].includes(a) && !p.planning) return false;
+  if (["budget-resources-xlsx", "budget-resources-pdf"].includes(a) && !p.resources) return false;
   if (a === "open-management" && !p.project_data) return false;
   if (a === "open-operations" && !p.operations && !p.accounting) return false;
   if (

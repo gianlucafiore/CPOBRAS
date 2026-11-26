@@ -425,7 +425,7 @@ export function createOperationsWorkspace({
   }
   async function protect() {
     read();
-    if (!book.protect() || !certificates.protect() || !(await quotations.protect()))
+    if (!book.protect() || !(await certificates.protect()) || !(await quotations.protect()))
       return false;
     if (!model.dirty) return true;
     if (
@@ -798,14 +798,36 @@ export function createOperationsWorkspace({
       ]),
     )}`;
   }
+  function financeSummary() {
+    const summaries = model.report?.summaries || [];
+    if (!summaries.length) return "";
+    return `<section class="workflow-card finance-summary"><h2>Resumen financiero</h2>
+      ${summaries.map(s => `<div class="finance-summary-currency"><h3>${e(s.currency)}</h3><div class="operations-kpis">
+        ${[["Cobrado", s.collected], ["Pagado", s.paid], ["Por cobrar", s.receivable], ["Por pagar", s.payable]]
+          .map(([label, value]) => `<div><small>${label}</small><strong>${money(value)}</strong></div>`).join("")}
+        </div></div>`).join("")}
+      <details><summary>Ver detalle de costos, desvíos y rentabilidad</summary>${summary(model.report)}</details>
+    </section>`;
+  }
   function financialProjection() {
     const f = model.report?.financial_projection;
     if (!f)
-      return "<p>Guardá el cronograma en Planificación para consultar la previsión financiera.</p>";
-    return `<section class="financial-projection"><h2>Previsión financiera · ${e(f.currency)}</h2><p>Desde el día siguiente al corte de seguimiento (${e(f.as_of)}). Caja inicial (${f.opening_cash_source === "registered" ? "movimientos registrados" : "saldo declarado"}): <strong>${money(f.opening_cash)}</strong>. Capital adicional máximo previsto: <strong>${money(f.additional_cash)}</strong>.</p><p>Los cobros por certificación son estimaciones del cronograma, no certificados emitidos. Las compras se prevén para el día en que se necesitan; anticipá sus fechas si el proveedor requiere pago o entrega previa. No se convierten monedas. Los egresos se consideran antes que los cobros del mismo día.</p>${(f.warnings || []).map((w) => `<p class="context-help">${e(w)}</p>`).join("")}${f.periods
+      return '<section class="workflow-card"><h2>Previsión financiera</h2><p>Guardá el cronograma en Planificación para consultar la previsión financiera.</p></section>';
+    const asOf = model.asOf;
+    const next = f.periods.find(period => period.end >= asOf);
+    const warnings = [...new Set([...(model.report?.alerts || []), ...(f.warnings || [])])];
+    return `<section class="workflow-card financial-projection"><h2>Previsión financiera · ${e(f.currency)}</h2>
+      <div class="workflow-summary finance-projection-kpis">
+        <div>Próximo cobro previsto<b>${e(next?.collection_date || "—")}</b></div>
+        <div>Capital adicional máximo previsto<b>${money(f.additional_cash)}</b></div>
+        <div>${f.opening_cash_source === "registered" ? "Caja según movimientos registrados" : "Caja inicial declarada"}<b>${money(f.opening_cash)}</b></div>
+      </div>
+      ${warnings.length ? `<details><summary>Avisos de la previsión (${warnings.length})</summary><ul>${warnings.map(w => `<li>${e(w)}</li>`).join("")}</ul></details>` : ""}
+      <details><summary>Ver períodos, materiales y calendario</summary><p>Previsión desde el día siguiente al corte de seguimiento (${e(f.as_of)}). Los egresos se consideran antes que los cobros del mismo día.</p>
+      ${f.periods
       .map(
         (p) =>
-          `<details class="planning-options" open><summary>Período ${e(p.start)} → ${e(p.end)} · Egresos ${money(p.expenses)} · Caja adicional ${money(p.additional_cash)}</summary><p>Certificación prevista: bruto ${money(p.gross)} − anticipo ${money(p.advance)} − reparo ${money(p.retention)} = <strong>${money(p.net)}</strong>. Cobro previsto: ${e(p.collection_date)}. Ingresos durante el período: ${money(p.receipts)}.</p>${table(
+          `<details class="planning-options"><summary>Período ${e(p.start)} → ${e(p.end)} · Egresos ${money(p.expenses)} · Caja adicional ${money(p.additional_cash)}</summary><p>Certificación prevista: bruto ${money(p.gross)} − anticipo ${money(p.advance)} − reparo ${money(p.retention)} = <strong>${money(p.net)}</strong>. Cobro previsto: ${e(p.collection_date)}. Ingresos durante el período: ${money(p.receipts)}.</p>${table(
             [
               "Material",
               "Unidad",
@@ -837,7 +859,7 @@ export function createOperationsWorkspace({
         money(x.expense),
         money(x.balance),
       ]),
-    )}</details></section>`;
+    )}</details></details></section>`;
   }
   function cashSettings() {
     const p = model.cashSettings;
@@ -854,17 +876,11 @@ export function createOperationsWorkspace({
   }
   function financeDashboard() {
     const f = model.report?.financial_projection;
-    if (!f)
-      return (
-        cashSettings() +
-        '<button class="btn" data-action="ops-cash-open">Configurar caja disponible</button>'
-      );
-    const next = f.periods.find((p) => p.end >= model.asOf);
+    const next = f?.periods.find(p => p.end >= model.asOf);
+    const cashButton = !state.remoteProject && f?.opening_cash_source !== "registered"
+      ? '<button class="btn" data-action="ops-cash-open">Configurar caja inicial</button>' : "";
     if (!next)
-      return (
-        cashSettings() +
-        '<section class="workflow-card"><button class="btn" data-action="ops-cash-open">Configurar caja disponible</button>No hay próximos cortes de certificación. Marcá las fechas en el Gantt.</section>'
-      );
+      return `<section class="workflow-card"><div class="feature-toolbar"><h2>Próxima certificación</h2>${cashButton}</div><p>No hay próximos cortes de certificación. Marcá las fechas en el Gantt.</p></section>`;
     const until = f.events.filter((x) => x.date <= next.collection_date),
       expenses = sumDecimals(until.map((x) => x.expense)),
       confirmed = sumDecimals(
@@ -879,8 +895,8 @@ export function createOperationsWorkspace({
       if(compareDecimals(balance,minimum)<0)minimum=balance;
     }
     return (
-      cashSettings() +
-      `<section class="workflow-card">${f.opening_cash_source === "registered" ? "" : '<button class="btn" data-action="ops-cash-open">Configurar caja inicial</button>'}<h2>Próxima certificación · ${e(next.end)}</h2><p>Financiamiento hasta el cobro previsto (${e(next.collection_date)}), incluyendo días posteriores al corte. Moneda ${e(f.currency)}. Los gastos mensuales, acopio y obligaciones se concilian con la previsión detallada.</p><div class="workflow-summary">${[
+      `<section class="workflow-card finance-next"><div class="feature-toolbar"><h2>Próxima certificación · ${e(next.end)}</h2>${cashButton}</div>
+      <p>Cobro previsto el <strong>${e(next.collection_date)}</strong> · ${e(f.currency)}</p><div class="workflow-summary">${[
         ["Cobro posible del corte", next.net],
         ["Gastos hasta el cobro", expenses],
         ["Otros cobros confirmados", confirmed],
@@ -891,14 +907,14 @@ export function createOperationsWorkspace({
         .map(([label, value]) => `<div>${label}<b>${money(value)}</b></div>`)
         .join(
           "",
-        )}</div><h3>Avances de contratistas aprobados pendientes de certificar</h3><p>${certificates.view.available.length} renglones disponibles. Incorporarlos al borrador del comitente los valoriza a sus precios de venta. El Gantt refleja únicamente certificados emitidos.</p>${table(
+        )}</div><details><summary>Avances de contratistas pendientes de certificar (${certificates.view.available.length})</summary>${table(
         ["Certificado contratista", "Partida", "Cantidad pendiente"],
         certificates.view.available.map((x) => [
           e(x.number),
           e(x.description),
           numeric(x.quantity),
         ]),
-      )}</section>`
+      )}</details></section>`
     );
   }
   function projectFunds() {
@@ -919,10 +935,11 @@ export function createOperationsWorkspace({
   function finances() {
     return (
       projectFunds() +
-      summary(model.report) +
+      financeSummary() +
       financialProjection() +
-      rentals() +
-      `<h3>Flujo de fondos por mes</h3>${table(
+      `<section class="workflow-card finance-reports"><h2>Informes y documentos</h2>
+      <details><summary>Alquileres y gastos mensuales previstos</summary>${rentals()}</details>
+      <details><summary>Flujo de fondos por mes</summary>${table(
         [
           "Mes",
           "Moneda",
@@ -938,7 +955,7 @@ export function createOperationsWorkspace({
             money,
           ),
         ]),
-      )}<h3>Resultados por partida y centro de costos</h3><p>Resultado devengado = venta certificada menos consumos netos, servicios aceptados y horas. Las facturas no duplican estos costos.</p>${table(
+      )}</details><details><summary>Resultados por partida y centro de costos</summary><p>Resultado devengado = venta certificada menos consumos netos, servicios aceptados y horas. Las facturas no duplican estos costos.</p>${table(
         [
           "Partida",
           "Centro",
@@ -962,7 +979,7 @@ export function createOperationsWorkspace({
           money(c.certified_income),
           money(c.result),
         ]),
-      )}<h3>Resultados por rubro</h3>${table(
+      )}</details><details><summary>Resultados por rubro</summary>${table(
         [
           "Rubro",
           "Moneda",
@@ -981,7 +998,7 @@ export function createOperationsWorkspace({
           money(s.certified_income),
           money(s.result),
         ]),
-      )}`
+      )}</details><details data-finance-history ${document.querySelector("[data-finance-history]")?.open ? "open" : ""}><summary>Historial de documentos</summary>${documentRows()}</details></section>`
     );
   }
   function dashboard() {
@@ -1158,7 +1175,7 @@ export function createOperationsWorkspace({
             model.exportScope || "summary",
           )}<button class="btn" data-action="ops-export" data-format="xlsx">Informe Excel</button><button class="btn" data-action="ops-export" data-format="pdf">Informe PDF</button></div>`
         : ""
-    }${model.report?.alerts.map((a) => `<p class="operations-alert">${e(a)}</p>`).join("") || ""}${model.tab === "dashboard" ? dashboard() : !model.projectId ? "<p>Seleccioná una obra para comenzar.</p>" : `${model.tab === "purchases" ? quotations.markup() : model.tab === "contracts" ? quotations.markup() + certificates.contracts() : model.tab === "production" ? book.markup() : model.tab === "finance" ? `<div class="feature-toolbar">${field("Consultar al", "ops-asof", model.asOf, 'type="date" required')}<button class="btn" data-action="ops-refresh">Actualizar</button></div>` + financeDashboard() + certificates.overview() + finances() : model.tab === "certificates" ? certificates.markup() : summary(model.report)}${state.remoteProject || (!["finance"].includes(model.tab) && model.draft?.kind !== "stock_opening") ? "" : model.draft?.kind === "stock_opening" ? `<section class="workflow-editor compact-editor stock-opening-editor" role="dialog" aria-modal="true" aria-label="Declarar acopio existente"><button class="btn" data-action="ops-stock-close">Cancelar</button>${formMarkup()}</section>` : formMarkup()}${model.tab === "finance" ? "<h3>Historial de documentos</h3>" + documentRows() : ""}`}${detail()}</section>`;
+    }${(model.tab !== "finance" || !model.report?.financial_projection) && model.report?.alerts.map((a) => `<p class="operations-alert">${e(a)}</p>`).join("") || ""}${model.tab === "dashboard" ? dashboard() : !model.projectId ? "<p>Seleccioná una obra para comenzar.</p>" : `${model.tab === "purchases" ? quotations.markup() : model.tab === "contracts" ? quotations.markup() + certificates.contracts() : model.tab === "production" ? book.markup() : model.tab === "finance" ? `<div class="feature-toolbar">${field("Consultar al", "ops-asof", model.asOf, 'type="date" required')}<button class="btn" data-action="ops-refresh">Actualizar</button></div>` + `<div class="finance-certification-grid">${financeDashboard()}${certificates.overview({compact:true})}</div>` + cashSettings() + finances() + certificates.editors() : model.tab === "certificates" ? certificates.markup() : summary(model.report)}${state.remoteProject || (!["finance"].includes(model.tab) && model.draft?.kind !== "stock_opening") ? "" : model.draft?.kind === "stock_opening" ? `<section class="workflow-editor compact-editor stock-opening-editor" role="dialog" aria-modal="true" aria-label="Declarar acopio existente"><button class="btn" data-action="ops-stock-close">Cancelar</button>${formMarkup()}</section>` : formMarkup()}`}${detail()}</section>`;
   }
   async function act(button) {
     const a = button.dataset.action;
@@ -1636,6 +1653,11 @@ export function createOperationsWorkspace({
     }
   }
   function keyDown(evt) {
+    if (state.view === "operations" && evt.key === "Escape" && certificates.view.draft) {
+      evt.preventDefault();
+      document.querySelector('[data-action="ops-cert-close"]')?.click();
+      return true;
+    }
     if (model.detail && state.view === "operations" && evt.key === "Escape") {
       evt.preventDefault();
       model.detail = null;
@@ -1646,7 +1668,8 @@ export function createOperationsWorkspace({
   }
   return {
     markup, act, change, submit, input, keyDown, protect, model,
-    isSaving: quotations.isSaving,
+    focusout: certificates.focusout,
+    isSaving: () => quotations.isSaving() || certificates.isSaving(),
     hasUnsaved: () => model.dirty || book.hasUnsaved() || certificates.view.dirty || quotations.v.dirty,
   };
 }

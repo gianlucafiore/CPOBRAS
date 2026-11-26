@@ -35,6 +35,23 @@ impl LocalStore {
         verify(&self.conn)
     }
 
+    pub fn snapshot_file(source: &Path, target: &Path) -> Result<()> {
+        let connection = Connection::open_with_flags(source, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        verify(&connection)?;
+        let version: i64 = connection.query_row(
+            "SELECT COALESCE(MAX(version),0) FROM schema_migrations",
+            [],
+            |r| r.get(0),
+        )?;
+        if version < 1 {
+            return Err(StorageError::InvalidValue(
+                "La base no pertenece a CPOBRAS".into(),
+            ));
+        }
+        connection.backup(DatabaseName::Main, target, None)?;
+        Ok(())
+    }
+
     /// Refuses to overwrite an existing backup. SQLite's backup API includes WAL pages.
     pub fn backup_to(&self, path: impl AsRef<Path>) -> Result<()> {
         self.verify_integrity()?;
