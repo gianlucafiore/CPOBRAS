@@ -6,6 +6,8 @@ use uuid::Uuid;
 
 #[derive(serde::Serialize)]
 pub(crate) struct AnalysisComponentView {
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    price_pending: bool,
     daily_output: Option<String>,
     included: bool,
     resource_id: String,
@@ -42,6 +44,7 @@ pub(crate) fn get_analysis_details(
         .components
         .into_iter()
         .map(|component| AnalysisComponentView {
+            price_pending: component.price_pending,
             daily_output: component.daily_output.map(|v| v.to_string()),
             included: component.included,
             resource_id: component.resource_id.to_string(),
@@ -53,7 +56,7 @@ pub(crate) fn get_analysis_details(
                 ResourceKind::Subcontract => "subcontract",
             }
             .to_owned(),
-            total: if component.included {
+            total: if component.included && !component.price_pending {
                 (component.quantity_per_unit * component.unit_price).to_string()
             } else {
                 "0".into()
@@ -118,6 +121,7 @@ pub(crate) fn compare_contracting(
             .map_err(|err| err.to_string())?
             .ok_or("Falta precio ARS del insumo")?;
         components.push(ResourcePriceSnapshot {
+            price_pending: false,
             daily_output: store
                 .resource_daily_output(resource_id)
                 .map_err(|e| e.to_string())?,
@@ -265,6 +269,7 @@ pub(crate) fn create_analysis(
                 .amount
         };
         snapshots.push(ResourcePriceSnapshot {
+            price_pending: false,
             daily_output: store.resource_daily_output(id).map_err(|e| e.to_string())?,
             included: true,
             resource_id: id,
@@ -373,6 +378,7 @@ pub(crate) fn update_analysis(
             return Err("Los rendimientos y precios deben ser positivos o cero".into());
         }
         snapshots.push(ResourcePriceSnapshot {
+            price_pending: false,
             daily_output: if let Some(old) = previous
                 .components
                 .iter()

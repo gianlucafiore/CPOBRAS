@@ -1,3 +1,4 @@
+import { uiText } from "../services/interface-language.js";
 import { e, dateToday, kindName, kindBadge, field, select, btn } from "../components/helpers.js";
 export function createActions({ invoke, state, currentProject, currentEstimate, currentLine, editable, projectName, clientName, loadCollections, loadEstimates, loadEstimate, loadPanel, openProject, openEstimate, reloadCatalog, refreshResource, refreshAnalysis, render, renderSelection = render, openModal, closeModal, document, window, FormData }) {
 async function handleSubmit(form) {
@@ -7,7 +8,7 @@ async function handleSubmit(form) {
   const estimateId = state.estimateId;
   if (kind === "backups") {
     state.backupSettings=await invoke("save_backup_settings",{settings:{directory:v("backupDirectory"),enabled:data.get("backupEnabled")==="on",interval_minutes:Number(v("backupInterval"))}});
-    state.modalDirty=false; await refreshBackups(); state.message="Configuración de respaldos guardada"; render(); return;
+    state.modalDirty=false; await refreshBackups(); state.message=uiText("Configuración de respaldos guardada"); render(); return;
   }
   if (kind === "acu-pattern") {
     await invoke("save_line_as_analysis",{estimateId,lineId:item.id,code:v("code"),description:v("description")});
@@ -49,13 +50,21 @@ async function handleSubmit(form) {
     await invoke("register_resource_price", { resourceId: item.id, amount: v("amount"), currency: v("currency"), effectiveDate: v("effectiveDate"), source: v("source") || null });
     state.selectedResourceId = item.id;
   } else if (kind === "line-resources") {
-    if(!editable())throw new Error("El presupuesto emitido no se modifica");
+    if(!editable())throw new Error(uiText("El presupuesto emitido no se modifica"));
     const components=[...form.querySelectorAll(".component-row")].map(row=>({resourceId:row.querySelector('select[name="resource"]')?.value,quantity:row.querySelector('input[name="quantity"]')?.value,unitPrice:row.querySelector('input[name="unitPrice"]')?.value,dailyOutput:row.querySelector('input[name="dailyOutput"]')?.value??''}));
-    if(!components.length)throw new Error("Agregá al menos un insumo");
-    if(components.some(row=>!row.resourceId))throw new Error("Seleccioná un insumo del catálogo en cada fila");
-    const all=(item.allComponents||[]).map(row=>({resourceId:row.resource_id,quantity:row.quantity,unitPrice:row.unit_price,dailyOutput:row.daily_output??"",included:row.included!==false}));
+    if(!components.length)throw new Error(uiText("Agregá al menos un insumo"));
+    if(components.some(row=>!row.resourceId))throw new Error(uiText("Seleccioná un insumo del catálogo en cada fila"));
+    const edited = components[0];
+    edited.pricePending = edited.unitPrice === "";
+    if (edited.pricePending) edited.unitPrice = "0";
+    const all=(item.allComponents||[]).map(row=>({resourceId:row.resource_id,quantity:row.quantity,unitPrice:row.unit_price,pricePending:row.price_pending === true,dailyOutput:row.daily_output??"",included:row.included!==false}));
     if(item.componentIndex>=0)all[item.componentIndex]={...components[0],included:all[item.componentIndex]?.included!==false};else all.push({...components[0],included:true});
-    for(const row of all)if(row.resourceId===components[0].resourceId)row.unitPrice=components[0].unitPrice;
+    for (const row of all) {
+      if (row.resourceId === edited.resourceId) {
+        row.unitPrice = edited.unitPrice;
+        row.pricePending = edited.pricePending;
+      }
+    }
     await invoke("save_line_resources",{estimateId,lineId:item.id,components:all});state.panel="acu";
   } else if (kind === "analysis") {
     const rows = [...form.querySelectorAll(".component-row")];
@@ -64,11 +73,11 @@ async function handleSubmit(form) {
       quantity: row.querySelector('input[name="quantity"]')?.value,
       unitPrice: row.querySelector('input[name="unitPrice"]')?.value
     }));
-    if (!components.length) throw new Error("Agregá al menos un insumo al ACU.");
+    if (!components.length) throw new Error(uiText("Agregá al menos un insumo al ACU."));
     const missing = components.findIndex(component => !component.resourceId);
     if (missing >= 0) {
       rows[missing].querySelector('.resource-search')?.focus();
-      throw new Error(`Seleccioná un insumo del catálogo en la fila ${missing + 1}. Escribir en el buscador no confirma la selección. Se conservaron los cambios del ACU.`);
+      throw new Error(uiText("Seleccioná un insumo del catálogo en la fila {0}. Escribir en el buscador no confirma la selección. Se conservaron los cambios del ACU.", [missing + 1]));
     }
     const args = { code: v("code"), description: v("description"), unit: v("unit"), components };
     const saved = await invoke(item.id ? "update_analysis" : "create_analysis",
@@ -105,7 +114,7 @@ async function handleSubmit(form) {
   } else if (state.view === "resources") { await refreshResource(); render(); }
   else if (state.view === "analyses") { await refreshAnalysis(); render(); }
   else render();
-  state.message = "Cambios guardados";
+  state.message = uiText("Cambios guardados");
   render();
 }
 
@@ -120,7 +129,7 @@ async function act(button) {
   if (["backups","create-backup","refresh-backups","open-backup-folder","choose-backup-folder","verify-database","restore-backup","confirm-restore-backup","cancel-restore-backup"].includes(action)) {
     if(state.busy)return;
     if(action!=="backups"&&action!=="open-backup-folder"&&action!=="choose-backup-folder"&&state.modalDirty){
-      const feedback=document.querySelector("#dialog-form .modal-error");if(feedback)feedback.textContent="Guardá la configuración antes de continuar. Tus cambios se conservan.";return;
+      const feedback=document.querySelector("#dialog-form .modal-error");if(feedback)feedback.textContent=uiText("Guardá la configuración antes de continuar. Tus cambios se conservan.");return;
     }
     state.busy=true;
     const form=document.querySelector("#dialog-form");if(form)form.inert=true;
@@ -133,8 +142,8 @@ async function act(button) {
         return;
       }
       if(action==="open-backup-folder"){await invoke("open_backup_folder");return;}
-      if(action==="create-backup"){await invoke("create_backup");state.message="Copia creada en la carpeta configurada";}
-      if(action==="verify-database"){await invoke("verify_database");state.message="Integridad y referencias verificadas";}
+      if(action==="create-backup"){await invoke("create_backup");state.message=uiText("Copia creada en la carpeta configurada");}
+      if(action==="verify-database"){await invoke("verify_database");state.message=uiText("Integridad y referencias verificadas");}
       if(action==="restore-backup"){
         state.backupRestoreId=button.dataset.id;render();return;
       }
@@ -142,15 +151,15 @@ async function act(button) {
         state.backupRestoreId=null;render();return;
       }
       if(action==="confirm-restore-backup"){
-        if(!state.backupRestoreId||state.backupRestoreId!==button.dataset.id||!state.backups.some(copy=>copy.id===state.backupRestoreId))throw new Error("La copia seleccionada ya no está disponible. Actualizá la lista.");
-        button.textContent="Restaurando…";
+        if(!state.backupRestoreId||state.backupRestoreId!==button.dataset.id||!state.backups.some(copy=>copy.id===state.backupRestoreId))throw new Error(uiText("La copia seleccionada ya no está disponible. Actualizá la lista."));
+        button.textContent=uiText("Restaurando…");
         await invoke("restore_backup",{id:state.backupRestoreId});window.location.reload();return;
       }
       await refreshBackups();render();
     }catch(error){
       const feedback=document.querySelector("#dialog-form .modal-error");
       if(feedback)feedback.textContent=String(error);else throw error;
-    }finally{state.busy=false;if(form?.isConnected)form.inert=false;if(action==="confirm-restore-backup"&&button.isConnected)button.textContent="Sí, restaurar esta copia";}
+    }finally{state.busy=false;if(form?.isConnected)form.inert=false;if(action==="confirm-restore-backup"&&button.isConnected)button.textContent=uiText("Sí, restaurar esta copia");}
     return;
   }
   if (action === "retry-startup") { window.location.reload(); return; }
@@ -165,7 +174,7 @@ async function act(button) {
     if (state.view === "analyses" && state.selectedAnalysisId) await refreshAnalysis();
     render(); return;
   }
-  if (action === "goto-resources") { if(state.projectId)throw new Error("El catálogo general se administra desde Inicio"); state.view = "resources"; state.search = ""; render(); return; }
+  if (action === "goto-resources") { if(state.projectId)throw new Error(uiText("El catálogo general se administra desde Inicio")); state.view = "resources"; state.search = ""; render(); return; }
   if (action === "open-project") { await openProject(button.dataset.id); return; }
   if (action === "open-estimate") { await openEstimate(button.dataset.id); return; }
   if (action === "select-line") {
@@ -185,12 +194,12 @@ async function act(button) {
     const line=currentLine();if(!editable()||!line?.analysis_id)return;
     const rows=state.detail?.components||[];
     const indices=action==="toggle-line-resource-group"?rows.map((row,index)=>row.kind===button.dataset.kind?index:-1).filter(i=>i>=0):[Number(button.dataset.index)];
-    if(!indices.length||indices.some(i=>!Number.isInteger(i)||!rows[i]))throw Error("El insumo ya no está en esta composición");
+    if(!indices.length||indices.some(i=>!Number.isInteger(i)||!rows[i]))throw Error(uiText("El insumo ya no está en esta composición"));
     const included=!indices.every(i=>rows[i].included!==false);
     state.busy=true;
     try{
       await invoke("set_line_components_included",{estimateId:state.estimateId,lineId:line.id,analysisId:line.analysis_id,indices,included});
-      await loadEstimate();state.message=included?"Insumos incluidos en el costo":"Insumos sin sumar. Se conservan cantidades y precios.";render();
+      await loadEstimate();state.message=included?uiText("Insumos incluidos en el costo"):uiText("Insumos sin sumar. Se conservan cantidades y precios.");render();
     }finally{state.busy=false;}
     return;
   }
@@ -198,9 +207,9 @@ async function act(button) {
     const line=currentLine(),index=Number(button.dataset.index);
     if(!editable()||!line||!Number.isInteger(index)||index<0)return;
     const component=state.detail?.components?.[index];
-    if(!component)throw new Error("El insumo ya no está en esta partida. Actualizá la vista.");
+    if(!component)throw new Error(uiText("El insumo ya no está en esta partida. Actualizá la vista."));
     await invoke("remove_line_resource",{estimateId:state.estimateId,lineId:line.id,componentIndex:index,resourceId:component.resource_id});
-    await loadEstimate();state.message="Insumo quitado de la partida. Se conserva en el catálogo.";render();return;
+    await loadEstimate();state.message=uiText("Insumo quitado de la partida. Se conserva en el catálogo.");render();return;
   }
   if (["edit-line-resources","assign-resource","edit-line-resource"].includes(action)) {
     const line=currentLine();if(!editable()||!line)return;
@@ -211,7 +220,7 @@ async function act(button) {
     if(action==="assign-resource")index=all.findIndex(row=>row.resource_id===button.dataset.id);
     const resource=action==="assign-resource"?state.resources.find(row=>row.id===button.dataset.id):null;
     const selected=index>=0?all[index]:resource?{resource_id:resource.id,daily_output:resource.daily_output,quantity:"1",unit_price:state.estimateResourcePrices?.[resource.id]??(currentEstimate()?.currency==="USD"?"":resource.price??"")}:{resource_id:"",quantity:"1",unit_price:""};
-    if(index>=0&&!selected)throw new Error("El insumo ya no está en la composición");
+    if(index>=0&&!selected)throw new Error(uiText("El insumo ya no está en la composición"));
     openModal("line-resources",{...line,components:[selected],allComponents:all,componentIndex:index});return;
   }
   if (action === "duplicate-line") {if(!editable()||!currentLine())return;state.selectedLineId=await invoke("duplicate_budget_line",{estimateId:state.estimateId,lineId:state.selectedLineId});await loadEstimate();return;}
@@ -219,20 +228,20 @@ async function act(button) {
   if (action === "modal-project") return openModal("project");
   if (action === "edit-project") return openModal("project", state.projects.find(p => p.id === button.dataset.id));
   if (action === "modal-estimate") {
-    if (!state.projectId) throw new Error("Abrí una obra antes de crear el presupuesto.");
+    if (!state.projectId) throw new Error(uiText("Abrí una obra antes de crear el presupuesto."));
     return openModal("estimate");
   }
   if (action === "modal-section") return editable() && openModal("section");
   if(action==='delete-section-tree'){
     if(!editable())return;
-    const root=state.sections.find(s=>s.id===button.dataset.id);if(!root)throw Error('El rubro ya no existe');
+    const root=state.sections.find(s=>s.id===button.dataset.id);if(!root)throw Error(uiText("El rubro ya no existe"));
     const ids=new Set([root.id]);let previous=0;
     while(previous!==ids.size){previous=ids.size;for(const s of state.sections)if(ids.has(s.parent_id))ids.add(s.id);}
     const lines=state.lines.filter(l=>ids.has(state.assignments[l.id]));
-    if(!window.confirm(`¿Eliminar el rubro «${root.title}»? Se perderán las ${lines.length} partidas que contiene${ids.size>1?`, incluyendo sus ${ids.size-1} subrubros`:''}.`))return;
+    if(!window.confirm(uiText("¿Eliminar el rubro «{0}»? Se perderán las {1} partidas que contiene{2}.", [root.title, lines.length, ids.size>1?`, incluyendo sus ${ids.size-1} subrubros`:''])))return;
     await invoke('delete_budget_section_contents',{estimateId:state.estimateId,sectionId:root.id,expectedTitle:root.title,expectedSections:[...ids],expectedLines:lines.map(l=>l.id)});
     state.selectedSectionId=null;state.selectedLineId=null;
-    await loadCollections();await loadEstimate();state.message='Rubro y partidas eliminados';render();return;
+    await loadCollections();await loadEstimate();state.message=uiText("Rubro y partidas eliminados");render();return;
   }
   if (action === "edit-section") return editable() && openModal("section", state.sections.find(s => s.id === button.dataset.id));
   if (action === "modal-line") return editable() && openModal("line");
@@ -246,7 +255,7 @@ async function act(button) {
     if (!id) return;
     const info = await invoke("get_analysis_details", { analysisId: id });
     const entry = state.analyses.find(a => a.id === id);
-    if (!entry) throw new Error("El ACU seleccionado ya no existe.");
+    if (!entry) throw new Error(uiText("El ACU seleccionado ya no existe."));
     if (action === "duplicate-analysis") {
       return openModal("analysis", {
         description: entry.description + " (copia)",
@@ -263,7 +272,7 @@ async function act(button) {
   }
   if (action === "refresh-draft-costs") {
     if (!editable()) return;
-    if (!window.confirm("¿Actualizar los precios unitarios de todas las partidas vinculadas a ACU de este borrador? Las cantidades no cambian. Podés duplicar el presupuesto antes para conservar la versión anterior.")) return;
+    if (!window.confirm(uiText("¿Actualizar los precios unitarios de todas las partidas vinculadas a ACU de este borrador? Las cantidades no cambian. Podés duplicar el presupuesto antes para conservar la versión anterior."))) return;
     const result = await invoke("refresh_draft_analysis_costs", { estimateId: state.estimateId });
     await loadEstimate();
     state.message = result.updated_lines +
@@ -300,12 +309,12 @@ async function act(button) {
   }
   if (action === "delete-line") {
     const line = currentLine();
-    if (!editable() || !line || !window.confirm(`¿Eliminar la partida "${line.description}" junto con su composición y metrados? Los insumos del catálogo y el historial se conservan.`)) return;
+    if (!editable() || !line || !window.confirm(uiText("¿Eliminar la partida \"{0}\" junto con su composición y metrados? Los insumos del catálogo y el historial se conservan.", [line.description]))) return;
     await invoke("delete_estimate_line", { estimateId: state.estimateId, lineId: line.id });
     state.selectedLineId = null; await loadEstimate(); return;
   }
   if (action === "delete-takeoff") {
-    if (!editable() || !window.confirm("¿Eliminar esta medición?")) return;
+    if (!editable() || !window.confirm(uiText("¿Eliminar esta medición?"))) return;
     await invoke("delete_takeoff", { id: button.dataset.id }); await loadEstimate(); return;
   }
   if (action === "apply-takeoffs") {
@@ -316,7 +325,7 @@ async function act(button) {
   if (action === "duplicate-estimate") {
     const est = currentEstimate();
     if (!est) return;
-    const title = window.prompt("Nombre de la nueva versión", est.title + " · Revisión");
+    const title = window.prompt(uiText("Nombre de la nueva versión"), est.title + " · Revisión");
     if (!title?.trim()) return;
     const copy = await invoke("duplicate_estimate", { estimateId: est.id, title: title.trim() });
     await loadEstimates(); await openEstimate(copy.id); return;
@@ -327,13 +336,13 @@ async function act(button) {
   }
   if(action === "reopen-estimate") {
     if(state.remoteProject || !currentEstimate()?.issued)return;
-    if(!window.confirm("¿Volver a En elaboración? Se habilitará la edición conservando las cantidades y precios actuales. Los documentos que ya enviaste no se actualizarán."))return;
+    if(!window.confirm(uiText("¿Volver a En elaboración? Se habilitará la edición conservando las cantidades y precios actuales. Los documentos que ya enviaste no se actualizarán.")))return;
     await invoke("reopen_estimate",{estimateId:state.estimateId});
     await loadEstimates();await loadEstimate();return;
   }
   if (action === "issue") {
     if (!editable() || !state.lines.length) return;
-    if (!window.confirm("¿Emitir el presupuesto? Quedará bloqueado para edición. Podrás volver a En elaboración cuando necesites modificarlo.")) return;
+    if (!window.confirm(uiText("¿Emitir el presupuesto? Quedará bloqueado para edición. Podrás volver a En elaboración cuando necesites modificarlo."))) return;
     await invoke("issue_estimate", { estimateId: state.estimateId });
     await loadEstimates(); await loadEstimate();
   }

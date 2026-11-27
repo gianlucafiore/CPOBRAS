@@ -1,3 +1,4 @@
+import { uiText } from "./interface-language.js";
 import {
   sumDecimals,
   multiplyDecimals,
@@ -5,9 +6,9 @@ import {
   compareDecimals,
 } from "../decimal.js";
 export const clientLayouts = {
-  memory_sheet_price: "Memoria descriptiva, planilla y precio",
-  sheet_price: "Planilla de presupuesto y precio",
-  memory_price: "Memoria descriptiva y precio",
+  get memory_sheet_price() { return uiText("Memoria descriptiva, planilla y precio"); },
+  get sheet_price() { return uiText("Planilla de presupuesto y precio"); },
+  get memory_price() { return uiText("Memoria descriptiva y precio"); },
 };
 export const hasMemory = (layout) =>
   ["memory_sheet_price", "memory_price"].includes(layout);

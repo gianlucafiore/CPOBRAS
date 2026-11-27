@@ -1,5 +1,6 @@
+import { uiText, displayDate } from "./interface-language.js";
 import { createPdf } from "./pdf-units.js";
-import { calendarDays, calendarGroups, dayNumber, isWorkingDate, MONTHS, WEEKDAYS } from "./calendar.js";
+import { calendarDays, calendarGroups, dayNumber, isWorkingDate, monthName, weekdayName } from "./calendar.js";
 import { money, numeric } from "../decimal.js";
 import { dateToday, kindName } from "../components/helpers.js";
 
@@ -16,7 +17,7 @@ export async function exportResources(invoke, state, format, includePrices) {
   const estimate = state.estimates.find(item => item.id === state.estimateId);
   if (!estimate) return;
   const rows = state.estimateResourceTotals || [];
-  const headers = ["Tipo", "Descripción", "Unidad", "Cantidad total"];
+  const headers = [uiText("Tipo"), uiText("Descripción"), uiText("Unidad"), uiText("Cantidad total")];
   if (includePrices) headers.push("Precio total " + estimate.currency);
   const name = filename("Insumos - " + estimate.title);
   if (format === "xlsx") {
@@ -43,7 +44,7 @@ export async function exportResources(invoke, state, format, includePrices) {
   function heading() {
     pdf.setFont("helvetica", "bold");
     pdf.setFontSize(13);
-    pdf.text(profile.trade_name || profile.company_name || profile.professional_name || "CP Obras", 12, 17);
+    pdf.text(profile.trade_name || profile.company_name || profile.professional_name || uiText("CP Obras"), 12, 17);
     if (profile.logo_png?.length) {
       try {
         const logo = new Uint8Array(profile.logo_png), info = pdf.getImageProperties(logo);
@@ -52,10 +53,10 @@ export async function exportResources(invoke, state, format, includePrices) {
       } catch { /* A text letterhead is sufficient if the stored logo is unreadable. */ }
     }
     pdf.setFontSize(11);
-    pdf.text("Insumos del presupuesto", 12, 28);
+    pdf.text(uiText("Insumos del presupuesto"), 12, 28);
     pdf.setFont("helvetica", "normal");
     pdf.setFontSize(9);
-    const context = pdf.splitTextToSize(project + " · " + estimate.title + " · #" + reference + " · " + dateToday().split("-").reverse().join("/"), 186);
+    const context = pdf.splitTextToSize(project + " · " + estimate.title + " · #" + reference + " · " + displayDate(dateToday()), 186);
     pdf.text(context, 12, 34);
     y = 37 + context.length * 4;
     pdf.setFillColor(52, 75, 96);
@@ -92,10 +93,10 @@ function plotDocument(jsPDF, width, height) {
 
 export async function exportGantt(invoke, title, plan, schedule, height, baseline) {
   if (!Number.isFinite(height) || height < 80 || height > 5000)
-    throw new Error("Ingresá una altura de 80 a 5000 mm.");
+    throw new Error(uiText("Ingresá una altura de 80 a 5000 mm."));
   const scheduled = new Map((schedule?.tasks || []).map(task => [task.id, task]));
   const previous = new Map((baseline?.tasks || []).map(task => [task.id, task]));
-  if (!scheduled.size) throw new Error("El Gantt todavía no tiene tareas programadas.");
+  if (!scheduled.size) throw new Error(uiText("El Gantt todavía no tiene tareas programadas."));
   const cuts = new Set(plan.finance?.cut_dates || []);
   const boundaries = [...scheduled.values(), ...previous.values()].flatMap(task => [task.start, task.finish]);
   let first = dayNumber(plan.calendar.start_date), last = first;
@@ -143,8 +144,8 @@ export async function exportGantt(invoke, title, plan, schedule, height, baselin
   }
   const tiers = [
     ["year", day => day.year],
-    ["month", day => MONTHS[Number(day.month.slice(5)) - 1]],
-    ["weekKey", day => "Sem. " + day.week + " · " + day.weekYear],
+    ["month", day => monthName(Number(day.month.slice(5)))],
+    ["weekKey", day => uiText("Sem. {0} · {1}", [day.week, day.weekYear])],
   ].map(([key, label]) => calendarGroups(days, key).map(span => ({ ...span, label: label(span.day) })));
   const perPage = Math.max(1, Math.floor((height - rowTop - 13) / rowHeight));
   const pages = Math.ceil(plan.tasks.length / perPage);
@@ -162,7 +163,7 @@ export async function exportGantt(invoke, title, plan, schedule, height, baselin
     rect(margin, top, left - margin, header, "F");
     pdf.setFillColor(244, 247, 251);
     rect(left, top, right - left, header, "F");
-    text("Tareas", margin + 3, rowTop - 3, 10, {bold: true});
+    text(uiText("Tareas"), margin + 3, rowTop - 3, 10, {bold: true});
     for (const [index, spans] of tiers.entries()) {
       const y = top + index * tier;
       pdf.setDrawColor(190, 207, 221);
@@ -183,7 +184,7 @@ export async function exportGantt(invoke, title, plan, schedule, height, baselin
       }
       pdf.setDrawColor(218, 227, 236);
       line(x, y, x, bottom);
-      text(WEEKDAYS[day.weekday], x + dayWidth / 2, y + 3.2, dayWidth > 5 ? 7 : 6, {color:[85,112,133],align:"center"});
+      text(weekdayName(day.weekday), x + dayWidth / 2, y + 3.2, dayWidth > 5 ? 7 : 6, {color:[85,112,133],align:"center"});
       text(Number(day.iso.slice(8)), x + dayWidth / 2, y + 7, 8, {bold:true,align:"center"});
     }
     for (const [index, task] of batch.entries()) {
@@ -193,7 +194,7 @@ export async function exportGantt(invoke, title, plan, schedule, height, baselin
       line(margin, y, right, y);
       const label = (task.parent_id ? "› " : "") + task.name;
       text(shorten(label, left - margin - 6, 9), margin + 3, y + 4.6, 9);
-      if (dates) text(dates.start + " a " + dates.finish + " · Holgura " + (dates.float_days ?? "—") + " d", margin + 3, y + 8.8, 7, {color:[85,112,133]});
+      if (dates) text(uiText("{0} a {1} · Holgura {2} d", [dates.start, dates.finish, dates.float_days ?? "—"]), margin + 3, y + 8.8, 7, {color:[85,112,133]});
       if (base?.start && base.finish) {
         const start = xAt(dayNumber(base.start)), end = xAt(dayNumber(base.finish) + 1);
         pdf.setFillColor(148, 168, 185);
@@ -250,14 +251,14 @@ export async function exportGantt(invoke, title, plan, schedule, height, baselin
       const x = xAt(dayNumber(today));
       line(x, top + tiers.length * tier, x, bottom);
     }
-    text("Rojo: camino crítico · Violeta: corte de certificación · Tramado: día no laborable" + (previous.size ? " · Gris: línea base" : ""), margin, bottom + 6, 8);
+    text(uiText("Rojo: camino crítico · Violeta: corte de certificación · Tramado: día no laborable{0}", [previous.size ? uiText(" · Gris: línea base") : ""]), margin, bottom + 6, 8);
     if (pages > 1) text((Math.floor(offset / perPage) + 1) + " / " + pages, right, bottom + 6, 8, {align:"right"});
   }
   return save(invoke, filename("Gantt - " + title) + ".pdf", pdfBytes(pdf));
 }
 
 export async function exportPert(invoke, title, plan, schedule, positions) {
-  if (!plan.tasks.length) throw new Error("El PERT todavía no tiene tareas.");
+  if (!plan.tasks.length) throw new Error(uiText("El PERT todavía no tiene tareas."));
   const scheduled = new Map((schedule?.tasks || []).map(task => [task.id, task]));
   const scale = 0.32, nodeWidth = 230 * scale, nodeHeight = 96 * scale;
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -270,7 +271,7 @@ export async function exportPert(invoke, title, plan, schedule, positions) {
   const points = Object.fromEntries(Object.entries(positions).map(([id, {x,y}]) => [id, [(18+(x-minX)*scale)/unit, (27+(y-minY)*scale)/unit]]));
   const w = nodeWidth / unit, h = nodeHeight / unit;
   pdf.setFontSize(15 / unit);
-  pdf.text("PERT · " + title, 12 / unit, 15 / unit);
+  pdf.text(uiText("PERT · ") + title, 12 / unit, 15 / unit);
   pdf.setFontSize(8 / unit);
   for (const task of plan.tasks) {
     const [tx, ty] = points[task.id];
@@ -296,7 +297,7 @@ export async function exportPert(invoke, title, plan, schedule, positions) {
     pdf.setFont("helvetica","bold");
     pdf.text(pdf.splitTextToSize(task.name,w-8/unit).slice(0,3),x+4/unit,y+6/unit);
     pdf.setFont("helvetica","normal");
-    pdf.text(task.duration_days + " días",x+4/unit,y+21/unit);
+    pdf.text(uiText("{0} días", [task.duration_days]),x+4/unit,y+21/unit);
     if (scheduledTask?.start) pdf.text(scheduledTask.start + " a " + scheduledTask.finish,x+4/unit,y+26/unit);
   }
   return save(invoke, filename("PERT - " + title) + ".pdf", pdfBytes(pdf));

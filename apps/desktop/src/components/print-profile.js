@@ -1,3 +1,4 @@
+import { uiText, uiHtml } from "../services/interface-language.js";
 import { e, field } from "./helpers.js";
 import { logoUrl, normalizeLogo } from "../services/print-logo.js";
 const fields = [
@@ -23,7 +24,7 @@ export function createPrintProfile({
   function markup() {
     const org = model.organization,
       readonly = org?.ownership === "external";
-    return `<main class="feature-page"><h1>${e(org?.name || "Organización")}</h1><p><span class="organization-badge ${readonly ? "external" : ""}">${readonly ? "Externa · solo lectura" : "Propia"}</span> ${org?.is_default ? " · Predeterminada para obras nuevas" : ""}</p><div class="feature-toolbar"><button class="btn" data-action="organization-list">Volver a organizaciones</button>${!readonly ? `<button class="btn" data-action="organization-directories" ${org?.company_id ? "" : "disabled"}>Directorios de la organización</button><button class="btn" data-action="organization-indirect">Gastos indirectos</button>` : ""}</div><p>${readonly ? "Datos públicos recibidos del propietario. Esta copia no se modifica localmente." : "Datos generales, logotipo y datos públicos de esta organización. Completá lo que querés imprimir en las obras que le pertenecen."}</p><div class="feature-columns"><form id="print-profile-form" class="feature-editor"><fieldset ${readonly ? "disabled" : ""} class="organization-fields">${field("Nombre de la organización", "organizationName", org?.name || "", 'required maxlength="500"')}<div class="form-grid">${fields.map(([key, label]) => field(label, key, model.profile[key] || "", 'maxlength="500"')).join("")}</div><label class="field"><span>Leyenda pública al final del documento</span><textarea name="footer" maxlength="2000">${e(model.profile.footer || "")}</textarea></label><label class="field"><span>Logotipo PNG o JPEG (hasta 3 MB)</span><input name="print-logo" type="file" accept="image/png,image/jpeg"></label><button class="btn" type="button" data-action="print-profile-remove-logo">Quitar logotipo</button><button class="btn primary" type="submit">Guardar organización</button><p class="feature-error" role="alert"></p></fieldset></form><aside class="feature-editor"><h2>Logotipo que se imprimirá</h2><img class="print-logo-preview" alt="Logotipo público" ${model.profile.logo_png.length ? `src="${logoUrl(model.profile.logo_png)}"` : "hidden"}><p>Estos datos se imprimen en las obras de esta organización. Sus directorios internos no se incorporan automáticamente al PDF.</p></aside></div></main>`;
+    return `<main class="feature-page"><h1>${e(org?.name || "Organización")}</h1><p><span class="organization-badge ${readonly ? "external" : ""}">${readonly ? uiHtml("Externa · solo lectura") : uiHtml("Propia")}</span> ${org?.is_default ? uiHtml(" · Predeterminada para obras nuevas") : ""}</p><div class="feature-toolbar"><button class="btn" data-action="organization-list">${uiHtml("Volver a organizaciones")}</button>${!readonly ? `<button class="btn" data-action="organization-directories" ${org?.company_id ? "" : "disabled"}>${uiHtml("Directorios de la organización")}</button><button class="btn" data-action="organization-indirect">${uiHtml("Gastos indirectos")}</button>` : ""}</div><p>${readonly ? uiHtml("Datos públicos recibidos del propietario. Esta copia no se modifica localmente.") : uiHtml("Datos generales, logotipo y datos públicos de esta organización. Completá lo que querés imprimir en las obras que le pertenecen.")}</p><div class="feature-columns"><form id="print-profile-form" class="feature-editor"><fieldset ${readonly ? "disabled" : ""} class="organization-fields">${field(uiText("Nombre de la organización"), "organizationName", org?.name || "", 'required maxlength="500"')}<div class="form-grid">${fields.map(([key, label]) => field(label, key, model.profile[key] || "", 'maxlength="500"')).join("")}</div><label class="field"><span>${uiHtml("Leyenda pública al final del documento")}</span><textarea name="footer" maxlength="2000">${e(model.profile.footer || "")}</textarea></label><label class="field"><span>${uiHtml("Logotipo PNG o JPEG (hasta 3 MB)")}</span><input name="print-logo" type="file" accept="image/png,image/jpeg"></label><button class="btn" type="button" data-action="print-profile-remove-logo">${uiHtml("Quitar logotipo")}</button><button class="btn primary" type="submit">${uiHtml("Guardar organización")}</button><p class="feature-error" role="alert"></p></fieldset></form><aside class="feature-editor"><h2>${uiHtml("Logotipo que se imprimirá")}</h2><img class="print-logo-preview" alt="${uiHtml("Logotipo público")}" ${model.profile.logo_png.length ? `src="${logoUrl(model.profile.logo_png)}"` : "hidden"}><p>${uiHtml("Estos datos se imprimen en las obras de esta organización. Sus directorios internos no se incorporan automáticamente al PDF.")}</p></aside></div></main>`;
   }
   async function act(button) {
     if (button.dataset.action === "open-organization-profile") {
@@ -82,7 +83,7 @@ export function createPrintProfile({
         ),
       };
     if (model.organization?.ownership !== "own")
-      throw new Error("Organización externa de solo lectura");
+      throw new Error(uiText("Organización externa de solo lectura"));
     const saved = await invoke("save_organization", {
       organizationId: model.organization.id,
       revision: model.revision,
@@ -94,7 +95,7 @@ export function createPrintProfile({
     model.organization = saved;
     if (loadCollections) await loadCollections();
     state.pageDirty = false;
-    state.message = "Organización guardada";
+    state.message = uiText("Organización guardada");
     render();
   }
   return { markup, act, change, submit, model };

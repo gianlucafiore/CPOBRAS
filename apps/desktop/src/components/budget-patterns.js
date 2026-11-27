@@ -1,3 +1,4 @@
+import { uiText, uiHtml } from "../services/interface-language.js";
 import { e, field, select } from "./helpers.js";
 import { money, numeric } from "../decimal.js";
 export function createBudgetPatterns({
@@ -114,7 +115,7 @@ export function createBudgetPatterns({
     return (
       !m.dirty ||
       window.confirm(
-        "Cambiar o cerrar descarta la selección del patrón que todavía no guardaste ni incorporaste. ¿Continuar?",
+        uiText("Cambiar o cerrar descarta la selección del patrón que todavía no guardaste ni incorporaste. ¿Continuar?"),
       )
     );
   }
@@ -135,7 +136,7 @@ export function createBudgetPatterns({
   function tree() {
     const d = m.snapshot;
     if (!d)
-      return "<p>No hay presupuestos o patrones disponibles en este origen.</p>";
+      return ("<p>" + uiHtml("No hay presupuestos o patrones disponibles en este origen.") + "</p>");
     const assignment = new Map(d.assignments),
       q = m.query.trim().toLocaleLowerCase("es");
     const visibleLines = new Set(
@@ -162,12 +163,12 @@ export function createBudgetPatterns({
     for (const id of [...visibleSections])
       for (const parent of ancestors(id)) visibleSections.add(parent);
     const lineNode = (l) =>
-      `<li role="treeitem" aria-selected="${m.lines.has(l.id)}" class="pattern-line"><label><input type="checkbox" data-pattern-node="line:${l.id}" data-pattern-line="${l.id}" aria-label="Partida ${e(l.description)}" ${m.lines.has(l.id) ? "checked" : ""}><span>${e(l.description)}</span></label><small>${numeric(l.quantity)} ${e(l.unit)}${m.prices ? " · " + money(l.unit_cost_snapshot) : ""}</small></li>`;
+      `<li role="treeitem" aria-selected="${m.lines.has(l.id)}" class="pattern-line"><label><input type="checkbox" data-pattern-node="line:${l.id}" data-pattern-line="${l.id}" aria-label="${uiHtml("Partida {0}", [l.description])}" ${m.lines.has(l.id) ? "checked" : ""}><span>${e(l.description)}</span></label><small>${numeric(l.quantity)} ${e(l.unit)}${m.prices ? " · " + money(l.unit_cost_snapshot) : ""}</small></li>`;
     const sectionNode = (s, depth = 0) => {
       if (depth > 100) return "";
       const status = checkState(s.id),
         collapsed = m.collapsed.has(s.id) && !q;
-      return `<li role="treeitem" aria-expanded="${!collapsed}" aria-selected="${status.checked}" class="pattern-section"><div><button type="button" class="pattern-disclosure" data-action="pattern-toggle" data-id="${s.id}" aria-label="${collapsed ? "Expandir" : "Contraer"} ${e(s.title)}">${collapsed ? "▸" : "▾"}</button><label><input type="checkbox" data-pattern-node="section:${s.id}" data-pattern-section="${s.id}" aria-label="Rubro ${e(s.title)}" ${status.checked ? "checked" : ""} data-partial="${status.partial}"><strong>${e(s.code + " · " + s.title)}</strong></label></div>${
+      return `<li role="treeitem" aria-expanded="${!collapsed}" aria-selected="${status.checked}" class="pattern-section"><div><button type="button" class="pattern-disclosure" data-action="pattern-toggle" data-id="${s.id}" aria-label="${collapsed ? uiHtml("Expandir") : uiHtml("Contraer")} ${e(s.title)}">${collapsed ? "▸" : "▾"}</button><label><input type="checkbox" data-pattern-node="section:${s.id}" data-pattern-section="${s.id}" aria-label="${uiHtml("Rubro {0}", [s.title])}" ${status.checked ? "checked" : ""} data-partial="${status.partial}"><strong>${e(s.code + " · " + s.title)}</strong></label></div>${
         collapsed
           ? ""
           : `<ul role="group">${d.sections
@@ -185,7 +186,7 @@ export function createBudgetPatterns({
               .join("")}</ul>`
       }</li>`;
     };
-    return `<ul role="tree" aria-label="Rubros y partidas de origen" class="pattern-tree">${d.sections
+    return `<ul role="tree" aria-label="${uiHtml("Rubros y partidas de origen")}" class="pattern-tree">${d.sections
       .filter((s) => !s.parent_id && visibleSections.has(s.id))
       .sort((a, b) => a.position - b.position)
       .map((s) => sectionNode(s))
@@ -194,28 +195,28 @@ export function createBudgetPatterns({
       .map(lineNode)
       .join(
         "",
-      )}</ul>${!d.sections.length && !d.lines.length ? "<p>El origen está vacío.</p>" : ""}`;
+      )}</ul>${!d.sections.length && !d.lines.length ? ("<p>" + uiHtml("El origen está vacío.") + "</p>") : ""}`;
   }
   function markup() {
     if (!m.active) return "";
-    return `<div class="modal-overlay patterns-overlay"><section class="dialog-shell wide pattern-dialog" role="dialog" aria-modal="true" aria-label="Patrones de cómputo"><div class="dialog-header"><h2>Patrones de cómputo</h2><button type="button" class="close-dialog" data-action="pattern-close" aria-label="Cerrar patrones" ${m.busy ? "disabled" : ""}>×</button></div><div class="dialog-body" ${m.busy ? "inert" : ""}><p class="modal-help">Elegí rubros completos o partidas individuales. Se agregan al presupuesto abierto, con sus metrados y fórmulas. Las partidas sueltas conservan su jerarquía de rubros. El origen y lo que ya tenés cargado se conservan.</p><div class="form-grid">${select(
-      "Origen del patrón",
+    return `<div class="modal-overlay patterns-overlay"><section class="dialog-shell wide pattern-dialog" role="dialog" aria-modal="true" aria-label="${uiHtml("Patrones de cómputo")}"><div class="dialog-header"><h2>${uiHtml("Patrones de cómputo")}</h2><button type="button" class="close-dialog" data-action="pattern-close" aria-label="${uiHtml("Cerrar patrones")}" ${m.busy ? "disabled" : ""}>×</button></div><div class="dialog-body" ${m.busy ? "inert" : ""}><p class="modal-help">${uiHtml("Elegí rubros completos o partidas individuales. Se agregan al presupuesto abierto, con sus metrados y fórmulas. Las partidas sueltas conservan su jerarquía de rubros. El origen y lo que ya tenés cargado se conservan.")}</p><div class="form-grid">${select(
+      uiText("Origen del patrón"),
       "pattern-kind",
       [
-        ["project", "Obras y presupuestos"],
-        ["template", "Patrones guardados"],
+        ["project", uiText("Obras y presupuestos")],
+        ["template", uiText("Patrones guardados")],
       ],
       m.kind,
     )}${
       m.kind === "project"
         ? select(
-            "Obra de origen",
+            uiText("Obra de origen"),
             "pattern-project",
             state.projects.map((p) => [p.id, p.name]),
             m.projectId,
           )
         : select(
-            "Patrón guardado",
+            uiText("Patrón guardado"),
             "pattern-template",
             m.templates.map((t) => [t.id, t.name]),
             m.templateId,
@@ -223,7 +224,7 @@ export function createBudgetPatterns({
     }</div>${
       m.kind === "project"
         ? select(
-            "Presupuesto de origen",
+            uiText("Presupuesto de origen"),
             "pattern-estimate",
             m.estimates.map((e) => [
               e.id,
@@ -232,15 +233,15 @@ export function createBudgetPatterns({
             m.estimateId,
           )
         : ""
-    }<div class="pattern-controls">${field("Buscar rubros o partidas", "pattern-search", m.query)}<button class="btn" type="button" data-action="pattern-all">Seleccionar todo</button><button class="btn" type="button" data-action="pattern-none">Limpiar selección</button></div><div class="pattern-tree-scroll">${tree()}</div><div class="pattern-summary" role="status">${selectedCount()} partidas seleccionadas · ${m.sections.size} rubros marcados</div><div class="form-grid">${select(
-      "Precios al incorporar",
+    }<div class="pattern-controls">${field(uiText("Buscar rubros o partidas"), "pattern-search", m.query)}<button class="btn" type="button" data-action="pattern-all">${uiHtml("Seleccionar todo")}</button><button class="btn" type="button" data-action="pattern-none">${uiHtml("Limpiar selección")}</button></div><div class="pattern-tree-scroll">${tree()}</div><div class="pattern-summary" role="status">${selectedCount()} ${uiHtml("partidas seleccionadas ·")} ${m.sections.size} ${uiHtml("rubros marcados")}</div><div class="form-grid">${select(
+      uiText("Precios al incorporar"),
       "pattern-prices",
       [
-        ["false", "Solo cantidades, sin precios"],
-        ["true", "Traer precios del origen"],
+        ["false", uiText("Solo cantidades, sin precios")],
+        ["true", uiText("Traer precios del origen")],
       ],
       String(m.prices),
-    )}${select("Ubicación de destino", "pattern-parent", [["", "Al final del presupuesto"], ...state.sections.map((s) => [s.id, s.code + " · " + s.title])], m.parentId)}</div><p class="modal-help">Sin precios: las partidas quedan con precio cero y sin ACU. Con precios: si un insumo ya existe en el destino, se usa el precio único de ese presupuesto. Los gastos e impuestos del destino se conservan.</p><div class="pattern-save">${field("Nombre del patrón", "pattern-name", m.name, 'maxlength="500"')}<button type="button" class="btn" data-action="pattern-save">Guardar selección como patrón</button></div><p class="modal-error" role="alert">${e(m.error)}</p>${m.feedback ? `<p role="status">${e(m.feedback)}</p>` : ""}</div><div class="dialog-actions pattern-actions"><button type="button" class="btn" data-action="pattern-close">Cerrar</button><button type="button" class="btn primary" data-action="pattern-apply" ${!editable() ? "disabled" : ""}>Incorporar selección</button></div></section></div>`;
+    )}${select(uiText("Ubicación de destino"), "pattern-parent", [["", uiText("Al final del presupuesto")], ...state.sections.map((s) => [s.id, s.code + " · " + s.title])], m.parentId)}</div><p class="modal-help">${uiHtml("Sin precios: las partidas quedan con precio cero y sin ACU. Con precios: si un insumo ya existe en el destino, se usa el precio único de ese presupuesto. Los gastos e impuestos del destino se conservan.")}</p><div class="pattern-save">${field(uiText("Nombre del patrón"), "pattern-name", m.name, 'maxlength="500"')}<button type="button" class="btn" data-action="pattern-save">${uiHtml("Guardar selección como patrón")}</button></div><p class="modal-error" role="alert">${e(m.error)}</p>${m.feedback ? `<p role="status">${e(m.feedback)}</p>` : ""}</div><div class="dialog-actions pattern-actions"><button type="button" class="btn" data-action="pattern-close">${uiHtml("Cerrar")}</button><button type="button" class="btn primary" data-action="pattern-apply" ${!editable() ? "disabled" : ""}>${uiHtml("Incorporar selección")}</button></div></section></div>`;
   }
   function afterRender() {
     if (!m.active) return;
@@ -260,7 +261,7 @@ export function createBudgetPatterns({
   async function act(button) {
     const action = button.dataset.action;
     if (action === "open-patterns") {
-      if (!state.estimateId) throw new Error("Abrí un presupuesto primero");
+      if (!state.estimateId) throw new Error(uiText("Abrí un presupuesto primero"));
       m.busy = true;
       state.busy = true;
       m.active = true;
@@ -319,9 +320,9 @@ export function createBudgetPatterns({
       if (body) body.inert = true;
       try {
         if (!m.snapshot || (!m.lines.size && !m.sections.size))
-          throw new Error("Seleccioná al menos un rubro o partida");
+          throw new Error(uiText("Seleccioná al menos un rubro o partida"));
         if (action === "pattern-save") {
-          if (!m.name.trim()) throw new Error("Ingresá el nombre del patrón");
+          if (!m.name.trim()) throw new Error(uiText("Ingresá el nombre del patrón"));
           await invoke("save_budget_pattern", {
             source: source(),
             selection: selection(),
@@ -333,7 +334,7 @@ export function createBudgetPatterns({
           m.dirty = false;
         } else {
           if (!editable())
-            throw new Error("El presupuesto emitido no se modifica");
+            throw new Error(uiText("El presupuesto emitido no se modifica"));
           const result = await invoke("apply_budget_pattern", {
             destinationId: state.estimateId,
             source: source(),
@@ -345,7 +346,7 @@ export function createBudgetPatterns({
           m.dirty = false;
           state.selectedLineId = result.line_ids[0] || state.selectedLineId;
           await loadEstimate();
-          state.message = `Se incorporaron ${result.line_ids.length} partidas y ${result.section_ids.length} rubros`;
+          state.message = uiText("Se incorporaron {0} partidas y {1} rubros", [result.line_ids.length, result.section_ids.length]);
         }
       } catch (error) {
         m.error = String(error);

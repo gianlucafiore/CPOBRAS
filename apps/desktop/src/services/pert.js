@@ -1,3 +1,4 @@
+import { uiText } from "./interface-language.js";
 // Gantt and PERT share one task graph; coordinates affect presentation only.
 export function automaticPositions(tasks) {
   const levels = new Map(tasks.map((t) => [t.id, 0])),
@@ -28,13 +29,13 @@ export function automaticPositions(tasks) {
   );
 }
 export function withDependency(plan, from, to) {
-  if (from === to) throw new Error("Una tarea no puede depender de sí misma.");
+  if (from === to) throw new Error(uiText("Una tarea no puede depender de sí misma."));
   const copy = structuredClone(plan),
     target = copy.tasks.find((t) => t.id === to);
   if (!target || !copy.tasks.some((t) => t.id === from))
-    throw new Error("Tarea inexistente.");
+    throw new Error(uiText("Tarea inexistente."));
   if (target.predecessors.some((d) => d.task_id === from))
-    throw new Error("Estas tareas ya están conectadas.");
+    throw new Error(uiText("Estas tareas ya están conectadas."));
   const successors = new Map(copy.tasks.map((t) => [t.id, []]));
   for (const t of copy.tasks)
     for (const d of t.predecessors) successors.get(d.task_id)?.push(t.id);
@@ -42,7 +43,7 @@ export function withDependency(plan, from, to) {
     queue = [to];
   while (queue.length) {
     const id = queue.pop();
-    if (id === from) throw new Error("La conexión generaría un ciclo.");
+    if (id === from) throw new Error(uiText("La conexión generaría un ciclo."));
     if (seen.has(id)) continue;
     seen.add(id);
     queue.push(...(successors.get(id) || []));
@@ -57,7 +58,7 @@ export function expectedPertDuration(o, m, p) {
     m > p
   )
     throw new Error(
-      "Usá duraciones enteras: optimista ≤ probable ≤ pesimista.",
+      uiText("Usá duraciones enteras: optimista ≤ probable ≤ pesimista."),
     );
   return Math.ceil((o + 4 * m + p) / 6);
 }

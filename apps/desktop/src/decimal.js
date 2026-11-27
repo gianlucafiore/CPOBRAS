@@ -1,3 +1,5 @@
+import { currentInterfaceLanguage } from "./services/interface-language.js";
+
 // Decimal strings from Rust stay exact until presentation. Never use Number for costs.
 function parse(value) {
   const text = String(value ?? "0").trim();
@@ -26,6 +28,17 @@ export function absoluteDecimal(value) {
   return String(value ?? "0").trim().replace(/^[+-]/, "");
 }
 
+const separatorsByLanguage = new Map();
+function separators(language) {
+  if (language === "es-AR") return { group: ".", decimal: "," };
+  if (!separatorsByLanguage.has(language)) {
+    const parts = new Intl.NumberFormat(language, { useGrouping: "always" }).formatToParts(100000.1);
+    const group = parts.find(part => part.type === "group")?.value?.replace(/\u202f/g, "\u00a0") ?? ",";
+    const decimal = parts.find(part => part.type === "decimal")?.value ?? ".";
+    separatorsByLanguage.set(language, { group, decimal });
+  }
+  return separatorsByLanguage.get(language);
+}
 function format(value, minimum, maximum) {
   try {
     const { coefficient, scale } = parse(value);
@@ -38,11 +51,12 @@ function format(value, minimum, maximum) {
       magnitude *= power(maximum - scale);
     }
     const digits = magnitude.toString().padStart(maximum + 1, "0");
+    const {group, decimal} = separators(currentInterfaceLanguage());
     const integer = (maximum ? digits.slice(0, -maximum) : digits)
-      .replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+      .replace(/\B(?=(\d{3})+(?!\d))/g, group);
     let fraction = maximum ? digits.slice(-maximum) : "";
     while (fraction.length > minimum && fraction.endsWith("0")) fraction = fraction.slice(0, -1);
-    return (coefficient < 0n && magnitude !== 0n ? "-" : "") + integer + (fraction ? "," + fraction : "");
+    return (coefficient < 0n && magnitude !== 0n ? "-" : "") + integer + (fraction ? decimal + fraction : "");
   } catch (error) {
     if (!(error instanceof TypeError)) throw error;
     // Invalid amounts must never look like legitimate zero costs.

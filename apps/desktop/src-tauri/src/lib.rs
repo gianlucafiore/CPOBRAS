@@ -16,7 +16,9 @@ pub fn run() {
         .setup(|app| {
             app.state::<commands::ai::AiSession>().disable();
             #[cfg(target_os = "linux")]
-            if let (Some(window), Some(icon)) = (app.get_webview_window("main"), app.default_window_icon()) {
+            if let (Some(window), Some(icon)) =
+                (app.get_webview_window("main"), app.default_window_icon())
+            {
                 window.set_icon(icon.clone())?;
             }
             let directory = app.path().app_data_dir()?;
@@ -76,6 +78,8 @@ pub(crate) fn configure<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri:
             commands::ai::assisted_acu_references,
             commands::ai::assisted_acu_reference,
             commands::ai::ai_chat,
+            commands::ai::ai_help,
+            commands::ai::open_ai_source,
             commands::ai::ai_cancel,
             commands::p2p::p2p_status,
             commands::p2p::p2p_projects,

@@ -1,3 +1,4 @@
+import { uiText, uiHtml, currentInterfaceLanguage } from "../services/interface-language.js";
 import { e, field } from "./helpers.js";
 export function createSiteBook({
   invoke,
@@ -18,7 +19,7 @@ export function createSiteBook({
     project: "",
   };
   const stamp = (s) =>
-    s ? new Date(s).toLocaleString("es-AR") : "Automática al guardar";
+    s ? new Date(s).toLocaleString(currentInterfaceLanguage()) : "Automática al guardar";
   async function load(page = 0) {
     if (v.project !== model.projectId) {
       v.editing = null;
@@ -41,7 +42,7 @@ export function createSiteBook({
     if (input) v.description = input.value;
   }
   function markup() {
-    return `<section class="workflow-card site-book"><h2>Libro de obra</h2><p>Los partes se guardan primero como borrador. Confirmalos para incorporarlos al libro definitivo; después no se pueden modificar.</p>${state.remoteProject ? "" : `<form id="site-book-form"><div class="feature-toolbar"><strong>${v.editing ? e(v.editing.number) + " · Borrador" : "Nuevo parte de obra"}</strong><span>Fecha de registro: ${e(stamp(v.editing?.created_at))}</span></div><label>Descripción del parte<textarea aria-label="Descripción del parte" name="site-description" rows="4" maxlength="20000" required>${e(v.description)}</textarea></label><div class="feature-toolbar"><button type="submit" class="btn primary">${v.editing ? "Guardar cambios del borrador" : "Guardar borrador"}</button>${v.editing ? '<button type="button" class="btn" data-action="ops-book-cancel">Nuevo parte</button>' : ""}</div></form>`}<h3>Partes de obra</h3><form id="site-book-print-form" class="feature-toolbar">${field("Desde fecha", "from", "", 'type="date"')}${field("Hasta fecha", "to", "", 'type="date"')}${field("Desde número", "first", "", 'placeholder="PAR-0001"')}${field("Hasta número", "last", "", 'placeholder="PAR-0030"')}<button class="btn" type="submit">PDF de partes confirmados</button></form><table class="data-grid"><thead><tr><th>Número</th><th>Fecha de registro</th><th>Descripción</th><th>Estado</th><th></th></tr></thead><tbody>${v.entries.map((r) => `<tr><td>${e(r.number)}</td><td>${e(stamp(r.created_at))}</td><td class="site-description">${e(r.description)}</td><td>${r.confirmed_at ? "Confirmado<br><small>" + e(stamp(r.confirmed_at)) + "</small>" : "Borrador"}</td><td>${r.confirmed_at || state.remoteProject ? "" : `<button class="btn" data-action="ops-book-edit" data-id="${r.id}">Editar</button><button class="btn primary" data-action="ops-book-confirm" data-id="${r.id}">Confirmar</button>`}</td></tr>`).join("") || '<tr><td colspan="5">Todavía no hay partes de obra.</td></tr>'}</tbody></table><div class="feature-toolbar"><button class="btn" data-action="ops-book-page" data-page="${v.page - 1}" ${v.page === 0 ? "disabled" : ""}>Anterior</button><span>Página ${v.page + 1} de ${Math.max(1, Math.ceil(v.total / 30))} · ${v.total} registros · 30 por página</span><button class="btn" data-action="ops-book-page" data-page="${v.page + 1}" ${(v.page + 1) * 30 >= v.total ? "disabled" : ""}>Siguiente</button></div></section>`;
+    return `<section class="workflow-card site-book"><h2>${uiHtml("Libro de obra")}</h2><p>${uiHtml("Los partes se guardan primero como borrador. Confirmalos para incorporarlos al libro definitivo; después no se pueden modificar.")}</p>${state.remoteProject ? "" : `<form id="site-book-form"><div class="feature-toolbar"><strong>${v.editing ? uiHtml("{0} · Borrador", [e(v.editing.number)]) : uiHtml("Nuevo parte de obra")}</strong><span>${uiHtml("Fecha de registro: {0}", [stamp(v.editing?.created_at)])}</span></div><label>${uiHtml("Descripción del parte")}<textarea aria-label="Descripción del parte" name="site-description" rows="4" maxlength="20000" required>${e(v.description)}</textarea></label><div class="feature-toolbar"><button type="submit" class="btn primary">${v.editing ? uiHtml("Guardar cambios del borrador") : uiHtml("Guardar borrador")}</button>${v.editing ? ("<button type=\"button\" class=\"btn\" data-action=\"ops-book-cancel\">" + uiHtml("Nuevo parte") + "</button>") : ""}</div></form>`}<h3>${uiHtml("Partes de obra")}</h3><form id="site-book-print-form" class="feature-toolbar">${field(uiText("Desde fecha"), "from", "", 'type="date"')}${field(uiText("Hasta fecha"), "to", "", 'type="date"')}${field(uiText("Desde número"), "first", "", 'placeholder="PAR-0001"')}${field(uiText("Hasta número"), "last", "", 'placeholder="PAR-0030"')}<button class="btn" type="submit">${uiHtml("PDF de partes confirmados")}</button></form><table class="data-grid"><thead><tr><th>${uiHtml("Número")}</th><th>${uiHtml("Fecha de registro")}</th><th>${uiHtml("Descripción")}</th><th>${uiHtml("Estado")}</th><th></th></tr></thead><tbody>${v.entries.map((r) => `<tr><td>${e(r.number)}</td><td>${e(stamp(r.created_at))}</td><td class="site-description">${e(r.description)}</td><td>${r.confirmed_at ? ("" + uiHtml("Confirmado") + "<br><small>") + e(stamp(r.confirmed_at)) + "</small>" : uiHtml("Borrador")}</td><td>${r.confirmed_at || state.remoteProject ? "" : `<button class="btn" data-action="ops-book-edit" data-id="${r.id}">${uiHtml("Editar")}</button><button class="btn primary" data-action="ops-book-confirm" data-id="${r.id}">${uiHtml("Confirmar")}</button>`}</td></tr>`).join("") || ("<tr><td colspan=\"5\">" + uiHtml("Todavía no hay partes de obra.") + "</td></tr>")}</tbody></table><div class="feature-toolbar"><button class="btn" data-action="ops-book-page" data-page="${v.page - 1}" ${v.page === 0 ? "disabled" : ""}>${uiHtml("Anterior")}</button><span>${uiHtml("Página")} ${v.page + 1} ${uiHtml("de")} ${Math.max(1, Math.ceil(v.total / 30))} · ${v.total} ${uiHtml("registros · 30 por página")}</span><button class="btn" data-action="ops-book-page" data-page="${v.page + 1}" ${(v.page + 1) * 30 >= v.total ? "disabled" : ""}>${uiHtml("Siguiente")}</button></div></section>`;
   }
   async function act(b) {
     const a = b.dataset.action;
@@ -66,12 +67,12 @@ export function createSiteBook({
     if (a === "ops-book-confirm") {
       const r = v.entries.find((r) => r.id === b.dataset.id);
       if (v.dirty) {
-        window.alert("Guardá primero los cambios del formulario.");
+        window.alert(uiText("Guardá primero los cambios del formulario."));
         return true;
       }
       if (
         !window.confirm(
-          "¿Estás seguro de confirmar este parte? Después no podrás modificarlo.",
+          uiText("¿Estás seguro de confirmar este parte? Después no podrás modificarlo."),
         )
       )
         return true;
@@ -120,7 +121,7 @@ export function createSiteBook({
   function protect() {
     read();
     if (!v.dirty) return true;
-    if (!window.confirm("¿Descartar los cambios del parte sin guardar?"))
+    if (!window.confirm(uiText("¿Descartar los cambios del parte sin guardar?")))
       return false;
     v.dirty = false;
     v.editing = null;

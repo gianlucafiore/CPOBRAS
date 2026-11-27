@@ -1,3 +1,4 @@
+import { uiText } from "./interface-language.js";
 import { multiplyDecimals, sumDecimals } from "../decimal.js";
 export const permissionLabels = {
   budget: "Presupuesto",
@@ -30,18 +31,18 @@ export function createRemoteInvoke(nativeInvoke, state) {
     const d = remote.data,
       p = permissionsFor(state);
     const requirePermission = (key) => {
-      if (!p[key]) throw new Error("El propietario no autorizó este apartado.");
+      if (!p[key]) throw new Error(uiText("El propietario no autorizó este apartado."));
     };
     const budget = () => {
       const b = d.budgets.find(
         (b) => b.estimate.id === (args.estimateId || state.estimateId),
       );
       if (!b)
-        throw new Error("El presupuesto no pertenece a la copia abierta.");
+        throw new Error(uiText("El presupuesto no pertenece a la copia abierta."));
       return b;
     };
     if (args.projectId && args.projectId !== d.project.id)
-      throw new Error("La consulta no pertenece a la obra externa abierta.");
+      throw new Error(uiText("La consulta no pertenece a la obra externa abierta."));
     const projected = () => {
       switch (command) {
         case "get_general_calendar":return {revision:0,nonworking_weekdays:d.planning?.plan.calendar.nonworking_weekdays||[5,6],exceptions:d.planning?.plan.calendar.exceptions||{}};
@@ -58,7 +59,7 @@ export function createRemoteInvoke(nativeInvoke, state) {
         case "list_supplier_orders":return args.kind==='material'?d.material_orders||[]:d.work_orders||[];
         case "list_site_entries":{requirePermission('site_book');const rows=d.site_book||[],page=Math.min(args.page||0,Math.max(0,Math.ceil(rows.length/30)-1));return {entries:rows.slice(page*30,page*30+30),total:rows.length,page};}
         case "print_site_entries":{requirePermission('site_book');return (d.site_book||[]).filter(r=>(!args.from||r.created_at.slice(0,10)>=args.from)&&(!args.to||r.created_at.slice(0,10)<=args.to)&&(!args.first||r.number>=args.first)&&(!args.last||r.number<=args.last)).slice().reverse();}
-        case "issued_certificate_sheet":{const sheet=d.budgets.flatMap(b=>b.certificate_sheets||[]).find(s=>s.operation.id===args.id);if(!sheet)throw new Error("El propietario no incluyó este certificado en la copia compartida");requirePermission(sheet.operation.kind === "subcertificate" ? "subcontracts" : "certificates");return sheet;}
+        case "issued_certificate_sheet":{const sheet=d.budgets.flatMap(b=>b.certificate_sheets||[]).find(s=>s.operation.id===args.id);if(!sheet)throw new Error(uiText("El propietario no incluyó este certificado en la copia compartida"));requirePermission(sheet.operation.kind === "subcertificate" ? "subcontracts" : "certificates");return sheet;}
         case "list_project_estimates":
           return d.budgets.map((b) => b.estimate);
         case "get_estimate_metadata":return p.budget?(budget().metadata||{}):{};
@@ -99,7 +100,7 @@ export function createRemoteInvoke(nativeInvoke, state) {
           const a = d.budgets
             .flatMap((b) => b.document.line_analyses || [])
             .find((a) => a.id === args.analysisId);
-          if (!a) throw new Error("Composición no incluida en esta copia.");
+          if (!a) throw new Error(uiText("Composición no incluida en esta copia."));
           const components = a.components.map((c) => ({
             ...c,
             kind: String(c.kind).toLowerCase(),
@@ -143,7 +144,7 @@ export function createRemoteInvoke(nativeInvoke, state) {
           return d.stock;
         case "operations_report": {
           if (!p.operations && !p.accounting)
-            throw new Error("Sin acceso a gestión.");
+            throw new Error(uiText("Sin acceso a gestión."));
           const b = args.estimateId ? budget() : d.budgets[0];
           return (
             b?.report || {
@@ -172,7 +173,7 @@ export function createRemoteInvoke(nativeInvoke, state) {
         case "get_budget_print_data":
           if (!budget().print_data)
             throw new Error(
-              "La copia no incluye los datos necesarios para esta impresión.",
+              uiText("La copia no incluye los datos necesarios para esta impresión."),
             );
           return budget().print_data;
         case "export_budget_document":
@@ -206,7 +207,7 @@ export function createRemoteInvoke(nativeInvoke, state) {
                 }))
             : [];
         default:
-          throw new Error("La obra externa es de solo lectura.");
+          throw new Error(uiText("La obra externa es de solo lectura."));
       }
     };
     if (
@@ -335,7 +336,7 @@ export function protectRemoteControls(root, state) {
     }
   }
   for (const button of root.querySelectorAll("[data-action=manage-edit]"))
-    button.textContent = "Ver ficha";
+    button.textContent = uiText("Ver ficha");
   for (const title of root.querySelectorAll(
     "#management-form h2,#planning-task-form h2",
   ))

@@ -1,3 +1,4 @@
+import { uiText, uiHtml } from "../services/interface-language.js";
 import { e, dateToday } from "./helpers.js";
 import {
   DAY_WIDTH as CELL,
@@ -5,15 +6,15 @@ import {
   dayISO,
   calendarDays,
   calendarGroups,
-  MONTHS,
-  WEEKDAYS,
+  monthName,
+  weekdayName,
   isWorkingDate,
   weekday,
   addDays,
   finishWorking,
   workingCount,
 } from "../services/calendar.js";
-export function createGantt({ state, model, document, save, render }) {
+export function createGantt({ state, model, document, save, render, createTask }) {
   const camera = { key: null, day: null, offset: 0 };
   let drag = null, lastBarDrag = 0;
   const minDay = dayNumber("0001-01-03"),
@@ -58,7 +59,7 @@ export function createGantt({ state, model, document, save, render }) {
   }
   function taskBar(task, scheduled) {
     const days = dayNumber(scheduled.finish) - dayNumber(scheduled.start) + 1;
-    return `<button class="gantt-bar ${scheduled.critical ? "critical" : ""} ${task.duration_days === 0 ? "gantt-milestone" : ""}" data-task-id="${e(task.id)}" data-gantt-edit="${e(task.id)}" style="left:${left(scheduled.start)}px;width:${task.duration_days === 0 ? 16 : Math.max(16, days * CELL)}px" title="${e(task.name)} · ${task.duration_days} días"><span data-gantt-fill>${fills(scheduled.start, scheduled.finish)}</span><span class="gantt-certified-fill" style="width:${Math.max(0,Math.min(100,Number(task.actual_progress)||0))}%" title="Avance certificado ${e(task.actual_progress)} %"></span><span class="gantt-bar-title">${e(task.name)}</span><i data-resize="true" aria-label="Cambiar duración">↔</i></button>`;
+    return `<button class="gantt-bar ${scheduled.critical ? "critical" : ""} ${task.duration_days === 0 ? "gantt-milestone" : ""}" data-task-id="${e(task.id)}" data-gantt-edit="${e(task.id)}" style="left:${left(scheduled.start)}px;width:${task.duration_days === 0 ? 16 : Math.max(16, days * CELL)}px" title="${e(task.name)} · ${task.duration_days} ${uiHtml("días")}"><span data-gantt-fill>${fills(scheduled.start, scheduled.finish)}</span><span class="gantt-certified-fill" style="width:${Math.max(0,Math.min(100,Number(task.actual_progress)||0))}%" title="${uiHtml("Avance certificado {0} %", [task.actual_progress])}"></span><span class="gantt-bar-title">${e(task.name)}</span><i data-resize="true" aria-label="${uiHtml("Cambiar duración")}">↔</i></button>`;
   }
   function visibleCount(width) {
     return (
@@ -79,36 +80,76 @@ export function createGantt({ state, model, document, save, render }) {
   }
   function content(width) {
     const days = calendarDays(camera.day - 1, visibleCount(width) + 1);
-    const header = `<div class="gantt-calendar-header"><div class="gantt-header-tier" aria-label="Años">${groups(days, "year", (d) => String(d.year))}</div><div class="gantt-header-tier" aria-label="Meses">${groups(days, "month", (d) => MONTHS[Number(d.month.slice(5)) - 1])}</div><div class="gantt-header-tier" aria-label="Semanas ISO">${groups(days, "weekKey", (d) => "Sem. " + d.week + " · " + d.weekYear)}</div><div class="gantt-header-days">${days.map((d) => `<${model.cutMode ? "button" : "span"} ${model.cutMode ? 'type="button" data-action="plan-cut-date"' : ""} class="gantt-date ${classes(d.iso)} ${(model.plan.finance?.cut_dates || []).includes(d.iso) ? "is-certification-cut" : ""}" data-gantt-date="${d.iso}" data-date="${d.iso}" title="${e(dateTitle(d.iso))}" style="left:${(d.day - camera.day) * CELL + camera.offset}px;width:${CELL}px"><small>${WEEKDAYS[d.weekday]}</small><b>${Number(d.iso.slice(8))}</b></${model.cutMode ? "button" : "span"}>`).join("")}</div></div>`;
+    const cells = days.map((d) => `<span class="gantt-day-cell ${classes(d.iso)}" style="left:${(d.day - camera.day) * CELL + camera.offset}px;width:${CELL}px" title="${e(dateTitle(d.iso))}"></span>`).join("");
+    const header = `<div class="gantt-calendar-header"><div class="gantt-header-tier" aria-label="${uiHtml("Años")}">${groups(days, "year", (d) => String(d.year))}</div><div class="gantt-header-tier" aria-label="${uiHtml("Meses")}">${groups(days, "month", (d) => monthName(Number(d.month.slice(5))))}</div><div class="gantt-header-tier" aria-label="${uiHtml("Semanas ISO")}">${groups(days, "weekKey", (d) => uiText("Sem. {0} · {1}", [d.week, d.weekYear]))}</div><div class="gantt-header-days">${days.map((d) => `<${model.cutMode ? "button" : "span"} ${model.cutMode ? 'type="button" data-action="plan-cut-date"' : ""} class="gantt-date ${classes(d.iso)} ${(model.plan.finance?.cut_dates || []).includes(d.iso) ? "is-certification-cut" : ""}" data-gantt-date="${d.iso}" data-date="${d.iso}" title="${e(dateTitle(d.iso))}" style="left:${(d.day - camera.day) * CELL + camera.offset}px;width:${CELL}px"><small>${weekdayName(d.weekday)}</small><b>${Number(d.iso.slice(8))}</b></${model.cutMode ? "button" : "span"}>`).join("")}</div></div>`;
     const baseline = model.baselines.find((b) => b.id === model.baselineId);
-    return (
-      header +
+    return header + (
+      !model.plan.tasks.length ? `<div class="gantt-track gantt-empty-track">${cells}</div>` :
       model.plan.tasks
         .map((task) => {
           const scheduled = model.schedule?.tasks.find((t) => t.id === task.id),
             previous = baseline?.schedule.tasks.find((t) => t.id === task.id);
-          return `<div class="gantt-track">${days.map((d) => `<span class="gantt-day-cell ${classes(d.iso)}" style="left:${(d.day - camera.day) * CELL + camera.offset}px;width:${CELL}px" title="${e(dateTitle(d.iso))}"></span>`).join("")}${(model.plan.finance?.cut_dates || []).map((date) => `<span data-cut-date="${date}" ${model.cutMode ? `data-action="plan-cut-date" data-date="${date}"` : ""} class="gantt-certification-cut ${model.cutMode ? "cut-editable" : ""}" title="Corte de certificación ${e(date)}" style="left:${left(date) + CELL}px"></span>`).join("")}${previous ? `<span class="gantt-baseline" style="left:${left(previous.start)}px;width:${Math.max(8, (dayNumber(previous.finish) - dayNumber(previous.start) + 1) * CELL)}px"></span>` : ""}${scheduled ? taskBar(task, scheduled) : ""}</div>`;
+          return `<div class="gantt-track">${cells}${(model.plan.finance?.cut_dates || []).map((date) => `<span data-cut-date="${date}" ${model.cutMode ? `data-action="plan-cut-date" data-date="${date}"` : ""} class="gantt-certification-cut ${model.cutMode ? "cut-editable" : ""}" title="${uiHtml("Corte de certificación {0}", [date])}" style="left:${left(date) + CELL}px"></span>`).join("")}${previous ? `<span class="gantt-baseline" style="left:${left(previous.start)}px;width:${Math.max(8, (dayNumber(previous.finish) - dayNumber(previous.start) + 1) * CELL)}px"></span>` : ""}${scheduled ? taskBar(task, scheduled) : ""}</div>`;
         })
         .join("")
     );
   }
   function markup() {
     configure();
-    return `<section class="gantt-board"><div class="gantt-toolbar"><p>Doble clic para editar una tarea. Arrastrá la barra para moverla y su extremo para cambiar la duración. Arrastrá el fondo para recorrer las fechas. La duración cuenta días laborables. Rojo: ruta crítica. ${model.cutMode ? "En el encabezado, hacé clic en una fecha para agregar un corte; si ya existe, otro clic lo elimina. Arrastrá un corte existente para cambiar su fecha." : ""}</p><div><button class="btn ${model.cutMode ? "primary" : ""}" data-action="plan-finance-mark">${model.cutMode ? "Finalizar marcado de cortes" : "Marcar cortes de certificación"}</button><button class="btn" data-action="plan-gantt-prev" aria-label="Gantt: cuatro semanas anteriores">←</button><button class="btn" data-action="plan-gantt-start">Inicio de obra</button><button class="btn" data-action="plan-gantt-today">Hoy</button><button class="btn" data-action="plan-gantt-next" aria-label="Gantt: cuatro semanas siguientes">→</button></div></div><div class="gantt-scroll"><div class="gantt-label-column"><div class="gantt-label-heading">Tareas</div>${model.plan.tasks
+    return `<section class="gantt-board"><div class="gantt-toolbar"><p>${uiHtml("Doble clic para editar una tarea. Arrastrá la barra para moverla y su extremo para cambiar la duración. Arrastrá el fondo para recorrer las fechas. La duración cuenta días laborables. Rojo: ruta crítica.")} ${model.cutMode ? uiHtml("En el encabezado, hacé clic en una fecha para agregar un corte; si ya existe, otro clic lo elimina. Arrastrá un corte existente para cambiar su fecha.") : state.remoteProject ? "" : uiHtml("En el fondo del calendario, Shift + clic crea un hito y Shift + arrastrar dibuja una tarea.")}</p><div><button class="btn ${model.cutMode ? "primary" : ""}" data-action="plan-finance-mark">${model.cutMode ? uiHtml("Finalizar marcado de cortes") : uiHtml("Marcar cortes de certificación")}</button><button class="btn" data-action="plan-gantt-prev" aria-label="${uiHtml("Gantt: cuatro semanas anteriores")}">←</button><button class="btn" data-action="plan-gantt-start">${uiHtml("Inicio de obra")}</button><button class="btn" data-action="plan-gantt-today">${uiHtml("Hoy")}</button><button class="btn" data-action="plan-gantt-next" aria-label="${uiHtml("Gantt: cuatro semanas siguientes")}">→</button></div></div><div class="gantt-scroll"><div class="gantt-label-column"><div class="gantt-label-heading">${uiHtml("Tareas")}</div>${model.plan.tasks
       .map((task) => {
         const scheduled = model.schedule?.tasks.find((t) => t.id === task.id);
-        return `<button class="gantt-label" data-gantt-edit="${e(task.id)}">${e(task.parent_id ? "↳ " : "")}${e(task.name)}<small>${e(scheduled?.start)} → ${e(scheduled?.finish)} · holgura ${scheduled?.float_days ?? "—"} d</small></button>`;
+        return `<button class="gantt-label" data-gantt-edit="${e(task.id)}">${e(task.parent_id ? "↳ " : "")}${e(task.name)}<small>${e(scheduled?.start)} → ${e(scheduled?.finish)} ${uiHtml("· holgura")} ${scheduled?.float_days ?? "—"} d</small></button>`;
       })
       .join(
         "",
-      )}</div><div class="gantt-timepane" data-gantt-viewport tabindex="0" aria-label="Calendario del Gantt, arrastrá para panear">${content()}</div></div></section>`;
+      )}</div><div class="gantt-timepane" data-gantt-viewport tabindex="0" aria-label="${uiHtml("Calendario del Gantt, arrastrá para panear")}">${content()}</div></div></section>`;
   }
   function draw() {
     const host = document.querySelector("[data-gantt-viewport]");
     if (host) {
       configure();
       host.innerHTML = content(host.clientWidth);
+      if (drag?.type === "create" && drag.host === host) drawCreation();
     }
+  }
+  function dateAt(host, x) {
+    const local = Math.max(0, Math.min(host.clientWidth - 1, x - host.getBoundingClientRect().left));
+    return dayISO(camera.day + Math.floor((local - camera.offset) / CELL));
+  }
+  function creationRange(gesture, x) {
+    const calendar = model.plan.calendar;
+    const date = dateAt(gesture.host, x);
+    const first = gesture.start < date ? gesture.start : date;
+    const last = gesture.start > date ? gesture.start : date;
+    const start = first < calendar.start_date ? calendar.start_date : first;
+    gesture.moving ||= date !== gesture.start || Math.abs(x - gesture.x) >= 4;
+    if (!gesture.moving) return { ...finishWorking(calendar, start, 0), duration: 0 };
+    const duration = workingCount(calendar, start, last);
+    return duration ? { ...finishWorking(calendar, start, duration), duration } : null;
+  }
+  function drawCreation() {
+    const track = drag.host.querySelectorAll(".gantt-track")[drag.lane];
+    if (!track) return;
+    let preview = track.querySelector(".gantt-creation-preview");
+    if (!preview) {
+      preview = document.createElement("span");
+      preview.className = "gantt-creation-preview";
+      preview.setAttribute("aria-hidden", "true");
+      track.append(preview);
+    }
+    const range = drag.preview;
+    preview.hidden = !range;
+    if (!range) return;
+    preview.style.left = left(range.start) + "px";
+    preview.style.width = (range.duration ? (dayNumber(range.finish) - dayNumber(range.start) + 1) * CELL : 16) + "px";
+    preview.classList.toggle("gantt-milestone-preview", !range.duration);
+    preview.textContent = range.duration ? `${range.duration} d` : "";
+  }
+  function endCreation(gesture) {
+    gesture.host.classList.remove("drawing-task");
+    gesture.host.querySelector(".gantt-creation-preview")?.remove();
+    if (gesture.host.hasPointerCapture?.(gesture.pointerId)) gesture.host.releasePointerCapture(gesture.pointerId);
   }
   function shift(pixels) {
     const raw = camera.offset + pixels,
@@ -150,6 +191,18 @@ export function createGantt({ state, model, document, save, render }) {
     const host = event.target.closest?.("[data-gantt-viewport]");
     if (!host || event.button !== 0) return false;
     const bar = event.target.closest?.(".gantt-bar");
+    const track = event.target.closest?.(".gantt-track");
+    if (event.shiftKey && track && !bar && !model.cutMode) {
+      if (state.remoteProject || state.pageDirty || model.dirty || model.editing || model.splitting || state.busy) return true;
+      event.preventDefault();
+      drag = {
+        type: "create", host, lane: Array.from(host.querySelectorAll(".gantt-track")).indexOf(track),
+        pointerId: event.pointerId, x: event.clientX, start: dateAt(host, event.clientX), moving: false,
+      };
+      host.setPointerCapture?.(event.pointerId);
+      host.classList.add("drawing-task");
+      return true;
+    }
     if (!bar) {
       event.preventDefault();
       drag = {
@@ -178,6 +231,13 @@ export function createGantt({ state, model, document, save, render }) {
   }
   function pointerMove(event) {
     if (!drag) return false;
+    if (drag.type === "create") {
+      if (event.pointerId === drag.pointerId) {
+        drag.preview = creationRange(drag, event.clientX);
+        drawCreation();
+      }
+      return true;
+    }
     if (drag.type === "cut") {
       const delta = Math.round((event.clientX - drag.x) / CELL);
       drag.preview = addDays(drag.date, delta);
@@ -232,20 +292,29 @@ export function createGantt({ state, model, document, save, render }) {
     }
     return true;
   }
-  async function pointerUp() {
+  async function pointerUp(event) {
     if (!drag) return false;
     const old = drag;
+    if (old.type === "create" && old.pointerId !== event.pointerId) return true;
     drag = null;
     document
       .querySelector("[data-gantt-viewport]")
       ?.classList.remove("panning");
     if (old.type === "pan") return true;
+    if (old.type === "create") {
+      endCreation(old);
+      if (!old.host.isConnected) return true;
+      const range = creationRange(old, event.clientX);
+      if (!range) throw new Error(uiText("El tramo marcado no contiene días laborables de la obra."));
+      await createTask(range);
+      return true;
+    }
     if (old.type === "cut") {
       if (!old.preview || old.preview === old.date) return true;
       model.movedCut = { date: old.date, at: Date.now() };
       if (model.plan.finance.cut_dates.includes(old.preview)) {
         draw();
-        throw new Error("Ya existe un corte en esa fecha");
+        throw new Error(uiText("Ya existe un corte en esa fecha"));
       }
       const previous = structuredClone(model.plan);
       model.plan.finance.cut_dates = model.plan.finance.cut_dates
@@ -292,6 +361,7 @@ export function createGantt({ state, model, document, save, render }) {
     )
       return false;
     event.preventDefault();
+    if (drag?.type === "create") return true;
     shift(-(event.deltaX || event.deltaY));
     return true;
   }
@@ -332,6 +402,7 @@ export function createGantt({ state, model, document, save, render }) {
       camera.key = null;
     },
     cancel: () => {
+      if (drag?.type === "create") endCreation(drag);
       drag = null;
       draw();
     },

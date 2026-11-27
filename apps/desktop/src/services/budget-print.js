@@ -1,3 +1,4 @@
+import { uiText } from "./interface-language.js";
 import {createPdf} from "./pdf-units.js";
 import {drawMemoryPdf} from "./memory-markdown.js";
 import { budgetNumbering } from "./budget-numbering.js";
@@ -9,12 +10,12 @@ import {
   hasSchedule,
 } from "./budget-public.js";
 export const reportNames = {
-  client: "Presupuesto para cliente",
-  internal: "Presupuesto interno",
-  incidences: "Incidencias porcentuales",
+  get client() { return uiText("Presupuesto para cliente"); },
+  get internal() { return uiText("Presupuesto interno"); },
+  get incidences() { return uiText("Incidencias porcentuales"); },
 };
 export function printRows(data, mode = "client") {
-  if (!reportNames[mode]) throw new Error("Presentación desconocida");
+  if (!reportNames[mode]) throw new Error(uiText("Presentación desconocida"));
   if (mode === "client") data = clientPrintData(data);
   const doc = data.document,
     values = new Map(data.lines.map((l) => [l.id, l])),
@@ -32,7 +33,7 @@ export function printRows(data, mode = "client") {
       pending = [id];
     while (pending.length) {
       for (const s of children(pending.pop())) {
-        if (ids.has(s.id)) throw new Error("Rubros circulares");
+        if (ids.has(s.id)) throw new Error(uiText("Rubros circulares"));
         ids.add(s.id);
         pending.push(s.id);
       }
@@ -50,7 +51,7 @@ export function printRows(data, mode = "client") {
   });
   const leaf = (l) => {
     const v = values.get(l.id);
-    if (!v) throw new Error("Partida sin cálculo de impresión");
+    if (!v) throw new Error(uiText("Partida sin cálculo de impresión"));
     rows.push({
       kind: "line",
       code: numbering.lines.get(l.id),
@@ -63,7 +64,7 @@ export function printRows(data, mode = "client") {
   };
   const walk = (s, depth = 0) => {
     if (visited.has(s.id) || depth > 100)
-      throw new Error("Jerarquía de rubros inválida");
+      throw new Error(uiText("Jerarquía de rubros inválida"));
     visited.add(s.id);
     const ids = descendants(s.id);
     rows.push({
@@ -77,7 +78,7 @@ export function printRows(data, mode = "client") {
     children(s.id).forEach((child) => walk(child, depth + 1));
   };
   children(null).forEach((s) => walk(s));
-  if (visited.size !== sections.size) throw new Error("Rubros sin raíz");
+  if (visited.size !== sections.size) throw new Error(uiText("Rubros sin raíz"));
   const loose = doc.lines.filter(
     (l) => !assign.has(l.id) || !sections.has(assign.get(l.id)),
   );
@@ -109,25 +110,25 @@ export function printRows(data, mode = "client") {
 export function printColumns(mode) {
   return mode === "internal"
     ? [
-        "Ítem",
-        "Descripción",
-        "Un.",
-        "Cantidad",
-        "Costo unitario",
-        "Costo directo",
-        "Importe final",
-        "Incidencia %",
+        uiText("Ítem"),
+        uiText("Descripción"),
+        uiText("Un."),
+        uiText("Cantidad"),
+        uiText("Costo unitario"),
+        uiText("Costo directo"),
+        uiText("Importe final"),
+        uiText("Incidencia %"),
       ]
     : mode === "incidences"
-      ? ["Ítem", "Descripción", "Importe final", "Incidencia %", "Acumulado %"]
+      ? [uiText("Ítem"), uiText("Descripción"), uiText("Importe final"), uiText("Incidencia %"), uiText("Acumulado %")]
       : [
-          "Ítem",
-          "Descripción",
-          "Un.",
-          "Cantidad",
-          "P. unit. sin IVA",
-          "Importe sin IVA",
-          "Incidencia %",
+          uiText("Ítem"),
+          uiText("Descripción"),
+          uiText("Un."),
+          uiText("Cantidad"),
+          uiText("P. unit. sin IVA"),
+          uiText("Importe sin IVA"),
+          uiText("Incidencia %"),
         ];
 }
 export function printCells(row, mode, { formatted = false } = {}) {
@@ -224,7 +225,7 @@ export async function budgetReportPdf(
   const brand =
       p.trade_name || p.company_name || p.professional_name || "CPOBRAS",
     label = reportNames[mode];
-  if (!label) throw new Error("Presentación desconocida");
+  if (!label) throw new Error(uiText("Presentación desconocida"));
   const budgetNumber = "#" + (String(reference).trim().replace(/^#+/, "") || String(data.estimate.id).slice(0, 8));
   const heading = () => {
     pdf.setFillColor(32, 53, 73);
@@ -260,7 +261,7 @@ export async function budgetReportPdf(
     pdf.text(pdf.splitTextToSize(budgetNumber, 45).slice(0, 2), width - left, 10, {align:"right"});
     if (!data.estimate.issued) {
       pdf.setFontSize(8);
-      pdf.text("BORRADOR", width - left, 23, {align:"right"});
+      pdf.text(uiText("BORRADOR"), width - left, 23, {align:"right"});
     }
     pdf.setTextColor(38, 58, 76);
     y = 36;
@@ -373,13 +374,11 @@ export async function budgetReportPdf(
     [p.phone, p.email, p.website].filter(Boolean).join(" · "),
   ].filter(Boolean);
   identity.forEach((line) => text(line, { size: 8, gap: 0 }));
-  text("Obra: " + data.project.name, { bold: true });
+  text(uiText("Obra: {0}", [data.project.name]), { bold: true });
   text(
-    "Cliente: " +
-      data.client.name +
-      (data.client.cuit ? " · CUIT: " + data.client.cuit : ""),
+    uiText("Cliente: {0}{1}", [data.client.name, data.client.cuit ? uiText(" · CUIT: ") + data.client.cuit : ""]),
   );
-  text("Presupuesto: " + data.document.title + " · Moneda: " + currency);
+  text(uiText("Presupuesto: {0} · Moneda: {1}", [data.document.title, currency]));
   if (date || reference)
     text(
       [
@@ -390,16 +389,16 @@ export async function budgetReportPdf(
         .join(" · "),
     );
   if (mode === "internal")
-    text("USO INTERNO · Costos y formación del precio", {
+    text(uiText("USO INTERNO · Costos y formación del precio"), {
       bold: true,
       color: [167, 67, 29],
     });
   if (mode === "incidences")
     text(
-      "Base de incidencia: total final del presupuesto. Los rubros son subtotales; no se suman nuevamente.",
+      uiText("Base de incidencia: total final del presupuesto. Los rubros son subtotales; no se suman nuevamente."),
     );
   if (hasMemory(layout)) {
-    text("Memoria descriptiva", { bold: true, size: 11 });
+    text(uiText("Memoria descriptiva"), { bold: true, size: 11 });
     y=drawMemoryPdf(pdf,memory,{left,width:usable,top:y,bottom,nextPage:()=>{nextPage();return y;}});
   }
   if (hasSchedule(layout) || mode !== "client") {
@@ -411,12 +410,9 @@ export async function budgetReportPdf(
   }
   y += 6;
   if (mode === "internal") {
-    text("Determinación de precio", { bold: true, size: 11 });
+    text(uiText("Determinación de precio"), { bold: true, size: 11 });
     text(
-      "Costo directo: " +
-        currency +
-        " " +
-        money(data.calculation.breakdown.direct),
+      uiText("Costo directo: {0} {1}", [currency, money(data.calculation.breakdown.direct)]),
     );
     for (const row of data.calculation.rows.filter((r) => r.enabled))
       text(row.label + ": " + currency + " " + money(row.amount), {
@@ -434,29 +430,27 @@ export async function budgetReportPdf(
   pdf.setTextColor(255);
   pdf.setFont("helvetica", "bold");
   pdf.setFontSize(12);
-  pdf.text("TOTAL " + currency, left + 4, y + 4);
+  pdf.text(uiText("TOTAL ") + currency, left + 4, y + 4);
   pdf.text(money(data.final_total), left + usable - 4, y + 4, {
     align: "right",
   });
   y += 17;
   if (mode === "incidences")
     text(
-      "Incidencia total: " +
-        (String(data.final_total).match(/^0(?:\.0+)?$/) ? "0" : "100") +
-        " %",
+      uiText("Incidencia total: {0} %", [String(data.final_total).match(/^0(?:\.0+)?$/) ? "0" : "100"]),
       { bold: true },
     );
   if (mode === "client")
     text(
-      "Precios de venta sin IVA por partida. El total final incluye los impuestos indicados.",
+      uiText("Precios de venta sin IVA por partida. El total final incluye los impuestos indicados."),
       { size: 8 },
     );
   if (notes) {
-    text("Condiciones y observaciones", { bold: true });
+    text(uiText("Condiciones y observaciones"), { bold: true });
     text(notes);
   }
   if (p.footer) {
-    text("Información del emisor", { bold: true });
+    text(uiText("Información del emisor"), { bold: true });
     text(p.footer, { size: 8 });
   }
   for (const appendix of appendices) {

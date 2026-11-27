@@ -1,3 +1,4 @@
+import { uiText, currentInterfaceLanguage } from "./interface-language.js";
 import {createPdf} from "./pdf-units.js";
 export async function exportSiteBook(invoke, model, entries) {
   const { jsPDF } = await import("jspdf");
@@ -6,9 +7,9 @@ export async function exportSiteBook(invoke, model, entries) {
   let y = 20;
   const heading = () => {
     pdf.setFontSize(16);
-    pdf.text("Libro de obra", 14, 16);
+    pdf.text(uiText("Libro de obra"), 14, 16);
     pdf.setFontSize(9);
-    pdf.text("Partes confirmados · " + (model.projectName || "Obra"), 14, 23);
+    pdf.text(uiText("Partes confirmados · {0}", [model.projectName || "Obra"]), 14, 23);
     y = 33;
   };
   heading();
@@ -20,7 +21,7 @@ export async function exportSiteBook(invoke, model, entries) {
     }
     pdf.setFont("helvetica", "bold");
     pdf.text(
-      r.number + " · " + new Date(r.created_at).toLocaleString("es-AR"),
+      r.number + " · " + new Date(r.created_at).toLocaleString(currentInterfaceLanguage()),
       14,
       y,
     );
@@ -28,7 +29,7 @@ export async function exportSiteBook(invoke, model, entries) {
     pdf.setFont("helvetica", "normal");
     pdf.setFontSize(8);
     pdf.text(
-      "Confirmado: " + new Date(r.confirmed_at).toLocaleString("es-AR"),
+      uiText("Confirmado: {0}", [new Date(r.confirmed_at).toLocaleString(currentInterfaceLanguage())]),
       14,
       y,
     );

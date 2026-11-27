@@ -20,6 +20,7 @@ async function bridge(page, options={}) {
   const totals = { direct: "200", general_expenses: "0", financial_expenses: "0", profit: "0", discount: "0", taxable_subtotal: "200", taxes: "0", total: "200" };
   const makePriceRow=(label,kind,role,percent='0')=>({id:crypto.randomUUID(),label,kind,role,enabled:true,subtract:false,percent,amount:'0',detail_mode:'reference',reference_percent:percent,items:[]});
   let priceDefinition={rows:[makePriceRow('Gastos generales','detailed','overhead'),makePriceRow('Beneficio','percent_direct','profit'),makePriceRow('Subtotal','subtotal','other'),makePriceRow('IVA','percent_subtotal','tax')]},priceRevision=0;const priceTemplates=[];
+  if (fixture.indirectCosts) priceDefinition.rows[0].label = 'Gastos indirectos';
   if (fixture.directCostCount) {
     const row = makePriceRow('Gastos Directos', 'detailed', 'direct_costs');
     row.detail_mode = 'items';
@@ -34,6 +35,13 @@ async function bridge(page, options={}) {
   const takeoffRows=fixture.restorableTakeoff?[{id:"takeoff-1",line_id:line.id,estimate_id:estimate.id,note:"Medición de prueba",factor:"1",length:"3",width:"2",height:"1",sign:1,quantity:"6"}]:[];
   if(fixture.restorableTakeoff){line.quantity="6";line.total="600";totals.direct="600";totals.total="600";}
   const resources=[{ id: "resource-1", code: "MAT-1", description: "Acero", unit: "kg", kind: "material", price: "100" }];
+  let aiSettings = fixture.aiRecipeRetry ? {configured:true,provider:"lmstudio",model:"local-test"} : {configured:false};
+  let recipeTimedOut = false;
+  if (fixture.aiRecipeRetry) resources.push({id:"resource-wood",code:"MAD",description:"Madera",unit:"m",kind:"material",price:null});
+  const aiLibrary = {id:"library-deck", code:"ACU-DECK", description:"Colocación de deck", unit:"m²"};
+  if (fixture.aiForms) lineDetails[aiLibrary.id] = {
+    ...aiLibrary, components:[{resource_id:"resource-1", description:"Acero", quantity:"2", daily_output:"8", unit_price:"100"}],
+  };
   if(fixture.composition){
    resources.push({id:'resource-sand',code:'MAT-2',description:'Arena',unit:'m³',kind:'material',price:'25'},
     {id:'resource-labor',code:'MO-1',description:'Oficial',unit:'h',kind:'labor',price:'50'});
@@ -86,6 +94,41 @@ async function bridge(page, options={}) {
    if(command==='save_print_profile'){if(args.revision!==publicPrint.revision)throw new Error('Recargá');publicPrint={revision:publicPrint.revision+1,profile:structuredClone(args.profile)};return structuredClone(publicPrint);}
    if(command==='save_export_file'){if(typeof args.openAfter!=='boolean')throw new Error('save_export_file requiere openAfter');return fixture.cancelSave?null:{path:'/elegido/'+args.name,open_error:fixture.readerFails?'No hay lector PDF asociado':null};}
    if(command==='available_release')return fixture.releaseTag ? {tag:fixture.releaseTag} : null;
+   if(fixture.aiForms && command === "ai_status") return aiSettings;
+   if(fixture.aiForms && command === "ai_configure") return aiSettings = {configured:true, provider:args.provider, model:args.model};
+   if(fixture.aiForms && command === "list_analyses") return [aiLibrary];
+   if(fixture.aiForms && command === "assisted_acu_context") return {
+    currency:"ARS", lines, resources:resources.map(r=>({...r, price_source:r.price == null ? "sin precio" : "catálogo:prueba"})),
+   };
+   if(fixture.aiForms && command === "ai_chat") {
+    if(fixture.aiRecipeRetry && args.mode === "form_items") {
+      const items = Array.from({length:12}, (_,i) => ({description:`Colocar madera en sector ${i+1}`,section:"Carpintería",unit:"m²",quantity:null}));
+      return {text:JSON.stringify({items})};
+    }
+    if(fixture.aiRecipeRetry && args.mode === "form_item_recipes") {
+      const {targets,resources} = JSON.parse(args.context);
+      if(!recipeTimedOut && targets[0].ref === "P5") {
+        recipeTimedOut = true;
+        throw new Error("El proveedor agotó el tiempo de espera. Revisá el modelo y la conexión.");
+      }
+      const wood = resources.find(row => row.description === "Madera");
+      return {text:JSON.stringify({recipes:targets.map(row => ({item:row.ref,components:[{resource:wood.ref,quantity:"2",unit:"m"}]}))})};
+    }
+    const value = {
+      form_memory:{memory:"## Alcance\nMontaje del deck y revisión final."},
+      form_items:{items:[{description:"Colocación de deck", section:"Deck", unit:"m²", quantity:"12", basis:"Medida informada", analysis:"A1"}]},
+      form_plan:{tasks:[{key:"P2", name:"Colocar deck", days:20, after:[]}, {key:"N1",name:"Revisión final",days:1,after:[{key:"P2",kind:"FS",lag:0}]}]},
+    }[args.mode];
+    return {text:JSON.stringify(value)};
+   }
+   if(fixture.aiForms && command === "apply_reviewed_budget_batch") {
+    for (const row of args.batch.creates) {
+      const recipe = args.batch.acus.find(change => change.line_id === row.id);
+      const analysis_id = recipe ? aiLibrary.id : null;
+      lines.push({...row, analysis_id, unit_cost:recipe ? "200" : row.unit_price, total:recipe ? "2400" : "0"});
+    }
+    return {created:args.batch.creates.length, composed:args.batch.acus.length};
+   }
    if(['preview_pdf','open_release','open_project_link'].includes(command))return null;
    if(command==='open_export_pdf'){if(fixture.readerFails)throw new Error('No hay lector PDF asociado');return null;}
    if(command==='get_budget_presentation')return structuredClone(presentations[args.estimateId]||{revision:0,data:{memory:'',print_options:{}}});
@@ -274,6 +317,39 @@ test("organizations unify company identity and related establishment directories
  const saved=await page.evaluate(()=>window.__calls.filter(c=>c.command==='save_management_record').at(-1).args.record);expect(saved.company_id).toBe('org-own');expect(saved.attributes.address).toBe('Av. Central 123');
 });
 
+test("AI item review preserves finished recipes after a timeout and accepts blank quantities", async ({page}) => {
+  await bridge(page,{aiForms:true,aiRecipeRetry:true});
+  await page.getByRole("button",{name:"Abrir ›",exact:true}).click();
+  await page.locator("[data-action=manage-dashboard-budget]").first().click();
+  await page.getByRole("button",{name:"Proponer partidas con IA",exact:true}).click();
+  const dialog = page.locator(".ai-action-dialog");
+  await dialog.getByLabel("Descripción o instrucciones").fill("Revestir 12 sectores con madera");
+  await dialog.getByRole("button",{name:"Generar propuesta",exact:true}).click();
+  await expect(dialog.getByRole("alert")).toContainText("agotó el tiempo");
+  await expect(dialog.getByText("Cargar receta propuesta",{exact:true})).toHaveCount(4);
+  const all = dialog.getByLabel("Seleccionar todas las partidas");
+  const first = dialog.getByLabel("Incluir Colocar madera en sector 1",{exact:true});
+  await expect(all).toBeChecked();
+  await first.uncheck();
+  await expect(all).toBeChecked({indeterminate:true});
+  await all.check();
+  await all.uncheck();
+  await expect(dialog.locator("[data-ai-selection-count]")).toHaveText("0 de 12 partidas seleccionadas");
+  await all.check();
+  await expect(dialog.getByRole("button",{name:"Incorporar partidas"})).toBeVisible();
+  expect(await dialog.locator(".ai-review-scroll").evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true);
+  await dialog.getByRole("button",{name:"Preparar ACU pendientes"}).click();
+  await expect(dialog.getByText("Cargar receta propuesta",{exact:true})).toHaveCount(12);
+  const batches = await page.evaluate(() => window.__calls.filter(call => call.command === "ai_chat" && call.args.mode === "form_item_recipes").map(call => JSON.parse(call.args.context).targets[0].ref));
+  expect(batches).toEqual(["P1","P5","P5","P9"]);
+  await dialog.getByRole("button",{name:"Incorporar partidas"}).click();
+  await expect(dialog).toHaveCount(0);
+  const batch = await page.evaluate(() => window.__calls.find(call => call.command === "apply_reviewed_budget_batch").args.batch);
+  expect(batch.creates.map(row => row.quantity)).toEqual(Array(12).fill("0"));
+  expect(batch.acus).toHaveLength(12);
+  expect(batch.acus[0].components[0].expected_resource.price).toBeNull();
+});
+
 test("planner saves a task, progress and resource assignment and renders Gantt", async ({ page }) => {
  await bridge(page); await page.getByRole("button", { name: "Abrir ›", exact: true }).first().click();await page.locator('[data-action=manage-dashboard-budget]').first().click(); await page.getByRole("button", { name: "Planificación", exact: true }).click();
  await page.getByRole("button", { name: "Nueva tarea / hito", exact: true }).click();
@@ -342,9 +418,9 @@ test("line handles reorder and move into a section",async({page})=>{
  await second.locator('.line-drag-handle').dragTo(page.locator('[data-drop-section]'));
  await expect.poll(()=>page.evaluate(()=>window.__calls.filter(row=>row.command==='move_budget_line').at(-1)?.args.sectionId)).toBe('10000000-0000-4000-8000-000000000004');
  await expect(page.getByRole('status')).toContainText('Preliminares');
- await expect(page.locator('.section-row:not(.unassigned) .col-code')).toContainText('1');
- await expect(page.locator('.line-row').filter({hasText:'Revoque'}).locator('.col-code')).toContainText('1.1');
- await expect(page.locator('.line-row').filter({hasText:'Hormigón'}).locator('.col-code')).toContainText('2');
+ await expect(page.locator('.section-row:not(.unassigned) .budget-order-code')).toHaveText('1');
+ await expect(page.locator('.line-row').filter({hasText:'Revoque'}).locator('.budget-order-code')).toHaveText('1.1');
+ await expect(page.locator('.line-row').filter({hasText:'Hormigón'}).locator('.budget-order-code')).toHaveText('2');
 });
 
 test("double click edits a different line and right click opens software actions",async({page})=>{
@@ -1499,16 +1575,17 @@ test('reminder actions stay compact and horizontal, reveal on hover or keyboard 
 
 test('section dragging moves whole blocks, renumbers items and supports keyboard and end placement',async({page})=>{
  await bridge(page,{twoLines:true,sectionDrag:true});await page.getByRole('button',{name:'Abrir ›',exact:true}).first().click();await page.locator('[data-action=manage-dashboard-budget]').first().click();
- const section=title=>page.locator('.section-row[data-id]').filter({has:page.locator('.col-desc').filter({hasText:title})});
+ const section=title=>page.locator('.section-row[data-id]').filter({has:page.locator('.budget-section-title').filter({hasText:title})});
+ const sectionTitles=page.locator('.section-row[data-id] .budget-section-title');
  const first=section('Preliminares'),cover=section('Cubierta');
  await cover.locator('.section-drag-handle').dragTo(first,{targetPosition:{x:130,y:2}});
- await expect(page.locator('.section-row[data-id] .col-desc')).toHaveText([/Cubierta/,/Preliminares/,/Zapatas/,/Estructura/]);
- await expect(cover.locator('.col-code')).toContainText('1');await expect(first.locator('.col-code')).toContainText('2');await expect(page.locator('.line-row').filter({hasText:'Hormigón'}).locator('.col-code')).toContainText('2.1.1');
- await cover.locator('.section-drag-handle').focus();await page.keyboard.press('Alt+ArrowDown');await expect(page.locator('.section-row[data-id] .col-desc').first()).toContainText('Preliminares');
+ await expect(sectionTitles).toHaveText(['Cubierta','Preliminares','Zapatas','Estructura']);
+ await expect(cover.locator('.budget-order-code')).toHaveText('1');await expect(first.locator('.budget-order-code')).toHaveText('2');await expect(page.locator('.line-row').filter({hasText:'Hormigón'}).locator('.budget-order-code')).toHaveText('2.1.1');
+ await cover.locator('.section-drag-handle').focus();await page.keyboard.press('Alt+ArrowDown');await expect(sectionTitles.first()).toHaveText('Preliminares');
  await cover.locator('.section-drag-handle').dragTo(section('Estructura'),{targetPosition:{x:130,y:25}});
- await expect(page.locator('.section-row[data-id] .col-desc')).toHaveText([/Preliminares/,/Zapatas/,/Estructura/,/Cubierta/]);
+ await expect(sectionTitles).toHaveText(['Preliminares','Zapatas','Estructura','Cubierta']);
  await first.locator('.section-drag-handle').dragTo(page.locator('[data-drop-unassigned]'));
- await expect(page.locator('.section-row[data-id] .col-desc')).toHaveText([/Estructura/,/Cubierta/,/Preliminares/,/Zapatas/]);
+ await expect(sectionTitles).toHaveText(['Estructura','Cubierta','Preliminares','Zapatas']);
  const moved=await page.evaluate(()=>window.__calls.filter(c=>c.command==='move_budget_section').map(c=>c.args));expect(moved).toHaveLength(4);expect(moved.at(-1).beforeId).toBeNull();
  expect(await page.evaluate(()=>window.__calls.filter(c=>c.command==='move_budget_line').length)).toBe(0);
 });
@@ -1662,4 +1739,126 @@ test('release notice opens the announced version and Options keep language and a
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("lang","en");
   await expect(page.locator("html")).toHaveAttribute("data-color-palette","city-night");
+});
+
+test("operational views follow the selected language and keep project data unchanged", async ({page}) => {
+  await bridge(page, {indirectCosts:true});
+  await page.getByRole("button", {name:"Opciones",exact:true}).click();
+  await page.getByRole("combobox", {name:"Idioma",exact:true}).selectOption("en");
+  await page.getByRole("button", {name:"Back to Home",exact:true}).click();
+  await expect(page.getByRole("heading", {name:"Projects",exact:true})).toBeVisible();
+  await expect(page.locator(".list-table-pane thead th")).toHaveText(["PROJECT", "ORGANIZATION", "CLIENT", "CURRENCY", ""]);
+  await expect(page.locator(".home-cash-card h2")).toHaveText(["Recent expenses", "Recent income"]);
+  await expect(page.getByText("Obra de prueba",{exact:true}).first()).toBeVisible();
+  await page.getByRole("button", {name:"Open ›",exact:true}).first().click();
+  await page.locator("[data-action=manage-dashboard-budget]").first().click();
+  await expect(page.locator(".budget-grid th").last()).toHaveText("AMOUNT");
+  await page.getByRole("tab", {name:"Quantity takeoffs",exact:true}).click();
+  await expect(page.getByText("Factor × Length × Width × Height",{exact:true})).toBeVisible();
+  await expect(page.locator(".takeoff-table th").nth(3)).toHaveText("W");
+  await expect(page.locator(".budget-grid")).toContainText("Hormigón");
+  await page.getByRole("tab", {name:"Scope of work",exact:true}).click();
+  const editor = page.locator("[data-memory-editor]");
+  await expect(editor.getByRole("textbox", {name:"Scope of work",exact:true})).toBeVisible();
+  await expect(editor.getByRole("button", {name:"Bulleted list",exact:true})).toHaveText("• List");
+  await expect(page.locator("[data-presentation-status]")).toHaveText("Saved");
+  await page.locator('[data-action="open-price-determination"]').first().click();
+  await expect(page.locator(".price-detail-heading h2")).toHaveText("Indirect costs");
+  const concept = page.locator(".price-row.selected [data-price-label]");
+  await expect(concept).toHaveValue("Indirect costs");
+  await concept.fill("Custom indirect costs");
+  await concept.fill("Indirect costs");
+  await page.locator('[name="price-reference"]').fill("5");
+  await page.getByRole("button", {name:"Save pricing",exact:true}).click();
+  await expect.poll(() => page.evaluate(() => window.__calls.findLast(c => c.command === "save_price_definition")?.args.definition.rows.find(row => row.role === "overhead").label)).toBe("Gastos indirectos");
+  await page.getByRole("button", {name:"← Home",exact:true}).click();
+  await page.getByRole("button", {name:"Options",exact:true}).click();
+  await page.getByRole("combobox", {name:"Language",exact:true}).selectOption("fr");
+  await expect(page.getByRole("heading", {name:"Apparence",exact:true})).toBeVisible();
+  await expect(page.getByRole("link", {name:"Dépôt du projet",exact:true})).toBeVisible();
+  await page.getByRole("combobox", {name:"Langue",exact:true}).selectOption("pt-BR");
+  await expect(page.getByRole("heading", {name:"Aparência",exact:true})).toBeVisible();
+  await expect(page.getByRole("button", {name:"Importar banco de dados…",exact:true})).toBeVisible();
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("lang","pt-BR");
+  await expect(page.locator(".list-table-pane thead th")).toHaveText(["OBRA", "ORGANIZAÇÃO", "CLIENTE", "MOEDA", ""]);
+  await expect(page.getByText("Obra de prueba",{exact:true}).first()).toBeVisible();
+});
+
+for (const [locale, projectHeading, estimateHeading, tabs, warning, requestHeading, pricingSheet, remaining] of [
+  ["en", "Project overview", "Project estimates", ["Materials and stock", "Subcontracting", "Site logbook", "Progress certificates", "Finance", "Dashboard"], "The reference estimate is still a draft", "Requests for quotes", "Pricing spreadsheet", "Outstanding: 1"],
+  ["pt-BR", "Ficha da obra", "Orçamentos da obra", ["Materiais e estoque", "Subcontratações", "Diário de obra", "Medições", "Finanças", "Painel"], "O orçamento de referência ainda está em elaboração", "Solicitações de cotação", "Planilha para preencher preços", "Pendente: 1"],
+  ["fr", "Fiche du chantier", "Devis du chantier", ["Matériaux et stock", "Sous-traitance", "Journal de chantier", "Décomptes de travaux", "Finances", "Tableau de bord"], "Le devis de référence est encore à l’état de brouillon", "Demandes de devis", "Tableur de saisie des prix", "Restant : 1"],
+]) {
+  test(`project and procurement labels follow the selected language (${locale})`, async ({page}) => {
+    await page.addInitScript(language => localStorage.setItem("cpobras:interface-language", language), locale);
+    await bridge(page, {financialReport: {alerts: ["El presupuesto de referencia aún es un borrador"]}});
+    await expect(page.locator("html")).toHaveAttribute("lang", locale);
+    await page.locator('[data-action="open-project"]').first().click();
+    await expect(page.getByRole("heading", {name: projectHeading, exact: true})).toBeVisible();
+    await expect(page.getByRole("heading", {name: estimateHeading, exact: true})).toBeVisible();
+    await expect(page.getByText("Presupuesto inicial", {exact: true}).first()).toBeVisible();
+    await page.evaluate(() => {
+      window.__quotationRequests = [{
+        id: "quote-1", kind: "material", title: "Corralón", number: "SOL-0001", date: "2026-11-05", currency: "ARS",
+        items: [{id: "quote-row-1", description: "Acero", unit: "kg", quantity: "1"}],
+      }];
+    });
+    await page.locator('[data-action="manage-dashboard-budget"]').first().click();
+    await page.getByRole("button", {name: {en: "Project management", "pt-BR": "Gestão da obra", fr: "Gestion du chantier"}[locale], exact: true}).click();
+    await expect(page.locator(".operations-tabs button")).toHaveText(tabs);
+    await expect(page.locator(".operations-alert")).toHaveText(warning);
+    await expect(page.getByRole("heading", {name: requestHeading, exact: true})).toBeVisible();
+    await expect(page.getByRole("button", {name: pricingSheet, exact: true})).toBeVisible();
+    await expect(page.locator(".quote-quantity").getByText(remaining, {exact: true})).toBeVisible();
+    await expect(page.getByRole("heading", {name: "Corralón", exact: true})).toBeVisible();
+  });
+}
+
+test("contextual AI expands the memory, creates items with catalog pricing and links PERT tasks", async ({page}) => {
+  await bridge(page, {aiForms:true});
+  await page.getByRole("button", {name:"Opciones",exact:true}).click();
+  await page.getByRole("button", {name:"Configurar IA",exact:true}).click();
+  const dialog = page.locator(".ai-action-dialog");
+  await dialog.getByLabel("Proveedor de IA").selectOption("lmstudio");
+  await dialog.getByLabel("Modelo de IA").fill("local-test-model");
+  await dialog.getByRole("button", {name:"Guardar configuración de IA",exact:true}).click();
+  await expect(dialog.getByLabel("Modelo de IA")).toHaveValue("local-test-model");
+  await dialog.getByRole("button", {name:"Cerrar",exact:true}).click();
+  await page.getByRole("button", {name:"Volver a Inicio",exact:true}).click();
+  await page.getByRole("button", {name:"Abrir ›",exact:true}).click();
+  await page.locator("[data-action=manage-dashboard-budget]").first().click();
+
+  await page.getByRole("tab", {name:"Memoria descriptiva",exact:true}).click();
+  const memory = page.locator("[name=budget-memory]");
+  await memory.fill("Deck de 12 m².");
+  await page.getByRole("button", {name:"Ampliar memoria con IA",exact:true}).click();
+  await expect(dialog.getByLabel("Borrador de la memoria")).toHaveValue("## Alcance\nMontaje del deck y revisión final.");
+  await expect(memory).toHaveValue("Deck de 12 m².");
+  await dialog.getByRole("button", {name:"Usar este borrador",exact:true}).click();
+  await expect(memory).toHaveValue("## Alcance\nMontaje del deck y revisión final.");
+
+  await page.getByRole("button", {name:"Proponer partidas con IA",exact:true}).click();
+  await dialog.getByLabel("Descripción o instrucciones").fill("Colocación de 12 m² de deck.");
+  await dialog.getByRole("button", {name:"Generar propuesta",exact:true}).click();
+  await expect(dialog.getByLabel("Cantidad Colocación de deck")).toHaveValue("12");
+  await expect(dialog).toContainText("200,00");
+  expect(await page.evaluate(() => window.__calls.filter(c => c.command === "apply_reviewed_budget_batch").length)).toBe(0);
+  await dialog.getByRole("button", {name:"Incorporar partidas",exact:true}).click();
+  await expect(page.locator(".budget-grid")).toContainText("Colocación de deck");
+  const batch = await page.evaluate(() => window.__calls.find(c => c.command === "apply_reviewed_budget_batch").args.batch);
+  expect(batch.acus[0].components[0].expected_resource.price).toBe("100");
+
+  await page.getByRole("button", {name:"Planificación",exact:true}).click();
+  await page.getByRole("button", {name:"Proponer tareas con IA",exact:true}).click();
+  await dialog.getByRole("button", {name:"Generar propuesta",exact:true}).click();
+  const days = dialog.getByLabel("Duración de Colocar deck");
+  await expect(days).toHaveValue("3");
+  await expect(dialog).toContainText("Según el ACU (Acero)");
+  await days.fill("4");
+  await dialog.getByRole("button", {name:"Incorporar al PERT",exact:true}).click();
+  await expect(page.locator("[data-pert-canvas]")).toContainText("Colocar deck");
+  const tasks = await page.evaluate(() => window.__calls.findLast(c => c.command === "save_project_plan").args.plan.tasks);
+  expect(tasks[0]).toMatchObject({duration_days:4, estimate_line_id:batch.creates[0].id});
+  expect(tasks[1].predecessors).toEqual([{task_id:tasks[0].id, kind:"FS", lag_days:0}]);
 });

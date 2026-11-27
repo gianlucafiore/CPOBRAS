@@ -1,3 +1,4 @@
+import { uiText } from "./interface-language.js";
 /** Serial optimistic saves with a durable, database-scoped recovery journal. */
 export function createPriceAutosave({state,model:m,invoke,window,onStatus=()=>{}}){
  let context=null,timer=null,flight=null,last='',generation=0;
@@ -22,7 +23,7 @@ export function createPriceAutosave({state,model:m,invoke,window,onStatus=()=>{}
   if(draft&&editable){
    if(draft.revision===saved.revision&&Array.isArray(draft.definition?.rows)){m.definition=draft.definition;changed();}
    else if(JSON.stringify(draft.definition)===JSON.stringify(saved.definition)){remove(context.key);}
-   else{m.saveStatus='conflict';m.error='Hay un borrador recuperado y cambios de otra sesión. Recargá y revisá el conflicto antes de guardar.';m.recoveryDraft=draft;}
+   else{m.saveStatus='conflict';m.error=uiText("Hay un borrador recuperado y cambios de otra sesión. Recargá y revisá el conflicto antes de guardar.");m.recoveryDraft=draft;}
   }
  }
  async function flush(){

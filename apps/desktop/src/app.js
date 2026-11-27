@@ -1,5 +1,8 @@
+import { uiText, uiHtml } from "./services/interface-language.js";
 import {createHomeCash} from "./components/home-cash.js";
 import {createAcuInsertPicker} from "./components/acu-insert-picker.js";
+import {createAiFormActions} from "./components/ai-form-actions.js";
+import {createAiContextHelp} from "./components/ai-context-help.js";
 import {optionsMarkup} from "./components/app-options.js";
 import {createReminders} from "./components/reminders.js";
 import {createClearSearch} from "./components/clear-search.js";
@@ -37,7 +40,7 @@ import { createActions } from "./controllers/actions.js";
 import { e } from "./components/helpers.js";
 import { exportResources } from "./services/workspace-exports.js";
 import { createAppearance } from "./services/appearance.js";
-import { createInterfaceLanguage } from "./services/interface-language.js";
+import { createInterfaceLanguage, dialogLocalization, localizedError } from "./services/interface-language.js";
 
 export function createWorkspaceApp({
   invoke,
@@ -46,11 +49,14 @@ export function createWorkspaceApp({
   FormData = globalThis.FormData,
   databaseSwitching = false,
   aiEnabled = true,
+  aiActionsEnabled = false,
+  aiHelpEnabled = false,
 }) {
   const root = document.querySelector("#app");
   createClearSearch({document,window});
   const state = createState();
   state.aiEnabled = aiEnabled;
+  state.aiActionsEnabled = aiActionsEnabled;
   const appearance = createAppearance(document, window);
   const language = createInterfaceLanguage(document, window);
   state.language = language.current;
@@ -58,10 +64,12 @@ export function createWorkspaceApp({
   let pendingCommands = 0;
   let switchingDatabase = false;
   const nativeInvoke = async (command, args) => {
-    if (switchingDatabase) throw new Error("Se está cambiando la base de datos");
+    if (switchingDatabase) throw new Error(uiText("Se está cambiando la base de datos"));
     pendingCommands++;
     try {
-      return await originalInvoke(command, args);
+      return await originalInvoke(command, dialogLocalization(state.language, command, args));
+    } catch (error) {
+      throw localizedError(error, state.language);
     } finally {
       pendingCommands--;
     }
@@ -108,6 +116,14 @@ export function createWorkspaceApp({
   const patterns = createBudgetPatterns(context);
   const pricing = createPriceDetermination(context);
   const presentation = createBudgetPresentation(context);
+  const aiForms = createAiFormActions({
+    ...context, invoke:nativeInvoke, planning, presentation,
+    onStatus:status=>aiHelp?.setStatus(status),
+  });
+  const aiHelp = aiHelpEnabled ? createAiContextHelp({
+    invoke:nativeInvoke, state, document, window,
+    configure:()=>aiForms.act({dataset:{action:"form-ai-open",kind:"settings"}}),
+  }) : null;
   const budgetTools = createBudgetTools({...context,presentation});
   const printProfile = createPrintProfile(context);
   const people = createPersons(context);
@@ -213,9 +229,11 @@ export function createWorkspaceApp({
   }
   let renderedContext='';
   function render() {
+    aiForms.beforeRender();
+    aiHelp?.syncView();
     if (state.navigating) {
       root.innerHTML = chrome(
-        '<main class="feature-page" role="status">Cargando los datos de la sección seleccionada…</main>',
+        ("<main class=\"feature-page\" role=\"status\">" + uiHtml("Cargando los datos de la sección seleccionada…") + "</main>"),
       );
       aiAssistant?.syncContext();
       return;
@@ -262,9 +280,13 @@ export function createWorkspaceApp({
                       : state.view === "workspace"
                         ? workspace()
                         : listViews();
-    if (state.view === "resources" && resourceLibraryOrigin) root.querySelector('.list-top')?.insertAdjacentHTML('afterend',`<aside class="acu-library-return"><p>Tu preparación de ACU sigue disponible. Cargá los insumos faltantes y volvé para elegirlos y revisar sus consumos.</p><div class="heading-actions"><button class="btn tiny" data-action="ai-resource-open">Preparar faltantes con IA</button><button class="btn tiny primary" data-action="acu-library-return">Volver al ACU</button></div></aside>`);
+    if (state.view === "resources" && resourceLibraryOrigin) root.querySelector('.list-top')?.insertAdjacentHTML('afterend',`<aside class="acu-library-return"><p>${uiHtml("Tu preparación de ACU sigue disponible. Cargá los insumos faltantes y volvé para elegirlos y revisar sus consumos.")}</p><div class="heading-actions"><button class="btn tiny" data-action="ai-resource-open">${uiHtml("Preparar faltantes con IA")}</button><button class="btn tiny primary" data-action="acu-library-return">${uiHtml("Volver al ACU")}</button></div></aside>`);
     if (state.view === "projects" && homeCash.model.draft) root.innerHTML += homeCash.editor();
     homeCash.afterRender();
+    if (state.aiActionsEnabled) {
+      root.insertAdjacentHTML("beforeend", aiForms.markup());
+      aiForms.afterRender();
+    }
     if (resourceImport.model.open) root.innerHTML += resourceImport.markup();
     if (agreement.model.open) root.innerHTML += agreement.markup();
     if (patterns.model.active) {
@@ -304,7 +326,8 @@ export function createWorkspaceApp({
         ? record.components.map((row) => ({
             resourceId: row.resource_id,
             quantity: row.quantity,
-            unitPrice: row.unit_price,
+            unitPrice: row.price_pending ? "" : row.unit_price,
+            pricePending: row.price_pending,
             dailyOutput: row.daily_output,
           }))
         : [];
@@ -317,7 +340,7 @@ export function createWorkspaceApp({
     if (state.busy) return false;
     if (
       state.modalDirty &&
-      !window.confirm("Tenés cambios sin guardar. ¿Descartarlos y cerrar?")
+      !window.confirm(uiText("Tenés cambios sin guardar. ¿Descartarlos y cerrar?"))
     )
       return false;
     state.modal = null;
@@ -348,7 +371,7 @@ export function createWorkspaceApp({
   };
   async function protectContext() {
     if (state.busy || state.navigating) return false;
-    try{await presentation.flush();}catch(error){state.message=String(error);render();return false;}
+    try{await presentation.flush();}catch(error){state.message=String(localizedError(error, state.language));render();return false;}
     if (state.modal && !closeModal()) return false;
     if ((state.view === "price-determination" || (state.view === "workspace" && state.panel === "direct-costs")) && !(await pricing.leave())) return false;
     if (state.view === "operations" && !(await operations.protect())) return false;
@@ -357,7 +380,7 @@ export function createWorkspaceApp({
     if (
       pending &&
       !window.confirm(
-        "Tenés cambios sin guardar en esta sección. ¿Descartarlos y continuar?",
+        uiText("Tenés cambios sin guardar en esta sección. ¿Descartarlos y continuar?"),
       )
     )
       return false;
@@ -390,7 +413,7 @@ export function createWorkspaceApp({
         return field.value !== field.defaultValue;
       });
     if (unsaved && !window.confirm(
-      "Tenés cambios sin guardar. Si cambiás de base, se perderán. ¿Continuar?",
+      uiText("Tenés cambios sin guardar. Si cambiás de base, se perderán. ¿Continuar?"),
     )) return;
 
     const menu = document.querySelector(".database-menu");
@@ -399,11 +422,11 @@ export function createWorkspaceApp({
     document.body.inert = true;
     try {
       state.databaseError="";
-      const result=await originalInvoke("switch_database", {create, ...(importCopy ? {importCopy} : {}), ...(recentPath ? {recentPath} : {})});
-      if(result==="unchanged")state.message="La base seleccionada ya está activa.";
-      if(result==="cancelled")state.message="No se seleccionó un archivo. La base activa se conserva.";
+      const result=await originalInvoke("switch_database", dialogLocalization(state.language, "switch_database", {create, ...(importCopy ? {importCopy} : {}), ...(recentPath ? {recentPath} : {})}));
+      if(result==="unchanged")state.message=uiText("La base seleccionada ya está activa.");
+      if(result==="cancelled")state.message=uiText("No se seleccionó un archivo. La base activa se conserva.");
     } catch (error) {
-      state.databaseError=(create ? "No se pudo crear la base de datos. " : importCopy ? "No se pudo importar la base de datos. " : "No se pudo abrir la base de datos. ") + String(error);
+      state.databaseError=(create ? "No se pudo crear la base de datos. " : importCopy ? "No se pudo importar la base de datos. " : "No se pudo abrir la base de datos. ") + String(localizedError(error, state.language));
     } finally {
       document.body.inert = false;
       switchingDatabase = false;
@@ -411,7 +434,7 @@ export function createWorkspaceApp({
     }
   }
   async function openResourceLibrary({brief=""}={}) {
-    if(state.remoteProject)throw new Error('Abrí una obra propia para preparar insumos');
+    if(state.remoteProject)throw new Error(uiText("Abrí una obra propia para preparar insumos"));
     if(!(await protectContext()))return false;
     if(state.projectId){
       resourceLibraryOrigin={projectId:state.projectId,estimateId:state.estimateId,lineId:state.selectedLineId};
@@ -455,7 +478,7 @@ export function createWorkspaceApp({
       ].includes(action)
     )
       throw new Error(
-        "Volvé a Inicio para administrar datos base o abrir otra obra",
+        uiText("Volvé a Inicio para administrar datos base o abrir otra obra"),
       );
     if (
       !state.projectId &&
@@ -468,7 +491,7 @@ export function createWorkspaceApp({
         "open-budget-printing",
       ].includes(action)
     )
-      throw new Error("Abrí una obra desde Inicio");
+      throw new Error(uiText("Abrí una obra desde Inicio"));
     if (!(await protectContext())) return true;
     state.message = "";
     if (destination !== "organizations") state.organizationId = null;
@@ -579,7 +602,7 @@ export function createWorkspaceApp({
     }
     if (
       !window.confirm(
-        `¿Cambiar de presupuesto «${selectors.currentEstimate()?.title || "Sin presupuesto"}» a «${target.title}» (${target.issued ? "emitido" : "borrador"}) dentro de la misma obra? Los informes pasarán a usar la versión elegida.`,
+        uiText("¿Cambiar de presupuesto «{0}» a «{1}» ({2}) dentro de la misma obra? Los informes pasarán a usar la versión elegida.", [selectors.currentEstimate()?.title || "Sin presupuesto", target.title, target.issued ? "emitido" : "borrador"]),
       ) ||
       !(await protectContext())
     ) {
@@ -633,7 +656,7 @@ export function createWorkspaceApp({
     if (button.dataset.action === "open-project-link") {
       evt.preventDefault();
       try { await nativeInvoke("open_project_link", { link: button.dataset.link }); }
-      catch (error) { state.message = String(error); render(); }
+      catch (error) { state.message = String(localizedError(error, state.language)); render(); }
       return;
     }
     if (button.dataset.action === "app-options-open") {
@@ -646,7 +669,7 @@ export function createWorkspaceApp({
       try {
         await nativeInvoke("open_recent_export", {path:button.dataset.path});
       } catch (error) {
-        window.alert(String(error));
+        window.alert(String(localizedError(error, state.language)));
       }
       return;
     }
@@ -686,7 +709,7 @@ export function createWorkspaceApp({
     ) {
       if (
         !window.confirm(
-          "¿Descartar los cambios del formulario antes de abrir otro registro?",
+          uiText("¿Descartar los cambios del formulario antes de abrir otro registro?"),
         )
       )
         return;
@@ -700,7 +723,7 @@ export function createWorkspaceApp({
       if (
         state.pageDirty &&
         !window.confirm(
-          "¿Descartar los cambios sin guardar de este formulario?",
+          uiText("¿Descartar los cambios sin guardar de este formulario?"),
         )
       )
         return;
@@ -745,6 +768,7 @@ export function createWorkspaceApp({
         }
         return;
       }
+      if(button.dataset.action.startsWith("form-ai-")){await aiForms.act(button);return;}
       if(memoryEditorAction(button))return;
       if(button.dataset.action==='ai-resource-open'){await aiResourceImport?.open(resourceLibraryBrief);return;}
       if(button.dataset.action==='acu-library-return'){await returnToAcu();return;}
@@ -833,11 +857,16 @@ export function createWorkspaceApp({
         await management.act(button);
       else await act(button);
     } catch (error) {
-      state.message = "Error: " + String(error);
+      state.message = "Error: " + String(localizedError(error, state.language));
       render();
     }
   });
   document.addEventListener("submit", async (evt) => {
+    if (["ai-form-settings","ai-form-proposal"].includes(evt.target.id)) {
+      evt.preventDefault();
+      await aiForms.submit(evt.target);
+      return;
+    }
     const groups = [
       [agreement, ["adjustment-agreement-form"]],
       [systemSettings, ["system-calendar", "system-index"]],
@@ -894,7 +923,7 @@ export function createWorkspaceApp({
         const feedback = evt.target.querySelector(
           ".modal-error,.feature-error",
         );
-        if (feedback) feedback.textContent = String(error);
+        if (feedback) feedback.textContent = String(localizedError(error, state.language));
         return;
       }
     }
@@ -914,7 +943,7 @@ export function createWorkspaceApp({
     if (submit) submit.disabled = true;
     try {
       if (group) await group[0].submit(form);
-      else { if (form.dataset.kind === "from-acu" && !state.modal?.pickerReady) throw new Error("Seleccioná un ACU con insumos disponibles."); await handleSubmit(form); }
+      else { if (form.dataset.kind === "from-acu" && !state.modal?.pickerReady) throw new Error(uiText("Seleccioná un ACU con insumos disponibles.")); await handleSubmit(form); }
       if (
         [
           "organization-create-form",
@@ -939,9 +968,9 @@ export function createWorkspaceApp({
         form.isConnected === false
           ? null
           : form.querySelector(group ? ".feature-error" : ".modal-error");
-      if (feedback) feedback.textContent = String(error);
+      if (feedback) feedback.textContent = String(localizedError(error, state.language));
       else {
-        state.message = String(error);
+        state.message = String(localizedError(error, state.language));
         render();
       }
     } finally {
@@ -954,9 +983,10 @@ export function createWorkspaceApp({
     if(evt.target.isConnected && evt.target.matches?.(".planning-calendar")) planning.model.calendarOpen=evt.target.open;
   },true);
   document.addEventListener("change", async (evt) => {
+    if (aiForms.change(evt.target)) return;
     if (appearance.change(evt.target)) return;
     if (evt.target.name === "interface-language") {
-      language.select(evt.target.value);
+      await language.select(evt.target.value);
       state.language = language.current;
       render();
       root.querySelector('[name="interface-language"]')?.focus();
@@ -970,14 +1000,14 @@ export function createWorkspaceApp({
       try {
         if (!(await entityActions.act(button))) await act(button);
       } catch (error) {
-        state.message = String(error);
+        state.message = String(localizedError(error, state.language));
         render();
       }
       return;
     }
     if (evt.target.name === "estimate-status") {
       const desired=evt.target.value;
-      try {if (await protectContext()) await act({dataset:{action:desired==="issued" ? "issue" : "reopen-estimate"}});}catch(error){state.message=String(error);}finally{render();}
+      try {if (await protectContext()) await act({dataset:{action:desired==="issued" ? "issue" : "reopen-estimate"}});}catch(error){state.message=String(localizedError(error, state.language));}finally{render();}
       return;
     }
     if (
@@ -1016,7 +1046,7 @@ export function createWorkspaceApp({
       await costing.change(evt.target);
       await budgetTools.change(evt.target);
     } catch (error) {
-      state.message = String(error);
+      state.message = String(localizedError(error, state.language));
       render();
     }
     if (
@@ -1038,7 +1068,7 @@ export function createWorkspaceApp({
       try {
         await switchEstimate(evt.target.value);
       } catch (error) {
-        state.message = String(error);
+        state.message = String(localizedError(error, state.language));
         render();
       }
     }
@@ -1054,6 +1084,7 @@ export function createWorkspaceApp({
     resourcePicker.focus(evt);
   });
   document.addEventListener("input", (evt) => {
+    if (aiForms.input(evt.target)) return;
     if (
       evt.target.closest?.(
         "#p2p-invite-form,#p2p-join-form,#p2p-access-form,#organization-create-form,#print-profile-form,#management-form,#project-attachment-form,#planning-task-form,#planning-split-form,#planning-settings,#planning-finance,#planning-agreement,#system-calendar,#system-index,#budget-bulk-form,#nested-analysis-form,#price-list-form,#scoped-price-form,#fx-quote-form",
@@ -1087,7 +1118,7 @@ export function createWorkspaceApp({
       return;
     }
     interactions.contextMenu(evt).catch((error) => {
-      state.message = String(error);
+      state.message = String(localizedError(error, state.language));
       render();
     });
   });
@@ -1097,7 +1128,7 @@ export function createWorkspaceApp({
       if (await pricing.doubleClick(evt)) return;
       await interactions.doubleClick(evt);
     })().catch((error) => {
-      state.message = String(error);
+      state.message = String(localizedError(error, state.language));
       render();
     });
   });
@@ -1120,7 +1151,7 @@ export function createWorkspaceApp({
       if (await pricing.drop(evt)) return;
       await interactions.drop(evt);
     })().catch((error) => {
-      state.message = String(error);
+      state.message = String(localizedError(error, state.language));
       render();
     });
   });
@@ -1132,16 +1163,17 @@ export function createWorkspaceApp({
     try {
       if(!management.pointerUp(evt))await planning.pointerUp(evt);
     } catch (error) {
-      state.message = String(error);
+      state.message = String(localizedError(error, state.language));
       render();
     }
   });
   document.addEventListener("keydown", (evt) => {
+    if (evt.target.closest?.(".ai-action-dialog")) return;
     if(memoryEditorKeydown(evt))return;
     if(homeCash.keydown(evt))return;
     if(evt.key === "Escape" && resourceImport.model.open){evt.preventDefault();resourceImport.act({dataset:{action:"resource-import-close"}});return;}
-    if(evt.key==='Escape' && agreement.model.open){evt.preventDefault();agreement.act({dataset:{action:'agreement-close'}}).catch(error=>{state.message=String(error);render();});return;}
-    if(evt.key==='Escape'&&state.view==='planning'&&(document.querySelector('#planning-task-form')||document.querySelector('#planning-split-form'))){evt.preventDefault();const action=document.querySelector('#planning-split-form')?'plan-split-cancel':'plan-cancel';planning.act({dataset:{action}}).catch(error=>{state.message=String(error);render();});return;}
+    if(evt.key==='Escape' && agreement.model.open){evt.preventDefault();agreement.act({dataset:{action:'agreement-close'}}).catch(error=>{state.message=String(localizedError(error, state.language));render();});return;}
+    if(evt.key==='Escape'&&state.view==='planning'&&(document.querySelector('#planning-task-form')||document.querySelector('#planning-split-form'))){evt.preventDefault();const action=document.querySelector('#planning-split-form')?'plan-split-cancel':'plan-cancel';planning.act({dataset:{action}}).catch(error=>{state.message=String(localizedError(error, state.language));render();});return;}
     if (people.keyDown(evt)) return;
     if (patterns.keyDown(evt)) return;
     if (unitPicker.keyDown(evt)) return;
@@ -1164,6 +1196,8 @@ export function createWorkspaceApp({
 
   const ready = (async () => {
     try {
+      await language.ready;
+      state.language = language.current;
       if (databaseSwitching) {
         state.database = await nativeInvoke("active_database");
         if (state.database.warning) state.message = state.database.warning;
@@ -1171,13 +1205,13 @@ export function createWorkspaceApp({
       await loadCollections();
       render();
     } catch (error) {
-      root.innerHTML = `<div class="startup-error"><h2>No se pudo abrir la base de datos local</h2><p>${e(error)}</p><button data-action="retry-startup">Reintentar</button></div>`;
+      root.innerHTML = `<div class="startup-error"><h2>${uiHtml("No se pudo abrir la base de datos local")}</h2><p>${e(error)}</p><button data-action="retry-startup">${uiHtml("Reintentar")}</button></div>`;
     }
   })();
 
   async function flushPending(){
-    try{await presentation.flush();await pricing.flush();if(pricing.hasUnsavedForm()){state.message='Terminá o cerrá la ventana de edición antes de salir.';render();return false;}return true;}
-    catch(error){state.message='No se pudo guardar antes de cerrar: '+String(error);render();return false;}
+    try{await presentation.flush();await pricing.flush();if(pricing.hasUnsavedForm()){state.message=uiText("Terminá o cerrá la ventana de edición antes de salir.");render();return false;}return true;}
+    catch(error){state.message='No se pudo guardar antes de cerrar: '+String(localizedError(error, state.language));render();return false;}
   }
   return { state, ready, render, flushPending };
 }

@@ -550,7 +550,7 @@ impl LocalStore {
                 analysis
                     .direct_unit_cost()
                     .map_err(|e| StorageError::InvalidValue(e.to_string()))?;
-                for c in analysis.components {
+                for c in analysis.components.into_iter().filter(|c| !c.price_pending) {
                     prices.entry(c.resource_id).or_insert(c.unit_price);
                 }
             }
@@ -785,6 +785,7 @@ mod tests {
             description: "Acero montado".into(),
             unit: "kg".into(),
             components: vec![ResourcePriceSnapshot {
+                price_pending: false,
                 daily_output: None,
                 included: true,
                 resource_id: Uuid::new_v4(),

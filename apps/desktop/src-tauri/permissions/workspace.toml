@@ -16,6 +16,8 @@ commands.allow = [
   "ai_catalog_context",
   "ai_forget",
   "ai_chat",
+  "ai_help",
+  "open_ai_source",
   "assisted_acu_context",
   "assisted_acu_references",
   "assisted_acu_reference",

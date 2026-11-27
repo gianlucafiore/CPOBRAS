@@ -1,3 +1,4 @@
+import { uiText, uiHtml } from "../services/interface-language.js";
 import { e } from "./helpers.js";
 import {
   projectPoint,
@@ -34,7 +35,7 @@ export function createWorkMap({ document, state, onSave }) {
     }
   }
   function markup(expanded = false) {
-    return `<div class="work-map" data-work-map aria-label="Mapa de ubicación de la obra" role="application" tabindex="0" style="height:${expanded ? "min(62vh,650px)" : "260px"}"></div><div class="map-controls"><button class="btn" data-action="manage-map-zoom-out" aria-label="Alejar mapa">−</button><button class="btn" data-action="manage-map-zoom-in" aria-label="Acercar mapa">+</button><button class="btn" data-action="manage-map-center">${model.point ? "Ver ubicación" : "Ver Sudamérica"}</button>${!expanded ? '<button class="btn" data-action="manage-map-expand">Ampliar mapa</button>' : ""}${!state.remoteProject ? (model.editing ? `<button class="btn primary" data-action="manage-map-save" ${model.saving ? "disabled" : ""}>${model.saving ? "Buscando dirección…" : "Guardar ubicación"}</button><button class="btn" data-action="manage-map-cancel" ${model.saving ? "disabled" : ""}>Cancelar ubicación</button>` : '<button class="btn" data-action="manage-map-edit">📍 Elegir ubicación</button>') : ""}</div><p class="map-help" role="status">${model.editing ? "Hacé clic para colocar el marcador o arrastrá el pin. Guardá para confirmar." : model.point ? "Ubicación guardada. Arrastrá el fondo para navegar." : "Vista de Sudamérica. Activá «Elegir ubicación» para colocar el marcador."}</p><small>© OpenStreetMap contributors · Requiere Internet</small>`;
+    return `<div class="work-map" data-work-map aria-label="${uiHtml("Mapa de ubicación de la obra")}" role="application" tabindex="0" style="height:${expanded ? "min(62vh,650px)" : "260px"}"></div><div class="map-controls"><button class="btn" data-action="manage-map-zoom-out" aria-label="${uiHtml("Alejar mapa")}">−</button><button class="btn" data-action="manage-map-zoom-in" aria-label="${uiHtml("Acercar mapa")}">+</button><button class="btn" data-action="manage-map-center">${model.point ? uiHtml("Ver ubicación") : uiHtml("Ver Sudamérica")}</button>${!expanded ? ("<button class=\"btn\" data-action=\"manage-map-expand\">" + uiHtml("Ampliar mapa") + "</button>") : ""}${!state.remoteProject ? (model.editing ? `<button class="btn primary" data-action="manage-map-save" ${model.saving ? "disabled" : ""}>${model.saving ? uiHtml("Buscando dirección…") : uiHtml("Guardar ubicación")}</button><button class="btn" data-action="manage-map-cancel" ${model.saving ? "disabled" : ""}>${uiHtml("Cancelar ubicación")}</button>` : ("<button class=\"btn\" data-action=\"manage-map-edit\">" + uiHtml("📍 Elegir ubicación") + "</button>")) : ""}</div><p class="map-help" role="status">${model.editing ? uiHtml("Hacé clic para colocar el marcador o arrastrá el pin. Guardá para confirmar.") : model.point ? uiHtml("Ubicación guardada. Arrastrá el fondo para navegar.") : uiHtml("Vista de Sudamérica. Activá «Elegir ubicación» para colocar el marcador.")}</p><small>${uiHtml("© OpenStreetMap contributors · Requiere Internet")}</small>`;
   }
   function draw() {
     for (const host of document.querySelectorAll("[data-work-map]")) {
@@ -55,7 +56,7 @@ export function createWorkMap({ document, state, onSave }) {
         feedback = document.createElement("span");
         feedback.className = "map-load-error";
         feedback.textContent =
-          "No se pudo cargar la cartografía. Comprobá la conexión a Internet.";
+          uiText("No se pudo cargar la cartografía. Comprobá la conexión a Internet.");
         feedback.hidden = true;
         host.append(feedback);
       }
@@ -209,7 +210,7 @@ export function createWorkMap({ document, state, onSave }) {
       model.zoom = model.point ? 14 : continentZoom;
     }
     if (action === "manage-map-edit") {
-      if (state.remoteProject) throw new Error("Obra externa de solo lectura");
+      if (state.remoteProject) throw new Error(uiText("Obra externa de solo lectura"));
       model.previousDirty = state.pageDirty;
       model.editing = true;
       model.draft = { ...(model.point || model.center) };
@@ -222,7 +223,7 @@ export function createWorkMap({ document, state, onSave }) {
     }
     if (action === "manage-map-save") {
       if (state.remoteProject || !model.editing || !model.draft)
-        throw new Error("Seleccioná una ubicación para guardar");
+        throw new Error(uiText("Seleccioná una ubicación para guardar"));
       if (model.saving) return;
       model.saving = true;
       const previousBusy = state.busy;
@@ -232,7 +233,7 @@ export function createWorkMap({ document, state, onSave }) {
       );
       for (const button of buttons) {
         button.disabled = true;
-        button.textContent = "Buscando dirección…";
+        button.textContent = uiText("Buscando dirección…");
       }
       try {
         await onSave(model.draft);
@@ -244,7 +245,7 @@ export function createWorkMap({ document, state, onSave }) {
         for (const button of buttons)
           if (button.isConnected) {
             button.disabled = false;
-            button.textContent = "Guardar ubicación";
+            button.textContent = uiText("Guardar ubicación");
           }
       }
     }

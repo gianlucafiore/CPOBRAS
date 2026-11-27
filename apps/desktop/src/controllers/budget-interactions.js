@@ -1,3 +1,4 @@
+import { uiText } from "../services/interface-language.js";
 export function createBudgetInteractions({invoke,state,editable,currentLine,loadEstimate,loadPanel,render,act,document,window}){
  let dragging=null;
  const rowAt=target=>target.closest?.('.line-row[data-id],.section-row[data-id],.section-row[data-drop-unassigned]');
@@ -23,7 +24,7 @@ export function createBudgetInteractions({invoke,state,editable,currentLine,load
   try{
    await invoke('move_budget_section',{estimateId:state.estimateId,sectionId,beforeId});
    await loadEstimate();state.selectedLineId=null;state.selectedSectionId=sectionId;await loadPanel();
-   state.message='Rubro reordenado con sus partidas y subrubros';render();
+   state.message=uiText("Rubro reordenado con sus partidas y subrubros");render();
    document.querySelector(`.section-row[data-id="${sectionId}"] .section-drag-handle`)?.focus();
   }finally{state.busy=false;}
  }

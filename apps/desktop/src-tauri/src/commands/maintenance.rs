@@ -203,13 +203,18 @@ pub(crate) fn write_export(
 pub(crate) async fn choose_backup_folder<R: tauri::Runtime>(
     window: tauri::WebviewWindow<R>,
     current_directory: Option<String>,
+    dialog_title: Option<String>,
 ) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
     tauri::async_runtime::spawn_blocking(move || {
         let mut dialog = window
             .dialog()
             .file()
-            .set_title("Elegir carpeta de respaldos")
+            .set_title(
+                dialog_title
+                    .as_deref()
+                    .unwrap_or("Elegir carpeta de respaldos"),
+            )
             .set_parent(&window);
         if let Some(path) = current_directory
             .map(std::path::PathBuf::from)
@@ -237,6 +242,7 @@ pub(crate) async fn save_export_file<R: tauri::Runtime>(
     name: String,
     bytes: Vec<u8>,
     open_after: bool,
+    dialog_title: Option<String>,
 ) -> Result<Option<serde_json::Value>, String> {
     use tauri_plugin_dialog::DialogExt;
     if bytes.len() > 50_000_000
@@ -259,7 +265,7 @@ pub(crate) async fn save_export_file<R: tauri::Runtime>(
             .dialog()
             .file()
             .set_parent(&window)
-            .set_title("Guardar documento")
+            .set_title(dialog_title.as_deref().unwrap_or("Guardar documento"))
             .set_file_name(&name)
             .add_filter(ext.to_uppercase(), &[ext.as_str()])
             .blocking_save_file();

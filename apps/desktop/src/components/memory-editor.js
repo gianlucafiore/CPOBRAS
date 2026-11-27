@@ -1,9 +1,10 @@
+import { uiText, uiHtml } from "../services/interface-language.js";
 import {e} from "./helpers.js";
 import {memoryHtml} from "../services/memory-markdown.js";
 
-export function memoryEditor(value,{name="budget-memory",label="Memoria descriptiva",rows=18,readonly=false,required=false}={}){
+export function memoryEditor(value,{name="budget-memory",label=uiText("Memoria descriptiva"),rows=18,readonly=false,required=false}={}){
   const button=(action,text,title)=>`<button type="button" class="btn tiny" data-action="memory-format" data-format="${action}" aria-label="${title}" title="${title}" ${readonly?"disabled":""}>${text}</button>`;
-  return `<div class="memory-editor" data-memory-editor><label class="memory-editor-label" for="memory-editor-${e(name)}">${e(label)}</label><div class="memory-toolbar" role="toolbar" aria-label="Formato de la memoria">${button("heading","Título","Título")}${button("bold","<b>B</b>","Negrita (Ctrl+B)")}${button("italic","<i>I</i>","Cursiva (Ctrl+I)")}${button("bullet","• Lista","Lista con viñetas")}${button("numbered","1. Lista","Lista numerada")}<button type="button" class="btn tiny" data-action="memory-preview" aria-pressed="false">Vista previa</button></div><textarea id="memory-editor-${e(name)}" name="${e(name)}" rows="${rows}" maxlength="25000" data-memory-required="${required}" ${readonly?"readonly":""} ${required?"required":""}>${e(value||"")}</textarea><section class="memory-formatted memory-editor-preview" aria-label="Vista previa de la memoria descriptiva" hidden>${memoryHtml(value)}</section><p class="small-muted memory-editor-help">Títulos, negrita, cursiva y listas. Podés usar la barra o escribir Markdown.</p></div>`;
+  return `<div class="memory-editor" data-memory-editor><label class="memory-editor-label" for="memory-editor-${e(name)}">${e(label)}</label><div class="memory-toolbar" role="toolbar" aria-label="${uiHtml("Formato de la memoria")}">${button("heading",uiHtml("Título"),uiHtml("Título"))}${button("bold","<b>B</b>",uiHtml("Negrita (Ctrl+B)"))}${button("italic","<i>I</i>",uiHtml("Cursiva (Ctrl+I)"))}${button("bullet",uiHtml("• Lista"),uiHtml("Lista con viñetas"))}${button("numbered",uiHtml("1. Lista"),uiHtml("Lista numerada"))}<button type="button" class="btn tiny" data-action="memory-preview" aria-pressed="false">${uiHtml("Vista previa")}</button></div><textarea id="memory-editor-${e(name)}" name="${e(name)}" rows="${rows}" maxlength="25000" data-memory-required="${required}" ${readonly?"readonly":""} ${required?"required":""}>${e(value||"")}</textarea><section class="memory-formatted memory-editor-preview" aria-label="${uiHtml("Vista previa de la memoria descriptiva")}" hidden>${memoryHtml(value)}</section><p class="small-muted memory-editor-help">${uiHtml("Títulos, negrita, cursiva y listas. Podés usar la barra o escribir Markdown.")}</p></div>`;
 }
 
 function refresh(editor){
@@ -24,13 +25,13 @@ export function memoryEditorAction(button){
     const preview=editor.querySelector('.memory-editor-preview');preview.hidden=!preview.hidden;
     textarea.hidden=!preview.hidden;textarea.required=preview.hidden&&textarea.dataset.memoryRequired==='true';
     for(const control of editor.querySelectorAll('[data-format]'))control.disabled=!preview.hidden||textarea.readOnly;
-    button.setAttribute('aria-pressed',String(!preview.hidden));button.textContent=preview.hidden?'Vista previa':'Ver texto';refresh(editor);return true;
+    button.setAttribute('aria-pressed',String(!preview.hidden));button.textContent=preview.hidden?uiText("Vista previa"):uiText("Ver texto");refresh(editor);return true;
   }
   if(textarea.readOnly||textarea.disabled)return true;
   const {selectionStart:start,selectionEnd:end,value}=textarea,format=button.dataset.format;
   let from=start,to=end,replacement,selectionFrom,selectionTo;
   if(['bold','italic'].includes(format)){
-    const marker=format==='bold'?'**':'*',selected=value.slice(start,end)||'texto';
+    const marker=format==='bold'?'**':'*',selected=value.slice(start,end)||uiText("texto");
     let before=0,after=0;
     while(value[start-before-1]==='*')before++;
     while(value[end+after]==='*')after++;
@@ -43,7 +44,7 @@ export function memoryEditorAction(button){
     const lines=value.slice(from,to).split('\n');
     replacement=lines.map((line,i)=>{
       const text=line.replace(/^\s*(?:#{1,3}\s+|[-+*]\s+|\d+[.)]\s+)/,'');
-      return (format==='heading'?'## ':format==='numbered'?`${i+1}. `:'- ')+(text||'Texto');
+      return (format==='heading'?'## ':format==='numbered'?`${i+1}. `:'- ')+(text||uiText("Texto"));
     }).join('\n');selectionFrom=from;selectionTo=from+replacement.length;
   }
   if(value.length-(to-from)+replacement.length>textarea.maxLength&&textarea.maxLength>=0)return true;

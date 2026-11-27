@@ -1,10 +1,11 @@
+import { uiText } from "./interface-language.js";
 import { validLocation } from "./map-coordinates.js";
 const cache = new Map();
 let lastRequest = 0,
   queue = Promise.resolve();
 export function reverseGeocode(point, fetcher = globalThis.fetch) {
   if (!validLocation(point.lat, point.lon))
-    return Promise.reject(new Error("Coordenadas inválidas"));
+    return Promise.reject(new Error(uiText("Coordenadas inválidas")));
   const key = point.lat.toFixed(6) + "," + point.lon.toFixed(6);
   if (cache.has(key)) return cache.get(key);
   const request = queue.then(async () => {
@@ -28,11 +29,11 @@ export function reverseGeocode(point, fetcher = globalThis.fetch) {
         credentials: "omit",
         headers: { Accept: "application/json" },
       });
-      if (!response.ok) throw new Error("No se pudo consultar la dirección");
+      if (!response.ok) throw new Error(uiText("No se pudo consultar la dirección"));
       const data = await response.json(),
         a = data.address;
       if (!a || data.error)
-        throw new Error("No se encontró una dirección para ese punto");
+        throw new Error(uiText("No se encontró una dirección para ese punto"));
       const locality =
           a.city || a.town || a.village || a.municipality || a.hamlet || "",
         province = a.state || a.region || "",
@@ -44,7 +45,7 @@ export function reverseGeocode(point, fetcher = globalThis.fetch) {
           locality ||
           data.display_name;
       if (typeof address !== "string" || !address)
-        throw new Error("Dirección incompleta");
+        throw new Error(uiText("Dirección incompleta"));
       return {
         address: address.slice(0, 1000),
         locality: String(locality).slice(0, 500),

@@ -1,3 +1,4 @@
+import { uiText } from "./interface-language.js";
 import { compareDecimals } from "../decimal.js";
 import { parseExcel } from "./exchange.js";
 export const resourceHeaders = ["Código", "Descripción", "Tipo", "Unidad", "Precio ARS"];
@@ -14,29 +15,29 @@ function priceDecimal(value) {
  let text=String(value).trim();
  if (text.includes(",")) text=text.replace(/\./g, "").replace(",", ".");
  const match=/^\+?(\d+)(?:\.(\d+))?(?:[eE]([+-]?\d+))?$/.exec(text);
- if(!match) throw new Error("Precio inválido: usá un número mayor o igual a cero");
+ if(!match) throw new Error(uiText("Precio inválido: usá un número mayor o igual a cero"));
  const exponent=Number(match[3]||0),fraction=match[2]||"";
- if(Math.abs(exponent)>28) throw new Error("Precio fuera de rango");
+ if(Math.abs(exponent)>28) throw new Error(uiText("Precio fuera de rango"));
  let digits=(match[1]+fraction).replace(/^0+(?=\d)/, ""),scale=fraction.length-exponent;
  if(scale<0){digits+="0".repeat(-scale);scale=0;}
- if(scale>28)throw new Error("El precio admite como máximo 28 decimales");
+ if(scale>28)throw new Error(uiText("El precio admite como máximo 28 decimales"));
  digits=digits.padStart(scale+1,"0");
  const amount=scale ? digits.slice(0,-scale)+"."+digits.slice(-scale) : digits;
- if(compareDecimals(digits,"79228162514264337593543950335")>0)throw new Error("Precio fuera de rango");
+ if(compareDecimals(digits,"79228162514264337593543950335")>0)throw new Error(uiText("Precio fuera de rango"));
  return amount;
 }
 export function parseResourceRows(sheet, existing=[]) {
- if(!sheet.length)throw new Error("La planilla está vacía");
+ if(!sheet.length)throw new Error(uiText("La planilla está vacía"));
  const header=sheet[0].map(normalize),required=["descripcion","tipo","unidad"];
- for(const column of required)if(!header.includes(column))throw new Error(`Falta la columna ${column}. Usá la plantilla de insumos.`);
+ for(const column of required)if(!header.includes(column))throw new Error(uiText("Falta la columna {0}. Usá la plantilla de insumos.", [column]));
  const recognized=new Set(resourceHeaders.map(normalize));
- for(const column of header)if(column && !recognized.has(column))throw new Error(`Columna desconocida: ${column}. Usá la plantilla de insumos.`);
+ for(const column of header)if(column && !recognized.has(column))throw new Error(uiText("Columna desconocida: {0}. Usá la plantilla de insumos.", [column]));
  const seen=new Set();
- for(const h of header)if(recognized.has(h)&&seen.has(h))throw new Error(`La columna ${h} está repetida`);else seen.add(h);
+ for(const h of header)if(recognized.has(h)&&seen.has(h))throw new Error(uiText("La columna {0} está repetida", [h]));else seen.add(h);
  const codes=new Set(existing.map(r=>r.code.trim().toLowerCase()));
  const identity=r=>[r.description.trim().toLowerCase(),r.unit.trim().toLowerCase(),r.kind].join("\u0000");
  const identities=new Set(existing.map(identity)),result=[];
- if(sheet.length>5001)throw new Error("La planilla admite hasta 5000 insumos");
+ if(sheet.length>5001)throw new Error(uiText("La planilla admite hasta 5000 insumos"));
  for(let index=1;index<sheet.length;index++){
   const cells=sheet[index].map(v=>String(v??"").trim());
   if(cells.every(v=>!v))continue;
@@ -51,12 +52,12 @@ export function parseResourceRows(sheet, existing=[]) {
   if(get("precio ars")){try{row.price=priceDecimal(get("precio ars"));}catch(error){row.errors.push(error.message);}}
   if(row.code)codes.add(row.code.toLowerCase());identities.add(identity(row));result.push(row);
  }
- if(!result.length)throw new Error("Agregá al menos un insumo debajo de los encabezados");
+ if(!result.length)throw new Error(uiText("Agregá al menos un insumo debajo de los encabezados"));
  return result;
 }
 export async function readResourceWorkbook(file, existing=[]) {
- if(file.size>10_000_000)throw new Error("El archivo admite hasta 10 MB");
- if(!/\.xlsx$/i.test(file.name))throw new Error("Seleccioná un archivo Excel .xlsx");
+ if(file.size>10_000_000)throw new Error(uiText("El archivo admite hasta 10 MB"));
+ if(!/\.xlsx$/i.test(file.name))throw new Error(uiText("Seleccioná un archivo Excel .xlsx"));
  return parseResourceRows(await parseExcel(await file.arrayBuffer()),existing);
 }
 export async function resourceTemplateBytes(resources=[]) {

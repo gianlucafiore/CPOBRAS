@@ -1,3 +1,4 @@
+import { uiText, uiHtml } from "../services/interface-language.js";
 import { exportBudget } from "../services/budget-export.js";
 import { clientLayouts, hasMemory } from "../services/budget-public.js";
 import { dateToday } from "./helpers.js";
@@ -53,44 +54,44 @@ export function createBudgetTools({
   }
   function exportMarkup() {
     const o = model.options;
-    return `<form id="budget-export-form" class="feature-editor budget-export-editor"><h2>Exportar presupuesto</h2>
-    <p>Elegí una presentación para entregar o un respaldo editable e imprimible.</p>
+    return `<form id="budget-export-form" class="feature-editor budget-export-editor"><h2>${uiHtml("Exportar presupuesto")}</h2>
+    <p>${uiHtml("Elegí una presentación para entregar o un respaldo editable e imprimible.")}</p>
     <div class="form-grid">${select(
-      "Presentación",
+      uiText("Presentación"),
       "kind",
       [
-        ["full", "Respaldo completo con ACU"],
-        ["client", "Presupuesto para cliente"],
-        ["incidences", "Incidencias por partida"],
+        ["full", uiText("Respaldo completo con ACU")],
+        ["client", uiText("Presupuesto para cliente")],
+        ["incidences", uiText("Incidencias por partida")],
       ],
       o.kind,
     )}
     ${select(
-      "Formato",
+      uiText("Formato"),
       "format",
       [
-        ["xlsx", "Excel editable (.xlsx)"],
-        ["pdf", "PDF imprimible"],
+        ["xlsx", uiText("Excel editable (.xlsx)")],
+        ["pdf", uiText("PDF imprimible")],
       ],
       o.format,
     )}
-    ${field("Título", "title", o.title, "required")}
-    ${field("Fecha", "date", o.date, 'type="date"')}${field("Referencia", "reference", o.reference)}
-    <div ${o.kind === "client" ? "" : "hidden"}>${select("Contenido para el cliente", "layout", Object.entries(clientLayouts), o.layout)}</div>
-    </div><div ${o.kind === "incidences" || (o.kind === "client" && !hasMemory(o.layout)) ? "hidden" : ""}>${memoryEditor(o.memory,{name:"memory",label:"Memoria descriptiva inicial",rows:7,readonly:Boolean(current()?.issued || state.remoteProject)})}</div>
-    <label class="field"><span>Condiciones comerciales y observaciones</span><textarea name="notes" rows="5" placeholder="Validez de la oferta, forma de pago, plazo de entrega, alcance y exclusiones…">${e(o.notes)}</textarea></label>
+    ${field(uiText("Título"), "title", o.title, "required")}
+    ${field(uiText("Fecha"), "date", o.date, 'type="date"')}${field(uiText("Referencia"), "reference", o.reference)}
+    <div ${o.kind === "client" ? "" : "hidden"}>${select(uiText("Contenido para el cliente"), "layout", Object.entries(clientLayouts), o.layout)}</div>
+    </div><div ${o.kind === "incidences" || (o.kind === "client" && !hasMemory(o.layout)) ? "hidden" : ""}>${memoryEditor(o.memory,{name:"memory",label:uiText("Memoria descriptiva inicial"),rows:7,readonly:Boolean(current()?.issued || state.remoteProject)})}</div>
+    <label class="field"><span>${uiHtml("Condiciones comerciales y observaciones")}</span><textarea name="notes" rows="5" placeholder="Validez de la oferta, forma de pago, plazo de entrega, alcance y exclusiones…">${e(o.notes)}</textarea></label>
     ${select(
-      "Hoja PDF",
+      uiText("Hoja PDF"),
       "orientation",
       [
-        ["portrait", "Vertical"],
-        ["landscape", "Horizontal"],
+        ["portrait", uiText("Vertical")],
+        ["landscape", uiText("Horizontal")],
       ],
       o.orientation,
     )}
-    <p>${o.kind === "client" ? "Incluye únicamente precios de venta, subtotal, IVA / impuestos y total final. La planilla muestra la incidencia de cada partida." : o.kind === "incidences" ? "Importes e incidencia de cada partida y rubro sobre el total final." : "Excel: hojas Partidas, ACU, Precio, Insumos, Metrados, Detalle precio y Memoria. Los precios con ACU se recalculan desde su composición; las demás partidas conservan su precio declarado. PDF: presupuesto, formación del precio y anexos."}</p>
-    ${presentation.feedback()}<button class="btn primary" type="submit">Generar archivo</button><p class="feature-error" role="alert"></p>
-    ${model.lastExport ? `<p role="status">Archivo guardado en:<br><code>${e(model.lastExport)}</code></p>` : ""}</form>`;
+    <p>${o.kind === "client" ? uiHtml("Incluye únicamente precios de venta, subtotal, IVA / impuestos y total final. La planilla muestra la incidencia de cada partida.") : o.kind === "incidences" ? uiHtml("Importes e incidencia de cada partida y rubro sobre el total final.") : uiHtml("Excel: hojas Partidas, ACU, Precio, Insumos, Metrados, Detalle precio y Memoria. Los precios con ACU se recalculan desde su composición; las demás partidas conservan su precio declarado. PDF: presupuesto, formación del precio y anexos.")}</p>
+    ${presentation.feedback()}<button class="btn primary" type="submit">${uiHtml("Generar archivo")}</button><p class="feature-error" role="alert"></p>
+    ${model.lastExport ? `<p role="status">${uiHtml("Archivo guardado en:")}<br><code>${e(model.lastExport)}</code></p>` : ""}</form>`;
   }
   async function refresh() {
     model.templates = await invoke("list_budget_templates");
@@ -131,15 +132,15 @@ export function createBudgetTools({
     const formula = model.snapshot?.formulas?.find(
       (row) => row.line_id === model.formulaLineId,
     );
-    return `<main class="feature-page"><div class="feature-toolbar"><h1>Exportar presupuesto · ${e(current()?.title)}</h1><button class="btn" data-action="budget-tools-back">Volver a la grilla</button></div>
-   ${exportMarkup()}<details class="feature-editor"><summary>Edición avanzada, intercambio y plantillas</summary><div class="feature-columns"><section><form id="budget-bulk-form"><div class="feature-toolbar"><input data-search placeholder="Buscar partidas"><button type="button" class="btn" data-action="budget-tools-sort" ${locked}>Ordenar por descripción</button><button class="btn primary" type="submit" ${locked}>Guardar edición masiva</button></div><p>Los cambios se validan y se guardan juntos. Si una partida es inválida, no se guarda ninguna.</p><table class="data-grid"><thead><tr><th>Descripción</th><th>Unidad</th><th>Cantidad</th><th>P. unitario</th><th>Orden / copia</th></tr></thead><tbody>${model.lines.map((line) => `<tr data-searchable="${e((line.description + " " + line.unit).toLowerCase())}"><td><input name="description-${line.id}" value="${e(line.description)}" required ${locked}></td><td><input name="unit-${line.id}" value="${e(line.unit)}" required ${locked}></td><td><input name="quantity-${line.id}" value="${e(line.quantity)}" type="number" min="0" step="any" required ${locked}></td><td><input name="unit_cost-${line.id}" value="${e(line.unit_cost)}" type="number" min="0" step="any" required ${locked}></td><td><button class="btn" type="button" data-action="budget-tools-up" data-id="${line.id}" ${locked}>↑</button><button class="btn" type="button" data-action="budget-tools-down" data-id="${line.id}" ${locked}>↓</button><button class="btn" type="button" data-action="budget-tools-copy" data-id="${line.id}" ${locked}>Duplicar</button></td></tr>`).join("")}</tbody></table><p class="feature-error" role="alert"></p></form>
-   <form id="line-formula-form" class="feature-editor"><h2>Partida paramétrica</h2>${select(
-     "Partida",
+    return `<main class="feature-page"><div class="feature-toolbar"><h1>${uiHtml("Exportar presupuesto · {0}", [current()?.title])}</h1><button class="btn" data-action="budget-tools-back">${uiHtml("Volver a la grilla")}</button></div>
+   ${exportMarkup()}<details class="feature-editor"><summary>${uiHtml("Edición avanzada, intercambio y plantillas")}</summary><div class="feature-columns"><section><form id="budget-bulk-form"><div class="feature-toolbar"><input data-search placeholder="${uiHtml("Buscar partidas")}"><button type="button" class="btn" data-action="budget-tools-sort" ${locked}>${uiHtml("Ordenar por descripción")}</button><button class="btn primary" type="submit" ${locked}>${uiHtml("Guardar edición masiva")}</button></div><p>${uiHtml("Los cambios se validan y se guardan juntos. Si una partida es inválida, no se guarda ninguna.")}</p><table class="data-grid"><thead><tr><th>${uiHtml("Descripción")}</th><th>${uiHtml("Unidad")}</th><th>${uiHtml("Cantidad")}</th><th>${uiHtml("P. unitario")}</th><th>${uiHtml("Orden / copia")}</th></tr></thead><tbody>${model.lines.map((line) => `<tr data-searchable="${e((line.description + " " + line.unit).toLowerCase())}"><td><input name="description-${line.id}" value="${e(line.description)}" required ${locked}></td><td><input name="unit-${line.id}" value="${e(line.unit)}" required ${locked}></td><td><input name="quantity-${line.id}" value="${e(line.quantity)}" type="number" min="0" step="any" required ${locked}></td><td><input name="unit_cost-${line.id}" value="${e(line.unit_cost)}" type="number" min="0" step="any" required ${locked}></td><td><button class="btn" type="button" data-action="budget-tools-up" data-id="${line.id}" ${locked}>↑</button><button class="btn" type="button" data-action="budget-tools-down" data-id="${line.id}" ${locked}>↓</button><button class="btn" type="button" data-action="budget-tools-copy" data-id="${line.id}" ${locked}>${uiHtml("Duplicar")}</button></td></tr>`).join("")}</tbody></table><p class="feature-error" role="alert"></p></form>
+   <form id="line-formula-form" class="feature-editor"><h2>${uiHtml("Partida paramétrica")}</h2>${select(
+     uiText("Partida"),
      "formula-line",
      model.lines.map((line) => [line.id, line.description]),
      model.formulaLineId,
-   )}${field("Fórmula de cantidad", "expression", formula?.expression || "largo * ancho * factor", "required")}${field(
-     "Variables (nombre=valor; nombre=valor)",
+   )}${field(uiText("Fórmula de cantidad"), "expression", formula?.expression || "largo * ancho * factor", "required")}${field(
+     uiText("Variables (nombre=valor; nombre=valor)"),
      "variables",
      formula
        ? Object.entries(formula.variables)
@@ -147,36 +148,36 @@ export function createBudgetTools({
            .join("; ")
        : "largo=1; ancho=1; factor=1",
      "required",
-   )}<p>Se admiten +, −, × (*), ÷ (/), paréntesis y variables. No se ejecuta código.</p><button class="btn primary" type="submit" ${locked}>Aplicar cantidad calculada</button><p class="feature-error" role="alert"></p></form></section>
-   <aside><form id="budget-exchange-form" class="feature-editor"><h2>Exportación técnica / intercambio interno</h2><p>Para presentar al cliente o imprimir incidencias, usá <button class="btn" type="button" data-action="open-budget-printing">Imprimir presupuesto</button>.</p>${field("Título", "title", current()?.title || "Presupuesto", "required")}${select(
-     "Formato de intercambio",
+   )}<p>${uiHtml("Se admiten +, −, × (*), ÷ (/), paréntesis y variables. No se ejecuta código.")}</p><button class="btn primary" type="submit" ${locked}>${uiHtml("Aplicar cantidad calculada")}</button><p class="feature-error" role="alert"></p></form></section>
+   <aside><form id="budget-exchange-form" class="feature-editor"><h2>${uiHtml("Exportación técnica / intercambio interno")}</h2><p>${uiHtml("Para presentar al cliente o imprimir incidencias, usá")} <button class="btn" type="button" data-action="open-budget-printing">${uiHtml("Imprimir presupuesto")}</button>.</p>${field(uiText("Título"), "title", current()?.title || "Presupuesto", "required")}${select(
+     uiText("Formato de intercambio"),
      "format",
      [
-       ["xlsx", "Excel (.xlsx)"],
+       ["xlsx", uiText("Excel (.xlsx)")],
        ["csv", "CSV"],
-       ["json", "Intercambio completo (.json)"],
+       ["json", uiText("Intercambio completo (.json)")],
        ["pdf", "PDF"],
      ],
-   )}${select("Contenido PDF", "pdf_mode", [
-     ["budget", "Presupuesto"],
-     ["takeoffs", "Cómputos métricos"],
-     ["analyses", "ACU actuales"],
-   ])}${select("Hoja PDF", "orientation", [
-     ["portrait", "Vertical"],
-     ["landscape", "Horizontal"],
-   ])}<button class="btn primary" type="submit">Exportar intercambio</button><p class="feature-error" role="alert"></p></form>
-   <form id="budget-import-form" class="feature-editor"><h2>Importar como presupuesto nuevo</h2><input name="file" type="file" accept=".xlsx,.csv,.json" required>${field("Nombre del presupuesto importado", "title", "Presupuesto importado", "required")}<p>Excel y CSV deben usar las columnas del archivo exportado por CPOBRAS. JSON conserva rubros, tasas y metrados. La importación no sobrescribe el presupuesto actual.</p><button class="btn" type="submit">Importar en esta obra</button><p class="feature-error" role="alert"></p></form>
-   <form id="budget-template-save" class="feature-editor"><h2>Guardar plantilla reutilizable</h2>${field("Nombre de la plantilla", "name", current()?.title || "Plantilla", "required")}<button class="btn" type="submit">Guardar en biblioteca</button><p class="feature-error" role="alert"></p></form>
-   <form id="budget-template-apply" class="feature-editor"><h2>Crear desde plantilla</h2>${select(
-     "Plantilla",
+   )}${select(uiText("Contenido PDF"), "pdf_mode", [
+     ["budget", uiText("Presupuesto")],
+     ["takeoffs", uiText("Cómputos métricos")],
+     ["analyses", uiText("ACU actuales")],
+   ])}${select(uiText("Hoja PDF"), "orientation", [
+     ["portrait", uiText("Vertical")],
+     ["landscape", uiText("Horizontal")],
+   ])}<button class="btn primary" type="submit">${uiHtml("Exportar intercambio")}</button><p class="feature-error" role="alert"></p></form>
+   <form id="budget-import-form" class="feature-editor"><h2>${uiHtml("Importar como presupuesto nuevo")}</h2><input name="file" type="file" accept=".xlsx,.csv,.json" required>${field(uiText("Nombre del presupuesto importado"), "title", "Presupuesto importado", "required")}<p>${uiHtml("Excel y CSV deben usar las columnas del archivo exportado por CPOBRAS. JSON conserva rubros, tasas y metrados. La importación no sobrescribe el presupuesto actual.")}</p><button class="btn" type="submit">${uiHtml("Importar en esta obra")}</button><p class="feature-error" role="alert"></p></form>
+   <form id="budget-template-save" class="feature-editor"><h2>${uiHtml("Guardar plantilla reutilizable")}</h2>${field(uiText("Nombre de la plantilla"), "name", current()?.title || "Plantilla", "required")}<button class="btn" type="submit">${uiHtml("Guardar en biblioteca")}</button><p class="feature-error" role="alert"></p></form>
+   <form id="budget-template-apply" class="feature-editor"><h2>${uiHtml("Crear desde plantilla")}</h2>${select(
+     uiText("Plantilla"),
      "template",
      model.templates.map((template) => [template.id, template.name]),
-   )}${field("Nombre del nuevo presupuesto", "title", "Presupuesto desde plantilla", "required")}<button class="btn" type="submit">Crear en esta obra</button><p class="feature-error" role="alert"></p></form></aside></div></details></main>`;
+   )}${field(uiText("Nombre del nuevo presupuesto"), "title", "Presupuesto desde plantilla", "required")}<button class="btn" type="submit">${uiHtml("Crear en esta obra")}</button><p class="feature-error" role="alert"></p></form></aside></div></details></main>`;
   }
   async function act(button) {
     const action = button.dataset.action;
     if (action === "open-budget-tools") {
-      if (!state.estimateId) throw new Error("Seleccioná un presupuesto");
+      if (!state.estimateId) throw new Error(uiText("Seleccioná un presupuesto"));
       state.view = "budget-tools";
       state.search = "";
       model.lastExport = "";
@@ -244,7 +245,7 @@ export function createBudgetTools({
     if (
       state.pageDirty &&
       !window.confirm(
-        "¿Descartar la edición masiva pendiente y abrir el presupuesto nuevo?",
+        uiText("¿Descartar la edición masiva pendiente y abrir el presupuesto nuevo?"),
       )
     )
       return;
@@ -258,7 +259,7 @@ export function createBudgetTools({
     await loadEstimates();
     await loadEstimate();
     await refresh();
-    state.message = "Presupuesto creado sin modificar el anterior";
+    state.message = uiText("Presupuesto creado sin modificar el anterior");
   }
   async function submit(form) {
     const data = new FormData(form),
@@ -279,7 +280,7 @@ export function createBudgetTools({
           .split(";")
           .map((pair) => {
             const index = pair.indexOf("=");
-            if (index < 1) throw new Error("Formato de variable: nombre=valor");
+            if (index < 1) throw new Error(uiText("Formato de variable: nombre=valor"));
             return [pair.slice(0, index).trim(), pair.slice(index + 1).trim()];
           }),
       );
@@ -303,13 +304,13 @@ export function createBudgetTools({
       const template = model.templates.find(
         (item) => item.id === value("template"),
       );
-      if (!template) throw new Error("Seleccioná una plantilla");
+      if (!template) throw new Error(uiText("Seleccioná una plantilla"));
       await importDocument(structuredClone(template.document), value("title"));
     }
     if (form.id === "budget-import-form") {
       const file = data.get("file");
       if (!file || file.size > 10_000_000)
-        throw new Error("Seleccioná un archivo de hasta 10 MB");
+        throw new Error(uiText("Seleccioná un archivo de hasta 10 MB"));
       let snapshot;
       if (file.name.toLowerCase().endsWith(".json"))
         snapshot = JSON.parse(await file.text());

@@ -1,8 +1,21 @@
+import { uiText, currentInterfaceLanguage } from "./interface-language.js";
 const DAY = 86400000;
 export const DAY_WIDTH = 32;
 export const MONTHS = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
   "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 export const WEEKDAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
+
+export function monthName(month) {
+  const language = currentInterfaceLanguage();
+  return language === "es-AR" ? MONTHS[month - 1] :
+    new Intl.DateTimeFormat(language, { month: "long", timeZone: "UTC" }).format(new Date(Date.UTC(2024, month - 1, 1)));
+}
+
+export function weekdayName(day) {
+  const language = currentInterfaceLanguage();
+  return language === "es-AR" ? WEEKDAYS[day] :
+    new Intl.DateTimeFormat(language, { weekday: "short", timeZone: "UTC" }).format(new Date(Date.UTC(2024, 0, day + 1)));
+}
 
 export function calendarGroups(days, key) {
   const spans = [];
@@ -14,10 +27,10 @@ export function calendarGroups(days, key) {
   return spans;
 }
 export function dayNumber(iso) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) throw new Error("Fecha inválida");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) throw new Error(uiText("Fecha inválida"));
   const ms = Date.parse(iso + "T00:00:00Z");
   if (!Number.isFinite(ms) || new Date(ms).toISOString().slice(0, 10) !== iso)
-    throw new Error("Fecha inválida");
+    throw new Error(uiText("Fecha inválida"));
   return Math.floor(ms / DAY);
 }
 export const dayISO = (day) => new Date(day * DAY).toISOString().slice(0, 10);
@@ -66,19 +79,19 @@ export function finishWorking(calendar, start, duration) {
         return { start: nextWorking(calendar, start), finish: iso };
     }
   }
-  throw new Error("El calendario excede el horizonte admitido");
+  throw new Error(uiText("El calendario excede el horizonte admitido"));
 }
 export function nextWorking(calendar, start) {
   for (let i = 0; i < 366000; i++) {
     const iso = addDays(start, i);
     if (isWorkingDate(calendar, iso)) return iso;
   }
-  throw new Error("El calendario no tiene días laborables");
+  throw new Error(uiText("El calendario no tiene días laborables"));
 }
 export function workingCount(calendar, start, finish) {
   if (finish < start) return 0;
   const length = dayNumber(finish) - dayNumber(start) + 1;
-  if (length > 366000) throw new Error("Período fuera de rango");
+  if (length > 366000) throw new Error(uiText("Período fuera de rango"));
   let count = 0;
   for (let i = 0; i < length; i++)
     if (isWorkingDate(calendar, addDays(start, i))) count++;

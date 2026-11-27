@@ -1,3 +1,6 @@
+import { appendSuggestedTasks, durationFromAcu } from "../services/ai-form-proposals.js";
+import { weekdayName } from "../services/calendar.js";
+import { displayDate, uiText, uiHtml } from "../services/interface-language.js";
 import { exportGantt, exportPert } from "../services/workspace-exports.js";
 import {
   criticalWalk,
@@ -199,7 +202,7 @@ export function createPlanningWorkspace({
           `${index ? "L" : "M"}${curve.length === 1 ? 500 : (index / (curve.length - 1)) * 1000},${200 - (Number(point.cumulative_cost) / total) * 180}`,
       )
       .join(" ");
-    return `<section class="curve-panel"><h2>Curva S · Costo planificado acumulado</h2><svg viewBox="0 0 1000 220" role="img" aria-label="Curva de costos acumulados"><path d="${path}" fill="none" stroke="#1976a3" stroke-width="3"/><path d="M0,200 L1000,200" stroke="#bbb"/></svg><div class="curve-dates"><span>${e(curve[0].date)}</span><b>${money(model.schedule.budget)}</b><span>${e(curve.at(-1).date)}</span></div><details><summary>Flujo previsto por día laborable</summary><table class="data-grid"><thead><tr><th>Fecha</th><th>Período</th><th>Acumulado</th></tr></thead><tbody>${curve.map((point) => `<tr><td>${e(point.date)}</td><td>${money(point.period_cost)}</td><td>${money(point.cumulative_cost)}</td></tr>`).join("")}</tbody></table></details></section>`;
+    return `<section class="curve-panel"><h2>${uiHtml("Curva S · Costo planificado acumulado")}</h2><svg viewBox="0 0 1000 220" role="img" aria-label="${uiHtml("Curva de costos acumulados")}"><path d="${path}" fill="none" stroke="#1976a3" stroke-width="3"/><path d="M0,200 L1000,200" stroke="#bbb"/></svg><div class="curve-dates"><span>${e(curve[0].date)}</span><b>${money(model.schedule.budget)}</b><span>${e(curve.at(-1).date)}</span></div><details><summary>${uiHtml("Flujo previsto por día laborable")}</summary><table class="data-grid"><thead><tr><th>${uiHtml("Fecha")}</th><th>${uiHtml("Período")}</th><th>${uiHtml("Acumulado")}</th></tr></thead><tbody>${curve.map((point) => `<tr><td>${e(point.date)}</td><td>${money(point.period_cost)}</td><td>${money(point.cumulative_cost)}</td></tr>`).join("")}</tbody></table></details></section>`;
   }
   const calendarPicker = createCalendarPicker({ state, document });
   const ganttView = createGantt({
@@ -207,6 +210,10 @@ export function createPlanningWorkspace({
     model,
     document,
     save: () => save(),
+    async createTask(range) {
+      await openNewTask(range);
+      render();
+    },
     render,
   });
   function gantt() {
@@ -249,19 +256,19 @@ export function createPlanningWorkspace({
         Number(allocatedPercent(model.plan, l.id)) < 100 &&
         l.description.toLowerCase().includes(model.pertQuery.toLowerCase()),
     );
-    return `<section class="pert-workspace"><aside class="pert-palette"><h2>Partidas del presupuesto</h2><p>Arrastrá una partida al lienzo o usá «Añadir». Podés distribuir una partida entre varios tramos sin superar su cantidad.</p>${field("Buscar partida para PERT", "pert-query", model.pertQuery, 'type="search"')}<div class="pert-source-list">${
+    return `<section class="pert-workspace"><aside class="pert-palette"><h2>${uiHtml("Partidas del presupuesto")}</h2><p>${uiHtml("Arrastrá una partida al lienzo o usá «Añadir». Podés distribuir una partida entre varios tramos sin superar su cantidad.")}</p>${field(uiText("Buscar partida para PERT"), "pert-query", model.pertQuery, 'type="search"')}<div class="pert-source-list">${
       available
         .slice(0, 200)
         .map(
           (l) =>
-            `<div class="pert-source" draggable="${!state.remoteProject}" data-pert-line="${e(l.id)}"><span>${e(l.description)}</span><button class="btn tiny" data-action="plan-add-line" data-id="${e(l.id)}">Añadir</button></div>`,
+            `<div class="pert-source" draggable="${!state.remoteProject}" data-pert-line="${e(l.id)}"><span>${e(l.description)}</span><button class="btn tiny" data-action="plan-add-line" data-id="${e(l.id)}">${uiHtml("Añadir")}</button></div>`,
         )
-        .join("") || "<p>No hay partidas disponibles.</p>"
-    }</div><p>${available.length} partidas disponibles</p></aside><section><div class="feature-toolbar"><p id="pert-instructions" role="status">${model.connectFrom ? "Elegí la entrada de la tarea sucesora, o cancelá la conexión." : "Mové los nodos desde su cabecera. Arrastrá una salida hacia una entrada para conectar tareas (fin → inicio)."}</p><button class="btn ${model.erasing ? "primary" : ""}" data-action="plan-connect-cancel" aria-pressed="${Boolean(model.erasing)}">${model.erasing ? "Listo" : "Quitar"}</button>${model.erasing ? '<button class="btn" data-action="plan-erase-cancel">Cancelar</button><span>Tocá nodos o líneas para quitarlos. Listo guarda los cambios.</span>' : ""}<button class="btn" data-action="plan-arrange">Organizar nodos</button><div class="pert-camera" role="group" aria-label="Vista del PERT"><button class="btn" data-action="plan-zoom-out" aria-label="Alejar PERT">−</button><output data-pert-zoom>${Math.round(model.viewport.zoom * 100)} %</output><button class="btn" data-action="plan-zoom-in" aria-label="Acercar PERT">+</button><button class="btn" data-action="plan-center">Centrar / ver todo</button></div></div><div class="pert-scroll ${model.erasing ? "erasing" : ""}" data-pert-viewport aria-label="Lienzo PERT, arrastrá el fondo para desplazar"><div class="pert-canvas" data-pert-canvas style="transform:translate(${model.viewport.x}px,${model.viewport.y}px) scale(${model.viewport.zoom})"><svg class="pert-connections" width="1" height="1" aria-label="Conexiones de precedencia"><defs><marker id="pert-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#547387"/></marker></defs><g class="pert-edge-layer">${pertEdges(pos)}</g><path class="pert-wire-preview" hidden fill="none" stroke="#fb8a27" stroke-width="3"/></svg>${model.plan.tasks
+        .join("") || ("<p>" + uiHtml("No hay partidas disponibles.") + "</p>")
+    }</div><p>${available.length} ${uiHtml("partidas disponibles")}</p></aside><section><div class="feature-toolbar"><p id="pert-instructions" role="status">${model.connectFrom ? uiHtml("Elegí la entrada de la tarea sucesora, o cancelá la conexión.") : uiHtml("Mové los nodos desde su cabecera. Arrastrá una salida hacia una entrada para conectar tareas (fin → inicio).")}</p><button class="btn ${model.erasing ? "primary" : ""}" data-action="plan-connect-cancel" aria-pressed="${Boolean(model.erasing)}">${model.erasing ? uiHtml("Listo") : uiHtml("Quitar")}</button>${model.erasing ? ("<button class=\"btn\" data-action=\"plan-erase-cancel\">" + uiHtml("Cancelar") + "</button><span>" + uiHtml("Tocá nodos o líneas para quitarlos. Listo guarda los cambios.") + "</span>") : ""}<button class="btn" data-action="plan-arrange">${uiHtml("Organizar nodos")}</button><div class="pert-camera" role="group" aria-label="${uiHtml("Vista del PERT")}"><button class="btn" data-action="plan-zoom-out" aria-label="${uiHtml("Alejar PERT")}">−</button><output data-pert-zoom>${Math.round(model.viewport.zoom * 100)} %</output><button class="btn" data-action="plan-zoom-in" aria-label="${uiHtml("Acercar PERT")}">+</button><button class="btn" data-action="plan-center">${uiHtml("Centrar / ver todo")}</button></div></div><div class="pert-scroll ${model.erasing ? "erasing" : ""}" data-pert-viewport aria-label="${uiHtml("Lienzo PERT, arrastrá el fondo para desplazar")}"><div class="pert-canvas" data-pert-canvas style="transform:translate(${model.viewport.x}px,${model.viewport.y}px) scale(${model.viewport.zoom})"><svg class="pert-connections" width="1" height="1" aria-label="${uiHtml("Conexiones de precedencia")}"><defs><marker id="pert-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#547387"/></marker></defs><g class="pert-edge-layer">${pertEdges(pos)}</g><path class="pert-wire-preview" hidden fill="none" stroke="#fb8a27" stroke-width="3"/></svg>${model.plan.tasks
       .map((t) => {
         const p = pos[t.id],
           scheduled = model.schedule?.tasks.find((v) => v.id === t.id);
-        return `<article class="pert-node ${scheduled?.critical ? "critical" : ""}" data-pert-node="${e(t.id)}" style="left:${p.x}px;top:${p.y}px"><header data-pert-handle="${e(t.id)}" tabindex="0" aria-label="Mover nodo ${e(t.name)}">⋮⋮ ${e(t.name)}</header><div><span>${t.duration_days} días ${model.plan.segments?.[t.id] ? "· " + numeric(taskPercent(model.plan, t.id)) + " % de la partida" : ""} ${p.estimates ? "· estimación PERT" : ""}</span><small>${e(scheduled?.start || "")} → ${e(scheduled?.finish || "")}</small><button class="btn tiny" data-action="plan-edit" data-id="${e(t.id)}">Ver / editar tarea</button></div><button class="pert-port in" data-action="plan-connect-to" data-id="${e(t.id)}" data-pert-in="${e(t.id)}" aria-label="Entrada de ${e(t.name)}" title="Entrada: conectar predecesora">●</button><button class="pert-port out" data-action="plan-connect-from" data-id="${e(t.id)}" data-pert-out="${e(t.id)}" aria-label="Salida de ${e(t.name)}" title="Salida: conectar sucesora">●</button></article>`;
+        return `<article class="pert-node ${scheduled?.critical ? "critical" : ""}" data-pert-node="${e(t.id)}" style="left:${p.x}px;top:${p.y}px"><header data-pert-handle="${e(t.id)}" tabindex="0" aria-label="${uiHtml("Mover nodo {0}", [t.name])}">⋮⋮ ${e(t.name)}</header><div><span>${t.duration_days} ${uiHtml("días")} ${model.plan.segments?.[t.id] ? uiHtml("· {0} % de la partida", [numeric(taskPercent(model.plan, t.id))]) : ""} ${p.estimates ? uiHtml("· estimación PERT") : ""}</span><small>${e(scheduled?.start || "")} → ${e(scheduled?.finish || "")}</small><button class="btn tiny" data-action="plan-edit" data-id="${e(t.id)}">${uiHtml("Ver / editar tarea")}</button></div><button class="pert-port in" data-action="plan-connect-to" data-id="${e(t.id)}" data-pert-in="${e(t.id)}" aria-label="${uiHtml("Entrada de {0}", [t.name])}" title="${uiHtml("Entrada: conectar predecesora")}">●</button><button class="pert-port out" data-action="plan-connect-from" data-id="${e(t.id)}" data-pert-out="${e(t.id)}" aria-label="${uiHtml("Salida de {0}", [t.name])}" title="${uiHtml("Salida: conectar sucesora")}">●</button></article>`;
       })
       .join("")}</div></div></section></section>`;
   }
@@ -278,17 +285,23 @@ export function createPlanningWorkspace({
     }
   }
   async function addLine(id, x = 35, y = 35) {
-    if (state.remoteProject) return;
+    if (state.remoteProject || model.dirty) return;
     const line = model.lines.find((l) => l.id === id);
     if (!line || Number(allocatedPercent(model.plan, id)) >= 100)
-      throw new Error("La partida no está disponible o ya tiene una tarea.");
+      throw new Error(uiText("La partida no está disponible o ya tiene una tarea."));
+    const project = model.projectId, revision = model.revision;
+    const remaining = sumDecimals(["100", "-" + allocatedPercent(model.plan, id)]);
+    const detail = line.analysis_id
+      ? await invoke("get_analysis_details", {analysisId:line.analysis_id}).catch(() => null) : null;
+    if (model.projectId !== project || model.revision !== revision || model.dirty || state.view !== "planning") return;
+    const estimated = durationFromAcu(percentageOf(line.quantity || "0", remaining), detail?.components);
     const previous = structuredClone(model.plan),
       task = {
         id: uuid(),
         name: line.name || line.description,
         parent_id: null,
         estimate_line_id: id,
-        duration_days: 1,
+        duration_days: estimated?.days ?? 1,
         predecessors: [],
         assignments: [],
         not_before: null,
@@ -296,10 +309,6 @@ export function createPlanningWorkspace({
         budget: line.total || "0",
         actual_progress: "0",
       };
-    const remaining = sumDecimals([
-      "100",
-      "-" + allocatedPercent(model.plan, id),
-    ]);
     const sibling = model.plan.tasks.find((t) => t.estimate_line_id === id);
     if (sibling) {
       model.plan.segments ||= {};
@@ -319,6 +328,7 @@ export function createPlanningWorkspace({
       await save();
     } catch (error) {
       model.plan = previous;
+      model.dirty = false;
       render();
       throw error;
     }
@@ -326,57 +336,59 @@ export function createPlanningWorkspace({
   function editor() {
     const task = model.editing;
     if (!task) return "";
+    const range = task._ganttRange;
+    const title = range ? (range.duration ? uiText("Nueva tarea") : uiText("Nuevo hito")) : uiText("Editar tarea / hito");
     const resources = [
       ...state.resources.map((resource) => [resource.id, resource.description]),
       ...model.crews.map((crew) => [crew.id, crew.name]),
     ];
-    return `<div class="modal-overlay task-editor-overlay"><section class="dialog-shell task-editor-dialog" role="dialog" aria-modal="true" aria-label="Editar tarea o hito"><form id="planning-task-form"><div class="dialog-header"><h2>Editar tarea / hito</h2><button class="close-dialog" type="button" data-action="plan-cancel" aria-label="Cerrar editor de tarea">×</button></div><div class="compact-editor-body"><div class="task-basic-grid">${field("Nombre", "name", task.name, "required")}${select("Tarea superior", "parent_id", [["", "Sin superior"], ...options(task.id)], task.parent_id)}${select("Partida presupuestaria", "estimate_line_id", [["", "Sin partida vinculada"], ...(model.lines || []).map((line) => [line.id, line.description])], task.estimate_line_id)}${field("Duración en días laborables (0 = hito)", "duration_days", task.duration_days, 'type="number" min="0" max="36500" required')}${field("No iniciar antes de", "not_before", task.not_before || "", 'type="date"')}${field("Fecha límite de finalización", "finish_by", task.finish_by || "", 'type="date"')}${field("Costo previsto (se toma de la partida cuando hay vínculo)", "budget", task.budget, 'type="number" min="0" step="any" required')}${field("Avance real %", "actual_progress", task.actual_progress, 'type="number" min="0" max="100" step="any" readonly title="Se actualiza al emitir certificados en Gestión de obra"')}
-</div>${model.plan.segments?.[task.id] ? `<p class="segment-summary">Tramo: ${numeric(taskPercent(model.plan, task.id))} %${task.estimate_line_id ? " · Cantidad: " + numeric(percentageOf(model.lines.find((l) => l.id === task.estimate_line_id)?.quantity || "0", taskPercent(model.plan, task.id))) + " " + e(model.lines.find((l) => l.id === task.estimate_line_id)?.unit || "") : ""}. El costo se distribuye automáticamente.</p>` : ""}<details class="task-advanced" ${model.plan.presentation?.[task.id]?.estimates ? "open" : ""}><summary>Estimación PERT (opcional)</summary><fieldset class="pert-estimates"><legend>Estimación PERT (opcional)</legend><label><input type="checkbox" name="pert-estimated" ${task._pert || model.plan.presentation?.[task.id]?.estimates ? "checked" : ""}> Calcular duración con tres estimaciones</label><div class="form-grid">${["Optimista", "Probable", "Pesimista"].map((label, i) => field(label + " (días)", "pert-estimate-" + i, (task._pert || model.plan.presentation?.[task.id]?.estimates)?.[i] ?? task.duration_days, 'type="number" min="0" max="36500" step="1"')).join("")}</div><p>Duración = (optimista + 4 × probable + pesimista) / 6, redondeada hacia arriba a días laborables.</p></fieldset></details><details class="task-advanced" ${task.predecessors.length ? "open" : ""}><summary>Dependencias y desfases</summary>${task.predecessors
+    return `<div class="modal-overlay task-editor-overlay"><section class="dialog-shell task-editor-dialog" role="dialog" aria-modal="true" aria-label="${range ? e(title) : uiHtml("Editar tarea o hito")}"><form id="planning-task-form"><div class="dialog-header"><h2>${e(title)}</h2><button class="close-dialog" type="button" data-action="plan-cancel" aria-label="${uiHtml("Cerrar editor de tarea")}">×</button></div><div class="compact-editor-body">${range ? `<p class="gantt-selection-dates">${range.duration ? uiHtml("Tramo marcado: {0} → {1}", [displayDate(range.start), displayDate(range.finish)]) : uiHtml("Fecha del hito: {0}", [displayDate(range.start)])}</p>` : ""}<div class="task-basic-grid">${field(uiText("Nombre"), "name", task.name, "required")}${select(uiText("Tarea superior"), "parent_id", [["", uiText("Sin superior")], ...options(task.id)], task.parent_id)}${select(uiText("Partida presupuestaria"), "estimate_line_id", [["", uiText("Sin partida vinculada")], ...(model.lines || []).map((line) => [line.id, line.description])], task.estimate_line_id)}${field(uiText("Duración en días laborables (0 = hito)"), "duration_days", task.duration_days, 'type="number" min="0" max="36500" required')}${field(uiText("No iniciar antes de"), "not_before", task.not_before || "", 'type="date"')}${field(uiText("Fecha límite de finalización"), "finish_by", task.finish_by || "", 'type="date"')}${field(uiText("Costo previsto (se toma de la partida cuando hay vínculo)"), "budget", task.budget, 'type="number" min="0" step="any" required')}${field(uiText("Avance real %"), "actual_progress", task.actual_progress, ("type=\"number\" min=\"0\" max=\"100\" step=\"any\" readonly title=\"" + uiHtml("Se actualiza al emitir certificados en Gestión de obra") + "\""))}
+</div>${model.plan.segments?.[task.id] ? `<p class="segment-summary">${uiHtml("Tramo:")} ${numeric(taskPercent(model.plan, task.id))} %${task.estimate_line_id ? uiHtml(" · Cantidad: {0} {1}", [numeric(percentageOf(model.lines.find((l) => l.id === task.estimate_line_id)?.quantity || "0", taskPercent(model.plan, task.id))), e(model.lines.find((l) => l.id === task.estimate_line_id)?.unit || "")]) : ""}${uiHtml(". El costo se distribuye automáticamente.")}</p>` : ""}<details class="task-advanced" ${model.plan.presentation?.[task.id]?.estimates ? "open" : ""}><summary>${uiHtml("Estimación PERT (opcional)")}</summary><fieldset class="pert-estimates"><legend>${uiHtml("Estimación PERT (opcional)")}</legend><label><input type="checkbox" name="pert-estimated" ${task._pert || model.plan.presentation?.[task.id]?.estimates ? "checked" : ""}> ${uiHtml("Calcular duración con tres estimaciones")}</label><div class="form-grid">${["Optimista", "Probable", "Pesimista"].map((label, i) => field(label + " (días)", "pert-estimate-" + i, (task._pert || model.plan.presentation?.[task.id]?.estimates)?.[i] ?? task.duration_days, 'type="number" min="0" max="36500" step="1"')).join("")}</div><p>${uiHtml("Duración = (optimista + 4 × probable + pesimista) / 6, redondeada hacia arriba a días laborables.")}</p></fieldset></details><details class="task-advanced" ${task.predecessors.length ? "open" : ""}><summary>${uiHtml("Dependencias y desfases")}</summary>${task.predecessors
       .map(
         (dep, index) =>
-          `<div class="dependency-row">${select("Tarea", "predecessor-" + index, options(task.id), dep.task_id)}${select(
-            "Relación",
+          `<div class="dependency-row">${select(uiText("Tarea"), "predecessor-" + index, options(task.id), dep.task_id)}${select(
+            uiText("Relación"),
             "dependency-kind-" + index,
             [
-              ["FS", "Fin → inicio"],
-              ["SS", "Inicio → inicio"],
-              ["FF", "Fin → fin"],
-              ["SF", "Inicio → fin"],
+              ["FS", uiText("Fin → inicio")],
+              ["SS", uiText("Inicio → inicio")],
+              ["FF", uiText("Fin → fin")],
+              ["SF", uiText("Inicio → fin")],
             ],
             dep.kind,
-          )}${field("Desfase laborable", "lag-" + index, dep.lag_days, 'type="number" min="-36500" max="36500"')}<button type="button" class="btn" data-action="plan-remove-dependency" data-index="${index}">Quitar</button></div>`,
+          )}${field(uiText("Desfase laborable"), "lag-" + index, dep.lag_days, 'type="number" min="-36500" max="36500"')}<button type="button" class="btn" data-action="plan-remove-dependency" data-index="${index}">${uiHtml("Quitar")}</button></div>`,
       )
       .join(
         "",
-      )}<button class="btn" type="button" data-action="plan-add-dependency">Agregar dependencia</button></details><details class="task-advanced" ${task.assignments.length ? "open" : ""}><summary>Cuadrillas, equipos y recursos</summary>${task.assignments
+      )}<button class="btn" type="button" data-action="plan-add-dependency">${uiHtml("Agregar dependencia")}</button></details><details class="task-advanced" ${task.assignments.length ? "open" : ""}><summary>${uiHtml("Cuadrillas, equipos y recursos")}</summary>${task.assignments
       .map(
         (assignment, index) =>
-          `<div class="dependency-row">${select("Recurso", "assignment-" + index, resources, assignment.resource_id)}${select(
-            "Tipo",
+          `<div class="dependency-row">${select(uiText("Recurso"), "assignment-" + index, resources, assignment.resource_id)}${select(
+            uiText("Tipo"),
             "assignment-kind-" + index,
             [
-              ["crew", "Cuadrilla"],
-              ["equipment", "Equipo"],
-              ["resource", "Recurso"],
+              ["crew", uiText("Cuadrilla")],
+              ["equipment", uiText("Equipo")],
+              ["resource", uiText("Recurso")],
             ],
             assignment.kind,
-          )}${field("Unidades por día", "units-" + index, assignment.units_per_day, 'type="number" min="0" step="any"')}<button type="button" class="btn" data-action="plan-remove-assignment" data-index="${index}">Quitar</button></div>`,
+          )}${field(uiText("Unidades por día"), "units-" + index, assignment.units_per_day, 'type="number" min="0" step="any"')}<button type="button" class="btn" data-action="plan-remove-assignment" data-index="${index}">${uiHtml("Quitar")}</button></div>`,
       )
       .join(
         "",
-      )}<button class="btn" type="button" data-action="plan-add-assignment">Asignar recurso</button></details><p class="feature-error" role="alert"></p></div><div class="compact-editor-actions"><button class="btn" type="button" data-action="plan-split" data-id="${e(task.id)}" ${model.plan.tasks.some((t) => t.id === task.id) ? "" : "disabled"}>Dividir en tramos</button><button class="btn primary" type="submit">Guardar tarea y recalcular</button><button class="btn" type="button" data-action="plan-cancel">Cancelar</button><button class="btn" type="button" data-action="plan-delete">Eliminar tarea</button></div></form></section></div>`;
+      )}<button class="btn" type="button" data-action="plan-add-assignment">${uiHtml("Asignar recurso")}</button></details><p class="feature-error" role="alert"></p></div><div class="compact-editor-actions"><button class="btn" type="button" data-action="plan-split" data-id="${e(task.id)}" ${model.plan.tasks.some((t) => t.id === task.id) ? "" : "disabled"}>${uiHtml("Dividir en tramos")}</button><button class="btn primary" type="submit">${uiHtml("Guardar tarea y recalcular")}</button><button class="btn" type="button" data-action="plan-cancel">${uiHtml("Cancelar")}</button><button class="btn" type="button" data-action="plan-delete">${uiHtml("Eliminar tarea")}</button></div></form></section></div>`;
   }
   function splitEditor() {
     const t = model.splitting;
     if (!t) return "";
-    return `<div class="modal-overlay"><section class="dialog-shell split-task-dialog" role="dialog" aria-modal="true" aria-label="Dividir tarea en tramos"><form id="planning-split-form"><div class="dialog-header"><h2>Dividir ${e(t.name)}</h2><button class="close-dialog" type="button" data-action="plan-split-cancel" aria-label="Cerrar división">×</button></div><div class="compact-editor-body"><p>Se reparte la cantidad y el costo de esta tarea. Cada tramo tendrá su duración, dependencias y avance. Podés volver a dividir cualquier tramo.</p><div class="task-basic-grid">${field("Nombre del primer tramo", "first-name", t.name + " · tramo 1", "required")}${field("Nombre del segundo tramo", "second-name", t.name + " · tramo 2", "required")}${field("Porcentaje para el primer tramo", "first-share", "50", 'type="number" min="0.000001" max="99.999999" step="any" required')}${field("Duración del primer tramo", "first-days", Math.max(1, Math.ceil(t.duration_days / 2)), 'type="number" min="0" max="36500" required')}${field("Duración del segundo tramo", "second-days", Math.max(1, Math.floor(t.duration_days / 2)), 'type="number" min="0" max="36500" required')}</div><p>El segundo recibe el porcentaje restante. Se conectan fin → inicio; después podés separar sus etapas editando fechas o precedencias.</p><p class="feature-error" role="alert"></p></div><div class="compact-editor-actions"><button class="btn" type="button" data-action="plan-split-cancel">Cancelar</button><button class="btn primary" type="submit">Dividir tarea</button></div></form></section></div>`;
+    return `<div class="modal-overlay"><section class="dialog-shell split-task-dialog" role="dialog" aria-modal="true" aria-label="${uiHtml("Dividir tarea en tramos")}"><form id="planning-split-form"><div class="dialog-header"><h2>${uiHtml("Dividir {0}", [t.name])}</h2><button class="close-dialog" type="button" data-action="plan-split-cancel" aria-label="${uiHtml("Cerrar división")}">×</button></div><div class="compact-editor-body"><p>${uiHtml("Se reparte la cantidad y el costo de esta tarea. Cada tramo tendrá su duración, dependencias y avance. Podés volver a dividir cualquier tramo.")}</p><div class="task-basic-grid">${field(uiText("Nombre del primer tramo"), "first-name", t.name + " · tramo 1", "required")}${field(uiText("Nombre del segundo tramo"), "second-name", t.name + " · tramo 2", "required")}${field(uiText("Porcentaje para el primer tramo"), "first-share", "50", 'type="number" min="0.000001" max="99.999999" step="any" required')}${field(uiText("Duración del primer tramo"), "first-days", Math.max(1, Math.ceil(t.duration_days / 2)), 'type="number" min="0" max="36500" required')}${field(uiText("Duración del segundo tramo"), "second-days", Math.max(1, Math.floor(t.duration_days / 2)), 'type="number" min="0" max="36500" required')}</div><p>${uiHtml("El segundo recibe el porcentaje restante. Se conectan fin → inicio; después podés separar sus etapas editando fechas o precedencias.")}</p><p class="feature-error" role="alert"></p></div><div class="compact-editor-actions"><button class="btn" type="button" data-action="plan-split-cancel">${uiHtml("Cancelar")}</button><button class="btn primary" type="submit">${uiHtml("Dividir tarea")}</button></div></form></section></div>`;
   }
   function criticalExplanation() {
     const walk = criticalWalk(model.plan, model.schedule);
     const tasks = model.plan.tasks.filter((t) =>
       model.schedule?.tasks.some((s) => s.id === t.id && s.critical),
     );
-    return `<details class="planning-options"><summary>Cómo se calcula la duración · camino crítico</summary>${walk.simple ? `<p class="critical-walk"><strong>Un recorrido crítico:</strong> ${walk.tasks.map((t) => e(t.name) + " (" + t.duration_days + " d)").join(" → ")} = <strong>${model.schedule.duration_days} días laborables</strong>.</p>` : ""}<p>Las ramas en paralelo no se suman entre sí. El plazo incluye calendario, desfases y restricciones. Una tarea desconectada no retrasa a las demás salvo que termine después.</p><ul>${tasks.map((t) => `<li>${e(t.name)} · ${t.duration_days} días${t.predecessors.length ? " · depende de " + t.predecessors.map((d) => e(model.plan.tasks.find((p) => p.id === d.task_id)?.name || "") + " (" + e(d.kind) + (d.lag_days ? " " + d.lag_days + " d" : "") + ")").join(", ") : ""}</li>`).join("")}</ul><strong>Total del cronograma: ${model.schedule?.duration_days || 0} días laborables</strong></details>`;
+    return `<details class="planning-options"><summary>${uiHtml("Cómo se calcula la duración · camino crítico")}</summary>${walk.simple ? `<p class="critical-walk"><strong>${uiHtml("Un recorrido crítico:")}</strong> ${walk.tasks.map((t) => e(t.name) + " (" + t.duration_days + " d)").join(" → ")} = <strong>${model.schedule.duration_days} ${uiHtml("días laborables")}</strong>.</p>` : ""}<p>${uiHtml("Las ramas en paralelo no se suman entre sí. El plazo incluye calendario, desfases y restricciones. Una tarea desconectada no retrasa a las demás salvo que termine después.")}</p><ul>${tasks.map((t) => `<li>${e(t.name)} · ${t.duration_days} ${uiHtml("días")}${t.predecessors.length ? uiHtml(" · depende de {0}", [t.predecessors.map((d) => e(model.plan.tasks.find((p) => p.id === d.task_id)?.name || "") + " (" + e(d.kind) + (d.lag_days ? " " + d.lag_days + " d" : "") + ")").join(", ")]) : ""}</li>`).join("")}</ul><strong>${uiHtml("Total del cronograma:")} ${model.schedule?.duration_days || 0} ${uiHtml("días laborables")}</strong></details>`;
   }
   function markup() {
     const calendar = document.querySelector(".planning-calendar");
@@ -390,20 +402,20 @@ export function createPlanningWorkspace({
         },
         model.projectId + ":" + model.revision,
       );
-    return `<main class="feature-page"><div class="feature-toolbar"><h1>Planificación de obras</h1><span class="scope-label">${e(state.projects.find((p) => p.id === state.projectId)?.name)}</span>${model.projectId ? '<button class="btn primary" data-action="plan-new">Nueva tarea / hito</button>' : ""}</div>${
+    return `<main class="feature-page"><div class="feature-toolbar"><h1>${uiHtml("Planificación de obras")}</h1><span class="scope-label">${e(state.projects.find((p) => p.id === state.projectId)?.name)}</span>${state.aiActionsEnabled && state.estimateId && !state.remoteProject && model.tab === "pert" ? `<button class="btn ai-button" data-action="form-ai-open" data-kind="plan" ${model.editing || model.splitting || model.erasing || model.dirty ? "disabled" : ""}>${uiHtml("Proponer tareas con IA")}</button>` : ""}${model.projectId ? ("<button class=\"btn primary\" data-action=\"plan-new\">" + uiHtml("Nueva tarea / hito") + "</button>") : ""}</div>${
       !model.projectId
-        ? "<p>Seleccioná una obra para planificar.</p>"
+        ? ("<p>" + uiHtml("Seleccioná una obra para planificar.") + "</p>")
         : `
-      <nav class="planning-tabs" aria-label="Vistas de planificación"><button class="btn ${model.tab === "pert" ? "active" : ""}" role="tab" aria-selected="${model.tab === "pert"}" data-action="plan-view" data-view="pert">PERT</button><button class="btn ${model.tab === "gantt" ? "active" : ""}" role="tab" aria-selected="${model.tab === "gantt"}" data-action="plan-view" data-view="gantt">Gantt</button>${model.tab === "gantt" ? '<label>Altura de PDF <select data-gantt-height><option value="210">A4 apaisada · 210 mm</option><option value="297">A3 apaisada · 297 mm</option><option value="420">A2 apaisada · 420 mm</option><option value="custom">Personalizada</option></select></label><label data-gantt-custom-field hidden><input type="number" data-gantt-custom-height aria-label="Altura personalizada en milímetros" min="80" max="5000" value="600"> mm</label>' : ""}<button class="btn" data-action="plan-export-pdf">Exportar PDF</button></nav><div class="planning-overview-row"><details class="planning-options planning-calendar" ${model.calendarOpen ? "open" : ""}><summary>Calendario de la obra</summary><form id="planning-settings" class="feature-toolbar">${field("Inicio del proyecto", "start_date", model.plan.calendar.start_date, 'type="date" required')}${field("Fecha de seguimiento", "as_of", model.asOf, 'type="date" required')}<p>Los feriados generales se administran en <button type="button" class="link" data-action="open-general-calendar">Datos generales</button>. Aquí solo modificás esta obra.</p><label><input type="checkbox" name="custom_week" ${model.plan.calendar_overrides?.nonworking_weekdays ? "checked" : ""}> Personalizar semana laborable de esta obra</label><fieldset><legend>Días laborables (si se personaliza la semana)</legend>${["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"].map((day, index) => `<label><input type="checkbox" name="workday" value="${index}" ${model.plan.calendar.nonworking_weekdays.includes(index) ? "" : "checked"}>${day}</label>`).join("")}</fieldset><details><summary>Feriados heredados del <button type="button" class="link" data-action="open-general-calendar">calendario general</button></summary>${
+      <nav class="planning-tabs" aria-label="${uiHtml("Vistas de planificación")}"><button class="btn ${model.tab === "pert" ? "active" : ""}" role="tab" aria-selected="${model.tab === "pert"}" data-action="plan-view" data-view="pert">PERT</button><button class="btn ${model.tab === "gantt" ? "active" : ""}" role="tab" aria-selected="${model.tab === "gantt"}" data-action="plan-view" data-view="gantt">Gantt</button>${model.tab === "gantt" ? ("<label>" + uiHtml("Altura de PDF") + " <select data-gantt-height><option value=\"210\">" + uiHtml("A4 apaisada · 210 mm") + "</option><option value=\"297\">" + uiHtml("A3 apaisada · 297 mm") + "</option><option value=\"420\">" + uiHtml("A2 apaisada · 420 mm") + "</option><option value=\"custom\">" + uiHtml("Personalizada") + "</option></select></label><label data-gantt-custom-field hidden><input type=\"number\" data-gantt-custom-height aria-label=\"" + uiHtml("Altura personalizada en milímetros") + "\" min=\"80\" max=\"5000\" value=\"600\"> " + uiHtml("mm") + "</label>") : ""}<button class="btn" data-action="plan-export-pdf">${uiHtml("Exportar PDF")}</button></nav><div class="planning-overview-row"><details class="planning-options planning-calendar" ${model.calendarOpen ? "open" : ""}><summary>${uiHtml("Calendario de la obra")}</summary><form id="planning-settings" class="feature-toolbar">${field(uiText("Inicio del proyecto"), "start_date", model.plan.calendar.start_date, 'type="date" required')}${field(uiText("Fecha de seguimiento"), "as_of", model.asOf, 'type="date" required')}<p>${uiHtml("Los feriados generales se administran en")} <button type="button" class="link" data-action="open-general-calendar">${uiHtml("Datos generales")}</button>${uiHtml(". Aquí solo modificás esta obra.")}</p><label><input type="checkbox" name="custom_week" ${model.plan.calendar_overrides?.nonworking_weekdays ? "checked" : ""}> ${uiHtml("Personalizar semana laborable de esta obra")}</label><fieldset><legend>${uiHtml("Días laborables (si se personaliza la semana)")}</legend>${Array.from({length: 7}, (_, index) => `<label><input type="checkbox" name="workday" value="${index}" ${model.plan.calendar.nonworking_weekdays.includes(index) ? "" : "checked"}>${e(weekdayName(index))}</label>`).join("")}</fieldset><details><summary>${uiHtml("Feriados heredados del")} <button type="button" class="link" data-action="open-general-calendar">${uiHtml("calendario general")}</button></summary>${
         Object.entries(model.generalCalendar.exceptions || {})
           .sort(([a], [b]) => a.localeCompare(b))
           .map(
             ([date, x]) =>
-              `<p>${e(date)} · ${e(x.description)} · ${x.working ? "Laborable general" : "No laborable general"} <button type="button" class="btn tiny" data-action="plan-calendar-override" data-date="${date}">${calendarPicker.model.exceptions[date] ? "Restaurar criterio general" : "Cambiar solo en esta obra"}</button></p>`,
+              `<p>${e(date)} · ${e(x.description)} · ${x.working ? uiHtml("Laborable general") : uiHtml("No laborable general")} <button type="button" class="btn tiny" data-action="plan-calendar-override" data-date="${date}">${calendarPicker.model.exceptions[date] ? uiHtml("Restaurar criterio general") : uiHtml("Cambiar solo en esta obra")}</button></p>`,
           )
-          .join("") || "Sin feriados generales cargados."
-      }</details><div data-calendar-picker>${calendarPicker.markup()}</div><button class="btn primary" type="submit">Guardar calendario</button><p class="feature-error" role="alert"></p></form></details>
-      <div class="planning-metrics"><span>Duración <b>${model.schedule?.duration_days || 0} días laborables</b></span><span>Fin previsto <b>${e(model.schedule?.finish)}</b></span><span>Planificado <b>${numeric(model.schedule?.planned_progress)} %</b></span><span>Real <b>${numeric(model.schedule?.actual_progress)} %</b></span><span>${model.dirty ? "Cambios sin guardar" : "Revisión " + model.revision}</span></div></div>
+          .join("") || uiHtml("Sin feriados generales cargados.")
+      }</details><div data-calendar-picker>${calendarPicker.markup()}</div><button class="btn primary" type="submit">${uiHtml("Guardar calendario")}</button><p class="feature-error" role="alert"></p></form></details>
+      <div class="planning-metrics"><span>${uiHtml("Duración")} <b>${model.schedule?.duration_days || 0} ${uiHtml("días laborables")}</b></span><span>${uiHtml("Fin previsto")} <b>${e(model.schedule?.finish)}</b></span><span>${uiHtml("Planificado")} <b>${numeric(model.schedule?.planned_progress)} %</b></span><span>${uiHtml("Real")} <b>${numeric(model.schedule?.actual_progress)} %</b></span><span>${model.dirty ? uiHtml("Cambios sin guardar") : uiHtml("Revisión {0}", [model.revision])}</span></div></div>
       ${model.schedule?.warnings.map((warning) => `<p class="feature-error">${e(warning)}</p>`).join("") || ""}${criticalExplanation()}${editor()}${splitEditor()}${model.tab === "pert" ? pert() : gantt()}<div class="feature-columns"></div>`
     }</main>`;
   }
@@ -428,6 +440,60 @@ export function createPlanningWorkspace({
     );
     model.lines = arrays.flat();
   }
+  async function applyAiTasks(tasks, existing, origin) {
+    const valid = () => !state.remoteProject && model.projectId === origin.projectId
+      && state.estimateId === origin.estimateId && origin.revision === model.revision
+      && !model.editing && !model.splitting && !model.erasing && !model.dirty && !state.pageDirty;
+    if (!valid()) throw new Error(uiText("Cambió la planificación. Volvé a preparar la propuesta."));
+    const lines = await invoke("list_estimate_lines", {estimateId:origin.estimateId});
+    const active = new Map(lines.map(line => [line.id, line]));
+    for (const task of tasks) {
+      if (!task.line) continue;
+      const line = active.get(task.line.id);
+      if (!line || line.analysis_id !== task.line.analysis_id || line.quantity !== task.line.quantity
+          || line.unit !== task.line.unit || model.plan.tasks.some(row => row.estimate_line_id === line.id))
+        throw new Error(uiText("Cambió una partida de la propuesta. Volvé a prepararla."));
+    }
+    if (!valid()) throw new Error(uiText("Cambió la planificación. Volvé a preparar la propuesta."));
+    const previous = model.plan;
+    const tab = model.tab;
+    model.plan = appendSuggestedTasks(previous, tasks, existing, uuid);
+    model.tab = "pert";
+    try {
+      await save();
+      const viewport = document.querySelector("[data-pert-viewport]");
+      if (viewport) {
+        model.viewport = fitViewport({...automaticPositions(model.plan.tasks),...model.plan.presentation}, viewport.clientWidth, viewport.clientHeight);
+        syncViewport();
+      }
+    } catch (error) {
+      model.plan = previous;
+      model.tab = tab;
+      model.dirty = false;
+      throw error;
+    }
+  }
+
+  async function openNewTask(range = null) {
+    const projectId = model.projectId;
+    await loadLines();
+    if (state.view !== "planning" || model.projectId !== projectId) return;
+    model.editing = {
+      id: uuid(),
+      name: range?.duration === 0 ? uiText("Nuevo hito") : uiText("Nueva tarea"),
+      parent_id: null,
+      estimate_line_id: null,
+      duration_days: range?.duration ?? 1,
+      predecessors: [],
+      assignments: [],
+      not_before: range?.start ?? null,
+      finish_by: null,
+      budget: "0",
+      actual_progress: "0",
+      _ganttRange: range,
+    };
+  }
+
   function readTask(form) {
     const data = new FormData(form),
       value = (name) => String(data.get(name) || "").trim();
@@ -489,7 +555,7 @@ export function createPlanningWorkspace({
     ) {
       if (
         !window.confirm(
-          "¿Descartar los cambios del formulario antes de marcar cortes?",
+          uiText("¿Descartar los cambios del formulario antes de marcar cortes?"),
         )
       )
         return;
@@ -534,7 +600,7 @@ export function createPlanningWorkspace({
       ["plan-finance-conditions", "plan-overview-refresh"].includes(action)
     ) {
       window.alert(
-        "Guardá primero los cambios del formulario para conservarlos antes de actualizar esta vista.",
+        uiText("Guardá primero los cambios del formulario para conservarlos antes de actualizar esta vista."),
       );
       return;
     }
@@ -610,7 +676,7 @@ export function createPlanningWorkspace({
     if (action === "plan-split") {
       if (state.pageDirty) {
         throw new Error(
-          "Guardá o cancelá la edición antes de dividir la tarea.",
+          uiText("Guardá o cancelá la edición antes de dividir la tarea."),
         );
       }
       model.splitting = structuredClone(
@@ -623,7 +689,7 @@ export function createPlanningWorkspace({
     if (action === "plan-split-cancel") {
       if (
         state.pageDirty &&
-        !window.confirm("¿Descartar la división sin guardar?")
+        !window.confirm(uiText("¿Descartar la división sin guardar?"))
       )
         return;
       model.splitting = null;
@@ -642,7 +708,7 @@ export function createPlanningWorkspace({
     ) {
       if (
         !window.confirm(
-          "¿Descartar los cambios de la tarea antes de modificar el diagrama?",
+          uiText("¿Descartar los cambios de la tarea antes de modificar el diagrama?"),
         )
       )
         return;
@@ -659,12 +725,12 @@ export function createPlanningWorkspace({
         "plan-connect-cancel",
       ].includes(action)
     )
-      throw new Error("La obra externa es de solo lectura.");
+      throw new Error(uiText("La obra externa es de solo lectura."));
     if (action === "plan-view") {
       if (
         state.pageDirty &&
         !window.confirm(
-          "¿Descartar los cambios de la tarea antes de cambiar de vista?",
+          uiText("¿Descartar los cambios de la tarea antes de cambiar de vista?"),
         )
       )
         return;
@@ -749,7 +815,7 @@ export function createPlanningWorkspace({
     if (action === "open-planning") {
       calendarPicker.reset();
       state.view = "planning";
-      if (!state.projectId) throw new Error("Abrí una obra desde Inicio");
+      if (!state.projectId) throw new Error(uiText("Abrí una obra desde Inicio"));
       if (model.projectId !== state.projectId)
         model.viewport = { x: 40, y: 40, zoom: 1 };
       model.projectId = state.projectId;
@@ -766,22 +832,7 @@ export function createPlanningWorkspace({
       await refresh();
       await loadLines();
     }
-    if (action === "plan-new") {
-      await loadLines();
-      model.editing = {
-        id: uuid(),
-        name: "Nueva tarea",
-        parent_id: null,
-        estimate_line_id: null,
-        duration_days: 1,
-        predecessors: [],
-        assignments: [],
-        not_before: null,
-        finish_by: null,
-        budget: "0",
-        actual_progress: "0",
-      };
-    }
+    if (action === "plan-new") await openNewTask();
     if (action === "plan-edit") {
       await loadLines();
       model.editing = structuredClone(
@@ -791,7 +842,7 @@ export function createPlanningWorkspace({
     if (action === "plan-cancel") {
       if (
         state.pageDirty &&
-        !window.confirm("¿Descartar los cambios de la tarea?")
+        !window.confirm(uiText("¿Descartar los cambios de la tarea?"))
       )
         return;
       model.editing = null;
@@ -805,10 +856,10 @@ export function createPlanningWorkspace({
             task.predecessors.some((dep) => dep.task_id === model.editing.id),
         )
       )
-        throw new Error("Quitá primero las dependencias o tareas hijas");
+        throw new Error(uiText("Quitá primero las dependencias o tareas hijas"));
       if (
         !window.confirm(
-          "¿Eliminar la tarea del cronograma actual? Las revisiones y líneas base anteriores se conservan.",
+          uiText("¿Eliminar la tarea del cronograma actual? Las revisiones y líneas base anteriores se conservan."),
         )
       )
         return;
@@ -830,10 +881,10 @@ export function createPlanningWorkspace({
       const previous = model.history.find(
         (saved) => String(saved.revision) === model.historyRevision,
       );
-      if (!previous) throw new Error("Seleccioná una revisión");
+      if (!previous) throw new Error(uiText("Seleccioná una revisión"));
       if (
         !window.confirm(
-          "¿Recuperar esta revisión? Se guardará como una nueva versión; el historial se conserva.",
+          uiText("¿Recuperar esta revisión? Se guardará como una nueva versión; el historial se conserva."),
         )
       )
         return;
@@ -867,7 +918,7 @@ export function createPlanningWorkspace({
       model.editing.assignments.splice(Number(button.dataset.index), 1);
     if (action === "plan-baseline") {
       const name = window.prompt(
-        "Nombre de la línea base",
+        uiText("Nombre de la línea base"),
         "Línea base " + (model.baselines.length + 1),
       );
       if (!name) return;
@@ -902,7 +953,7 @@ export function createPlanningWorkspace({
     }
   }
   async function submit(form) {
-    if (model.erasing) throw new Error("Confirmá con Listo o cancelá el modo Quitar antes de guardar otro formulario.");
+    if (model.erasing) throw new Error(uiText("Confirmá con Listo o cancelá el modo Quitar antes de guardar otro formulario."));
     const data = new FormData(form),
       value = (name) => String(data.get(name) || "").trim();
     if (form.id === "planning-finance") {
@@ -978,7 +1029,7 @@ export function createPlanningWorkspace({
       }
       return;
     } else {
-      const task = readTask(form);
+      const { _ganttRange, ...task } = readTask(form);
       const previous = structuredClone(model.plan);
       model.plan.presentation ||= {};
       model.plan.presentation[task.id] = {
@@ -999,7 +1050,7 @@ export function createPlanningWorkspace({
         render();
       } catch (error) {
         model.plan = previous;
-        model.editing = task;
+        model.editing = { ...task, _ganttRange };
         model.dirty = false;
         throw error;
       }
@@ -1224,11 +1275,12 @@ export function createPlanningWorkspace({
       .forEach((c) => c.classList.remove("drop-section"));
   return {
     markup,
+    applyAiTasks,
     async doubleClick(event) {
       const id=ganttView.editTarget(event);
       if(id===null)return false;
       if(id===false)return true;
-      if(state.pageDirty&&!window.confirm("¿Descartar los cambios del formulario antes de editar la tarea?"))return true;
+      if(state.pageDirty&&!window.confirm(uiText("¿Descartar los cambios del formulario antes de editar la tarea?")))return true;
       state.pageDirty=false;
       await act({dataset:{action:"plan-edit",id}});
       return true;

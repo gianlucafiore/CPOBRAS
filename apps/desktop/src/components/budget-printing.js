@@ -1,3 +1,4 @@
+import { uiText, uiHtml } from "../services/interface-language.js";
 import { e, field, select, dateToday } from "./helpers.js";
 import { money, numeric } from "../decimal.js";
 import {clientLayouts,hasMemory} from "../services/budget-public.js";
@@ -35,28 +36,28 @@ export function createBudgetPrinting({
   };
   function markup() {
     if (!model.data)
-      return '<main class="feature-page">Sin presupuesto para imprimir</main>';
+      return ("<main class=\"feature-page\">" + uiHtml("Sin presupuesto para imprimir") + "</main>");
     const data = model.data,
       p = data.profile,
       rows = printRows(data, model.mode),
       headers = printColumns(model.mode);
-    return `<main class="feature-page budget-printing"><div class="feature-toolbar"><h1>Imprimir presupuesto</h1><button class="btn" data-action="open-workspace">Volver al presupuesto</button></div><form id="budget-print-form" class="feature-editor"><div class="form-grid">${select("Presentación", "print-mode", Object.entries(reportNames), model.mode)}${model.mode === "client" ? select("Contenido para el cliente", "print-layout", Object.entries(clientLayouts), model.layout) : ""}${field("Título del documento", "print-title", model.title, 'required maxlength="300"')}${field("Fecha del documento", "print-date", model.date, 'type="date" required')}${field("Referencia / número", "print-reference", model.reference, 'maxlength="100"')}${select(
-      "Orientación",
+    return `<main class="feature-page budget-printing"><div class="feature-toolbar"><h1>${uiHtml("Imprimir presupuesto")}</h1><button class="btn" data-action="open-workspace">${uiHtml("Volver al presupuesto")}</button></div><form id="budget-print-form" class="feature-editor"><div class="form-grid">${select(uiText("Presentación"), "print-mode", Object.entries(reportNames), model.mode)}${model.mode === "client" ? select(uiText("Contenido para el cliente"), "print-layout", Object.entries(clientLayouts), model.layout) : ""}${field(uiText("Título del documento"), "print-title", model.title, 'required maxlength="300"')}${field(uiText("Fecha del documento"), "print-date", model.date, 'type="date" required')}${field(uiText("Referencia / número"), "print-reference", model.reference, 'maxlength="100"')}${select(
+      uiText("Orientación"),
       "print-orientation",
       [
-        ["portrait", "Vertical"],
-        ["landscape", "Horizontal"],
+        ["portrait", uiText("Vertical")],
+        ["landscape", uiText("Horizontal")],
       ],
       model.landscape ? "landscape" : "portrait",
     )}${select(
-      "Salida",
+      uiText("Salida"),
       "print-format",
       [
-        ["pdf", "PDF · abrir en el lector predeterminado"],
-        ["xlsx", "Excel (.xlsx)"],
+        ["pdf", uiText("PDF · abrir en el lector predeterminado")],
+        ["xlsx", uiText("Excel (.xlsx)")],
       ],
       model.format,
-    )}</div><label class="field"><span>Condiciones y observaciones públicas</span><textarea aria-label="Condiciones y observaciones públicas" name="print-notes" maxlength="5000">${e(model.notes)}</textarea></label>${presentation.feedback()}<button type="submit" class="btn primary">Generar documento</button><p class="feature-error" role="alert"></p></form>${model.lastExport ? `<div class="print-export-result" role="status">Guardado en ${e(model.lastExport)}${model.lastExport.endsWith(".pdf") ? '<button class="btn" data-action="printing-open-pdf">Abrir PDF</button>' : ""}${model.openError ? `<p role="alert">${e(model.openError)}</p>` : ""}</div>` : ""}<section class="print-preview"><div class="print-preview-heading">${p.logo_png.length ? `<img src="${logoUrl(p.logo_png)}" alt="Logotipo del emisor">` : ""}<div><h2>${e(p.trade_name || p.company_name || p.professional_name || "CPOBRAS")}</h2><strong>${e(model.mode === "client" ? model.title : reportNames[model.mode])}</strong><p>${e(data.project.name)} · ${e(data.client.name)} · ${e(data.document.title)}</p></div><strong>${e(["USD", "Usd"].includes(data.estimate.currency) ? "USD" : "ARS")} ${money(data.final_total)}</strong></div>${model.mode === "internal" ? '<p class="print-internal-label">USO INTERNO · incluye costos y formación del precio</p>' : model.mode === "client" ? "<p>Precios de venta sin IVA por partida. El total final incluye los impuestos indicados.</p>" : "<p>Incidencias sobre el total final. Los rubros muestran subtotales, sin duplicarlos en el total.</p>"}${model.mode === "client" && hasMemory(model.layout) ? `<section class="print-memory-cover"><h3>Memoria descriptiva</h3><div class="memory-formatted">${memoryHtml(presentation.model.data.memory || "")}</div></section>` : ""}<div class="print-preview-table" ${model.mode === "client" && model.layout === "memory_price" ? "hidden" : ""}><table class="data-grid"><thead><tr>${headers.map((h) => `<th>${e(h)}</th>`).join("")}</tr></thead><tbody>${rows
+    )}</div><label class="field"><span>${uiHtml("Condiciones y observaciones públicas")}</span><textarea aria-label="Condiciones y observaciones públicas" name="print-notes" maxlength="5000">${e(model.notes)}</textarea></label>${presentation.feedback()}<button type="submit" class="btn primary">${uiHtml("Generar documento")}</button><p class="feature-error" role="alert"></p></form>${model.lastExport ? `<div class="print-export-result" role="status">${uiHtml("Guardado en")} ${e(model.lastExport)}${model.lastExport.endsWith(".pdf") ? ("<button class=\"btn\" data-action=\"printing-open-pdf\">" + uiHtml("Abrir PDF") + "</button>") : ""}${model.openError ? `<p role="alert">${e(model.openError)}</p>` : ""}</div>` : ""}<section class="print-preview"><div class="print-preview-heading">${p.logo_png.length ? `<img src="${logoUrl(p.logo_png)}" alt="${uiHtml("Logotipo del emisor")}">` : ""}<div><h2>${e(p.trade_name || p.company_name || p.professional_name || "CPOBRAS")}</h2><strong>${e(model.mode === "client" ? model.title : reportNames[model.mode])}</strong><p>${e(data.project.name)} · ${e(data.client.name)} · ${e(data.document.title)}</p></div><strong>${e(["USD", "Usd"].includes(data.estimate.currency) ? "USD" : "ARS")} ${money(data.final_total)}</strong></div>${model.mode === "internal" ? ("<p class=\"print-internal-label\">" + uiHtml("USO INTERNO · incluye costos y formación del precio") + "</p>") : model.mode === "client" ? ("<p>" + uiHtml("Precios de venta sin IVA por partida. El total final incluye los impuestos indicados.") + "</p>") : ("<p>" + uiHtml("Incidencias sobre el total final. Los rubros muestran subtotales, sin duplicarlos en el total.") + "</p>")}${model.mode === "client" && hasMemory(model.layout) ? `<section class="print-memory-cover"><h3>${uiHtml("Memoria descriptiva")}</h3><div class="memory-formatted">${memoryHtml(presentation.model.data.memory || "")}</div></section>` : ""}<div class="print-preview-table" ${model.mode === "client" && model.layout === "memory_price" ? "hidden" : ""}><table class="data-grid"><thead><tr>${headers.map((h) => `<th>${e(h)}</th>`).join("")}</tr></thead><tbody>${rows
       .slice(0, 200)
       .map(
         (r) =>
@@ -70,9 +71,9 @@ export function createBudgetPrinting({
       )
       .join(
         "",
-      )}</tbody></table></div>${rows.length > 200 ? "<p>Vista previa de los primeros 200 renglones. El archivo incluye todos.</p>" : ""}${model.mode === "client" ? `${publicPriceSummary(data).rows.map(row=>`<div class="summary-row"><span>${e(row.label)}</span><strong>${money(row.amount)}</strong></div>`).join("")}` : ""}<div class="summary-final"><span>TOTAL ${e(["USD", "Usd"].includes(data.estimate.currency) ? "USD" : "ARS")}</span><strong>${money(data.final_total)}</strong></div>${model.mode === "incidences" ? `<p>Incidencia total: ${numeric(/^0(?:\.0+)?$/.test(String(data.final_total)) ? "0" : "100")} %</p>` : ""}${
+      )}</tbody></table></div>${rows.length > 200 ? ("<p>" + uiHtml("Vista previa de los primeros 200 renglones. El archivo incluye todos.") + "</p>") : ""}${model.mode === "client" ? `${publicPriceSummary(data).rows.map(row=>`<div class="summary-row"><span>${e(row.label)}</span><strong>${money(row.amount)}</strong></div>`).join("")}` : ""}<div class="summary-final"><span>TOTAL ${e(["USD", "Usd"].includes(data.estimate.currency) ? "USD" : "ARS")}</span><strong>${money(data.final_total)}</strong></div>${model.mode === "incidences" ? `<p>${uiHtml("Incidencia total: {0} %", [numeric(/^0(?:\.0+)?$/.test(String(data.final_total)) ? "0" : "100")])}</p>` : ""}${
       model.mode === "internal"
-        ? `<h3>Determinación de precio</h3><p>Costo directo: ${money(data.calculation.breakdown.direct)}</p>${data.calculation.rows
+        ? `<h3>${uiHtml("Determinación de precio")}</h3><p>${uiHtml("Costo directo: {0}", [money(data.calculation.breakdown.direct)])}</p>${data.calculation.rows
             .filter((r) => r.enabled)
             .map(
               (r) =>
@@ -80,11 +81,11 @@ export function createBudgetPrinting({
             )
             .join("")}`
         : ""
-    }<p class="small-muted">Los datos públicos y el logotipo se configuran desde Inicio → Organizaciones → Datos de la organización. La impresión no modifica el presupuesto.</p></section></main>`;
+    }<p class="small-muted">${uiHtml("Los datos públicos y el logotipo se configuran desde Inicio → Organizaciones → Datos de la organización. La impresión no modifica el presupuesto.")}</p></section></main>`;
   }
   async function act(button) {
     if (button.dataset.action === "open-budget-printing") {
-      if (!state.estimateId) throw new Error("Abrí un presupuesto");
+      if (!state.estimateId) throw new Error(uiText("Abrí un presupuesto"));
       model.data = await invoke("get_budget_print_data", {
         estimateId: state.estimateId,
       });
@@ -180,7 +181,7 @@ export function createBudgetPrinting({
       try {
         await invoke("open_export_pdf", { path: model.lastExport });
         state.message =
-          "PDF guardado; se solicitó abrir el lector predeterminado";
+          uiText("PDF guardado; se solicitó abrir el lector predeterminado");
       } catch (error) {
         model.openError = String(error);
       }

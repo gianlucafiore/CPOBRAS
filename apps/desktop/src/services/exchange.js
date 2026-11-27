@@ -1,3 +1,4 @@
+import { uiText } from "./interface-language.js";
 import {createPdf} from "./pdf-units.js";
 import { money, numeric, multiplyDecimals } from "../decimal.js";
 const headers = ["Descripción", "Unidad", "Cantidad", "Precio unitario", "Rubro", "Código", "Importe"];
@@ -11,23 +12,23 @@ export function exportCsv(document) {
  return "\uFEFF" + [headers, ...budgetRows(document)].map(row => row.map(value => '"' + safeText(value).replaceAll('"', '""') + '"').join(";")).join("\r\n");
 }
 export function parseCsv(text) {
- if (text.length > 10_000_000) throw new Error("Archivo demasiado grande (máximo 10 MB)");
+ if (text.length > 10_000_000) throw new Error(uiText("Archivo demasiado grande (máximo 10 MB)"));
  text = text.replace(/^\uFEFF/, "");
  const separator = text.split(/\r?\n/)[0].includes(";") ? ";" : ",";
  const rows = []; let row = [], cell = "", quoted = false;
  for (let index = 0; index < text.length; index++) {
   const char = text[index];
-  if (char === '"') { if (quoted && text[index + 1] === '"') { cell += '"'; index++; } else if (quoted || cell === "") quoted = !quoted; else throw new Error("Comillas CSV inválidas"); }
+  if (char === '"') { if (quoted && text[index + 1] === '"') { cell += '"'; index++; } else if (quoted || cell === "") quoted = !quoted; else throw new Error(uiText("Comillas CSV inválidas")); }
   else if (char === separator && !quoted) { row.push(cell); cell = ""; }
   else if ((char === "\n" || char === "\r") && !quoted) { if (char === "\r" && text[index + 1] === "\n") index++; row.push(cell); if (row.some(Boolean)) rows.push(row); row = []; cell = ""; }
   else cell += char;
  }
- if (quoted) throw new Error("Campo CSV sin cerrar");
+ if (quoted) throw new Error(uiText("Campo CSV sin cerrar"));
  row.push(cell); if (row.some(Boolean)) rows.push(row);
  return rows;
 }
 export function rowsToBudget(rows, { currency, title, uuid = () => globalThis.crypto.randomUUID() }) {
- if (rows.length < 2 || rows.length > 10_001) throw new Error("El archivo debe tener encabezado y entre 1 y 10.000 partidas");
+ if (rows.length < 2 || rows.length > 10_001) throw new Error(uiText("El archivo debe tener encabezado y entre 1 y 10.000 partidas"));
  if (headers.slice(0, 4).some((header, index) => String(rows[0][index]).trim() !== header)) throw new Error("Encabezado esperado: " + headers.join("; "));
  const sections = [], assignments = [], sectionMap = new Map(), estimateId = uuid();
  const decimal = (value, row) => { const text = String(value ?? "").trim().replace(",", "."); if (!/^\d+(?:\.\d+)?$/.test(text)) throw new Error("Decimal inválido en fila " + row); return text; };
@@ -52,21 +53,21 @@ export async function validateWorkbookArchive(buffer) {
  const bytes=buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
  let total=0,entries=0;
  const unzip=new Unzip(file=>{
-  if(++entries>1000)throw new Error("Demasiados archivos internos en la planilla");
-  file.ondata=(error,chunk)=>{if(error)throw error;total+=chunk.length;if(total>50_000_000)throw new Error("La planilla supera 50 MB descomprimida");};
+  if(++entries>1000)throw new Error(uiText("Demasiados archivos internos en la planilla"));
+  file.ondata=(error,chunk)=>{if(error)throw error;total+=chunk.length;if(total>50_000_000)throw new Error(uiText("La planilla supera 50 MB descomprimida"));};
   file.start();
  });
  unzip.register(UnzipInflate);
  for(let offset=0;offset<bytes.length;offset+=4096)unzip.push(bytes.subarray(offset,offset+4096),offset+4096>=bytes.length);
- if(entries===0)throw new Error("La planilla no es un archivo Excel válido");
+ if(entries===0)throw new Error(uiText("La planilla no es un archivo Excel válido"));
 }
 export async function parseExcel(buffer) {
- if (buffer.byteLength > 10_000_000) throw new Error("Máximo 10 MB por archivo Excel");
+ if (buffer.byteLength > 10_000_000) throw new Error(uiText("Máximo 10 MB por archivo Excel"));
  await validateWorkbookArchive(buffer);
  const { readSheet }=await import("read-excel-file/universal");
  // Preserve the exact digits stored in Excel numeric cells, rather than converting to Number.
  const rows=await readSheet(new Blob([buffer]), {parseNumber:value=>value});
- if(rows.length>10_001||rows.some(row=>row.length>30))throw new Error("Tamaño de planilla inválido");
+ if(rows.length>10_001||rows.some(row=>row.length>30))throw new Error(uiText("Tamaño de planilla inválido"));
  return rows.map(row=>row.map(value=>String(value??"")));
 }
 export async function exportPdf(document, { title = document.title, landscape = false, mode = "budget", analyses = [], totals = null } = {}) {

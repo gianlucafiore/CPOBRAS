@@ -1,3 +1,4 @@
+import { uiText } from "./interface-language.js";
 import {createPdf} from "./pdf-units.js";
 import { multiplyDecimals, sumDecimals } from "../decimal.js";
 export async function exportOperationalReport({
@@ -10,27 +11,27 @@ export async function exportOperationalReport({
   whName,
   state,
 }) {
-  let title = "Informe de obra",
+  let title = uiText("Informe de obra"),
     headers = [],
     rows = [];
   const r = model.report;
   const summaryHeaders = [
-    "Obra",
-    "Moneda",
-    "Costo previsto",
-    "Venta prevista",
-    "Comprometido",
-    "Costo real",
-    "Pagado",
-    "Cobrado",
-    "Por pagar",
-    "Por cobrar",
-    "Saldo respecto del comitente",
-    "Aportes propios netos",
-    "Disponible incluidos aportes",
-    "Costo a terminar",
-    "Resultado esperado",
-    "Avance físico %",
+    uiText("Obra"),
+    uiText("Moneda"),
+    uiText("Costo previsto"),
+    uiText("Venta prevista"),
+    uiText("Comprometido"),
+    uiText("Costo real"),
+    uiText("Pagado"),
+    uiText("Cobrado"),
+    uiText("Por pagar"),
+    uiText("Por cobrar"),
+    uiText("Saldo respecto del comitente"),
+    uiText("Aportes propios netos"),
+    uiText("Disponible incluidos aportes"),
+    uiText("Costo a terminar"),
+    uiText("Resultado esperado"),
+    uiText("Avance físico %"),
   ];
   const summaryRows = (report) =>
     report.summaries.map((s) => [
@@ -55,39 +56,39 @@ export async function exportOperationalReport({
     const d = model.detail;
     title = `${operationNames[d.kind]} ${d.number}`;
     headers = [
-      "Concepto",
-      "Descripción",
-      "Cantidad",
-      "Precio",
-      "Importe / valor",
+      uiText("Concepto"),
+      uiText("Descripción"),
+      uiText("Cantidad"),
+      uiText("Precio"),
+      uiText("Importe / valor"),
     ];
     rows = [
-      ["Fecha", d.date, "", "", ""],
+      [uiText("Fecha"), d.date, "", "", ""],
       [
-        "Obra",
+        uiText("Obra"),
         state.projects.find((p) => p.id === d.project_id)?.name || d.project_id,
         "",
         "",
         "",
       ],
-      ["Moneda", d.currency, "", "", ""],
-      ["Contraparte", partnerName(d.partner_id), "", "", ""],
+      [uiText("Moneda"), d.currency, "", "", ""],
+      [uiText("Contraparte"), partnerName(d.partner_id), "", "", ""],
       [
-        "Origen",
+        uiText("Origen"),
         model.docs.find((o) => o.id === d.reference_id)?.number || "—",
         "",
         "",
         "",
       ],
       [
-        "Período",
+        uiText("Período"),
         `${d.period_start || ""} / ${d.period_end || ""}`,
         "",
         "",
         "",
       ],
-      ["Condiciones", d.terms || "", "", "", ""],
-      ["Observaciones", d.notes || "", "", "", ""],
+      [uiText("Condiciones"), d.terms || "", "", "", ""],
+      [uiText("Observaciones"), d.notes || "", "", "", ""],
       ...d.lines.map((l, i) => [
         "Renglón",
         l.description,
@@ -103,7 +104,7 @@ export async function exportOperationalReport({
         "",
         v,
       ]),
-      ["Neto", d.currency, "", "", d.amount],
+      [uiText("Neto"), d.currency, "", "", d.amount],
     ];
     if (d.kind === "index")
       rows.push(
@@ -173,24 +174,24 @@ export async function exportOperationalReport({
         x.delta,
       ]);
   } else if (scope === "portfolio") {
-    title = "Cartera de obras";
+    title = uiText("Cartera de obras");
     headers = summaryHeaders;
     rows = model.portfolio.flatMap(summaryRows);
   } else if (scope === "summary") {
     headers = summaryHeaders;
     rows = r ? summaryRows(r) : [];
   } else if (scope === "production") {
-    title = "Producción y rendimientos";
+    title = uiText("Producción y rendimientos");
     headers = [
-      "Rubro",
-      "Partida",
-      "Previsto",
-      "Ejecutado",
-      "Avance %",
-      "Horas",
-      "Horas/unidad previstas",
-      "Horas/unidad reales",
-      "Desvío %",
+      uiText("Rubro"),
+      uiText("Partida"),
+      uiText("Previsto"),
+      uiText("Ejecutado"),
+      uiText("Avance %"),
+      uiText("Horas"),
+      uiText("Horas/unidad previstas"),
+      uiText("Horas/unidad reales"),
+      uiText("Desvío %"),
     ];
     rows = (r?.production || []).map((p) => [
       p.section,
@@ -204,18 +205,18 @@ export async function exportOperationalReport({
       p.productivity_variance ?? "",
     ]);
   } else if (scope === "financial") {
-    title = "Previsión financiera y materiales por período";
+    title = uiText("Previsión financiera y materiales por período");
     headers = [
-      "Fecha / período",
-      "Concepto",
-      "Ingreso / necesario",
-      "Egreso / comprar",
-      "Saldo / costo",
+      uiText("Fecha / período"),
+      uiText("Concepto"),
+      uiText("Ingreso / necesario"),
+      uiText("Egreso / comprar"),
+      uiText("Saldo / costo"),
     ];
     const f = r?.financial_projection;
     if (!f)
       throw new Error(
-        "Guardá el cronograma para obtener la previsión financiera",
+        uiText("Guardá el cronograma para obtener la previsión financiera"),
       );
     rows = [
       [
@@ -267,14 +268,14 @@ export async function exportOperationalReport({
     );
     rows.push(...f.warnings.map((w) => ["Observación", w, "", "", ""]));
   } else if (scope === "cash") {
-    title = "Flujo de fondos";
+    title = uiText("Flujo de fondos");
     headers = [
-      "Mes",
-      "Moneda",
-      "Ingresos previstos",
-      "Egresos previstos",
-      "Cobros",
-      "Pagos",
+      uiText("Mes"),
+      uiText("Moneda"),
+      uiText("Ingresos previstos"),
+      uiText("Egresos previstos"),
+      uiText("Cobros"),
+      uiText("Pagos"),
     ];
     rows = (r?.cash_flow || []).map((p) => [
       p.month,
@@ -285,16 +286,16 @@ export async function exportOperationalReport({
       p.actual_out,
     ]);
   } else if (scope === "needs") {
-    title = "Necesidades de materiales";
+    title = uiText("Necesidades de materiales");
     headers = [
-      "Insumo",
-      "Necesario",
-      "Solicitado",
-      "Ordenado",
-      "Recibido",
-      "Consumido",
-      "Stock",
-      "Faltante",
+      uiText("Insumo"),
+      uiText("Necesario"),
+      uiText("Solicitado"),
+      uiText("Ordenado"),
+      uiText("Recibido"),
+      uiText("Consumido"),
+      uiText("Stock"),
+      uiText("Faltante"),
     ];
     rows = (r?.needs || []).map((n) => [
       n.description,
@@ -307,8 +308,8 @@ export async function exportOperationalReport({
       n.shortage,
     ]);
   } else if (scope === "stock") {
-    title = "Existencias";
-    headers = ["Depósito", "Insumo", "Moneda", "Cantidad", "Valor"];
+    title = uiText("Existencias");
+    headers = [uiText("Depósito"), uiText("Insumo"), uiText("Moneda"), uiText("Cantidad"), uiText("Valor")];
     rows = model.stock
       .filter((b) =>
         model.warehouses.some(
@@ -324,14 +325,14 @@ export async function exportOperationalReport({
         b.value,
       ]);
   } else if (scope === "costs") {
-    title = "Resultados por centro y partida";
+    title = uiText("Resultados por centro y partida");
     headers = [
-      "Partida",
-      "Centro",
-      "Moneda",
-      "Costo real",
-      "Venta certificada",
-      "Resultado",
+      uiText("Partida"),
+      uiText("Centro"),
+      uiText("Moneda"),
+      uiText("Costo real"),
+      uiText("Venta certificada"),
+      uiText("Resultado"),
     ];
     rows = (r?.costs || []).map((c) => [
       c.line_description ||
@@ -344,15 +345,15 @@ export async function exportOperationalReport({
       c.result,
     ]);
   } else if (scope === "sections") {
-    title = "Resultados por rubro";
+    title = uiText("Resultados por rubro");
     headers = [
-      "Rubro",
-      "Moneda",
-      "Costo previsto",
-      "Costo real",
-      "Desvío",
-      "Venta certificada",
-      "Resultado",
+      uiText("Rubro"),
+      uiText("Moneda"),
+      uiText("Costo previsto"),
+      uiText("Costo real"),
+      uiText("Desvío"),
+      uiText("Venta certificada"),
+      uiText("Resultado"),
     ];
     rows = (r?.section_results || []).map((s) => [
       s.section,
@@ -364,16 +365,16 @@ export async function exportOperationalReport({
       s.result,
     ]);
   } else if (scope === "documents") {
-    title = "Historial de documentos";
+    title = uiText("Historial de documentos");
     headers = [
       "ID",
-      "Fecha",
-      "Tipo",
-      "Número",
-      "Contraparte",
-      "Moneda",
-      "Importe",
-      "Origen",
+      uiText("Fecha"),
+      uiText("Tipo"),
+      uiText("Número"),
+      uiText("Contraparte"),
+      uiText("Moneda"),
+      uiText("Importe"),
+      uiText("Origen"),
     ];
     rows = model.docs.map((d) => [
       d.id,
@@ -412,7 +413,7 @@ export async function exportOperationalReport({
       pdf.setFontSize(13);
       pdf.text(title, 12, 14);
       pdf.setFontSize(8);
-      pdf.text(`Corte: ${model.asOf} · Importes separados por moneda`, 12, 20);
+      pdf.text(uiText("Corte: {0} · Importes separados por moneda", [model.asOf]), 12, 20);
       y = 28;
     };
     pageTitle();

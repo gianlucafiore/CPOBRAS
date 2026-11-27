@@ -1,3 +1,4 @@
+import { uiText } from "./interface-language.js";
 export function logoUrl(bytes = []) {
   if (!bytes.length) return "";
   let text = "";
@@ -7,7 +8,7 @@ export function logoUrl(bytes = []) {
 }
 export async function normalizeLogo(file) {
   if (!["image/png", "image/jpeg"].includes(file.type) || file.size > 3_000_000)
-    throw new Error("Elegí un PNG o JPEG de hasta 3 MB");
+    throw new Error(uiText("Elegí un PNG o JPEG de hasta 3 MB"));
   const bitmap = await createImageBitmap(file);
   try {
     const ratio = Math.min(1, 640 / bitmap.width, 640 / bitmap.height);
@@ -21,7 +22,7 @@ export async function normalizeLogo(file) {
       canvas.toBlob(resolve, "image/png"),
     );
     if (!blob || blob.size > 512_000)
-      throw new Error("El logotipo procesado supera 512 KB");
+      throw new Error(uiText("El logotipo procesado supera 512 KB"));
     return [...new Uint8Array(await blob.arrayBuffer())];
   } finally {
     bitmap.close();

@@ -1,3 +1,4 @@
+import { uiText } from "./interface-language.js";
 import { percentageOf, sumDecimals } from "../decimal.js";
 export const taskPercent = (plan, id) => plan.segments?.[id]?.percent || "100";
 export const allocatedPercent = (plan, lineId) =>
@@ -14,7 +15,7 @@ export function splitTask(
   const copy = structuredClone(plan),
     original = copy.tasks.find((t) => t.id === id);
   if (!original || copy.tasks.some((t) => t.id === newId))
-    throw new Error("Tarea inexistente o identificador repetido.");
+    throw new Error(uiText("Tarea inexistente o identificador repetido."));
   if (
     !firstName.trim() ||
     !secondName.trim() ||
@@ -26,7 +27,7 @@ export function splitTask(
     )
   )
     throw new Error(
-      "Completá los nombres, duraciones y un porcentaje mayor a 0 y menor a 100.",
+      uiText("Completá los nombres, duraciones y un porcentaje mayor a 0 y menor a 100."),
     );
   const old = copy.segments?.[id],
     percent = taskPercent(copy, id),

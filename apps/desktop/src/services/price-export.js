@@ -1,3 +1,4 @@
+import { uiText } from "./interface-language.js";
 import {estimateMonths,itemMonths} from "./price-duration.js";
 import {createPdf} from "./pdf-units.js";
 export function priceExportRows({
@@ -152,7 +153,7 @@ export async function exportPriceDetermination({
     let y = 25;
     const heading = () => {
       pdf.setFontSize(14);
-      pdf.text("Determinación de precio", 12, 13);
+      pdf.text(uiText("Determinación de precio"), 12, 13);
       pdf.setFontSize(9);
       pdf.text(String(title) + " · " + currency, 12, 20);
       y = 29;

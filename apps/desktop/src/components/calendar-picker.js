@@ -1,5 +1,6 @@
+import { uiText, uiHtml, displayDate } from "../services/interface-language.js";
 import { e, dateToday } from "./helpers.js";
-import { dayNumber, dayISO, weekday } from "../services/calendar.js";
+import { dayNumber, dayISO, weekday, weekdayName } from "../services/calendar.js";
 export function createCalendarPicker({ state, document }) {
   const model = { key: null, month: dateToday().slice(0, 7), exceptions: {} };
   function configure(calendar, key) {
@@ -28,24 +29,24 @@ export function createCalendarPicker({ state, document }) {
     const first = model.month + "-01",
       offset = weekday(first),
       start = dayNumber(first) - offset;
-    return `<div class="calendar-selector"><section class="calendar-month"><div class="calendar-month-toolbar"><button class="btn" type="button" data-action="plan-calendar-prev" aria-label="Mes anterior">←</button><label>Mes<input type="month" name="calendar-month" aria-label="Mes del calendario" value="${e(model.month)}" min="0001-01" max="9999-12"></label><button class="btn" type="button" data-action="plan-calendar-next" aria-label="Mes siguiente">→</button></div><div class="calendar-weekday-labels">${["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"].map((n) => `<span>${n}</span>`).join("")}</div><div class="calendar-date-grid">${Array.from(
+    return `<div class="calendar-selector"><section class="calendar-month"><div class="calendar-month-toolbar"><button class="btn" type="button" data-action="plan-calendar-prev" aria-label="${uiHtml("Mes anterior")}">←</button><label>${uiHtml("Mes")}<input type="month" name="calendar-month" aria-label="${uiHtml("Mes del calendario")}" value="${e(model.month)}" min="0001-01" max="9999-12"></label><button class="btn" type="button" data-action="plan-calendar-next" aria-label="${uiHtml("Mes siguiente")}">→</button></div><div class="calendar-weekday-labels">${Array.from({length: 7}, (_, day) => `<span>${e(weekdayName(day))}</span>`).join("")}</div><div class="calendar-date-grid">${Array.from(
       { length: 42 },
       (_, i) => {
         const date = dayISO(start + i),
           entry = model.exceptions[date];
-        return `<button class="calendar-date ${date.slice(0, 7) !== model.month ? "other-month" : ""} ${weekday(date) >= 5 ? "weekend" : ""} ${entry ? (entry.working ? "exception-working" : "exception-off") : ""}" type="button" data-action="plan-calendar-toggle" data-date="${date}" aria-label="Marcar ${date}" aria-pressed="${Boolean(entry)}" ${state.remoteProject ? "disabled" : ""} title="${e(entry?.description || date)}">${Number(date.slice(8))}</button>`;
+        return `<button class="calendar-date ${date.slice(0, 7) !== model.month ? "other-month" : ""} ${weekday(date) >= 5 ? "weekend" : ""} ${entry ? (entry.working ? "exception-working" : "exception-off") : ""}" type="button" data-action="plan-calendar-toggle" data-date="${date}" aria-label="${uiHtml("Marcar")} ${date}" aria-pressed="${Boolean(entry)}" ${state.remoteProject ? "disabled" : ""} title="${e(entry?.description || date)}">${Number(date.slice(8))}</button>`;
       },
     ).join(
       "",
-    )}</div><p>Marcá todas las fechas necesarias. El calendario permanece abierto.</p></section><section class="calendar-exceptions"><h3>Feriados y fechas especiales</h3><p>«Laborable» habilita esa fecha aunque sea sábado, domingo o feriado.</p>${
+    )}</div><p>${uiHtml("Marcá todas las fechas necesarias. El calendario permanece abierto.")}</p></section><section class="calendar-exceptions"><h3>${uiHtml("Feriados y fechas especiales")}</h3><p>${uiHtml("«Laborable» habilita esa fecha aunque sea sábado, domingo o feriado.")}</p>${
       Object.entries(model.exceptions)
         .sort(([a], [b]) => a.localeCompare(b))
         .map(
           ([date, item]) =>
-            `<div class="calendar-exception" data-calendar-entry="${date}"><strong>${date.split("-").reverse().join("/")}</strong><label class="field"><span>Descripción</span><input name="calendar-description:${date}" data-calendar-description="${date}" aria-label="Descripción ${date}" value="${e(item.description)}" maxlength="500" ${state.remoteProject ? "disabled" : ""}></label><label class="calendar-working-label"><input type="checkbox" name="calendar-working:${date}" data-calendar-working="${date}" aria-label="Laborable ${date}" ${item.working ? "checked" : ""} ${state.remoteProject ? "disabled" : ""}> Laborable</label><button type="button" class="btn tiny" data-action="plan-calendar-remove" data-date="${date}" aria-label="Quitar ${date}" ${state.remoteProject ? "disabled" : ""}>×</button></div>`,
+            `<div class="calendar-exception" data-calendar-entry="${date}"><strong>${displayDate(date)}</strong><label class="field"><span>${uiHtml("Descripción")}</span><input name="calendar-description:${date}" data-calendar-description="${date}" aria-label="${uiHtml("Descripción")} ${date}" value="${e(item.description)}" maxlength="500" ${state.remoteProject ? "disabled" : ""}></label><label class="calendar-working-label"><input type="checkbox" name="calendar-working:${date}" data-calendar-working="${date}" aria-label="${uiHtml("Laborable")} ${date}" ${item.working ? "checked" : ""} ${state.remoteProject ? "disabled" : ""}> ${uiHtml("Laborable")}</label><button type="button" class="btn tiny" data-action="plan-calendar-remove" data-date="${date}" aria-label="${uiHtml("Quitar")} ${date}" ${state.remoteProject ? "disabled" : ""}>×</button></div>`,
         )
         .join("") ||
-      "<p>Sin fechas especiales. Seleccionalas en el calendario.</p>"
+      ("<p>" + uiHtml("Sin fechas especiales. Seleccionalas en el calendario.") + "</p>")
     }</section></div>`;
   }
   function draw() {
@@ -65,7 +66,7 @@ export function createCalendarPicker({ state, document }) {
           String(y).padStart(4, "0") + "-" + String(m).padStart(2, "0");
     }
     if (a === "plan-calendar-toggle" || a === "plan-calendar-remove") {
-      if (state.remoteProject) throw new Error("Obra externa de solo lectura");
+      if (state.remoteProject) throw new Error(uiText("Obra externa de solo lectura"));
       const date = button.dataset.date;
       dayNumber(date);
       if (model.exceptions[date]) delete model.exceptions[date];

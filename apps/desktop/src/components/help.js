@@ -1,4 +1,4 @@
-import { e } from "./helpers.js";
+import { uiHtml, uiText } from "../services/interface-language.js";
 const pages = {
   "system-settings": [
     "Datos generales",
@@ -75,7 +75,7 @@ const pages = {
   ],
 };
 const panels = {
-  memory: ["Memoria descriptiva", "Presentación pública del presupuesto con títulos, negrita, cursiva y listas. Se guarda automáticamente. Elegí un documento con memoria para imprimirla al comienzo; la cotización se anexa desde una página nueva."],
+  memory: ["Memoria descriptiva", "Escribí el alcance y las condiciones del presupuesto con títulos, negrita, cursiva y listas. La memoria se guarda automáticamente. Para incluirla en el PDF, elegí una presentación con memoria descriptiva."],
   "direct-costs": [
     "Gastos Directos del presupuesto",
     "Definí el plazo estimado de obra, inicialmente 6 meses. Los gastos mensuales usan ese plazo; marcá «Usar meses distintos» para indicar una duración propia por insumo. Los gastos puntuales se suman una vez. El plazo también se usa en los gastos indirectos vinculados de Determinación de precio. Los cambios se guardan automáticamente.",
@@ -99,5 +99,5 @@ const panels = {
 };
 export function helpBox(key, panel = false) {
   const [title, text] = (panel ? panels : pages)[key] || pages.projects;
-  return `<aside class="context-help ${panel ? "panel-help" : ""}" aria-label="Ayuda: ${e(title)}"><span aria-hidden="true">ⓘ</span><div><strong>${e(title)}</strong><p>${e(text)}</p></div></aside>`;
+  return `<aside class="context-help ${panel ? "panel-help" : ""}" aria-label="${uiHtml("Ayuda: {0}", [uiText(title)])}"><span aria-hidden="true">ⓘ</span><div><strong>${uiHtml(title)}</strong><p>${uiHtml(text)}</p></div></aside>`;
 }

@@ -549,7 +549,7 @@ export function draftFromProposal(p) {
     : {description:safe.description,unit:safe.unit,kind:safe.resource_type||"material",...(safe.unit_price!=null?{price:safe.unit_price}:{})}};
 }
 // Read only rendered text and non-secret form values. No DB calls, localStorage or hidden DOM.
-export function screenContext(document) {
+export function screenContext(document, {includeInputs = true} = {}) {
   const root=document.querySelector("#app");
   if (!root) return "";
   const excluded='script,style,nav,.app-header,button,[hidden],[aria-hidden="true"],input,textarea,select';
@@ -562,7 +562,8 @@ export function screenContext(document) {
     const text=node.textContent.trim().replace(/\s+/g," ");
     if (text) parts.push(text);
   }
-  for (const input of root.querySelectorAll('input:not([type="password"]):not([type="hidden"]):not([type="file"]),textarea,select')) {
+  const fields = includeInputs ? root.querySelectorAll('input:not([type="password"]):not([type="hidden"]):not([type="file"]),textarea,select') : [];
+  for (const input of fields) {
     if (!input.getClientRects().length || /key|token|secret|password/i.test(input.name||"")) continue;
     const label=input.closest("label")?.textContent.trim().slice(0,80)||input.getAttribute("aria-label")||input.name;
     const value=input.tagName==="SELECT"?input.selectedOptions?.[0]?.textContent:input.value;

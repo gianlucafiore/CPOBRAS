@@ -1,3 +1,4 @@
+import { uiText, currentInterfaceLanguage } from "./interface-language.js";
 import {estimateMonths,monthFactor} from "./price-duration.js";
 import { budgetNumbering } from "./budget-numbering.js";
 import {
@@ -28,7 +29,7 @@ const text = (v, style = {}) => ({
 const number = (v, format = cash, editable = false) => {
   const value = Number(v ?? 0);
   if (!Number.isFinite(value))
-    throw new Error("Importe fuera del rango de Excel");
+    throw new Error(uiText("Importe fuera del rango de Excel"));
   return {
     value,
     type: Number,
@@ -175,7 +176,7 @@ function periodicFactor(item,definition) {
 function definitionRows(data) {
   if (!data.document.price_definition?.rows)
     throw new Error(
-      "Falta la determinación del precio para generar el respaldo completo",
+      uiText("Falta la determinación del precio para generar el respaldo completo"),
     );
   return data.document.price_definition.rows;
 }
@@ -210,19 +211,19 @@ export function buildBudgetWorkbook(
       9,
     ),
     head([
-      "Tipo",
-      "Insumo",
-      "Unidad",
-      "Consumo / unidad",
-      "Precio unitario",
-      "Parcial unitario",
-      "Cantidad de partida",
-      "Cantidad total",
-      "Precio total",
+      uiText("Tipo"),
+      uiText("Insumo"),
+      uiText("Unidad"),
+      uiText("Consumo / unidad"),
+      uiText("Precio unitario"),
+      uiText("Parcial unitario"),
+      uiText("Cantidad de partida"),
+      uiText("Cantidad total"),
+      uiText("Precio total"),
       "",
-      "Cobrar (1/0)",
+      uiText("Cobrar (1/0)"),
       "",
-      "Rendimiento por día hábil",
+      uiText("Rendimiento por día hábil"),
     ]),
   ];
   const acuRefs = new Map(),
@@ -280,7 +281,7 @@ export function buildBudgetWorkbook(
       total = sumDecimals(a.components.map((c) => c.total)),
       n = acu.length + 1;
     acu.push([
-      text("COSTO UNITARIO", { columnSpan: 5, fontWeight: "bold" }),
+      text(uiText("COSTO UNITARIO"), { columnSpan: 5, fontWeight: "bold" }),
       null,
       null,
       null,
@@ -301,14 +302,14 @@ export function buildBudgetWorkbook(
       8,
     ),
     head([
-      "Partida",
-      "Nota",
-      "Signo",
-      "Factor",
-      "Largo",
-      "Ancho",
-      "Alto",
-      "Cantidad",
+      uiText("Partida"),
+      uiText("Nota"),
+      uiText("Signo"),
+      uiText("Factor"),
+      uiText("Largo"),
+      uiText("Ancho"),
+      uiText("Alto"),
+      uiText("Cantidad"),
     ]),
   ];
   const measures = new Map();
@@ -341,30 +342,30 @@ export function buildBudgetWorkbook(
       10,
     ),
     head([
-      "Concepto",
-      "Descripción",
-      "Unidad",
-      "Participación %",
-      "Cantidad",
-      "Precio unitario",
-      "Factor períodos",
-      "Importe",
-      "Desde",
-      "Hasta",
+      uiText("Concepto"),
+      uiText("Descripción"),
+      uiText("Unidad"),
+      uiText("Participación %"),
+      uiText("Cantidad"),
+      uiText("Precio unitario"),
+      uiText("Factor períodos"),
+      uiText("Importe"),
+      uiText("Desde"),
+      uiText("Hasta"),
     ]),
   ];
   const price = [
     banner("Determinación del precio", 8),
-    [text("Plazo estimado de obra (meses)"),number(estimateMonths(doc.price_definition),decimal,true)],
+    [text(uiText("Plazo estimado de obra (meses)")),number(estimateMonths(doc.price_definition),decimal,true)],
     head([
-      "Concepto",
-      "Activo (1/0)",
-      "Base",
-      "Porcentaje",
-      "Importe fijo / detalle",
-      "Importe aplicado",
-      "Acumulado",
-      "Rol",
+      uiText("Concepto"),
+      uiText("Activo (1/0)"),
+      uiText("Base"),
+      uiText("Porcentaje"),
+      uiText("Importe fijo / detalle"),
+      uiText("Importe aplicado"),
+      uiText("Acumulado"),
+      uiText("Rol"),
     ]),
   ];
   const direct =
@@ -373,7 +374,7 @@ export function buildBudgetWorkbook(
       doc.lines.map((l) => multiplyDecimals(l.quantity, l.unit_cost_snapshot)),
     );
   price.push([
-    text("Costo directo"),
+    text(uiText("Costo directo")),
     null,
     null,
     null,
@@ -470,7 +471,7 @@ export function buildBudgetWorkbook(
         kind === "subtotal" ? `G${previous}` : `G${previous}+F${n}`,
         result.running_total ?? direct,
       ),
-      text(kind === "subtotal" ? "subtotal" : source.role || "other"),
+      text(kind === "subtotal" ? uiText("subtotal") : source.role || "other"),
     ]);
     previous = n;
   }
@@ -481,7 +482,7 @@ export function buildBudgetWorkbook(
   price.push(
     [],
     [
-      text("Subtotal sin IVA"),
+      text(uiText("Subtotal sin IVA")),
       null,
       null,
       null,
@@ -493,7 +494,7 @@ export function buildBudgetWorkbook(
       ),
     ],
     [
-      text("IVA / impuestos"),
+      text(uiText("IVA / impuestos")),
       null,
       null,
       null,
@@ -502,7 +503,7 @@ export function buildBudgetWorkbook(
       formula(`ROUND(G${previous},2)-G${subtotalRow}`, summary.taxes),
     ],
     [
-      text("TOTAL FINAL", { fontWeight: "bold" }),
+      text(uiText("TOTAL FINAL"), { fontWeight: "bold" }),
       null,
       null,
       null,
@@ -527,16 +528,16 @@ export function buildBudgetWorkbook(
       10,
     ),
     head([
-      "Ítem",
-      "Rubro",
-      "Descripción",
-      "Unidad",
-      "Cantidad",
-      "P. unitario de costo",
-      "Costo directo",
-      "P. unitario final sin IVA",
-      "Importe sin IVA",
-      "Incidencia %",
+      uiText("Ítem"),
+      uiText("Rubro"),
+      uiText("Descripción"),
+      uiText("Unidad"),
+      uiText("Cantidad"),
+      uiText("P. unitario de costo"),
+      uiText("Costo directo"),
+      uiText("P. unitario final sin IVA"),
+      uiText("Importe sin IVA"),
+      uiText("Incidencia %"),
       "",
     ]),
   ];
@@ -592,15 +593,15 @@ export function buildBudgetWorkbook(
   }
   parts.push(
     moneyRow(
-      "Subtotal sin IVA",
+      uiText("Subtotal sin IVA"),
       formula(ref("Precio", "G", subtotalRow), summary.subtotal),
     ),
     moneyRow(
-      "IVA / impuestos",
+      uiText("IVA / impuestos"),
       formula(ref("Precio", "G", taxRow), summary.taxes),
     ),
     moneyRow(
-      "TOTAL FINAL",
+      uiText("TOTAL FINAL"),
       formula(ref("Precio", "G", totalRow), summary.total),
     ),
   );
@@ -610,7 +611,7 @@ export function buildBudgetWorkbook(
       "Cantidades y valores completos para provisión, incluidos los insumos que paga el comitente y no se cobran en el presupuesto.",
       5,
     ),
-    head(["Tipo", "Insumo", "Unidad", "Cantidad total", "Precio total"]),
+    head([uiText("Tipo"), uiText("Insumo"), uiText("Unidad"), uiText("Cantidad total"), uiText("Precio total")]),
   ];
   const grouped = new Map();
   for (const c of [...componentRefs,...directRefs]) {
@@ -765,7 +766,7 @@ export function buildClientWorkbook(
           null,
           number(row.sale),
           number(divideDecimals(row.incidence ?? "0", "100"), percent),
-          text("section"),
+          text(uiText("section")),
         ]);
         continue;
       }
@@ -782,7 +783,7 @@ export function buildClientWorkbook(
           ? number(amount, cash, true)
           : formula(`ROUND(D${n}*E${n},2)`, amount),
         null,
-        text("line"),
+        text(uiText("line")),
       ]);
     }
     const end = content.length,
@@ -842,7 +843,7 @@ export function buildClientWorkbook(
       content.push(moneyRow(row.label,cell,7));visibleBase=sumDecimals([visibleBase,row.amount]);
     }
     const summaryEnd=content.length;
-    content.push(moneyRow("TOTAL FINAL",formula(`SUM(G${totalNet}:G${summaryEnd})`,summary.total),7),...paragraphs(notes,7),...paragraphs(p.footer,7));
+    content.push(moneyRow(uiText("TOTAL FINAL"),formula(`SUM(G${totalNet}:G${summaryEnd})`,summary.total),7),...paragraphs(notes,7),...paragraphs(p.footer,7));
     output.push(
       sheet("Presupuesto", content, [8, 55, 10, 16, 23, 24, 17, 1], {
         hiddenColumns: [8],
@@ -857,12 +858,43 @@ export function buildClientWorkbook(
 function publicSummaryRows(summary, width) {
   return [
     ...summary.rows.map(row=>moneyRow(row.label,number(row.amount),width)),
-    moneyRow("TOTAL FINAL", number(summary.total), width),
+    moneyRow(uiText("TOTAL FINAL"), number(summary.total), width),
   ];
 }
 
+function localizeSheets(sheets) {
+  if (currentInterfaceLanguage() === "es-AR") return sheets;
+  const names = new Map(), used = new Set();
+  for (const {sheet} of sheets) {
+    const label = uiText(sheet).replace(/[\\/*?:[\]]/g, " ").trim();
+    let candidate = Array.from(label).slice(0, 31).join("") || sheet;
+    let suffix = 1;
+    while (used.has(candidate.toLowerCase())) {
+      const sequence = " " + ++suffix;
+      candidate = Array.from(label || sheet).slice(0, 31 - sequence.length).join("") + sequence;
+    }
+    names.set(sheet, candidate);
+    used.add(candidate.toLowerCase());
+  }
+  const reference = /"(?:[^"]|"")*"|(?:'((?:[^']|'')+)'|([A-Za-z0-9_]+))!/g;
+  return sheets.map(s => ({
+    ...s,
+    sheet: names.get(s.sheet),
+    data: s.data.map(row => row.map(cell => {
+      if (cell?.type !== "Formula") return cell;
+      const formula = cell.value.replace(reference, (match, quoted, bare) => {
+        if (!quoted && !bare) return match;
+        const translated = names.get(quoted?.replaceAll("''", "'") || bare);
+        return translated ? "'" + translated.replaceAll("'", "''") + "'!" : match;
+      });
+      return { ...cell, value: formula };
+    })),
+  }));
+}
+
 /** Cache verified source values, request recalculation, and make every sheet printable on A4. */
-export async function workbookBytes(sheets) {
+export async function workbookBytes(sourceSheets) {
+  const sheets = localizeSheets(sourceSheets);
   const { default: writeExcelFile } =
     await import("write-excel-file/universal");
   const { unzipSync, zipSync, strFromU8, strToU8 } = await import("fflate");
@@ -892,7 +924,7 @@ export async function workbookBytes(sheets) {
         if (!cached.has(address)) return whole;
         const value = cached.get(address);
         if (!/^-?\d+(?:\.\d+)?$/.test(value))
-          throw new Error("Valor calculado no válido para Excel");
+          throw new Error(uiText("Valor calculado no válido para Excel"));
         return `<c${attrs}>${body.replace(/<v>[\s\S]*?<\/v>/g, "")}<v>${value}</v></c>`;
       },
     );
@@ -912,7 +944,7 @@ export async function workbookBytes(sheets) {
         : whole,
     );
     const lastCol = String.fromCharCode(64 + s.printColumns),
-      escaped = s.sheet.replaceAll("'", "''");
+      escaped = s.sheet.replaceAll("'", "''").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
     names += `<definedName name="_xlnm.Print_Area" localSheetId="${index}">'${escaped}'!$A$1:$${lastCol}$${s.data.length}</definedName>`;
     if (s.stickyRowsCount)
       names += `<definedName name="_xlnm.Print_Titles" localSheetId="${index}">'${escaped}'!$1:$${s.stickyRowsCount}</definedName>`;

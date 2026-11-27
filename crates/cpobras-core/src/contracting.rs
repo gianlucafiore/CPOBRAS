@@ -79,6 +79,7 @@ pub fn quoted_subcontract(
     ContractingScenario {
         name: description.to_owned(),
         components: vec![ResourcePriceSnapshot {
+            price_pending: false,
             daily_output: None,
             included: true,
             resource_id,
@@ -102,6 +103,7 @@ mod tests {
             name: "Montaje propio".into(),
             components: vec![
                 ResourcePriceSnapshot {
+                    price_pending: false,
                     daily_output: None,
                     included: true,
                     resource_id: Uuid::new_v4(),
@@ -111,6 +113,7 @@ mod tests {
                     unit_price: Decimal::new(1000, 0),
                 },
                 ResourcePriceSnapshot {
+                    price_pending: false,
                     daily_output: None,
                     included: true,
                     resource_id: Uuid::new_v4(),

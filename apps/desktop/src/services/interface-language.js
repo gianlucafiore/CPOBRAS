@@ -1,94 +1,94 @@
-export const languages = [
-  ["es-AR", "Español"],
-  ["pt-BR", "Português (Brasil)"],
-  ["fr", "Français"],
-  ["en", "English"],
-];
+import { catalogs, defaultLanguage } from "../locales/index.js";
 
-const translations = {
-  "Opciones": ["Opções", "Options", "Options"],
-  "Apariencia": ["Aparência", "Apparence", "Appearance"],
-  "Seguir al sistema": ["Seguir o sistema", "Suivre le système", "Follow system"],
-  "Tema de colores": ["Tema de cores", "Thème de couleurs", "Color theme"],
-  "Idioma": ["Idioma", "Langue", "Language"],
-  "Traducción disponible en la navegación y las opciones.": [
-    "Tradução disponível na navegação e nas opções.",
-    "Traduction disponible dans la navigation et les options.",
-    "Translation available in navigation and settings.",
-  ],
-  "Volver a Inicio": ["Voltar ao início", "Retour à l’accueil", "Back to Home"],
-  "Inicio / Obras": ["Início / Obras", "Accueil / Chantiers", "Home / Projects"],
-  "Obras y presupuestos": ["Obras e orçamentos", "Chantiers et devis", "Projects and estimates"],
-  "← Inicio": ["← Início", "← Accueil", "← Home"],
-  "Proyecto": ["Projeto", "Projet", "Project"],
-  "← Volver al proyecto": ["← Voltar ao projeto", "← Retour au projet", "← Back to project"],
-  "Presupuesto": ["Orçamento", "Devis", "Estimate"],
-  "Planificación": ["Planejamento", "Planification", "Scheduling"],
-  "Datos de la obra": ["Dados da obra", "Données du chantier", "Project details"],
-  "Gestión de obra": ["Gestão da obra", "Gestion du chantier", "Project management"],
-  "Herramientas / exportar": ["Ferramentas / exportar", "Outils / exporter", "Tools / export"],
-  "Herramientas de presupuesto": ["Ferramentas de orçamento", "Outils de devis", "Estimate tools"],
-  "Determinación de precio": ["Formação de preço", "Calcul du prix", "Pricing"],
-  "Imprimir presupuesto": ["Imprimir orçamento", "Imprimer le devis", "Print estimate"],
-  "Cartera de obras": ["Carteira de obras", "Portefeuille de chantiers", "Project portfolio"],
-  "Organización y obras": ["Organização e obras", "Organisation et chantiers", "Organization and projects"],
-  "Costos y precios": ["Custos e preços", "Coûts et prix", "Costs and prices"],
-  "Clientes": ["Clientes", "Clients", "Clients"],
-  "Directorio de clientes": ["Cadastro de clientes", "Répertoire des clients", "Client directory"],
-  "Proveedores": ["Fornecedores", "Fournisseurs", "Suppliers"],
-  "Directorio de proveedores": ["Cadastro de fornecedores", "Répertoire des fournisseurs", "Supplier directory"],
-  "Insumos": ["Insumos", "Ressources", "Resources"],
-  "Catálogo de insumos": ["Catálogo de insumos", "Catalogue de ressources", "Resource catalog"],
-  "ACU": ["CPU", "APU", "Unit costs"],
-  "Biblioteca de ACU": ["Biblioteca de CPU", "Bibliothèque d’APU", "Unit cost library"],
-  "Organizaciones": ["Organizações", "Organisations", "Organizations"],
-  "Vinculación P2P": ["Conexão P2P", "Connexion P2P", "P2P connections"],
-  "Datos generales": ["Dados gerais", "Paramètres généraux", "General settings"],
-  "Copias de seguridad": ["Backups", "Sauvegardes", "Backups"],
-  "Historial de vistas": ["Histórico de telas", "Historique des vues", "View history"],
-  "Navegación principal": ["Navegação principal", "Navigation principale", "Main navigation"],
-  "Atrás": ["Voltar", "Précédent", "Back"],
-  "Adelante": ["Avançar", "Suivant", "Forward"],
-  "ESC cierra ventanas": ["ESC fecha janelas", "Échap ferme les fenêtres", "Esc closes windows"],
-  "estudio de costos": ["estudo de custos", "étude des coûts", "cost estimating"],
-  "Estado del presupuesto": ["Status do orçamento", "État du devis", "Estimate status"],
-  "● En elaboración": ["● Em elaboração", "● En préparation", "● Draft"],
-  "● Emitido": ["● Emitido", "● Émis", "● Issued"],
-  "● SQLite local": ["● SQLite local", "● SQLite local", "● Local SQLite"],
-  "Solo lectura": ["Somente leitura", "Lecture seule", "Read-only"],
-  "Solo lectura · Obra externa": ["Somente leitura · Obra externa", "Lecture seule · Chantier externe", "Read-only · External project"],
-  "VISTA PREVIA": ["PRÉVIA", "APERÇU", "PREVIEW"],
-  "Base de datos": ["Banco de dados", "Base de données", "Database"],
-  "Abrir usa el archivo en su ubicación original durante esta sesión.": [
-    "Abrir usa o arquivo no local original durante esta sessão.",
-    "Ouvrir utilise le fichier à son emplacement d’origine pendant cette session.",
-    "Open uses the file in its original location for this session.",
-  ],
-  "Importar guarda una copia en la carpeta de datos de CP Obras y la abre automáticamente al iniciar.": [
-    "Importar salva uma cópia na pasta de dados do CP Obras e a abre automaticamente ao iniciar.",
-    "Importer enregistre une copie dans le dossier de données de CP Obras et l’ouvre au démarrage.",
-    "Import saves a copy in the CP Obras data folder and opens it at startup.",
-  ],
-  "Base activa": ["Banco ativo", "Base active", "Active database"],
-  "Nueva base de datos…": ["Novo banco de dados…", "Nouvelle base de données…", "New database…"],
-  "Abrir base de datos…": ["Abrir banco de dados…", "Ouvrir une base de données…", "Open database…"],
-  "Importar base de datos…": ["Importar banco de dados…", "Importer une base de données…", "Import database…"],
-  "Bases recientes": ["Bancos recentes", "Bases récentes", "Recent databases"],
-  "Base de datos local.": ["Banco de dados local.", "Base de données locale.", "Local database."],
-  "Acerca de…": ["Sobre…", "À propos…", "About…"],
-  "Estudio de costos y gestión de obras": ["Orçamentos e gestão de obras", "Estimation et gestion de chantiers", "Cost estimating and project management"],
-  "Versión": ["Versão", "Version", "Version"],
-  "Autor": ["Autor", "Auteur", "Author"],
-  "Repositorio": ["Repositório", "Dépôt du projet", "Repository"],
-  "Sugerencias y problemas": ["Sugestões e problemas", "Suggestions et problèmes", "Suggestions and issues"],
-  "Donaciones y apoyo": ["Doações e apoio", "Dons et soutien", "Donations and support"],
-  "CP Obras (predeterminado)": ["CP Obras (padrão)", "CP Obras (par défaut)", "CP Obras (default)"],
-  "Alto contraste": ["Alto contraste", "Contraste élevé", "High contrast"],
-};
+export const languages = Object.entries(catalogs).map(([code, { label }]) => [code, label]);
+export const currentInterfaceLanguage = () =>
+  globalThis.document?.documentElement?.lang || defaultLanguage;
 
-export function interfaceText(language, message) {
-  const index = languages.findIndex(([code]) => code === language) - 1;
-  return translations[message]?.[index] ?? message;
+const loadedCatalogs = new Map();
+const pendingCatalogs = new Map();
+
+export async function loadInterfaceLanguage(language) {
+  if (language === defaultLanguage || loadedCatalogs.has(language)) return;
+  const loader = Object.hasOwn(catalogs, language) && catalogs[language].load;
+  if (!loader) return;
+  if (!pendingCatalogs.has(language)) {
+    const request = loader().then(({default: catalog}) => {
+      loadedCatalogs.set(language, catalog.messages);
+    }).finally(() => pendingCatalogs.delete(language));
+    pendingCatalogs.set(language, request);
+  }
+  await pendingCatalogs.get(language);
+}
+
+const placeholder = /\{([a-z_][\w-]*|\d+)\}/gi;
+const htmlCharacters = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+
+export function interfaceText(language, message, params) {
+  if (message == null) return "";
+  const catalog = loadedCatalogs.get(language);
+  const translation = catalog && Object.hasOwn(catalog, message) ? catalog[message] : message;
+  const translated = translation === message
+    ? message
+    : (message.match(/^\s*/)?.[0] || "") + translation.trim() + (message.match(/\s*$/)?.[0] || "");
+  return params ? translated.replace(placeholder, (token, key) =>
+    Object.hasOwn(params, key) ? String(params[key] ?? "") : token
+  ) : translated;
+}
+
+export const uiText = (message, params) =>
+  interfaceText(currentInterfaceLanguage(), message, params);
+
+export const uiHtml = (message, params) =>
+  String(uiText(message, params)).replace(/[&<>"']/g, character => htmlCharacters[character]);
+
+// Translate only known error messages. Keep arbitrary OS errors and user data intact.
+export function localizedError(error, language = currentInterfaceLanguage()) {
+  const message = error instanceof Error ? error.message : String(error);
+  const translated = interfaceText(language, message);
+  if (translated !== message) return translated;
+  const invalidValue = /^invalid value: ([\s\S]*)$/.exec(message);
+  if (invalidValue && language !== defaultLanguage) {
+    const detail = interfaceText(language, invalidValue[1]);
+    return interfaceText(language, "Valor inválido: {0}", [detail]);
+  }
+  return error;
+}
+
+export function uiPlural(count, forms, params = {}) {
+  const language = currentInterfaceLanguage();
+  const category = new Intl.PluralRules(language).select(count);
+  return interfaceText(language, forms[category] || forms.other, {count, ...params});
+}
+
+export function dialogLocalization(language, command, args) {
+  if (language === defaultLanguage) return args;
+  const t = message => interfaceText(language, message);
+  const titles = {
+    choose_backup_folder: "Elegir carpeta de respaldos",
+    save_export_file: "Guardar documento",
+    add_project_attachment: "Agregar archivo al legajo de la obra",
+  };
+  if (command === "switch_database") {
+    const title = args?.create ? t("Nueva base de datos de CPOBRAS")
+      : args?.importCopy ? t("Importar base de datos de CPOBRAS") : t("Abrir base de datos de CPOBRAS");
+    return { ...args, dialogTitle: title, sqliteFilter: t("Bases SQLite"), allFilesFilter: t("Todos los archivos") };
+  }
+  if (!Object.hasOwn(titles, command)) return args;
+  return {
+    ...args,
+    dialogTitle: t(titles[command]),
+    ...(command === "add_project_attachment" ? { documentFilter: t("Documentos y planos") } : {}),
+  };
+}
+
+const dateFormatters = new Map();
+export function displayDate(iso) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso || "")) return iso;
+  const language = currentInterfaceLanguage();
+  if (language === defaultLanguage) return iso.split("-").reverse().join("/");
+  if (!dateFormatters.has(language)) dateFormatters.set(language,
+    new Intl.DateTimeFormat(language, { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" }));
+  return dateFormatters.get(language).format(new Date(iso + "T00:00:00Z"));
 }
 
 export function createInterfaceLanguage(document, window) {
@@ -96,20 +96,32 @@ export function createInterfaceLanguage(document, window) {
   function apply(language) {
     if (document.documentElement) document.documentElement.lang = language;
   }
-  let language = "es-AR";
+  let language = defaultLanguage, saved = defaultLanguage, selection = 0;
   try {
-    const saved = window.localStorage.getItem(storageKey);
-    if (languages.some(([code]) => code === saved)) language = saved;
+    const preference = window.localStorage.getItem(storageKey);
+    if (Object.hasOwn(catalogs, preference)) saved = preference;
   } catch { /* Use the default for this session. */ }
   apply(language);
-  return {
-    get current() { return language; },
-    select(value) {
-      if (!languages.some(([code]) => code === value)) return;
-      language = value;
-      apply(language);
+  async function activate(value, remember) {
+    if (!Object.hasOwn(catalogs, value)) return false;
+    const version = ++selection;
+    try {
+      await loadInterfaceLanguage(value);
+    } catch {
+      return false;
+    }
+    if (version !== selection) return false;
+    language = value;
+    apply(language);
+    if (remember) {
       try { window.localStorage.setItem(storageKey, language); }
       catch { /* Retain the choice for this session. */ }
-    },
+    }
+    return true;
+  }
+  return {
+    get current() { return language; },
+    ready: activate(saved, false),
+    select: value => activate(value, true),
   };
 }

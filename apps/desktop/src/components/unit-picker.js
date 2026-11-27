@@ -1,3 +1,4 @@
+import { uiText, uiHtml } from "../services/interface-language.js";
 import { e, field } from "./helpers.js";
 const usual = [
   ["un", "Unidad"],
@@ -79,7 +80,7 @@ export function createUnitPicker({
             `<button type="button" role="option" data-action="unit-select" data-symbol="${e(u.symbol)}">${e(u.symbol + " · " + u.name)}</button>`,
         )
         .join("") +
-      `<button type="button" role="option" data-action="unit-add">＋ Agregar unidad${query ? " «" + e(input.value.trim()) + "»" : ""}</button>`;
+      `<button type="button" role="option" data-action="unit-add">${uiHtml("＋ Agregar unidad")}${query ? " «" + e(input.value.trim()) + "»" : ""}</button>`;
     box.hidden = false;
     input.setAttribute("aria-expanded", "true");
   }
@@ -92,7 +93,7 @@ export function createUnitPicker({
     if (child?.busy) return;
     if (
       child?.dirty &&
-      !window.confirm("Tenés cambios sin guardar en la unidad. ¿Descartarlos?")
+      !window.confirm(uiText("Tenés cambios sin guardar en la unidad. ¿Descartarlos?"))
     )
       return;
     child.parent.inert = false;
@@ -118,7 +119,7 @@ export function createUnitPicker({
       hide();
       const element = document.createElement("div");
       element.className = "modal-overlay unit-create-overlay";
-      element.innerHTML = `<section class="dialog-shell" role="dialog" aria-modal="true" aria-label="Agregar unidad"><div class="dialog-header"><h2>Agregar unidad</h2><button type="button" class="close-dialog" data-action="unit-close" aria-label="Cerrar unidad">×</button></div><form id="unit-create-form" class="dialog-body">${field("Símbolo de unidad", "symbol", input.value.trim(), 'required maxlength="30"')}${field("Nombre de la unidad", "name", "", 'required maxlength="150"')}<p class="modal-error" role="alert"></p><div class="dialog-actions"><button type="button" class="btn" data-action="unit-close">Cerrar</button><button type="submit" class="btn primary">Guardar y seleccionar unidad</button></div></form></section>`;
+      element.innerHTML = `<section class="dialog-shell" role="dialog" aria-modal="true" aria-label="${uiHtml("Agregar unidad")}"><div class="dialog-header"><h2>${uiHtml("Agregar unidad")}</h2><button type="button" class="close-dialog" data-action="unit-close" aria-label="${uiHtml("Cerrar unidad")}">×</button></div><form id="unit-create-form" class="dialog-body">${field(uiText("Símbolo de unidad"), "symbol", input.value.trim(), 'required maxlength="30"')}${field(uiText("Nombre de la unidad"), "name", "", 'required maxlength="150"')}<p class="modal-error" role="alert"></p><div class="dialog-actions"><button type="button" class="btn" data-action="unit-close">${uiHtml("Cerrar")}</button><button type="submit" class="btn primary">${uiHtml("Guardar y seleccionar unidad")}</button></div></form></section>`;
       document.querySelector("#app").append(element);
       if (parent) parent.inert = true;
       child = {
@@ -186,7 +187,7 @@ export function createUnitPicker({
         !options().some((u) => normalize(u.symbol) === normalize(input.value))
       )
         throw new Error(
-          "Elegí una unidad de la lista o usá «Agregar unidad» para registrarla.",
+          uiText("Elegí una unidad de la lista o usá «Agregar unidad» para registrarla."),
         );
   }
   function keyDown(evt) {

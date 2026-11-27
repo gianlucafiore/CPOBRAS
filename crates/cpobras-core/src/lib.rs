@@ -41,6 +41,8 @@ pub enum ResourceKind {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResourcePriceSnapshot {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub price_pending: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub daily_output: Option<Decimal>,
     #[serde(default = "included_by_default")]
@@ -98,7 +100,7 @@ impl UnitCostAnalysis {
                 if item.quantity_per_unit < Decimal::ZERO || item.unit_price < Decimal::ZERO {
                     return Err(DomainError::NegativeValue);
                 }
-                if !item.included {
+                if !item.included || item.price_pending {
                     return Ok(total);
                 }
                 item.quantity_per_unit
@@ -271,6 +273,7 @@ mod tests {
             description: "Mampostería".into(),
             unit: "m2".into(),
             components: vec![ResourcePriceSnapshot {
+                price_pending: false,
                 daily_output: None,
                 included: true,
                 resource_id: Uuid::new_v4(),
@@ -295,6 +298,7 @@ mod tests {
             unit: "kg".into(),
             components: vec![
                 ResourcePriceSnapshot {
+                    price_pending: false,
                     daily_output: None,
                     included: true,
                     resource_id: Uuid::new_v4(),
@@ -304,6 +308,7 @@ mod tests {
                     unit_price: Decimal::new(10, 0),
                 },
                 ResourcePriceSnapshot {
+                    price_pending: false,
                     daily_output: None,
                     included: true,
                     resource_id: Uuid::new_v4(),
@@ -313,6 +318,7 @@ mod tests {
                     unit_price: Decimal::new(15, 0),
                 },
                 ResourcePriceSnapshot {
+                    price_pending: false,
                     daily_output: None,
                     included: true,
                     resource_id: Uuid::new_v4(),
@@ -322,6 +328,7 @@ mod tests {
                     unit_price: Decimal::new(5, 0),
                 },
                 ResourcePriceSnapshot {
+                    price_pending: false,
                     daily_output: None,
                     included: true,
                     resource_id: Uuid::new_v4(),
@@ -375,6 +382,7 @@ mod tests {
             description: "Prueba".into(),
             unit: "u".into(),
             components: vec![ResourcePriceSnapshot {
+                price_pending: false,
                 daily_output: None,
                 included: true,
                 resource_id: Uuid::new_v4(),
@@ -421,6 +429,7 @@ mod arithmetic_regressions {
             description: "Extremo".into(),
             unit: "u".into(),
             components: vec![ResourcePriceSnapshot {
+                price_pending: false,
                 daily_output: None,
                 included: true,
                 resource_id: Uuid::new_v4(),

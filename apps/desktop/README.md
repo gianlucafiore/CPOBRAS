@@ -1,7 +1,7 @@
 # CPOBRAS Desktop (Tauri 2)
 
-Los [comandos de instalación, compilación, arranque y pruebas](../../README.md)
-se mantienen en el README principal.
+Consultá los [comandos de instalación, compilación, arranque y pruebas](../../docs/DESARROLLO.md)
+y la [guía de primeros pasos](../../README.md).
 
 Desde este directorio:
 

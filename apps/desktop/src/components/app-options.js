@@ -1,3 +1,4 @@
+import { uiHtml } from "../services/interface-language.js";
 import { e } from "./helpers.js";
 import { colorThemes } from "../services/appearance.js";
 import { interfaceText, languages } from "../services/interface-language.js";
@@ -11,7 +12,6 @@ function appearanceMarkup(t, language, { theme = "default", followSystem = false
         `<option value="${code}" lang="${code}" ${code === language ? "selected" : ""}>${e(name)}</option>`
       ).join("")}</select>
     </label>
-    <p class="muted-note">${t("Traducción disponible en la navegación y las opciones.")}</p>
     <label class="theme-system"><input type="checkbox" name="follow-system-theme" ${followSystem ? "checked" : ""}> ${t("Seguir al sistema")}</label>
     <fieldset data-theme-choices ${followSystem ? "disabled" : ""}>
       <legend>${t("Tema de colores")}</legend>
@@ -40,6 +40,10 @@ export function optionsMarkup(state, appearance) {
   return `<section class="list-page options-page">
     <div class="list-top"><h1>${t("Opciones")}</h1><button class="btn" data-action="navigate" data-view="projects">${t("Volver a Inicio")}</button></div>
     ${appearanceMarkup(t, language, appearance)}
+    ${state.aiActionsEnabled ? `<section class="project-card">
+      <h2>${uiHtml("Inteligencia artificial")}</h2>
+      <button type="button" class="btn" data-action="form-ai-open" data-kind="settings">${uiHtml("Configurar IA")}</button>
+    </section>` : ""}
     <section class="project-card"><h2>${t("Base de datos")}</h2>
       <p>${t("Abrir usa el archivo en su ubicación original durante esta sesión.")} ${t("Importar guarda una copia en la carpeta de datos de CP Obras y la abre automáticamente al iniciar.")}</p>
       ${db ? `<p class="database-menu-path" title="${e(db.path)}">${t("Base activa")} · ${e(db.name)}</p><p>${e(db.path)}</p>
@@ -52,7 +56,7 @@ export function optionsMarkup(state, appearance) {
     </section>
     <section class="project-card"><h2>${t("Acerca de…")}</h2>
       <p><strong>CPOBRAS</strong> · ${t("Estudio de costos y gestión de obras")}</p>
-      <p>${t("Versión")} ${e(metadata.version)} · ${t("Autor")} Gianluca Fiore · 2026</p>
+      <p>${t("Versión")} ${e(metadata.version)} · ${t("Autor")} ${uiHtml("Gianluca Fiore · 2026")}</p>
       <ul class="about-links">${projectLinks.map(([id, href, label]) => `<li><a class="link" href="${href}" data-action="open-project-link" data-link="${id}">${t(label)}</a></li>`).join("")}</ul>
     </section>
   </section>`;

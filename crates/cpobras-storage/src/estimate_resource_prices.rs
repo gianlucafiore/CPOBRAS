@@ -63,13 +63,16 @@ pub(crate) fn synchronize(
             }
             let price = if let Some(price) = prices.get(&c.resource_id) {
                 *price
+            } else if c.price_pending {
+                continue;
             } else {
                 prices.insert(c.resource_id, c.unit_price);
                 conn.execute("INSERT INTO estimate_resource_prices(estimate_id,resource_id,amount) VALUES (?1,?2,?3)",params![estimate.to_string(),c.resource_id.to_string(),c.unit_price.to_string()])?;
                 c.unit_price
             };
-            if c.unit_price != price {
+            if c.unit_price != price || c.price_pending {
                 c.unit_price = price;
+                c.price_pending = false;
                 changed = true;
             }
         }

@@ -1,3 +1,4 @@
+import { uiText, displayDate } from "./interface-language.js";
 import {createPdf} from "./pdf-units.js";
 import {
   money,
@@ -38,7 +39,7 @@ export function parseQuotedRows(rows) {
   const header = rows.findIndex((r) => r?.[0] === requestHeaders[0]);
   if (header < 0)
     throw new Error(
-      "No se encontró la columna ID de renglón. Usá la planilla original.",
+      uiText("No se encontró la columna ID de renglón. Usá la planilla original."),
     );
   const seen = new Set();
   return rows
@@ -46,7 +47,7 @@ export function parseQuotedRows(rows) {
     .filter((r) => r?.[0])
     .map((r) => {
       const row_id = String(r[0]).trim();
-      if (seen.has(row_id)) throw new Error("Hay renglones repetidos");
+      if (seen.has(row_id)) throw new Error(uiText("Hay renglones repetidos"));
       seen.add(row_id);
       let value = r[5];
       if (value === null || value === undefined || String(value).trim() === "")
@@ -55,7 +56,7 @@ export function parseQuotedRows(rows) {
         value = String(value).trim();
         if (!/^\d+(\.\d+)?$/.test(value))
           throw new Error(
-            "Precio inválido: usá números positivos y punto decimal, sin separador de miles",
+            uiText("Precio inválido: usá números positivos y punto decimal, sin separador de miles"),
           );
       }
       return { row_id, unit_price: value, notes: String(r[6] ?? "") };
@@ -264,11 +265,11 @@ export async function exportCertificate(invoke, s) {
     ink = [39, 56, 70];
   const date = (value) =>
     /^\d{4}-\d{2}-\d{2}$/.test(value || "")
-      ? value.split("-").reverse().join("/")
+      ? displayDate(value)
       : value || "—";
   const title = s.preliminary
-    ? "PRELIMINAR - Para aprobación"
-    : `${o.kind === "subcertificate" ? "Certificado de subcontratista" : "Certificado"} #${o.number}`;
+    ? uiText("PRELIMINAR - Para aprobación")
+    : `${o.kind === "subcertificate" ? uiText("Certificado de subcontratista") : uiText("Certificado")} #${o.number}`;
   let y = 12,
     band = 0;
   function text(
@@ -318,13 +319,13 @@ export async function exportCertificate(invoke, s) {
     }
     text(title, margin, 22, 11, true, s.preliminary ? [155, 100, 30] : navy);
     text(
-      `Obra: ${s.project_name} | Presupuesto: ${s.budget_title}`,
+      uiText("Obra: {0} | Presupuesto: {1}", [s.project_name, s.budget_title]),
       margin,
       28,
       8,
     );
     text(
-      `${o.kind === "subcertificate" ? "Contraparte" : "Comitente"}: ${s.client_name} | Período: ${date(o.period_start)} al ${date(o.period_end)} | ${s.preliminary ? "Preparación" : "Emisión"}: ${date(o.date)}`,
+      uiText("{0}: {1} | Período: {2} al {3} | {4}: {5}", [o.kind === "subcertificate" ? uiText("Contraparte") : uiText("Comitente"), s.client_name, date(o.period_start), date(o.period_end), s.preliminary ? uiText("Preparación") : uiText("Emisión"), date(o.date)]),
       margin,
       33,
       8,
@@ -475,19 +476,19 @@ export async function exportCertificate(invoke, s) {
   const startY = y;
   const showAdjustment = Boolean(a) || o.kind !== "subcertificate";
   if (showAdjustment) {
-    text("AJUSTE CONTRACTUAL", margin, y + 4, 8, true, navy);
+    text(uiText("AJUSTE CONTRACTUAL"), margin, y + 4, 8, true, navy);
     y += 9;
   }
   if (a) {
     text(
-      `Período aplicado: ${a.applied_month} | Objetivo: ${a.target_month}`,
+      uiText("Período aplicado: {0} | Objetivo: {1}", [a.applied_month, a.target_month]),
       margin,
       y,
       7,
     );
     y += 5;
     text(
-      `${a.provisional ? "PROVISORIO - diferencia pendiente" : "Definitivo"} | Coeficiente: ${numeric(a.factor)}`,
+      uiText("{0} | Coeficiente: {1}", [a.provisional ? uiText("PROVISORIO - diferencia pendiente") : uiText("Definitivo"), numeric(a.factor)]),
       margin,
       y,
       7,
@@ -497,7 +498,7 @@ export async function exportCertificate(invoke, s) {
     for (const i of a.indices) {
       space(17);
       text(
-        `${i.series} | Peso ${numeric(multiplyDecimals(i.weight, "100"))} %`,
+        uiText("{0} | Peso {1} %", [i.series, numeric(multiplyDecimals(i.weight, "100"))]),
         margin,
         y,
         7,
@@ -505,14 +506,14 @@ export async function exportCertificate(invoke, s) {
       );
       y += 4;
       text(
-        `Puntaje base (${i.base.period || a.agreement.base_month}): ${numeric(i.base.value)}`,
+        uiText("Puntaje base ({0}): {1}", [i.base.period || a.agreement.base_month, numeric(i.base.value)]),
         margin,
         y,
         7,
       );
       y += 4;
       text(
-        `Puntaje actual (${i.current.period || a.applied_month}): ${numeric(i.current.value)}`,
+        uiText("Puntaje actual ({0}): {1}", [i.current.period || a.applied_month, numeric(i.current.value)]),
         margin,
         y,
         7,
@@ -520,11 +521,11 @@ export async function exportCertificate(invoke, s) {
       y += 6;
     }
   } else if (showAdjustment) {
-    text("Sin ajuste de índices pactado.", margin, y, 7);
+    text(uiText("Sin ajuste de índices pactado."), margin, y, 7);
     y += 6;
   }
   text(
-    `Avance acumulado de obra: ${numeric(s.physical_percent)} %`,
+    uiText("Avance acumulado de obra: {0} %", [numeric(s.physical_percent)]),
     margin,
     y,
     8,
@@ -534,7 +535,7 @@ export async function exportCertificate(invoke, s) {
   for (const x of o.extras || []) {
     space(12);
     const lines = pdf.splitTextToSize(
-      `Adicional: ${x.description}${x.reason ? " | " + x.reason : ""}${x.authorization ? " | Autorización: " + x.authorization : ""} | ${money(x.amount)}`,
+      uiText("Adicional: {0}{1}{2} | {3}", [x.description, x.reason ? " | " + x.reason : "", x.authorization ? uiText(" | Autorización: ") + x.authorization : "", money(x.amount)]),
       140,
     );
     text(lines, margin, y, 7);
@@ -554,7 +555,7 @@ export async function exportCertificate(invoke, s) {
   pdf.setFillColor(...navy);
   pdf.rect(162, y, 123, 10, "F");
   text(
-    o.kind === "subcertificate" ? "NETO A PAGAR" : "NETO A COBRAR",
+    o.kind === "subcertificate" ? uiText("NETO A PAGAR") : uiText("NETO A COBRAR"),
     164,
     y + 6.3,
     9,
@@ -572,7 +573,7 @@ export async function exportCertificate(invoke, s) {
   );
   y += 15;
   text(
-    `Fecha prevista de ${o.kind === "subcertificate" ? "pago" : "cobro"}: ${date(o.due_date)}`,
+    uiText("Fecha prevista de {0}: {1}", [o.kind === "subcertificate" ? uiText("pago") : uiText("cobro"), date(o.due_date)]),
     164,
     y,
     7,
@@ -581,8 +582,8 @@ export async function exportCertificate(invoke, s) {
   space(14);
   text(
     s.preliminary
-      ? "PRELIMINAR. No emitido. Sujeto a aprobación; no registra avance oficial."
-      : `Emitido el ${date(o.date)}. Su emisión no acredita el ${o.kind === "subcertificate" ? "pago" : "cobro"}.`,
+      ? uiText("PRELIMINAR. No emitido. Sujeto a aprobación; no registra avance oficial.")
+      : uiText("Emitido el {0}. Su emisión no acredita el {1}.", [date(o.date), o.kind === "subcertificate" ? uiText("pago") : uiText("cobro")]),
     margin,
     y,
     7,

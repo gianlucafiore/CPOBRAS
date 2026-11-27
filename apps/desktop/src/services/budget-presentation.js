@@ -1,3 +1,4 @@
+import { uiText, uiHtml } from "./interface-language.js";
 import {e} from "../components/helpers.js";
 import {memoryEditor} from "../components/memory-editor.js";
 // One serialized writer for the shared memory and the print preferences of a budget.
@@ -10,16 +11,16 @@ export function createBudgetPresentation({invoke,state,document,window,editable}
   const key=()=>`cpobras.presentation.v1:${encodeURIComponent(model.scope)}:${model.id}`;
   const dirty=()=>JSON.stringify(model.data)!==model.saved;
   function status(){
-    for(const node of document.querySelectorAll('[data-presentation-status]'))node.textContent=model.error||model.status;
+    for(const node of document.querySelectorAll('[data-presentation-status]'))node.textContent=model.error||uiText(model.status);
     for(const node of document.querySelectorAll('[data-presentation-retry]'))node.hidden=!model.error||model.conflict;
     for(const node of document.querySelectorAll('[data-presentation-conflict]')){node.hidden=!model.conflict;node.innerHTML=recoveryMarkup();}
   }
   function journal(){
     try{if(dirty())window.localStorage.setItem(key(),JSON.stringify({revision:model.revision,data:model.data}));else window.localStorage.removeItem(key());}
-    catch{model.error="No se pudo conservar el borrador local. Guardá antes de salir.";}
+    catch{model.error=uiText("No se pudo conservar el borrador local. Guardá antes de salir.");}
   }
   async function open(){
-    if(!state.estimateId)throw Error('Abrí un presupuesto');
+    if(!state.estimateId)throw Error(uiText("Abrí un presupuesto"));
     if(model.id===state.estimateId&&model.scope===scope())return;
     await flush();
     const id=state.estimateId,s=scope(),saved=await invoke('get_budget_presentation',{estimateId:id});
@@ -28,12 +29,12 @@ export function createBudgetPresentation({invoke,state,document,window,editable}
       const draft=JSON.parse(window.localStorage?.getItem(key())||'null');
       if(draft){
         if(draft.revision===saved.revision){model.data=draft.data;model.status="Borrador recuperado · pendiente de guardar";}
-        else {model.error="Hay un borrador de otra revisión. Copialo y comparalo antes de reemplazar los datos guardados.";model.conflict=true;model.data=draft.data;}
+        else {model.error=uiText("Hay un borrador de otra revisión. Copialo y comparalo antes de reemplazar los datos guardados.");model.conflict=true;model.data=draft.data;}
       }
-    }catch{model.error="No se pudo leer el borrador local";model.conflict=true;}
+    }catch{model.error=uiText("No se pudo leer el borrador local");model.conflict=true;}
   }
   function update(values){
-    if(model.id!==state.estimateId||model.scope!==scope())throw new Error('Volvé a abrir esta vista antes de editar');
+    if(model.id!==state.estimateId||model.scope!==scope())throw new Error(uiText("Volvé a abrir esta vista antes de editar"));
     const next={...model.data,...values};
     if(JSON.stringify(next)===JSON.stringify(model.data))return;
     model.data=next;model.status="Cambios pendientes de guardar…";journal();status();
@@ -52,7 +53,7 @@ export function createBudgetPresentation({invoke,state,document,window,editable}
           const saved=await invoke('save_budget_presentation',{estimateId:id,revision:model.revision,data});
           model.revision=saved.revision;model.saved=serialized;model.status="Guardado automáticamente";journal();status();
         }catch(error){
-          model.error='No se pudo guardar: '+String(error);model.status="";
+          model.error=uiText("No se pudo guardar: {0}", [String(error)]);model.status="";
           if(String(error).includes('presentación cambió')||String(error).includes('memoria de un presupuesto emitido')){
             model.conflict=true;
             try{const latest=await invoke('get_budget_presentation',{estimateId:id});model.revision=latest.revision;model.saved=JSON.stringify(latest.data);}catch{}
@@ -67,20 +68,20 @@ export function createBudgetPresentation({invoke,state,document,window,editable}
   function recoveryMarkup(){
     if(!model.conflict)return '';
     const summary=data=>[data.memory||'(Sin memoria descriptiva)',...Object.entries(data.print_options||{}).map(([key,value])=>`${({title:'Título',reference:'Referencia',date:'Fecha',notes:'Condiciones',mode:'Presentación',format:'Formato',layout:'Contenido',landscape:'Horizontal'})[key]||key}: ${value}`)].join('\n');
-    return `<p>Compará los datos antes de elegir cuál conservar.</p><label class="field"><span>Guardado en la base</span><textarea readonly rows="6">${e(summary(JSON.parse(model.saved)))}</textarea></label><label class="field"><span>Tu borrador</span><textarea readonly rows="6">${e(summary(model.data))}</textarea></label><button class="btn" type="button" data-action="presentation-use-draft">Guardar mi borrador en esta revisión</button><button class="btn" type="button" data-action="presentation-use-saved">Conservar lo guardado y descartar el borrador</button>`;
+    return `<p>${uiHtml("Compará los datos antes de elegir cuál conservar.")}</p><label class="field"><span>${uiHtml("Guardado en la base")}</span><textarea readonly rows="6">${e(summary(JSON.parse(model.saved)))}</textarea></label><label class="field"><span>${uiHtml("Tu borrador")}</span><textarea readonly rows="6">${e(summary(model.data))}</textarea></label><button class="btn" type="button" data-action="presentation-use-draft">${uiHtml("Guardar mi borrador en esta revisión")}</button><button class="btn" type="button" data-action="presentation-use-saved">${uiHtml("Conservar lo guardado y descartar el borrador")}</button>`;
   }
   async function resolve(keepDraft){
     if(!model.conflict)return;
     const latest=await invoke('get_budget_presentation',{estimateId:model.id});
-    if(keepDraft && JSON.stringify(latest.data)!==model.saved){model.revision=latest.revision;model.saved=JSON.stringify(latest.data);status();throw Error('Los datos guardados cambiaron otra vez. Comparalos antes de reemplazar.');}
+    if(keepDraft && JSON.stringify(latest.data)!==model.saved){model.revision=latest.revision;model.saved=JSON.stringify(latest.data);status();throw Error(uiText("Los datos guardados cambiaron otra vez. Comparalos antes de reemplazar."));}
     model.revision=latest.revision;model.saved=JSON.stringify(latest.data);
     if(!keepDraft)model.data=latest.data;
     model.conflict=false;model.error='';model.status=keepDraft?'Cambios pendientes':'Guardado';journal();status();
     if(keepDraft)await flush();
   }
-  function feedback(){return `<p role="status" data-presentation-status>${e(model.error||model.status)}</p><button type="button" class="btn tiny" data-action="presentation-save" data-presentation-retry ${model.error&&!model.conflict?'':'hidden'}>Reintentar guardado</button><div data-presentation-conflict ${model.conflict?'':'hidden'}>${recoveryMarkup()}</div>`;}
+  function feedback(){return `<p role="status" data-presentation-status>${model.error ? e(model.error) : uiHtml(model.status)}</p><button type="button" class="btn tiny" data-action="presentation-save" data-presentation-retry ${model.error&&!model.conflict?'':'hidden'}>${uiHtml("Reintentar guardado")}</button><div data-presentation-conflict ${model.conflict?'':'hidden'}>${recoveryMarkup()}</div>`;}
 
-  function markup(){return `<section class="budget-memory"><div class="detail-heading"><b>Memoria descriptiva del presupuesto</b></div><p class="small-muted">Presentación pública del presupuesto. En el PDF con memoria, la cotización comienza en una página nueva.</p>${memoryEditor(model.data.memory,{readonly:!editable()})}${feedback()}</section>`;}
+  function markup(){return `<section class="budget-memory"><div class="detail-heading"><b>${uiHtml("Memoria descriptiva del presupuesto")}</b>${state.aiActionsEnabled && editable() ? `<button class="btn ai-button" data-action="form-ai-open" data-kind="memory">${uiHtml("Ampliar memoria con IA")}</button>` : ""}</div><p class="small-muted">${uiHtml("Incluí la memoria en el PDF desde las opciones de presentación del presupuesto.")}</p>${memoryEditor(model.data.memory,{readonly:!editable()})}${feedback()}</section>`;}
   function input(target){if(target.name!=='budget-memory'||!editable())return;update({memory:target.value});clearTimer(timer);timer=setTimer(()=>flush().catch(()=>{}),400);}
   window.addEventListener?.('beforeunload',()=>{if(model.id)journal();});
   return {model,open,update,flush,feedback,markup,input,resolve};

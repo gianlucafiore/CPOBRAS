@@ -1,3 +1,4 @@
+import { uiHtml, uiText } from "../services/interface-language.js";
 export const e = (value) =>
   String(value ?? "").replace(
     /[&<>"']/g,
@@ -14,18 +15,18 @@ export const dateToday = () => {
 };
 export const kindName = (type) =>
   ({
-    material: "Materiales",
-    labor: "Mano de obra",
-    equipment: "Equipos",
-    subcontract: "Subcontratos",
-  })[type] || type;
+    material: () => uiText("Materiales"),
+    labor: () => uiText("Mano de obra"),
+    equipment: () => uiText("Equipos"),
+    subcontract: () => uiText("Subcontratos"),
+  })[type]?.() || type;
 export const kindBadge = (type) =>
   ({ material: "MAT", labor: "MO", equipment: "EQ", subcontract: "SC" })[
     type
   ] || type;
 export const field = (label, name, value = "", options = "") =>
   ["code","person-code"].includes(name)
-    ? `<label class="field"><span>${e(label)}</span><input name="${name}" value="${e(value)}" readonly placeholder="Automático al guardar" title="Código generado automáticamente"></label>`
+    ? `<label class="field"><span>${e(label)}</span><input name="${name}" value="${e(value)}" readonly placeholder="${uiHtml("Automático al guardar")}" title="${uiHtml("Código generado automáticamente")}"></label>`
     : name === "unit"
     ? unitField(label, name, value, options)
     : `<label class="field"><span>${e(label)}</span><input name="${name}" value="${e(value)}" ${options}></label>`;
@@ -42,5 +43,5 @@ export const btn = (label, action, cls = "", other = "") =>
 let unitSequence = 0;
 export function unitField(label, name, value, options = "") {
   const id = `unit-options-${++unitSequence}`;
-  return `<label class="field unit-picker"><span>${e(label)}</span><input name="${e(name)}" value="${e(value)}" class="unit-search" aria-controls="${id}" role="combobox" aria-label="${e(label)}" aria-autocomplete="list" aria-expanded="false" autocomplete="off" ${options}><span class="unit-results" id="${id}" role="listbox" aria-label="Unidades" hidden></span></label>`;
+  return `<label class="field unit-picker"><span>${e(label)}</span><input name="${e(name)}" value="${e(value)}" class="unit-search" aria-controls="${id}" role="combobox" aria-label="${e(label)}" aria-autocomplete="list" aria-expanded="false" autocomplete="off" ${options}><span class="unit-results" id="${id}" role="listbox" aria-label="${uiHtml("Unidades")}" hidden></span></label>`;
 }

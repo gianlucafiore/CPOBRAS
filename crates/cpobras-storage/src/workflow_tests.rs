@@ -463,6 +463,7 @@ fn direct_line_resources_are_private_snapshots_and_survive_versions_and_exchange
     };
     store.save_resource(&resource).unwrap();
     let inputs = vec![LineResourceInput {
+        price_pending: false,
         daily_output: None,
         included: None,
         resource_id: resource.id,
@@ -484,6 +485,7 @@ fn direct_line_resources_are_private_snapshots_and_survive_versions_and_exchange
             estimate.id,
             line.id,
             &[LineResourceInput {
+                price_pending: false,
                 daily_output: None,
                 included: None,
                 resource_id: resource.id,
@@ -1116,6 +1118,7 @@ fn deleting_a_draft_cascades_owned_data_preserves_catalog_and_other_versions() {
         })
         .unwrap();
     let inputs = [LineResourceInput {
+        price_pending: false,
         daily_output: None,
         included: None,
         resource_id: resource,
@@ -1201,6 +1204,7 @@ fn deleting_a_line_keeps_documents_stock_and_receiving_pending_orders_working() 
             e.id,
             line.id,
             &[crate::line_workflows::LineResourceInput {
+                price_pending: false,
                 daily_output: None,
                 included: None,
                 resource_id: res,
@@ -1735,6 +1739,7 @@ fn resource_price_changes_propagate_within_one_budget_without_changing_yields_or
     };
     s.add_estimate_item(&second).unwrap();
     let input = |qty, price| crate::line_workflows::LineResourceInput {
+        price_pending: false,
         daily_output: None,
         included: None,
         resource_id: res,
@@ -1784,6 +1789,7 @@ fn pattern_prices_use_destination_resource_prices_and_without_prices_do_not_get_
     use crate::budget_patterns::*;
     let (mut s, p, e, l, _, res, _) = stock_fixture();
     let input = |q, p| crate::line_workflows::LineResourceInput {
+        price_pending: false,
         daily_output: None,
         included: None,
         resource_id: res,
@@ -1857,6 +1863,7 @@ fn resource_price_overflow_rolls_back_every_partida_and_price() {
     };
     s.add_estimate_item(&second).unwrap();
     let input = |q, p| crate::line_workflows::LineResourceInput {
+        price_pending: false,
         daily_output: None,
         included: None,
         resource_id: res,
@@ -1888,6 +1895,7 @@ fn library_acus_adopt_the_budget_price_without_mutating_the_library() {
         description: "ACU".into(),
         unit: l.unit.clone(),
         components: vec![cpobras_core::ResourcePriceSnapshot {
+            price_pending: false,
             daily_output: None,
             included: true,
             resource_id: res,
@@ -1932,6 +1940,7 @@ fn schema_seventeen_reconciles_legacy_draft_prices_once_using_the_latest_composi
         e.id,
         l.id,
         &[crate::line_workflows::LineResourceInput {
+            price_pending: false,
             daily_output: None,
             included: None,
             resource_id: res,
@@ -1952,6 +1961,7 @@ fn schema_seventeen_reconciles_legacy_draft_prices_once_using_the_latest_composi
         description: "Legacy".into(),
         unit: l.unit.clone(),
         components: vec![cpobras_core::ResourcePriceSnapshot {
+            price_pending: false,
             daily_output: None,
             included: true,
             resource_id: res,
@@ -2007,6 +2017,7 @@ fn legacy_library_unit_changes_do_not_prevent_opening_or_reinterpret_stored_pric
         description: "Biblioteca modificada".into(),
         unit: "kg".into(),
         components: vec![cpobras_core::ResourcePriceSnapshot {
+            price_pending: false,
             daily_output: None,
             included: true,
             resource_id: res,
@@ -2785,6 +2796,7 @@ fn saving_an_acu_pattern_copies_unit_composition_without_changing_the_source() {
             e.id,
             line.id,
             &[LineResourceInput {
+                price_pending: false,
                 daily_output: None,
                 included: None,
                 resource_id: r.id,
@@ -3210,6 +3222,7 @@ fn declared_acopio_reduces_period_purchases_without_creating_a_payment() {
         description: "Materiales".into(),
         unit: "m".into(),
         components: vec![ResourcePriceSnapshot {
+            price_pending: false,
             daily_output: None,
             included: true,
             resource_id: resource,
@@ -3225,6 +3238,7 @@ fn declared_acopio_reduces_period_purchases_without_creating_a_payment() {
         e.id,
         l.id,
         &[crate::line_workflows::LineResourceInput {
+            price_pending: false,
             daily_output: None,
             included: None,
             resource_id: resource,
@@ -3318,6 +3332,7 @@ fn crew_friday_payments_cap_advance_recovery_and_replace_liquidated_wages() {
         e.id,
         l.id,
         &[LineResourceInput {
+            price_pending: false,
             daily_output: None,
             included: None,
             resource_id: resource,
@@ -3389,6 +3404,7 @@ fn material_orders_in_another_currency_cover_supply_without_implicit_currency_co
         e.id,
         l.id,
         &[crate::line_workflows::LineResourceInput {
+            price_pending: false,
             daily_output: None,
             included: None,
             resource_id: resource,
@@ -5558,6 +5574,7 @@ fn assisted_acu_batch(
         creates: vec![],
         deletes: vec![],
         acus: vec![AcuChange {
+            pricing: None,
             line_id: line.id,
             expected: Some(ExpectedLine {
                 description: line.description.clone(),
@@ -5586,13 +5603,15 @@ fn assisted_acu_batch(
 #[test]
 fn assisted_acu_calculates_exact_catalog_cost_and_retry_does_not_duplicate() {
     let (mut s, p, e, line, id) = assisted_acu_fixture();
+    crate::resource_productivity::seed_daily_output(&s.conn, id, 8.into()).unwrap();
     let batch = assisted_acu_batch(&s, &p, &e, &line, id);
     let result = s.apply_reviewed_budget_batch(&batch).unwrap();
     assert_eq!(result.composed, 1);
     let saved = s.estimate_items(e.id).unwrap().remove(0);
     assert_eq!(saved.unit_cost_snapshot, Decimal::new(87, 3));
     assert_eq!(saved.quantity, line.quantity);
-    assert!(saved.analysis_id.is_some());
+    let analysis = s.get_analysis(saved.analysis_id.unwrap()).unwrap().unwrap();
+    assert_eq!(analysis.components[0].daily_output, Some(8.into()));
     assert_eq!(s.list_budget_sections(e.id).unwrap()[0].title, "Revoques");
     s.apply_reviewed_budget_batch(&batch).unwrap();
     assert_eq!(
@@ -5626,6 +5645,81 @@ fn assisted_acu_rejects_changed_or_missing_prices_without_partial_writes() {
     let mut missing = assisted_acu_batch(&s, &p, &e, &line, id);
     missing.acus[0].components[0].expected_resource.price = None;
     assert!(s.apply_reviewed_budget_batch(&missing).is_err());
+}
+
+#[test]
+fn assisted_acu_creates_unpriced_components_and_resolves_them_on_explicit_pricing() {
+    use crate::{
+        assisted_acu::AcuPricing, assisted_budget::NewLine, line_workflows::LineResourceInput,
+    };
+    let (mut store, project, estimate, existing, resource_id) = assisted_acu_fixture();
+    store
+        .conn
+        .execute(
+            "DELETE FROM resource_prices WHERE resource_id=?1",
+            [resource_id.to_string()],
+        )
+        .unwrap();
+    let mut batch = assisted_acu_batch(&store, &project, &estimate, &existing, resource_id);
+    let id = Uuid::new_v4();
+    batch.creates.push(NewLine {
+        id,
+        description: "Colocación para cotizar".into(),
+        unit: existing.unit,
+        quantity: Decimal::ZERO,
+        unit_price: Decimal::ZERO,
+        section: None,
+    });
+    let change = &mut batch.acus[0];
+    change.line_id = id;
+    change.pricing = Some(AcuPricing::Catalog);
+    change.expected = None;
+    change.expected_recipe = None;
+    store.apply_reviewed_budget_batch(&batch).unwrap();
+    store.reconcile_draft_prices().unwrap();
+    let find = |store: &LocalStore| {
+        store
+            .estimate_items(estimate.id)
+            .unwrap()
+            .into_iter()
+            .find(|line| line.id == id)
+            .unwrap()
+    };
+    let added = find(&store);
+    let recipe = store
+        .get_analysis(added.analysis_id.unwrap())
+        .unwrap()
+        .unwrap();
+    assert_eq!(added.quantity, Decimal::ZERO);
+    assert_eq!(recipe.components[0].quantity_per_unit, Decimal::new(3, 1));
+    assert!(recipe.components[0].price_pending);
+    assert!(!store
+        .estimate_resource_prices(estimate.id)
+        .unwrap()
+        .contains_key(&resource_id));
+    store
+        .save_line_resources(
+            estimate.id,
+            id,
+            &[LineResourceInput {
+                resource_id,
+                quantity: Decimal::new(3, 1),
+                unit_price: Decimal::ZERO,
+                price_pending: false,
+                included: None,
+                daily_output: None,
+            }],
+        )
+        .unwrap();
+    let priced = store
+        .get_analysis(find(&store).analysis_id.unwrap())
+        .unwrap()
+        .unwrap();
+    assert!(!priced.components[0].price_pending);
+    assert_eq!(
+        store.estimate_resource_prices(estimate.id).unwrap()[&resource_id],
+        Decimal::ZERO
+    );
 }
 #[test]
 fn assisted_acu_measurements_are_calculated_and_restore_previous_manual_quantity() {
@@ -5671,6 +5765,7 @@ fn assisted_acu_reuses_reference_consumption_but_not_historical_prices() {
         e.id,
         line.id,
         &[LineResourceInput {
+            price_pending: false,
             daily_output: None,
             included: None,
             resource_id: id,
@@ -5754,6 +5849,7 @@ fn removing_line_resources_preserves_catalog_snapshots_and_handles_the_last_comp
     store.save_resource(&second).unwrap();
     let inputs = vec![
         LineResourceInput {
+            price_pending: false,
             daily_output: None,
             included: None,
             resource_id: resource.id,
@@ -5761,6 +5857,7 @@ fn removing_line_resources_preserves_catalog_snapshots_and_handles_the_last_comp
             unit_price: Decimal::from(10),
         },
         LineResourceInput {
+            price_pending: false,
             daily_output: None,
             included: None,
             resource_id: second.id,
@@ -5819,6 +5916,7 @@ fn line_cost_exclusions_keep_prices_quantities_other_lines_and_survive_edit_copy
     use crate::line_workflows::LineResourceInput;
     let (mut s, p, e, l, _, resource, _) = stock_fixture();
     let inputs = [LineResourceInput {
+        price_pending: false,
         daily_output: None,
         included: None,
         resource_id: resource,
@@ -5872,6 +5970,7 @@ fn line_cost_exclusions_keep_prices_quantities_other_lines_and_survive_edit_copy
             e.id,
             l.id,
             &[LineResourceInput {
+                price_pending: false,
                 daily_output: None,
                 included: None,
                 resource_id: resource,
@@ -6018,6 +6117,7 @@ fn daily_productivity_seeds_once_keeps_budget_snapshots_and_rolls_back_failed_sa
     };
     s.save_resource(&r).unwrap();
     let input = |rate: &str, price: Decimal| LineResourceInput {
+        price_pending: false,
         daily_output: Some(rate.into()),
         included: Some(true),
         resource_id: r.id,
@@ -6077,6 +6177,7 @@ fn daily_productivity_seeds_once_keeps_budget_snapshots_and_rolls_back_failed_sa
             e.id,
             line.id,
             &[LineResourceInput {
+                price_pending: false,
                 daily_output: Some("50".into()),
                 included: Some(true),
                 resource_id: failed.id,

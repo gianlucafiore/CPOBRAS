@@ -98,7 +98,7 @@ pub(crate) async fn open_project_link(link: String) -> Result<(), String> {
     open_browser(url.into()).await
 }
 
-async fn open_browser(url: String) -> Result<(), String> {
+pub(crate) async fn open_browser(url: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         let status = crate::system_open::file_command(Path::new(&url))
             .stdin(std::process::Stdio::null())

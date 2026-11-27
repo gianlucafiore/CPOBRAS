@@ -38,8 +38,17 @@ pub struct Dimensions {
     pub height: D,
     pub sign: i64,
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AcuPricing {
+    Catalog,
+    BudgetOnly,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AcuChange {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pricing: Option<AcuPricing>,
     pub line_id: Uuid,
     pub expected: Option<ExpectedLine>,
     pub expected_recipe: Option<String>,
@@ -183,11 +192,25 @@ impl LocalStore {
         date: &str,
     ) -> Result<AcuContext> {
         valid_date(date)?;
-        let currency:String=self.conn.query_row("SELECT p.currency FROM projects p WHERE p.id=?1 AND NOT EXISTS(SELECT 1 FROM entity_archives a WHERE a.kind='project' AND a.entity_id=p.id) AND NOT EXISTS(SELECT 1 FROM project_organizations po JOIN organizations o ON o.id=po.organization_id WHERE po.project_id=p.id AND o.ownership='external')",[project.to_string()],|r|r.get(0)).optional()?.ok_or_else(||invalid("Abrí un proyecto propio vigente"))?;
+        let project_currency:String=self.conn.query_row("SELECT p.currency FROM projects p WHERE p.id=?1 AND NOT EXISTS(SELECT 1 FROM entity_archives a WHERE a.kind='project' AND a.entity_id=p.id) AND NOT EXISTS(SELECT 1 FROM project_organizations po JOIN organizations o ON o.id=po.organization_id WHERE po.project_id=p.id AND o.ownership='external')",[project.to_string()],|r|r.get(0)).optional()?.ok_or_else(||invalid("Abrí un proyecto propio vigente"))?;
         let id = estimate.unwrap_or_else(Uuid::nil);
-        if let Some(e) = estimate {
-            if !reference_budget_allowed(&self.conn,e)? || !self.conn.query_row("SELECT EXISTS(SELECT 1 FROM estimates WHERE id=?1 AND project_id=?2 AND status='draft')",params![e.to_string(),project.to_string()],|r|r.get::<_,bool>(0))?{return Err(invalid("El presupuesto no pertenece al proyecto o no está en elaboración"));}
-        }
+        let currency = if let Some(e) = estimate {
+            let invalid_estimate =
+                || invalid("El presupuesto no pertenece al proyecto o no está en elaboración");
+            if !reference_budget_allowed(&self.conn, e)? {
+                return Err(invalid_estimate());
+            }
+            self.conn
+                .query_row(
+                    "SELECT currency FROM estimates WHERE id=?1 AND project_id=?2 AND status='draft'",
+                    params![e.to_string(), project.to_string()],
+                    |row| row.get(0),
+                )
+                .optional()?
+                .ok_or_else(invalid_estimate)?
+        } else {
+            project_currency
+        };
         let resources = self
             .list_resources()?
             .into_iter()
@@ -357,6 +380,14 @@ impl LocalStore {
         Ok(examples)
     }
 }
+fn approved_price(change: &AcuChange, resource: &AcuResource) -> Option<D> {
+    if change.pricing == Some(AcuPricing::BudgetOnly) && resource.price_source != "presupuesto" {
+        None
+    } else {
+        resource.price
+    }
+}
+
 pub(crate) fn validate_changes(conn: &Connection, batch: &ReviewedBatch) -> Result<()> {
     let mut seen = HashSet::new();
     let mut resolved = BTreeMap::new();
@@ -364,7 +395,7 @@ pub(crate) fn validate_changes(conn: &Connection, batch: &ReviewedBatch) -> Resu
     let mut previous_prices: BTreeMap<Uuid, Vec<D>> = BTreeMap::new();
     for json in snapshots {
         let a: UnitCostAnalysis = serde_json::from_str(&json)?;
-        for c in a.components {
+        for c in a.components.into_iter().filter(|c| !c.price_pending) {
             previous_prices
                 .entry(c.resource_id)
                 .or_default()
@@ -377,6 +408,7 @@ pub(crate) fn validate_changes(conn: &Connection, batch: &ReviewedBatch) -> Resu
             || change.components.is_empty()
             || change.components.len() > 100
             || change.notes.len() > 6000
+            || (change.pricing.is_some() && change.expected.is_some())
             || batch.updates.iter().any(|u| u.line_id == change.line_id)
             || batch.deletes.iter().any(|d| d.line_id == change.line_id)
         {
@@ -425,11 +457,16 @@ pub(crate) fn validate_changes(conn: &Connection, batch: &ReviewedBatch) -> Resu
                 c.resource_id,
                 &change.as_of,
             )?;
-            if current != c.expected_resource || current.price.is_none() {
+            if current != c.expected_resource
+                || (change.pricing.is_none() && current.price.is_none())
+            {
                 return Err(invalid("Cambió el insumo o su precio, o falta un precio en esta moneda. Actualizá la vista previa"));
             }
+            // The contextual creation flow can keep the composition while a quote is pending.
+            let Some(price) = approved_price(change, &current) else {
+                continue;
+            };
             // Do not silently reprice unrelated legacy compositions.
-            let price = current.price.ok_or_else(|| invalid("Precio faltante"))?;
             if let Some(old) = resolved.insert(c.resource_id, price) {
                 if old != price {
                     return Err(invalid(
@@ -517,9 +554,7 @@ pub(crate) fn apply_changes(conn: &Connection, batch: &ReviewedBatch) -> Result<
         let mut components = Vec::new();
         for c in &change.components {
             let r = &c.expected_resource;
-            let price = r
-                .price
-                .ok_or_else(|| invalid("Precio de insumo faltante"))?;
+            let price = approved_price(change, r);
             let kind = match r.kind.as_str() {
                 "material" => ResourceKind::Material,
                 "labor" => ResourceKind::Labor,
@@ -528,7 +563,15 @@ pub(crate) fn apply_changes(conn: &Connection, batch: &ReviewedBatch) -> Result<
                 _ => return Err(invalid("Tipo de insumo inválido")),
             };
             components.push(ResourcePriceSnapshot {
-                daily_output: None,
+                price_pending: price.is_none(),
+                daily_output: match previous.as_ref().and_then(|a| {
+                    a.components
+                        .iter()
+                        .find(|old| old.resource_id == c.resource_id)
+                }) {
+                    Some(snapshot) => snapshot.daily_output,
+                    None => crate::resource_productivity::daily_output_for(conn, c.resource_id)?,
+                },
                 included: previous
                     .as_ref()
                     .and_then(|a| {
@@ -542,9 +585,11 @@ pub(crate) fn apply_changes(conn: &Connection, batch: &ReviewedBatch) -> Result<
                 description: r.description.clone(),
                 kind,
                 quantity_per_unit: c.quantity,
-                unit_price: price,
+                unit_price: price.unwrap_or(D::ZERO),
             });
-            conn.execute("INSERT OR IGNORE INTO estimate_resource_prices(estimate_id,resource_id,amount) VALUES(?1,?2,?3)",params![batch.estimate_id.to_string(),c.resource_id.to_string(),price.to_string()])?;
+            if let Some(price) = price {
+                conn.execute("INSERT OR IGNORE INTO estimate_resource_prices(estimate_id,resource_id,amount) VALUES(?1,?2,?3)",params![batch.estimate_id.to_string(),c.resource_id.to_string(),price.to_string()])?;
+            }
         }
         let id = Uuid::new_v4();
         let analysis = UnitCostAnalysis {
@@ -639,6 +684,9 @@ pub(crate) fn apply_changes(conn: &Connection, batch: &ReviewedBatch) -> Result<
             change.section_id,
             change.section_title.as_deref(),
         )?;
+    }
+    if batch.acus.iter().any(|change| change.pricing.is_some()) {
+        crate::estimate_resource_prices::synchronize(conn, batch.estimate_id, &BTreeMap::new())?;
     }
     Ok(())
 }

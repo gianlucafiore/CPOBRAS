@@ -33,5 +33,5 @@ pub(crate) mod site_workflow;
 
 pub(crate) mod ai;
 
-pub(crate) mod reminders;
 pub(crate) mod releases;
+pub(crate) mod reminders;

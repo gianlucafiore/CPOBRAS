@@ -3,6 +3,7 @@
 **/node_modules/
 /apps/desktop/dist/
 *.sqlite
+!/examples/cpobras-modelo.sqlite
 *.sqlite3
 *.db
 .env

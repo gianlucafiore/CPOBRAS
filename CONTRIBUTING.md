@@ -14,8 +14,8 @@ Para una mejora, describí qué tarea querés resolver y cómo la realizás hoy.
 ## Cambios de código o documentación
 
 1. Hacé un fork, clonalo y creá una rama desde `main`.
-2. Para la aplicación de escritorio, seguí los [requisitos y comandos del README](README.md#instalar-dependencias).
-3. Ejecutá las [comprobaciones pertinentes](README.md#pruebas-y-comprobaciones)
+2. Para la aplicación de escritorio, seguí los [requisitos y comandos de desarrollo](docs/DESARROLLO.md#instalar-dependencias).
+3. Ejecutá las [comprobaciones pertinentes](docs/DESARROLLO.md#pruebas-y-comprobaciones)
    y anotá qué pudiste verificar.
 4. Abrí un pull request contra `main`. Describí el cambio, cómo lo probaste
    y, si modifica la interfaz, adjuntá capturas.

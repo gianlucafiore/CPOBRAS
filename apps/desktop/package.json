@@ -1,7 +1,7 @@
 {
   "name": "cpobras-desktop",
   "private": true,
-  "version": "26.1.0",
+  "version": "26.1.1",
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 1420 --strictPort",
@@ -11,8 +11,8 @@
     "test:browser": "playwright test",
     "package:linux": "bash ../../tools/package-linux.sh",
     "predev": "node ../../tools/generate-ai-inventory.mjs",
-    "prebuild": "node ../../tools/generate-ai-inventory.mjs",
-    "pretest": "node ../../tools/generate-ai-inventory.mjs",
+    "prebuild": "node ../../tools/generate-ai-inventory.mjs && node ../../tools/check-locales.mjs",
+    "pretest": "node ../../tools/generate-ai-inventory.mjs && node ../../tools/check-locales.mjs",
     "pretest:browser": "node ../../tools/generate-ai-inventory.mjs",
     "pretauri": "node ../../tools/generate-ai-inventory.mjs"
   },

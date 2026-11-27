@@ -1,3 +1,4 @@
+import { uiText, uiHtml } from "../services/interface-language.js";
 import {createOrganizationIndirectCosts} from "./organization-indirect-costs.js";
 import { e, field } from "./helpers.js";
 export function createOrganizations({
@@ -22,7 +23,7 @@ export function createOrganizations({
     if (
       state.pageDirty &&
       !window.confirm(
-        "¿Descartar los cambios sin guardar de esta organización?",
+        uiText("¿Descartar los cambios sin guardar de esta organización?"),
       )
     )
       return false;
@@ -33,8 +34,8 @@ export function createOrganizations({
     if (model.tab === "indirect") return indirect.markup();
     if (model.tab === "profile") return profile.markup();
     if (model.tab === "directories")
-      return `<div class="feature-toolbar organization-directory-bar"><button class="btn" data-action="organization-open" data-id="${e(state.organizationId)}">← Datos de ${e(selected()?.name)}</button><button class="btn" data-action="organization-list">Organizaciones</button></div>${management.markup()}`;
-    return `<main class="feature-page"><div class="feature-toolbar"><h1>Organizaciones</h1><button class="btn primary" data-action="organization-new">Nueva organización</button></div><p>Elegí una organización para consultar sus datos, logotipo y directorios. La predeterminada se preselecciona únicamente al crear obras nuevas.</p>${model.tab === "new" ? `<form id="organization-create-form" class="feature-editor"><h2>Nueva organización propia</h2>${field("Nombre de la organización", "name", "", 'required maxlength="500"')}<button class="btn primary" type="submit">Crear organización</button><button class="btn" type="button" data-action="organization-list">Cancelar</button><p class="feature-error" role="alert"></p></form>` : ""}<table class="data-grid"><thead><tr><th>Nombre</th><th>Tipo</th><th>Predeterminada</th><th>Acciones</th></tr></thead><tbody>${state.organizations.map((o) => `<tr><td>${e(o.name)}</td><td><span class="organization-badge ${o.ownership === "external" ? "external" : ""}">${o.ownership === "external" ? "Externa · solo lectura" : "Propia"}</span></td><td>${o.is_default ? "✓ Para obras nuevas" : "—"}</td><td><button class="btn" data-action="organization-open" data-id="${o.id}">${o.ownership === "external" ? "Consultar" : "Abrir"}</button> <button class="btn" data-action="organization-default" data-id="${o.id}" ${o.ownership !== "own" || o.is_default ? "disabled" : ""}>Usar como predeterminada</button></td></tr>`).join("")}</tbody></table></main>`;
+      return `<div class="feature-toolbar organization-directory-bar"><button class="btn" data-action="organization-open" data-id="${e(state.organizationId)}">${uiHtml("← Datos de {0}", [selected()?.name])}</button><button class="btn" data-action="organization-list">${uiHtml("Organizaciones")}</button></div>${management.markup()}`;
+    return `<main class="feature-page"><div class="feature-toolbar"><h1>${uiHtml("Organizaciones")}</h1><button class="btn primary" data-action="organization-new">${uiHtml("Nueva organización")}</button></div><p>${uiHtml("Elegí una organización para consultar sus datos, logotipo y directorios. La predeterminada se preselecciona únicamente al crear obras nuevas.")}</p>${model.tab === "new" ? `<form id="organization-create-form" class="feature-editor"><h2>${uiHtml("Nueva organización propia")}</h2>${field(uiText("Nombre de la organización"), "name", "", 'required maxlength="500"')}<button class="btn primary" type="submit">${uiHtml("Crear organización")}</button><button class="btn" type="button" data-action="organization-list">${uiHtml("Cancelar")}</button><p class="feature-error" role="alert"></p></form>` : ""}<table class="data-grid"><thead><tr><th>${uiHtml("Nombre")}</th><th>${uiHtml("Tipo")}</th><th>${uiHtml("Predeterminada")}</th><th>${uiHtml("Acciones")}</th></tr></thead><tbody>${state.organizations.map((o) => `<tr><td>${e(o.name)}</td><td><span class="organization-badge ${o.ownership === "external" ? "external" : ""}">${o.ownership === "external" ? uiHtml("Externa · solo lectura") : uiHtml("Propia")}</span></td><td>${o.is_default ? uiHtml("✓ Para obras nuevas") : "—"}</td><td><button class="btn" data-action="organization-open" data-id="${o.id}">${o.ownership === "external" ? uiHtml("Consultar") : uiHtml("Abrir")}</button> <button class="btn" data-action="organization-default" data-id="${o.id}" ${o.ownership !== "own" || o.is_default ? "disabled" : ""}>${uiHtml("Usar como predeterminada")}</button></td></tr>`).join("")}</tbody></table></main>`;
   }
   async function act(button) {
     const a = button.dataset.action;
@@ -79,13 +80,13 @@ export function createOrganizations({
       });
       await refresh();
       state.message =
-        "Predeterminada para crear obras nuevas. Las obras existentes conservan su organización.";
+        uiText("Predeterminada para crear obras nuevas. Las obras existentes conservan su organización.");
     }
     if (a === "organization-directories") {
       const o = selected();
       if (!o || o.ownership !== "own" || !o.company_id)
         throw new Error(
-          "Guardá una organización propia antes de gestionar sus directorios",
+          uiText("Guardá una organización propia antes de gestionar sus directorios"),
         );
       model.tab = "directories";
       await management.act({ dataset: { action: "open-management" } });

@@ -16,6 +16,9 @@ pub(crate) async fn switch_database<R: tauri::Runtime>(
     create: bool,
     import_copy: Option<bool>,
     recent_path: Option<String>,
+    dialog_title: Option<String>,
+    sqlite_filter: Option<String>,
+    all_files_filter: Option<String>,
 ) -> Result<&'static str, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let app = window.app_handle();
@@ -27,27 +30,37 @@ pub(crate) async fn switch_database<R: tauri::Runtime>(
             return Ok("unchanged");
         }
         let info = session.info();
-        let mut dialog = window
-            .dialog()
-            .file()
-            .set_parent(&window)
-            .add_filter("Bases SQLite", &["sqlite", "sqlite3", "db"]);
+        let mut dialog = window.dialog().file().set_parent(&window).add_filter(
+            sqlite_filter.as_deref().unwrap_or("Bases SQLite"),
+            &["sqlite", "sqlite3", "db"],
+        );
         if let Some(parent) = std::path::Path::new(&info.path).parent() {
             dialog = dialog.set_directory(parent);
         }
         let selected = if create {
             dialog
-                .set_title("Nueva base de datos de CPOBRAS")
+                .set_title(
+                    dialog_title
+                        .as_deref()
+                        .unwrap_or("Nueva base de datos de CPOBRAS"),
+                )
                 .set_file_name("nueva-base.sqlite")
                 .blocking_save_file()
         } else {
             dialog
-                .set_title(if import_copy == Some(true) {
-                    "Importar base de datos de CPOBRAS"
-                } else {
-                    "Abrir base de datos de CPOBRAS"
-                })
-                .add_filter("Todos los archivos", &["*"])
+                .set_title(
+                    dialog_title
+                        .as_deref()
+                        .unwrap_or(if import_copy == Some(true) {
+                            "Importar base de datos de CPOBRAS"
+                        } else {
+                            "Abrir base de datos de CPOBRAS"
+                        }),
+                )
+                .add_filter(
+                    all_files_filter.as_deref().unwrap_or("Todos los archivos"),
+                    &["*"],
+                )
                 .blocking_pick_file()
         };
         if let Some(selected) = selected {

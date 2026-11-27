@@ -455,6 +455,7 @@ mod tests {
             description: "Hormigón".into(),
             unit: "m3".into(),
             components: vec![ResourcePriceSnapshot {
+                price_pending: false,
                 daily_output: None,
                 included: true,
                 resource_id: Uuid::new_v4(),
@@ -504,6 +505,7 @@ mod tests {
             description: "Estructura".into(),
             unit: "kg".into(),
             components: vec![ResourcePriceSnapshot {
+                price_pending: false,
                 daily_output: None,
                 included: true,
                 resource_id: resource.id,

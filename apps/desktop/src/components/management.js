@@ -1,23 +1,24 @@
+import { uiText, uiHtml } from "../services/interface-language.js";
 import { entityActions } from "./entity-actions.js";
 import { createProjectDashboard } from "./project-dashboard.js";
 import { e, field, select } from "./helpers.js";
 
 export const directoryKinds = {
-  company: "Empresas",
-  establishment: "Establecimientos",
-  user: "Usuarios y roles",
-  supplier: "Proveedores",
-  subcontractor: "Subcontratistas",
-  contact: "Contactos",
-  project_profile: "Fichas de obras",
-  client_profile: "Datos ampliados de clientes",
-  contract: "Contratos",
-  cost_center: "Centros de costos",
-  unit: "Unidades",
-  category: "Categorías",
-  trade: "Rubros",
-  document: "Documentación",
-  crew: "Cuadrillas",
+  get company() { return uiText("Empresas"); },
+  get establishment() { return uiText("Establecimientos"); },
+  get user() { return uiText("Usuarios y roles"); },
+  get supplier() { return uiText("Proveedores"); },
+  get subcontractor() { return uiText("Subcontratistas"); },
+  get contact() { return uiText("Contactos"); },
+  get project_profile() { return uiText("Fichas de obras"); },
+  get client_profile() { return uiText("Datos ampliados de clientes"); },
+  get contract() { return uiText("Contratos"); },
+  get cost_center() { return uiText("Centros de costos"); },
+  get unit() { return uiText("Unidades"); },
+  get category() { return uiText("Categorías"); },
+  get trade() { return uiText("Rubros"); },
+  get document() { return uiText("Documentación"); },
+  get crew() { return uiText("Cuadrillas"); },
 };
 const commonContact = [
   ["email", "Correo"],
@@ -237,26 +238,26 @@ export function createManagementWorkspace({
       ];
     const input = ([key, label, type]) =>
       type === "textarea"
-        ? `<label class="field profile-description"><span>${e(label)}</span><textarea name="attr-${e(key)}" rows="3" maxlength="20000">${e(attrs[key] || "")}</textarea></label>`
+        ? `<label class="field profile-description"><span>${uiHtml(label)}</span><textarea name="attr-${e(key)}" rows="3" maxlength="20000">${e(attrs[key] || "")}</textarea></label>`
         : Array.isArray(type)
-          ? select(label, "attr-" + key, type, attrs[key])
+          ? select(uiText(label), "attr-" + key, type.map(([value, text]) => [value, uiText(text)]), attrs[key])
           : field(
-              label,
+              uiText(label),
               "attr-" + key,
               attrs[key] || "",
               type === "date" ? 'type="date"' : "",
             );
-    return `<main class="feature-page physical-profile-page"><div class="feature-toolbar"><button class="btn" data-action="manage-dashboard">← Tablero de obra</button><h1>Ficha de la obra</h1></div><form id="management-form" class="physical-profile-editor"><div class="profile-main-grid">${field("Nombre", "name", item.name || "", 'required maxlength="500"')}${fields.project_profile
+    return `<main class="feature-page physical-profile-page"><div class="feature-toolbar"><button class="btn" data-action="manage-dashboard">${uiHtml("← Tablero de obra")}</button><h1>${uiHtml("Ficha de la obra")}</h1></div><form id="management-form" class="physical-profile-editor"><div class="profile-main-grid">${field(uiText("Nombre"), "name", item.name || "", 'required maxlength="500"')}${fields.project_profile
       .filter(([key]) => main.includes(key))
       .map(input)
       .join(
         "",
-      )}</div>${input(["description", "Memoria descriptiva", "textarea"])}<details><summary>Datos adicionales y parámetros económicos</summary><div class="profile-main-grid">${fields.project_profile
+      )}</div>${input(["description", "Memoria descriptiva", "textarea"])}<details><summary>${uiHtml("Datos adicionales y parámetros económicos")}</summary><div class="profile-main-grid">${fields.project_profile
       .filter(([key]) => !main.includes(key) && key !== "description")
       .map(input)
       .join(
         "",
-      )}${field("Código", "code", item.code || "")}</div></details><input type="hidden" name="company_id" value="${e(item.company_id || "")}"><input type="hidden" name="parent_id" value="${e(item.parent_id || "")}"><input type="hidden" name="client_id" value="${e(item.client_id || state.projects.find((p) => p.id === state.projectId)?.client_id || "")}"><div class="compact-editor-actions"><button class="btn primary" type="submit">Guardar ficha</button><button class="btn" type="button" data-action="manage-cancel">Cancelar</button></div><p class="feature-error" role="alert"></p></form></main>`;
+      )}${field(uiText("Código"), "code", item.code || "")}</div></details><input type="hidden" name="company_id" value="${e(item.company_id || "")}"><input type="hidden" name="parent_id" value="${e(item.parent_id || "")}"><input type="hidden" name="client_id" value="${e(item.client_id || state.projects.find((p) => p.id === state.projectId)?.client_id || "")}"><div class="compact-editor-actions"><button class="btn primary" type="submit">${uiHtml("Guardar ficha")}</button><button class="btn" type="button" data-action="manage-cancel">${uiHtml("Cancelar")}</button></div><p class="feature-error" role="alert"></p></form></main>`;
   }
   function markup() {
     const item = model.editing;
@@ -270,9 +271,9 @@ export function createManagementWorkspace({
     )
       model.mode = "dashboard";
     if (scoped() && model.mode === "dashboard")
-      return `<main class="feature-page"><div class="feature-toolbar"><h1>Proyecto</h1>${(() => {const last=state.estimates.find(e=>e.id===state.lastBudgetByProject?.[state.projectId]);return last ? `<button class="btn primary" data-action="manage-dashboard-budget" data-id="${e(last.id)}">Ir al presupuesto: ${e(last.title)}</button>` : "";})()}<button class="btn primary" data-action="manage-dashboard-profile">${state.remoteProject ? "Consultar ficha" : "Editar proyecto"}</button>${state.remoteProject ? "" : entityActions("project",state.projectId,state.projects.find(p=>p.id===state.projectId)?.name||"obra")}</div>${dashboard.markup(model.catalogs)}</main>`;
-    return `<main class="feature-page"><div class="feature-toolbar">${scoped() ? '<button class="btn" data-action="manage-dashboard">← Tablero de obra</button>' : ""}<h1>${scoped() ? "Datos de la obra" : organization() ? "Directorios de " + e(organization().name) : "Directorios"}</h1>${select(
-      "Directorio",
+      return `<main class="feature-page"><div class="feature-toolbar"><h1>${uiHtml("Proyecto")}</h1>${(() => {const last=state.estimates.find(e=>e.id===state.lastBudgetByProject?.[state.projectId]);return last ? `<button class="btn primary" data-action="manage-dashboard-budget" data-id="${e(last.id)}">${uiHtml("Ir al presupuesto: {0}", [last.title])}</button>` : "";})()}<button class="btn primary" data-action="manage-dashboard-profile">${state.remoteProject ? uiHtml("Consultar ficha") : uiHtml("Editar proyecto")}</button>${state.remoteProject ? "" : entityActions("project",state.projectId,state.projects.find(p=>p.id===state.projectId)?.name||"obra")}</div>${dashboard.markup(model.catalogs)}</main>`;
+    return `<main class="feature-page"><div class="feature-toolbar">${scoped() ? ("<button class=\"btn\" data-action=\"manage-dashboard\">" + uiHtml("← Tablero de obra") + "</button>") : ""}<h1>${scoped() ? uiHtml("Datos de la obra") : organization() ? uiHtml("Directorios de {0}", [e(organization().name)]) : uiHtml("Directorios")}</h1>${select(
+      uiText("Directorio"),
       "management-kind",
       Object.entries(directoryKinds).filter(([kind]) =>
         scoped()
@@ -280,19 +281,19 @@ export function createManagementWorkspace({
           : !["company", "supplier", "client_profile"].includes(kind),
       ),
       model.kind,
-    )}<button class="btn primary" data-action="manage-new">Nuevo registro</button>${scoped() || state.organizationId ? "" : '<button class="btn" data-action="manage-audit">Historial de cambios</button>'}</div>
-      <div class="feature-columns"><section><table class="data-grid"><thead><tr><th>Código</th><th>Nombre</th><th></th></tr></thead><tbody>${model.records.map((record) => `<tr><td>${e(record.code)}</td><td>${e(record.name)}</td><td><button class="btn" data-action="manage-edit" data-id="${e(record.id)}">Editar</button></td></tr>`).join("") || '<tr><td colspan="3">Sin registros. Creá el primero con el botón superior.</td></tr>'}</tbody></table></section>
+    )}<button class="btn primary" data-action="manage-new">${uiHtml("Nuevo registro")}</button>${scoped() || state.organizationId ? "" : ("<button class=\"btn\" data-action=\"manage-audit\">" + uiHtml("Historial de cambios") + "</button>")}</div>
+      <div class="feature-columns"><section><table class="data-grid"><thead><tr><th>${uiHtml("Código")}</th><th>${uiHtml("Nombre")}</th><th></th></tr></thead><tbody>${model.records.map((record) => `<tr><td>${e(record.code)}</td><td>${e(record.name)}</td><td><button class="btn" data-action="manage-edit" data-id="${e(record.id)}">${uiHtml("Editar")}</button></td></tr>`).join("") || ("<tr><td colspan=\"3\">" + uiHtml("Sin registros. Creá el primero con el botón superior.") + "</td></tr>")}</tbody></table></section>
       ${
         item
-          ? `<form id="management-form" class="feature-editor"><h2>${item.id ? "Editar" : "Nuevo"} · ${e(directoryKinds[model.kind])}</h2>${field("Nombre", "name", item.name, "required maxlength=500")}${field("Código", "code", item.code)}
-        ${company() ? `<p>Organización: <strong>${e(organization()?.name)}</strong></p>` : model.kind !== "company" ? select("Empresa", "company_id", options("company"), item.company_id) : ""}
-        ${scoped() ? `<p>Obra: <strong>${e(state.projects.find((p) => p.id === state.projectId)?.name)}</strong></p>` : select("Obra relacionada", "project_id", [["", "Sin obra"], ...state.projects.map((project) => [project.id, project.name])], item.project_id)}
-        ${select("Cliente relacionado", "client_id", [["", "Sin cliente"], ...state.clients.map((client) => [client.id, client.name])], item.client_id)}
+          ? `<form id="management-form" class="feature-editor"><h2>${item.id ? uiHtml("Editar") : uiHtml("Nuevo")} · ${e(directoryKinds[model.kind])}</h2>${field(uiText("Nombre"), "name", item.name, "required maxlength=500")}${field(uiText("Código"), "code", item.code)}
+        ${company() ? `<p>${uiHtml("Organización:")} <strong>${e(organization()?.name)}</strong></p>` : model.kind !== "company" ? select(uiText("Empresa"), "company_id", options("company"), item.company_id) : ""}
+        ${scoped() ? `<p>${uiHtml("Obra:")} <strong>${e(state.projects.find((p) => p.id === state.projectId)?.name)}</strong></p>` : select(uiText("Obra relacionada"), "project_id", [["", uiText("Sin obra")], ...state.projects.map((project) => [project.id, project.name])], item.project_id)}
+        ${select(uiText("Cliente relacionado"), "client_id", [["", uiText("Sin cliente")], ...state.clients.map((client) => [client.id, client.name])], item.client_id)}
         ${select(
-          "Registro superior / entidad del contacto",
+          uiText("Registro superior / entidad del contacto"),
           "parent_id",
           [
-            ["", "Sin superior"],
+            ["", uiText("Sin superior")],
             ...Object.values(model.catalogs)
               .flat()
               .filter(
@@ -307,12 +308,12 @@ export function createManagementWorkspace({
           ],
           item.parent_id,
         )}
-        ${(fields[model.kind] || []).map(([key, label, type]) => (Array.isArray(type) ? select(label, "attr-" + key, type, item.attributes[key]) : ["user", "establishment", "category"].includes(type) ? select(label, "attr-" + key, options(type), item.attributes[key]) : type === "textarea" ? `<label class="field"><span>${e(label)}</span><textarea name="attr-${e(key)}" rows="5" maxlength="20000">${e(item.attributes[key] || "")}</textarea></label>` : field(label, "attr-" + key, item.attributes[key] || "", type === "date" ? 'type="date"' : ""))).join("")}
-        <button class="btn primary" type="submit">Guardar ficha</button><button class="btn" type="button" data-action="manage-cancel">Cancelar</button><p class="feature-error" role="alert"></p>
+        ${(fields[model.kind] || []).map(([key, label, type]) => (Array.isArray(type) ? select(uiText(label), "attr-" + key, type.map(([value, text]) => [value, uiText(text)]), item.attributes[key]) : ["user", "establishment", "category"].includes(type) ? select(label, "attr-" + key, options(type), item.attributes[key]) : type === "textarea" ? `<label class="field"><span>${uiHtml(label)}</span><textarea name="attr-${e(key)}" rows="5" maxlength="20000">${e(item.attributes[key] || "")}</textarea></label>` : field(uiText(label), "attr-" + key, item.attributes[key] || "", type === "date" ? 'type="date"' : ""))).join("")}
+        <button class="btn primary" type="submit">${uiHtml("Guardar ficha")}</button><button class="btn" type="button" data-action="manage-cancel">${uiHtml("Cancelar")}</button><p class="feature-error" role="alert"></p>
       </form>`
-          : `<aside class="feature-editor"><h2>${scoped() ? "Datos de esta obra" : "Directorio central"}</h2><p>${scoped() ? "Las fichas mostradas pertenecen a la obra abierta. Administrá clientes y catálogos generales desde Inicio." : "Se muestran registros de esta organización y registros generales sin empresa asignada. Los datos públicos y el logotipo se editan desde su ficha."}</p></aside>`
+          : `<aside class="feature-editor"><h2>${scoped() ? uiHtml("Datos de esta obra") : uiHtml("Directorio central")}</h2><p>${scoped() ? uiHtml("Las fichas mostradas pertenecen a la obra abierta. Administrá clientes y catálogos generales desde Inicio.") : uiHtml("Se muestran registros de esta organización y registros generales sin empresa asignada. Los datos públicos y el logotipo se editan desde su ficha.")}</p></aside>`
       }</div>
-      ${model.events.length ? `<section><h2>Historial de cambios</h2><table class="data-grid"><thead><tr><th>Fecha</th><th>Entidad</th><th>Operación</th><th>Identificador</th></tr></thead><tbody>${model.events.map((event) => `<tr><td>${e(event.occurred_at)}</td><td>${e(event.entity_type)}</td><td>${e(event.operation)}</td><td>${e(event.entity_id)}</td></tr>`).join("")}</tbody></table></section>` : ""}</main>`;
+      ${model.events.length ? `<section><h2>${uiHtml("Historial de cambios")}</h2><table class="data-grid"><thead><tr><th>${uiHtml("Fecha")}</th><th>${uiHtml("Entidad")}</th><th>${uiHtml("Operación")}</th><th>${uiHtml("Identificador")}</th></tr></thead><tbody>${model.events.map((event) => `<tr><td>${e(event.occurred_at)}</td><td>${e(event.entity_type)}</td><td>${e(event.operation)}</td><td>${e(event.entity_id)}</td></tr>`).join("")}</tbody></table></section>` : ""}</main>`;
   }
   async function act(button) {
     const action = button.dataset.action;
@@ -322,7 +323,7 @@ export function createManagementWorkspace({
     ) {
       if (
         !window.confirm(
-          "¿Descartar los cambios sin guardar antes de cambiar de vista?",
+          uiText("¿Descartar los cambios sin guardar antes de cambiar de vista?"),
         )
       )
         return;
@@ -374,7 +375,7 @@ export function createManagementWorkspace({
     if (action === "manage-cancel") {
       if (
         state.pageDirty &&
-        !window.confirm("¿Descartar los cambios de la ficha?")
+        !window.confirm(uiText("¿Descartar los cambios de la ficha?"))
       )
         return;
       model.editing = null;
@@ -394,7 +395,7 @@ export function createManagementWorkspace({
     if (
       state.pageDirty &&
       !window.confirm(
-        "¿Descartar los cambios de la ficha antes de cambiar de directorio?",
+        uiText("¿Descartar los cambios de la ficha antes de cambiar de directorio?"),
       )
     ) {
       target.value = model.kind;
@@ -442,7 +443,7 @@ export function createManagementWorkspace({
     await refresh();
     model.editing = null;
     if (scoped()) model.mode = "dashboard";
-    state.message = "Ficha guardada";
+    state.message = uiText("Ficha guardada");
     render();
   }
   return {

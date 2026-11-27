@@ -1,3 +1,4 @@
+import { uiText, uiHtml } from "../services/interface-language.js";
 export async function showAvailableRelease(invoke, document) {
   let release;
   try {
@@ -10,11 +11,11 @@ export async function showAvailableRelease(invoke, document) {
 
   const notice = document.createElement("aside");
   notice.className = "release-notice";
-  notice.setAttribute("aria-label", "Actualización de CP Obras");
-  notice.innerHTML = `<div><p role="status"><strong>CP Obras ${tag.slice(1)} disponible</strong></p>
-    <a class="link" href="https://github.com/gianlucafiore/CPOBRAS/releases/tag/${tag}">Abrir release y descargar</a>
+  notice.setAttribute("aria-label", uiText("Actualización de CP Obras"));
+  notice.innerHTML = `<div><p role="status"><strong>${uiHtml("CP Obras {0} disponible", [tag.slice(1)])}</strong></p>
+    <a class="link" href="https://github.com/gianlucafiore/CPOBRAS/releases/tag/${tag}">${uiHtml("Abrir release y descargar")}</a>
     <p role="alert" hidden></p></div>
-    <button type="button" class="btn tiny" aria-label="Cerrar aviso de actualización">×</button>`;
+    <button type="button" class="btn tiny" aria-label="${uiHtml("Cerrar aviso de actualización")}">×</button>`;
   notice.querySelector("button").addEventListener("click", () => notice.remove());
   const link = notice.querySelector("a");
   link.addEventListener("click", async event => {
@@ -24,7 +25,7 @@ export async function showAvailableRelease(invoke, document) {
     try {
       await invoke("open_release", { tag });
     } catch {
-      error.textContent = "No se pudo abrir el navegador predeterminado.";
+      error.textContent = uiText("No se pudo abrir el navegador predeterminado.");
       error.hidden = false;
     }
   });

@@ -26,6 +26,8 @@ pub(crate) async fn add_project_attachment<R: tauri::Runtime>(
     window: tauri::WebviewWindow<R>,
     project_id: String,
     description: String,
+    dialog_title: Option<String>,
+    document_filter: Option<String>,
 ) -> Result<Option<Uuid>, String> {
     use tauri::Manager;
     use tauri_plugin_dialog::DialogExt;
@@ -34,9 +36,13 @@ pub(crate) async fn add_project_attachment<R: tauri::Runtime>(
             .dialog()
             .file()
             .set_parent(&window)
-            .set_title("Agregar archivo al legajo de la obra")
+            .set_title(
+                dialog_title
+                    .as_deref()
+                    .unwrap_or("Agregar archivo al legajo de la obra"),
+            )
             .add_filter(
-                "Documentos y planos",
+                document_filter.as_deref().unwrap_or("Documentos y planos"),
                 &[
                     "pdf", "png", "jpg", "jpeg", "webp", "txt", "csv", "doc", "docx", "xls",
                     "xlsx", "odt", "ods", "dwg", "dxf", "zip",

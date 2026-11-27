@@ -1,3 +1,4 @@
+import { uiText } from "./interface-language.js";
 import { budgetReportPdf, budgetReportExcel } from "./budget-print.js";
 import {
   buildBudgetWorkbook,
@@ -43,7 +44,7 @@ export async function exportBudget(invoke, state, options) {
   if (!data.document.price_definition) {
     if (!definition?.definition?.rows)
       throw new Error(
-        "No se pudo recuperar la determinación del precio para el respaldo",
+        uiText("No se pudo recuperar la determinación del precio para el respaldo"),
       );
     data.document = {
       ...data.document,

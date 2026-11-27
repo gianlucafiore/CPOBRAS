@@ -9,6 +9,8 @@ use uuid::Uuid;
 #[serde(rename_all = "camelCase")]
 pub struct LineResourceInput {
     #[serde(default)]
+    pub price_pending: bool,
+    #[serde(default)]
     pub daily_output: Option<String>,
     #[serde(default)]
     pub included: Option<bool>,
@@ -62,6 +64,7 @@ impl LocalStore {
             .enumerate()
             .filter(|(index, _)| *index != component_index)
             .map(|(_, c)| LineResourceInput {
+                price_pending: c.price_pending,
                 daily_output: Some(c.daily_output.map(|v| v.to_string()).unwrap_or_default()),
                 included: Some(c.included),
                 resource_id: c.resource_id,
@@ -129,6 +132,7 @@ impl LocalStore {
             .iter()
             .enumerate()
             .map(|(i, c)| LineResourceInput {
+                price_pending: c.price_pending,
                 daily_output: Some(c.daily_output.map(|v| v.to_string()).unwrap_or_default()),
                 included: Some(if selected.contains(&i) {
                     included
@@ -197,6 +201,7 @@ impl LocalStore {
                 self.resource_daily_output(input.resource_id)?
             };
             components.push(ResourcePriceSnapshot {
+                price_pending: input.price_pending,
                 daily_output,
                 included: input.included.unwrap_or_else(|| {
                     previous
@@ -218,7 +223,11 @@ impl LocalStore {
                 description: resource.description,
                 kind: resource.kind,
                 quantity_per_unit: input.quantity,
-                unit_price: input.unit_price,
+                unit_price: if input.price_pending {
+                    Decimal::ZERO
+                } else {
+                    input.unit_price
+                },
             });
         }
         let analysis = UnitCostAnalysis {
@@ -265,7 +274,7 @@ impl LocalStore {
             return Err(invalid("La partida ya no existe"));
         }
         let mut prices = std::collections::BTreeMap::new();
-        for input in inputs {
+        for input in inputs.iter().filter(|row| !row.price_pending) {
             if let Some(old) = prices.insert(input.resource_id, input.unit_price) {
                 if old != input.unit_price {
                     return Err(invalid(

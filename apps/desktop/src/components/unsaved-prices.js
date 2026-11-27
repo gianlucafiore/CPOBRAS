@@ -1,3 +1,4 @@
+import { uiHtml } from "../services/interface-language.js";
 // Product dialog: resolves navigation only after the user chooses how to handle prices.
 export function askUnsavedPrices({ document, onSave }) {
   return new Promise((resolve) => {
@@ -5,7 +6,7 @@ export function askUnsavedPrices({ document, onSave }) {
       overlay = document.createElement("div");
     overlay.className = "modal-overlay unsaved-prices-overlay";
     overlay.innerHTML =
-      '<section class="dialog-shell" role="dialog" aria-modal="true" aria-label="Precios sin guardar"><div class="dialog-header"><h2>Precios sin guardar</h2></div><div class="compact-editor-body"><p>Hay precios o condiciones de proveedores que todavía no guardaste.</p><p data-save-error class="feature-error" role="alert"></p></div><div class="dialog-actions"><button class="btn primary" data-choice="save">Guardar y continuar</button><button class="btn" data-choice="discard">Descartar</button><button class="btn" data-choice="cancel">Cancelar</button></div></section>';
+      ("<section class=\"dialog-shell\" role=\"dialog\" aria-modal=\"true\" aria-label=\"" + uiHtml("Precios sin guardar") + "\"><div class=\"dialog-header\"><h2>" + uiHtml("Precios sin guardar") + "</h2></div><div class=\"compact-editor-body\"><p>" + uiHtml("Hay precios o condiciones de proveedores que todavía no guardaste.") + "</p><p data-save-error class=\"feature-error\" role=\"alert\"></p></div><div class=\"dialog-actions\"><button class=\"btn primary\" data-choice=\"save\">" + uiHtml("Guardar y continuar") + "</button><button class=\"btn\" data-choice=\"discard\">" + uiHtml("Descartar") + "</button><button class=\"btn\" data-choice=\"cancel\">" + uiHtml("Cancelar") + "</button></div></section>");
     const finish = (choice) => {
       overlay.remove();
       if (choice === "cancel") previous?.focus?.();
